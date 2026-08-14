@@ -155,7 +155,7 @@ Look at FOUND_BUGS.md and fix as many as possible.
 
 | New | Story | Direct deps |
 |-----|-------|-------------|
-| **31** | **Future Ideas & Optimizations** (collection; Idea 1 = Tyhp Link; Ideas 9–10 = compiler plugins v1/v2) — *NEW* | 06, 08, 08.5, 09, 11, 13, 15, 17, 18, 19.5†, 23, 24, 25 |
+| **31** | **Future Ideas & Optimizations** (collection; Idea 1 = Tyhp Link; Ideas 9–10 = compiler plugins v1/v2; Idea 11 = `|>` for chained extensions on PHP 8.5+; Idea 12 = trait-requirement abstract members) — *NEW* | 06, 08, 08.5, 09, 11, 13, 15, 17, 18, 19.5†, 23, 24, 25 |
 
 **Story 31 — Future Ideas & Optimizations.** A collection of future ideas/optimizations, each liftable into its own
 story when scheduled. **Idea 1 — Tyhp Link:** a build-time *linker* + tiered runtime *loader* that beats Composer autoloading by using the
@@ -171,7 +171,10 @@ doc include scalar-conversion contracts, default interface implementations, stat
 `Check` / `Emit`; `p'…'` / `p"…"` / `p<<<` islands; backtick ops; process order; options schema; test harness),
 and **Idea 10 — compiler plugins v2**
 (post-binder transform + rebind; TextMate/VS Code island highlighting via Story 19.5; fix-its; statement islands;
-sandbox TBD; shared cache; optimizer hooks). Detail in `IMPLEMENTATION_PLAN_TODO_STORY_31.md`.
+sandbox TBD; shared cache; optimizer hooks), and **Idea 11 — pipe-emit chained extension calls** (`$s->a()->b()` →
+PHP 8.5 `|>` when the rewrite is receiver-only), and **Idea 12 — trait-requirement abstract members**
+(emit `abstract` methods for used signatures from a trait’s `extends`/`implements`; PHP still cannot name
+the class/interface on the trait). Detail in `IMPLEMENTATION_PLAN_TODO_STORY_31.md`.
 
 † Idea 10’s IDE/TextMate piece depends on Story 19.5; Idea 9 does not.
 

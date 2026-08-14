@@ -94,7 +94,7 @@ function buildService<T extends new<Config, Database> & Service>(
 
 // Usage:
 class UserService extends Service {
-    public function __construct(Config $config, Database $db) {
+    public function __construct(Config $config, Database $db): void {
         // ...
     }
 }
@@ -139,7 +139,7 @@ class ConfiguredClass {
         string $name,
         int $priority = 0,
         bool $active = true
-    ) {
+    ): void {
         // ...
     }
 }
@@ -148,7 +148,7 @@ class ConfiguredClass {
 
 // All defaults — constructable with zero, one, or two args
 class AllDefaultsClass {
-    public function __construct(string $label = 'default', int $count = 0) {
+    public function __construct(string $label = 'default', int $count = 0): void {
         // ...
     }
 }
@@ -236,7 +236,7 @@ class Flexible {
         string $name,
         int $priority = 0,
         bool $active = true
-    ) {
+    ): void {
         // ...
     }
 }
@@ -260,7 +260,7 @@ If a class does not declare its own constructor but inherits one from a parent c
 <?tyhp
 
 class Base {
-    public function __construct(string $name) {
+    public function __construct(string $name): void {
         // ...
     }
 }
@@ -301,11 +301,11 @@ class Container {
 }
 
 class CacheService {
-    public function __construct() { }
+    public function __construct(): void { }
 }
 
 class DatabaseService {
-    public function __construct(Config $config) { }
+    public function __construct(Config $config): void { }
 }
 
 Container $container = new Container();
@@ -321,18 +321,18 @@ The compiler reports specific errors when new<> constraints are violated. Differ
 <?tyhp
 
 abstract class AbstractBase {
-    public function __construct(string $name) { }
+    public function __construct(string $name): void { }
 }
 
 interface Buildable {
 }
 
 class PrivateCtorClass {
-    private function __construct() { }
+    private function __construct(): void { }
 }
 
 class StringCtorClass {
-    public function __construct(string $name) { }
+    public function __construct(string $name): void { }
 }
 
 function createNew<T extends new>(): T { return new T(); }
@@ -375,7 +375,7 @@ The new<> type and callable<> type are independent facets in a class's computed 
 <?tyhp
 
 class Validator {
-    public function __construct(string $pattern) {
+    public function __construct(string $pattern): void {
         // ...
     }
 

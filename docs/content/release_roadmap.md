@@ -51,7 +51,7 @@ The two flagships are **Story 08 — the type checker** (the correctness engine 
 4. **Story 19.5 — VS Code extension (`vscode-tyhp`).**
 5. **Story 20 — Tyhpdef generator** (C# CLI integration).
 6. **Story 20.5 — PHP version gating** (`declare(php=…)` / `#[\Tyhp\Php]`).
-7. **Story 21 — PHP extension Composer packages** (`tyhp/php` + `tyhp/php-ext-*`; this alpha ships a thin PHP 8.2-baseline `tyhp/php` only).
+7. **Story 21 — PHP extension Composer packages** (`tyhp/php` + `tyhp/php-ext-*`; this alpha ships a thin PHP 8.2-baseline `tyhp/php` only). Includes the planned built-in scalar method catalog (`$name->toUpper()`, …).
 8. **Story 22 — Web playground** (live .tyhp → PHP).
 
 ## Tier 3 — Advanced — not in this alpha

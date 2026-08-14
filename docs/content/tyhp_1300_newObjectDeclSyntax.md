@@ -10,11 +10,11 @@ Tyhp adds new syntax to class declarations that does not exist in PHP. This incl
 
 ## Constructor Return Types
 
-In PHP, constructors never have a return type. Tyhp introduces two constructor return type annotations: : void and : parent(args...). These provide a structured way to declare constructor behavior and enforce correct parent constructor chaining.
+In PHP, constructors never have a return type. Tyhp **requires** a constructor return type: `: void` when the constructor does not chain to a parent, or `: parent(args...)` when it does. Omitting both is a parse error.
 
 ## Explicit Void Constructor
 
-The : void return type explicitly states that a constructor does not chain to a parent. This is the default behavior when no return type is specified, but writing it makes the intent clear and self-documenting.
+Every constructor that does not use `: parent(...)` must be declared `: void`. That is required grammar, not optional documentation. `: void` means this constructor does not insert a `parent::__construct(...)` call.
 
 ```tyhp
 <?tyhp
@@ -183,7 +183,7 @@ class DefaultVehicle extends BaseModel
 
 ## Constructor Property Promotion
 
-Constructor property promotion works as in PHP 8. Constructor parameters may be promoted with visibility and `readonly`. There is no separate `init` modifier — use `readonly` when a property should be set only during construction. `clone $obj with [...]` can still update `readonly` properties on the copy; see the `with` keyword page.
+Constructor property promotion works as in PHP 8. Constructor parameters may be promoted with visibility and `readonly`. Use `readonly` when a property should be set only during construction. `clone $obj with [...]` can still update `readonly` properties on the copy; see the `with` keyword page.
 
 ```tyhp
 <?tyhp
@@ -194,7 +194,7 @@ class Point
         public readonly float $x,
         public readonly float $y,
         public readonly float $z = 0.0
-    ) {}
+    ): void {}
 }
 
 $p = new Point(1.0, 2.0);
@@ -227,11 +227,11 @@ On PHP 8.4+, the compiler emits native hook syntax. On PHP 8.2–8.3, it lowers 
 ## Best Practices
 
 :::tip
-Use : parent(args...) to clearly express constructor chaining — it ensures the parent constructor is always called first and prevents accidental omission.
+Every constructor must be `: void` or `: parent(...)`. Use `: void` when there is no parent call; use `: parent(args...)` when chaining so the parent constructor always runs first.
 :::
 
 :::tip
-Use : void on leaf classes to explicitly document that no parent constructor chaining occurs.
+Use : void on constructors that do not chain — it is required, and it is stripped from PHP output.
 :::
 
 :::tip

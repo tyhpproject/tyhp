@@ -13,7 +13,7 @@ Tyhp supports all of PHP's magic methods with additional type safety requirement
 All standard PHP magic methods are supported in Tyhp. They must follow PHP's expected signatures but can use Tyhp's enhanced type system. The following table lists every supported magic method and its Tyhp-specific behavior.
 
 :::member[__construct()]
-Constructor. Supports Tyhp constructor property promotion with modifiers like `readonly`. The return type can optionally be : void or : parent(args) for explicit parent constructor invocation.
+Constructor. Supports Tyhp constructor property promotion with modifiers like `readonly`. The return type is required: `: void`, or `: parent(args)` for explicit parent constructor invocation.
 :::
 
 :::member[__destruct()]
@@ -229,7 +229,7 @@ class Money {
     public function __construct(
         private int $amount,
         private string $currency
-    ) {}
+    ): void {}
 
     // OK: returns string
     public function __toString(): string {
@@ -245,13 +245,13 @@ class Money {
 
 ## Constructor Return Type Syntax
 
-Tyhp extends constructor syntax with optional return type annotations. The return type can be : void (documentation purposes) or : parent(args) to indicate that the parent constructor is called with specific arguments.
+Tyhp constructors **must** declare a return type: `: void`, or `: parent(args)` to insert `parent::__construct(...)` at the start of the body. PHP output strips the annotation.
 
 ```tyhp
 <?tyhp
 
 class Base {
-    public function __construct(public string $name) {}
+    public function __construct(public string $name): void {}
 }
 
 class Child extends Base {
@@ -292,7 +292,7 @@ class Point {
     public function __construct(
         public readonly int $x,
         public readonly int $y
-    ) {}
+    ): void {}
 }
 
 Point $p1 = new Point(1, 2);

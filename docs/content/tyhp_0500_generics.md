@@ -22,7 +22,7 @@ A class can declare one or more generic type parameters inside angle brackets af
 class Box<T> {
     private T $value;
 
-    public function __construct(T $value) {
+    public function __construct(T $value): void {
         $this->value = $value;
     }
 

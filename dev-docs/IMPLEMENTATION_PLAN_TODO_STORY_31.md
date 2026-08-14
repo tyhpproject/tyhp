@@ -38,6 +38,14 @@
 >   rebind flag; TextMate/VS Code (Story 19.5) island highlighting; diagnostic spans/fix-its; statement-form islands;
 >   sandbox (TBD); shared plugin cache; optimizer hooks. See
 >   [Idea 10](#idea-10--compiler-plugins-v2).
+> - **Idea 11 — Pipe-emit chained extension calls (`|>` on PHP 8.5+):** when a chain of extension methods
+>   (`$s->trimmed()->lower()->dashed()`) rewrites to nested static calls, emit PHP 8.5 `|>` instead **when able**
+>   (receiver-only calls; `output.phpVersion` ≥ 8.5). See
+>   [Idea 11](#idea-11--pipe-emit-chained-extension-calls--on-php-85).
+> - **Idea 12 — Trait-requirement abstract members:** when a trait `extends` / `implements`, emit PHP
+>   `abstract` members for the **used** signatures from those targets (PHP still cannot name the class/interface
+>   on the trait). See
+>   [Idea 12](#idea-12--trait-requirement-abstract-members).
 > - **Appendix A — Eager-resolution optimization for the binder two-pass:** a binder name-resolution performance
 >   optimization (fold resolution into Pass 1 + drain a deferred list in Pass 2).
 
@@ -49,10 +57,12 @@
 > ranges. New `tyhp.json` keys proposed here are **provisional** and must be registered in `CONVENTIONS.md` §4
 > when the story is scheduled. See `ROADMAP.md` for the full tiered sequence.
 
-> **Source:** Autoloading/linking design discussion; Ideas 9–10 from compiler-plugins brainstorm 2026-08-05
+> **Source:** Autoloading/linking design discussion; Ideas 9–10 from compiler-plugins brainstorm 2026-08-05;
+> Idea 11 from extension-chain emit brainstorm 2026-08-14; Idea 12 from trait-requirements emit brainstorm
+> 2026-08-14
 > **Branch:** TBD
 > **Generated:** 2026-06-18
-> **Updated:** 2026-08-13 (Idea 7 — flag-presence `contains F` for bitmask signatures)
+> **Updated:** 2026-08-14 (Idea 12 — trait-requirement abstract members)
 > **Prerequisites:** Story 06 (built-in types & compile-time constructs), Story 08 (checker), **Story 08.5
 > (symbol-name types — definitions, narrowing, existence verification, typed `nameof()`)**, Story 09/11 (emitter),
 > Story 13 (CLI/composer + profile toggle), Story 15 (interop contract), Story 17/18 (sourcemaps + xdebug proxy),
@@ -87,6 +97,8 @@
 - [Idea 8 — Advanced Conditional Types (v2)](#idea-8--advanced-conditional-types-v2)
 - [Idea 9 — Compiler Plugins v1 (Tyhp/PHP Host, Hook Surfaces, `p"ns:…"`, Backtick Operators)](#idea-9--compiler-plugins-tyhpphp-host-pns--backtick-operators)
 - [Idea 10 — Compiler Plugins v2](#idea-10--compiler-plugins-v2)
+- [Idea 11 — Pipe-Emit Chained Extension Calls (`|>` on PHP 8.5+)](#idea-11--pipe-emit-chained-extension-calls--on-php-85)
+- [Idea 12 — Trait-Requirement Abstract Members](#idea-12--trait-requirement-abstract-members)
 - [Appendix A: Eager-Resolution Optimization for the Binder Two-Pass](#appendix-a-eager-resolution-optimization-for-the-binder-two-pass)
 
 ---
@@ -2501,6 +2513,215 @@ opts do not fight. Exact API follows Stories 23–24 shapes.
 - Shared cache hit across two files in one build.
 - Sandbox: at least one denied operation fixture once policy exists.
 - Optimizer hook smoke once Stories 23–24 APIs exist.
+
+---
+
+## Idea 11 — Pipe-Emit Chained Extension Calls (`|>` on PHP 8.5+)
+
+> **Status:** Tier 4, future plans. Emit-only optimization; Tyhp source stays `$recv->ext()->ext()`.
+> **Prerequisites:** Story 11 (extension rewrite to static calls), Story 14.5 (`|>` parse/emit +
+> `IsPhpVersionAtLeast(8, 5)`), Story 09/11 emitter. Story 21’s built-in scalar catalog would benefit once it
+> ships (`$name->trim()->toLower()`).
+> **Related:** `BuildPipeExpression` / `PipeOperatorEmitterTests` already implement *source* `|>`; this idea is
+> the inverse — *generate* `|>` from extension chains that today nest as `C::c(C::b(C::a($x)))`.
+> **Source:** chaining example on Scalar Pseudo-Objects (`$input->trimmed()->lower()->dashed()`), 2026-08-14.
+
+### Summary
+
+Extension method chains rewrite today to nested static calls (innermost = leftmost receiver):
+
+```tyhp
+$result = $input->trimmed()->lower()->dashed();
+```
+
+```php
+// Current emit (all PHP targets)
+$result = \StringHelpers::dashed(\StringHelpers::lower(\StringHelpers::trimmed($input)));
+```
+
+When `output.phpVersion` is **8.5 or newer**, emit the same chain with PHP’s pipe operator **when able**:
+
+```php
+$result = $input
+    |> \StringHelpers::trimmed(...)
+    |> \StringHelpers::lower(...)
+    |> \StringHelpers::dashed(...);
+```
+
+That is equivalent (`$a |> f(...) |> g(...)` ≡ `g(f($a))`) and stays left-to-right. Below 8.5, keep nested
+calls (same as today’s extension emit; do not invent a second lowering path).
+
+### When it is able
+
+PHP 8.5 `|>` passes the left value as the **callable’s argument**. First-class callable `Ext::method(...)` is
+legal on the RHS. Use pipe only when the rewritten static call would take **exactly the piped receiver** (no
+extra arguments supplied):
+
+| Tyhp | Able? | Emit ≥ 8.5 |
+| --- | --- | --- |
+| `$s->trimmed()->lower()` | Yes | `$s \|> \E::trimmed(...) \|> \E::lower(...)` |
+| `$s->truncate(10)` | No | `\E::truncate($s, 10)` (extra arg) |
+| `$s->trimmed()->truncate(10)` | Partial | `\E::truncate($s \|> \E::trimmed(...), 10)` or keep all nested — pick one policy when scheduled |
+| `$s->trimmed()` (single call) | No benefit | `\E::trimmed($s)` — do not introduce `|>` for length-1 |
+
+Default policy when scheduled: **pipe a maximal suffix/prefix of receiver-only calls**; mix-in extra-arg calls
+with nested application rather than wrapping every extra-arg step in `(fn($x) => Ext::m($x, …))` unless that
+reads better in a long chain. Do not change evaluation order.
+
+Also apply to user `extension` methods and (later) Story 21 stdlib scalar extensions. Instance methods on real
+objects are out of scope unless they already lower to static calls the same way.
+
+### Implementation sketch
+
+- Hook after (or in) extension-call rewrite (`ExtensionMethod` emit): detect a left-associated chain of
+  rewritten static calls sharing the pipe-friendly shape.
+- Gate: `IsPhpVersionAtLeast(8, 5)` (same helper as Story 14.5 pipe).
+- RHS spelling: FQCN `\\Ext::method(...)` (FCC), matching current static rewrite names.
+- Reuse parenthesization rules from `BuildPipeExpression` (nested left, FCC vs closure).
+- Config: none required; optional later opt-out if someone prefers nested calls in diffs.
+
+### Decisions (defaults chosen)
+
+1. **Source unchanged** — authors keep `$x->a()->b()`; pipe is an emit strategy, not new Tyhp syntax.
+2. **≥ 8.5 only** — never emit `|>` when targeting 8.2–8.4.
+3. **Receiver-only** — extra arguments disable that step’s pipe form.
+4. **Length ≥ 2** — single extension calls stay ordinary static calls.
+
+### Risks & Edge Cases
+
+- Extra-arg steps in the middle of a chain (policy above).
+- Named arguments / variadics on the extension.
+- `by-ref` receiver (if ever allowed) — pipe is by-value; do not pipe.
+- Debugging / sourcemaps: one Tyhp chain vs several `|>` ops (Story 17).
+- PSR-12 / line wrapping of long pipes vs nested calls.
+
+### Golden Fixtures / Tests (Acceptance)
+
+- `$input->trimmed()->lower()->dashed()` → nested statics on 8.4; `|>` FCC chain on 8.5.
+- Single `$s->trimmed()` never emits `|>`.
+- `$s->truncate(10)` never emits `|>`.
+- Mixed chain has a locked expected spelling once the partial-pipe policy is chosen.
+- Existing `PipeOperatorEmitterTests` (source `|>`) still pass; new tests live next to
+  `ExtensionMethodEmitterTests`.
+
+---
+
+## Idea 12 — Trait-Requirement Abstract Members
+
+> **Status:** Tier 4, future plans. Emit-only; Tyhp source stays `trait T extends C implements I`. Checker
+> diagnostics TYHP4044 / TYHP4045 stay the source of truth for using classes.
+> **Prerequisites:** Story 08 (trait `extends`/`implements` check), Story 09/11 (emitter).
+> **Related:** [Trait Requirements](../docs/content/tyhp_2000_traitRequirements.md) currently erase the clauses
+> entirely. PHP traits cannot `extends` / `implements`; they **can** declare `abstract` methods, which the
+> composing class (or a parent) must satisfy.
+> **Source:** trait-requirements page (`Cacheable extends Entity implements Serializable`), 2026-08-14.
+
+### Summary
+
+Today a required base/interface is compile-time only. Emitted PHP is a plain trait, so a PHP consumer (or
+hand-written PHP class) can `use Cacheable` without `getId()` / `serialize()` and only fail when those
+calls run:
+
+```tyhp
+trait Cacheable extends Entity implements Serializable
+{
+    public function getCacheKey(): string
+    {
+        return static::class . ':' . $this->getId();
+    }
+
+    public function toCacheValue(): string
+    {
+        return $this->serialize();
+    }
+}
+```
+
+```php
+// Current emit
+trait Cacheable
+{
+    public function getCacheKey(): string { /* … */ }
+    public function toCacheValue(): string { /* … */ }
+}
+```
+
+When scheduled, still **do not** emit `extends` / `implements` on the trait (invalid PHP). Instead collect
+members the trait **actually uses** from those required types and emit matching `abstract` declarations so
+PHP enforces the needed signatures:
+
+```php
+trait Cacheable
+{
+    abstract public function getId() /* Entity signature, PHP-representable */;
+    abstract public function serialize(): string;
+
+    public function getCacheKey(): string
+    {
+        return static::class . ':' . $this->getId();
+    }
+
+    public function toCacheValue(): string
+    {
+        return $this->serialize();
+    }
+}
+```
+
+That does **not** name `Entity` or `Serializable` on the trait. It does require whoever `use`s the trait to
+provide those methods (own body or inherited), which is as close as PHP can get.
+
+### Used items only
+
+Emit abstracts for symbols referenced on `$this` / `static` / `self` that resolve to the required class or
+interface (and members inherited through them). Do **not** dump the whole target API.
+
+| Used from the requirement | Emit |
+| --- | --- |
+| Instance/static method (`$this->getId()`, `static::foo()`) | `abstract` method with visibility + PHP-erased signature |
+| Method the trait already declares | Skip (trait member wins) |
+| Unused `Serializable::unserialize` | Skip |
+| `private` on the target | Skip — not callable from the trait |
+| Property read/write (`$this->id`) | Do **not** emit a trait property (collides with the parent’s property). PHP has no useful pre-8.4 abstract property. Document as methods-only unless a later PHP target makes abstract hooks viable |
+| Class constants (`Entity::FOO`) | Skip — traits cannot require constants |
+
+Signatures must be PHP-legal: erase generics / shapes the same way other emit does. Idea 4 docblocks can
+annotate the abstracts later.
+
+### Why this helps
+
+- Tyhp already rejects a using class that misses `extends` / `implements`.
+- Emitted PHP is also consumed as PHP. Abstract used-members catch `use Cacheable` from PHP without those
+  methods at **class load**, not at first call.
+- Parent implementations count in PHP (`User extends Entity` already has `getId()`), so a correct Tyhp
+  using class does not need to redeclare the abstracts.
+
+### Decisions (defaults chosen)
+
+1. **Used members only** — not the full required type.
+2. **Methods first** — properties/constants are out until PHP can express them without colliding.
+3. **Keep erasing `extends`/`implements`** on the trait declaration.
+4. **Checker unchanged** — 4044/4045 remain; this is a PHP-side net, not a substitute.
+
+### Risks & Edge Cases
+
+- Signature mismatch vs parent: PHP fatal if the abstract is incompatible with `Entity::getId()`. Emit the
+  target’s signature, not a guessed one.
+- Overloaded / generic methods: emit the collapsed PHP signature.
+- Trait already has a same-named concrete method: skip.
+- Two required types contributing the same name: one abstract; signatures must be compatible or skip and
+  rely on the checker.
+- `final` methods on the parent: parent still satisfies the trait abstract (verify in fixtures).
+- Visibility: copy the target member’s visibility (`protected` stays `protected`).
+
+### Golden Fixtures / Tests (Acceptance)
+
+- `Cacheable` example: abstracts for `getId` and `serialize` only; no `unserialize`; no `extends`/`implements`
+  on the trait.
+- Using class that extends `Entity` + implements `Serializable` still emits/runs (parent satisfies abstracts).
+- Trait that never calls into the requirement emits no extra abstracts.
+- Property-only use of the required type does not add a colliding trait property.
+- Existing trait-requirement checker tests (4044/4045) still pass.
 
 ---
 

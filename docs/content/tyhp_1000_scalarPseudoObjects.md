@@ -8,8 +8,14 @@ status:
 
 Tyhp lets you call methods on scalar values (`string`, `int`, `float`, `bool`, `array`) using object syntax when you define **extension** methods. The compiler rewrites `$value->method($args)` to a static call on the extension class. There is zero runtime overhead — no wrapper objects are created.
 
-:::note
-This alpha does **not** ship a built-in catalog of scalar methods (`toUpper`, `contains`, `len`, `map`, …). Those stdlib wrappers are commented out and are not in `package.tyhp.json`. User-defined `extension` methods work. Call PHP functions such as `\strtoupper($name)` unless you write (and import) your own extensions.
+```status
+tier: 2
+story: '21'
+state: planned
+```
+
+:::warning Not in this alpha
+A built-in catalog of scalar methods (`toUpper`, `contains`, `len`, `map`, …) is **planned** for Story 21 (`tyhp/php` support extensions). It is **not included** in Tyhp 805.0.0-alpha.1. User-defined `extension` methods work today. Until the catalog ships, call PHP functions such as `\strtoupper($name)` or write (and import) your own extensions.
 :::
 
 ## How to Write an Extension
@@ -118,7 +124,7 @@ Write small extension methods that wrap `\str_*` / `\array_*` (or your own helpe
 :::
 
 :::tip
-Chain only extensions you defined (or imported). There is no built-in `$name->trim()->tolower()` catalog in this alpha — use `\strtolower(\trim($name))` or your own wrappers.
+Chain only extensions you defined (or imported). A built-in `$name->trim()->tolower()` catalog is planned (Story 21) and is not in this alpha — use `\strtolower(\trim($name))` or your own wrappers until then.
 :::
 
 :::tip
@@ -128,7 +134,7 @@ Keep the receiver as `extends string $this` (or `extends array $this`, …) so c
 ## Common Mistakes
 
 :::danger
-Don't assume PHP string/array functions are already methods on scalars. `$name->toUpper()` and `$numbers->map(...)` are not available unless you define those extensions. Use `\strtoupper($name)` / `\array_map(...)` instead.
+Don't assume PHP string/array functions are already methods on scalars in this alpha. `$name->toUpper()` and `$numbers->map(...)` are **planned** (Story 21). Until that catalog ships, use `\strtoupper($name)` / `\array_map(...)` or your own extensions.
 :::
 
 :::danger

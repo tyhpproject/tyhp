@@ -55,7 +55,6 @@ Supported `output.phpVersion` values are `"8.2"`, `"8.3"`, `"8.4"`, and `"8.5"`.
 
 ```tyhp
 <?tyhp
-declare(strict_types=1);
 namespace App;
 
 echo 'Hello, World!';

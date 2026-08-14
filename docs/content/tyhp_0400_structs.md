@@ -119,10 +119,10 @@ struct Point {
 // Point $origin = new Point();
 
 // Instantiate with overrides using the with keyword
-Point $p = new Point() with {
+Point $p = new Point() with [
     x => 10.5,
     y => 20.3
-};
+];
 
 struct Origin {
     float $x = 0.0;
@@ -154,7 +154,7 @@ struct User {
     int $age;
 }
 
-User $user = new User() with { name => 'Alice', age => 30 };
+User $user = new User() with [name => 'Alice', age => 30];
 
 // Read access
 string $n = $user->name;
@@ -193,7 +193,7 @@ struct Person {
     int $age;
 }
 
-Person $person = new Person() with { name => 'Alice', age => 30 };
+Person $person = new Person() with [name => 'Alice', age => 30];
 
 // OK — Person has all properties that Named requires
 Named $named = $person;
@@ -220,12 +220,12 @@ struct UserEntity extends BaseEntity {
 }
 
 // UserEntity has: $id, $createdAt, $name, $email
-UserEntity $user = new UserEntity() with {
+UserEntity $user = new UserEntity() with [
     id => 1,
     createdAt => '2025-01-01',
     name => 'Alice',
     email => 'alice@example.com'
-};
+];
 ```
 
 ```php
@@ -286,14 +286,14 @@ Structs can be declared inline without a name. Anonymous structs are useful for 
 struct { string $name; int $age; } $person = new struct {
     string $name;
     int $age;
-} with { name => 'Alice', age => 30 };
+} with [name => 'Alice', age => 30];
 
 // Anonymous struct as a function return type
 function getCoords(): struct { float $lat; float $lng; } {
     return new struct {
         float $lat;
         float $lng;
-    } with { lat => 40.7128, lng => -74.0060 };
+    } with [lat => 40.7128, lng => -74.0060];
 }
 ```
 
@@ -320,10 +320,10 @@ struct Point {
     float $y;
 }
 
-Point $p1 = new Point() with { x => 1.0, y => 2.0 };
+Point $p1 = new Point() with [x => 1.0, y => 2.0];
 
 // Create a modified copy — $p1 is unchanged
-Point $p2 = clone $p1 with { x => 5.0 };
+Point $p2 = clone $p1 with [x => 5.0];
 // $p2 = {x: 5.0, y: 2.0}
 // $p1 = {x: 1.0, y: 2.0} — unchanged
 
@@ -389,7 +389,7 @@ function calculateArea(Dimensions $dims): float {
     return $dims->width * $dims->height;
 }
 
-Dimensions $box = new Dimensions() with { width => 10.0, height => 5.0 };
+Dimensions $box = new Dimensions() with [width => 10.0, height => 5.0];
 float $area = calculateArea($box);  // 50.0
 ```
 

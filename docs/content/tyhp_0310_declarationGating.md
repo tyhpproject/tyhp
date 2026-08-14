@@ -29,7 +29,7 @@ if (!\function_exists('\App\Payments\formatMoney')) {
 
 if (!\class_exists('\App\Payments\Money')) {
     class Money {
-        public function __construct(public readonly int $cents) {}
+        public function __construct(public readonly int $cents): void {}
     }
 }
 ```

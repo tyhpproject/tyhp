@@ -616,7 +616,7 @@ A `readonly` property is being assigned outside of the constructor.
 class User {
     public function __construct(
         public readonly string $name
-    ) {}
+    ): void {}
 
     public function rename(string $newName): void {
         $this->name = $newName;  // Error: Cannot assign to readonly property

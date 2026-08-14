@@ -87,7 +87,7 @@ struct Point {
     float $y;
 }
 
-Point $p = new Point() with { x => 1.0, y => 2.5 };
+Point $p = new Point() with [x => 1.0, y => 2.5];
 float $distance = \sqrt($p->x ** 2 + $p->y ** 2);
 ```
 

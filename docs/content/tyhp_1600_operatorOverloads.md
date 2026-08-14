@@ -129,12 +129,12 @@ Unary operator overloads take a single self parameter and emit as static methods
 
 Unary operators compile to methods with fixed names:
 
-- + (as-numeric) -> __asNumeric(self $o): int|float
-- - (negation) -> __negate(self $o): <return_type>
-- ! (boolean not) -> __not(self $o): <return_type>
-- ~ (bitwise not) -> __bwNot(self $o)
-- ++ (increment) -> __increment(self $o): self
-- -- (decrement) -> __decrement(self $o): self
+- `+` (as-numeric) -> `__asNumeric(self $o): int|float`
+- `-` (negation) -> `__negate(self $o): <return_type>`
+- `!` (boolean not) -> `__not(self $o): <return_type>`
+- `~` (bitwise not) -> `__bwNot(self $o)`
+- `++` (increment) -> `__increment(self $o): self`
+- `--` (decrement) -> `__decrement(self $o): self`
 
 ## Comparison Operators
 
@@ -142,15 +142,15 @@ Comparison operators return bool (int for spaceship). They emit as static method
 
 Comparison operators compile to these method names:
 
-- < -> __isLessThan($l, $r): bool
-- <= -> __isLessThanOrEqual($l, $r): bool
-- > -> __isGreaterThan($l, $r): bool
-- >= -> __isGreaterThanOrEqual($l, $r): bool
-- == -> __isEqual($l, $r): bool
-- != -> __isNotEqual($l, $r): bool
-- === -> __isExact($l, $r): bool
-- !== -> __isNotExact($l, $r): bool
-- <=> -> __compare($l, $r): int
+- `<` -> `__isLessThan($l, $r): bool`
+- `<=` -> `__isLessThanOrEqual($l, $r): bool`
+- `>` -> `__isGreaterThan($l, $r): bool`
+- `>=` -> `__isGreaterThanOrEqual($l, $r): bool`
+- `==` -> `__isEqual($l, $r): bool`
+- `!=` -> `__isNotEqual($l, $r): bool`
+- `===` -> `__isExact($l, $r): bool`
+- `!==` -> `__isNotExact($l, $r): bool`
+- `<=>` -> `__compare($l, $r): int`
 
 ## Conversion Operators
 

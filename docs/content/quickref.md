@@ -52,7 +52,7 @@ Type guard checks (`is_*()`, `instanceof`, `is`, null checks) automatically narr
 ```tyhp
 function processValue(mixed $value): string {
     if ($value is string) {
-        return $value->toUpper();    // narrowed to string
+        return \strtoupper($value);  // narrowed to string
     }
     if (\is_int($value)) {
         return (string)$value;       // narrowed to int
@@ -74,7 +74,7 @@ Type parameters on classes, interfaces, traits, enums, functions, and methods. F
 
 ```tyhp
 class Box<T> {
-    public function __construct(private T $value) {}
+    public function __construct(private T $value): void {}
     public function getValue(): T { return $this->value; }
 }
 
@@ -134,8 +134,8 @@ Lightweight value types that compile to PHP associative arrays. Support typed pr
 ```tyhp
 struct Point { float $x; float $y; }
 
-Point $p = new Point() with { x => 10.5, y => 20.3 };
-Point $p2 = clone $p with { x => 5.0 };
+Point $p = new Point() with [x => 10.5, y => 20.3];
+Point $p2 = clone $p with [x => 5.0];
 
 struct ApiResponse {
     int 'status_code' as $statusCode;
@@ -171,7 +171,7 @@ function convert(string|int|float $v, bool $toInt = false): int|float {
 
 ## Scalar Pseudo-Objects
 
-Call methods on scalar types (`string`, `int`, `float`, `bool`, `array`) using object syntax. Compiles to PHP function calls with zero overhead.
+Call methods on scalar types (`string`, `int`, `float`, `bool`, `array`) using object syntax. Compiles to PHP function calls with zero overhead. A **built-in** method catalog (`contains`, `toUpper`, `map`, …) is planned (Story 21) and is not in this alpha; user `extension` methods work today. The calls below are the planned catalog style.
 
 <a href="tyhp_1000_scalarPseudoObjects.html">See full documentation →</a>
 
@@ -199,7 +199,7 @@ $text->toCamelCase();  // StringExtensions::toCamelCase($text)
 
 ## Object Declaration Changes
 
-Constructors support return types for explicit parent chaining (`: parent(args...)`). Constructor property promotion works as in PHP, including `readonly`.
+Constructors **require** `: void` or `: parent(args...)`. Constructor property promotion works as in PHP, including `readonly`.
 
 <a href="tyhp_1300_newObjectDeclSyntax.html">See full documentation →</a>
 
@@ -208,7 +208,7 @@ class Point {
     public function __construct(
         public readonly float $x,
         public readonly float $y
-    ) {}
+    ): void {}
 }
 
 class NamedPoint extends Point {

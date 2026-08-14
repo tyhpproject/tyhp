@@ -272,7 +272,7 @@ All four compile-time functions (`nameof`, `typeof`, `default`, `variable_exists
 
 ## Extension Methods
 
-Tyhp lets you declare `extension` types that add methods to existing types, including scalars. The receiver is a parameter marked `extends string $this` (or another type). There is no shipped catalog of built-in scalar methods such as `$name->toUpper()` — those stdlib wrappers are not in `package.tyhp.json`. Call PHP functions (`\strtoupper($name)`) unless you write and import your own extensions. See Scalar Pseudo-Objects for how to define extensions.
+Tyhp lets you declare `extension` types that add methods to existing types, including scalars. The receiver is a parameter marked `extends string $this` (or another type). User-defined extensions work in this alpha. See Scalar Pseudo-Objects and Extensions for the full syntax.
 
 ```tyhp
 <?tyhp
@@ -296,6 +296,18 @@ declare(strict_types=1);
 $name = 'hello_world';
 $camel = \StringHelpers::toCamelCase($name);
 ```
+
+## Built-in Scalar Methods
+
+```status
+tier: 2
+story: '21'
+state: planned
+```
+
+:::warning Not in this alpha
+A built-in catalog of scalar methods (`$name->toUpper()`, `$name->contains(...)`, array `map`, …) is **planned** for Story 21 (`tyhp/php` support extensions). It is **not included** in Tyhp 805.0.0-alpha.1. Until it ships, call PHP functions (`\strtoupper($name)`) or write and import your own extensions as in the example above.
+:::
 
 ## Best Practices
 

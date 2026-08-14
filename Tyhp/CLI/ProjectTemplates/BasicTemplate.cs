@@ -52,7 +52,6 @@ namespace Tyhp.CLI.ProjectTemplates
         internal const string IndexTyhpTemplate =
             """
             <?tyhp
-            declare(strict_types=1);
             namespace {{NAMESPACE}};
 
             echo 'Hello, World!';

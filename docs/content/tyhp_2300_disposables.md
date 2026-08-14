@@ -18,7 +18,7 @@ Any class that manages resources should implement `\Tyhp\Contracts\IsDisposable`
 class DatabaseConnection implements \Tyhp\Contracts\IsDisposable {
     private mixed $handle;
 
-    public function __construct(string $dsn) {
+    public function __construct(string $dsn): void {
         $this->handle = \pg_connect($dsn);
     }
 

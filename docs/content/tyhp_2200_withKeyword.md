@@ -26,7 +26,7 @@ Operates in-place on an existing object instance. It MUTATES the same instance a
 
 ## Basic Syntax
 
-The with keyword follows a new expression, a clone expression, or an existing object/struct value, and is followed by [] or {} syntax where keys are property names and values are the values to assign.
+The with keyword follows a new expression, a clone expression, or an existing object/struct value, and is followed by a `[...]` list where keys are property names and values are the values to assign.
 
 ```tyhp
 <?tyhp
@@ -36,7 +36,7 @@ class User {
     public int $age;
     public string $role = 'user';
 
-    public function __construct(string $name, int $age) {
+    public function __construct(string $name, int $age): void {
         $this->name = $name;
         $this->age = $age;
     }
@@ -106,7 +106,7 @@ class User {
     public int $age;
     public string $role = 'user';
 
-    public function __construct(string $name, int $age) {
+    public function __construct(string $name, int $age): void {
         $this->name = $name;
         $this->age = $age;
     }
@@ -210,7 +210,7 @@ $app->config = \Tyhp\ObjectHelper::with(clone $defaultConfig, ['debug' => true, 
 
 `readonly` properties cannot be assigned after construction. `new ... with` and `clone ... with` are allowed to set them on the new or cloned instance. Direct assignment and in-place `$obj with [...]` after construction are not.
 
-On PHP 8.5+, `clone ... with` uses native `clone($obj, [...])`. On PHP 8.2–8.4, `clone ... with` on `readonly` properties requires `build.experimentalReadonlyCloneWith: true` in `tyhp.json` (the compiler emits a reflection IIFE: `newInstanceWithoutConstructor`, `$__tyhp_overrides`, then `clone $__wrapper` — not a simple `__clone()` wrapper around the source). `new ... with` on `readonly` does not need that flag (PHP 8.4 emits an anonymous class with `__clone()`; PHP 8.5 uses `clone(new Color(), [...])`). There is no separate `init` modifier — `readonly` plus `with` is the immutable-update pattern.
+On PHP 8.5+, `clone ... with` uses native `clone($obj, [...])`. On PHP 8.2–8.4, `clone ... with` on `readonly` properties requires `build.experimentalReadonlyCloneWith: true` in `tyhp.json` (the compiler emits a reflection IIFE: `newInstanceWithoutConstructor`, `$__tyhp_overrides`, then `clone $__wrapper` — not a simple `__clone()` wrapper around the source). `new ... with` on `readonly` does not need that flag (PHP 8.4 emits an anonymous class with `__clone()`; PHP 8.5 uses `clone(new Color(), [...])`). `readonly` plus `with` is the immutable-update pattern.
 
 :::member[(no modifier)]
 Set in constructor: Yes. Set after construction: Yes. Set via `new`/`clone` with: Yes. Set via in-place with: Yes.
@@ -228,7 +228,7 @@ class Point {
         public readonly float $x,
         public readonly float $y,
         public readonly float $z = 0.0
-    ) {}
+    ): void {}
 }
 
 $p = new Point(1.0, 2.0);
@@ -308,7 +308,7 @@ class Example {
     public readonly string $id;
     public readonly string $name;
 
-    public function __construct(string $id, string $name) {
+    public function __construct(string $id, string $name): void {
         $this->id = $id;
         $this->name = $name;
     }
