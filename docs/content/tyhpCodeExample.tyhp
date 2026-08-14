@@ -1,0 +1,14 @@
+<?tyhp
+
+// This is code from a file
+
+class MyClass<TType extends int|string> extends BaseClass<TType, bool>
+{
+    public bool $result { get; set; }
+
+    public function __constuct(TType $key): parent($key)
+    {
+        // blah
+        
+    }
+}

@@ -1,0 +1,358 @@
+<?tyhpdef
+const int WNOHANG;
+const int WUNTRACED;
+const int WCONTINUED;
+const int SIG_IGN;
+const int SIG_DFL;
+const int SIG_ERR;
+const int SIGHUP;
+const int SIGINT;
+const int SIGQUIT;
+const int SIGILL;
+const int SIGTRAP;
+const int SIGABRT;
+const int SIGIOT;
+const int SIGBUS;
+const int SIGFPE;
+const int SIGKILL;
+const int SIGUSR1;
+const int SIGSEGV;
+const int SIGUSR2;
+const int SIGPIPE;
+const int SIGALRM;
+const int SIGTERM;
+const int SIGCHLD;
+const int SIGCONT;
+const int SIGSTOP;
+const int SIGTSTP;
+const int SIGTTIN;
+const int SIGTTOU;
+const int SIGURG;
+const int SIGXCPU;
+const int SIGXFSZ;
+const int SIGVTALRM;
+const int SIGPROF;
+const int SIGWINCH;
+const int SIGIO;
+const int SIGSYS;
+const int SIGBABY;
+const int PRIO_PGRP;
+const int PRIO_USER;
+const int PRIO_PROCESS;
+const int PRIO_DARWIN_BG;
+const int PRIO_DARWIN_THREAD;
+const int SIG_BLOCK;
+const int SIG_UNBLOCK;
+const int SIG_SETMASK;
+const int PCNTL_EINTR;
+const int PCNTL_ECHILD;
+const int PCNTL_EINVAL;
+const int PCNTL_EAGAIN;
+const int PCNTL_ESRCH;
+const int PCNTL_EACCES;
+const int PCNTL_EPERM;
+const int PCNTL_ENOMEM;
+const int PCNTL_E2BIG;
+const int PCNTL_EFAULT;
+const int PCNTL_EIO;
+const int PCNTL_EISDIR;
+const int PCNTL_ELOOP;
+const int PCNTL_EMFILE;
+const int PCNTL_ENAMETOOLONG;
+const int PCNTL_ENFILE;
+const int PCNTL_ENOENT;
+const int PCNTL_ENOEXEC;
+const int PCNTL_ENOTDIR;
+const int PCNTL_ETXTBSY;
+const int PCNTL_ENOSPC;
+const int PCNTL_EUSERS;
+/**
+ * Forks the currently running process
+ * 
+ * The `pcntl_fork()` function creates a child process that differs from the parent process only in its PID and PPID. Please see your system's fork(2) man page for specific details as to how fork works on your system.
+ * 
+ * @return int On success, the PID of the child process is returned in the parent's thread of execution, and a 0 is returned in the child's thread of execution. On failure, a -1 will be returned in the parent's context, no child process will be created, and a PHP error is raised.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-fork.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_fork(): int;
+/**
+ * Waits on or returns the status of a forked child
+ * 
+ * Suspends execution of the current process until a child as specified by the `$process_id` argument has exited, or until a signal is delivered whose action is to terminate the current process or to call a signal handling function.
+ * 
+ * @param int $process_id The value of `$process_id` can be one of the following: **possible values for `$process_id` ** `< -1` wait for any child process whose process group ID is equal to the absolute value of `$process_id`. `-1` wait for any child process; this is the same behaviour that the wait function exhibits. `0` wait for any child process whose process group ID is equal to that of the calling process. `> 0` wait for the child whose process ID is equal to the value of `$process_id`. **Note** :Specifying `-1` as the `$process_id` is equivalent to the functionality `pcntl_wait()` provides (minus `$flags`).
+ * @param mixed $status `pcntl_waitpid()` will store status information in the `$status` parameter which can be evaluated using the following functions: `pcntl_wifexited()` , `pcntl_wifstopped()` , `pcntl_wifsignaled()` , `pcntl_wexitstatus()` , `pcntl_wtermsig()` and `pcntl_wstopsig()`.
+ * @param int $flags The value of `$flags` is the value of zero or more of the following two global constants `OR` 'ed together: **possible values for `$flags` ** `WNOHANG` return immediately if no child has exited. `WUNTRACED` return for children which are stopped, and whose status has not been reported.
+ * @param mixed $resource_usage
+ * @return int `pcntl_waitpid()` returns the process ID of the child which exited, -1 on error or zero if ** `WNOHANG` ** was used and no child was available
+ * 
+ * @link https://www.php.net/manual/function.pcntl-waitpid.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_waitpid(int $process_id, mixed &$status, int $flags = 0, mixed &$resource_usage = []): int;
+/**
+ * Waits on or returns the status of a forked child
+ * 
+ * The wait function suspends execution of the current process until a child has exited, or until a signal is delivered whose action is to terminate the current process or to call a signal handling function. If a child has already exited by the time of the call (a so-called "zombie" process), the function returns immediately. Any system resources used by the child are freed. Please see your system's wait(2) man page for specific details as to how wait works on your system.
+ * 
+ * **Note** :This function is equivalent to calling `pcntl_waitpid()` with a `-1` `$process_id` and no `$flags`.
+ * 
+ * @param mixed $status `pcntl_wait()` will store status information in the `$status` parameter which can be evaluated using the following functions: `pcntl_wifexited()` , `pcntl_wifstopped()` , `pcntl_wifsignaled()` , `pcntl_wexitstatus()` , `pcntl_wtermsig()` and `pcntl_wstopsig()`.
+ * @param int $flags If wait3 is available on your system (mostly BSD-style systems), you can provide the optional `$flags` parameter. If this parameter is not provided, wait will be used for the system call. If wait3 is not available, providing a value for `$flags` will have no effect. The value of `$flags` is the value of zero or more of the following two constants `OR` 'ed together: **Possible values for `$flags` ** `WNOHANG` Return immediately if no child has exited. `WUNTRACED` Return for children which are stopped, and whose status has not been reported.
+ * @param mixed $resource_usage
+ * @return int `pcntl_wait()` returns the process ID of the child which exited, -1 on error or zero if WNOHANG was provided as an option (on wait3-available systems) and no child was available.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-wait.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_wait(mixed &$status, int $flags = 0, mixed &$resource_usage = []): int;
+/**
+ * Installs a signal handler
+ * 
+ * The `pcntl_signal()` function installs a new signal handler or replaces the current signal handler for the signal indicated by `$signal`.
+ * 
+ * @param int $signal The signal number.
+ * @param mixed $handler The signal handler. This may be either acallable, which will be invoked to handle the signal, or either of the two global constants ** `SIG_IGN` ** or ** `SIG_DFL` ** , which will ignore the signal or restore the default signal handler respectively.If acallableis given, it must implement the following signature:handler(int `$$signo` ,mixed `$$siginfo`):void `$signal` The signal being handled. `$siginfo` If operating systems supports siginfo_t structures, this will be an array of signal information dependent on the signal. **Note** :Note that when you set a handler to an object method, that object's reference count is increased which makes it persist until you either change the handler to something else, or your script ends.
+ * @param bool $restart_syscalls Specifies whether system call restarting should be used when this signal arrives.
+ * @return bool Returns ** `true` ** on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-signal.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_signal(int $signal, mixed $handler, bool $restart_syscalls = true): bool;
+/**
+ * Get the current handler for specified signal
+ * 
+ * The `pcntl_signal_get_handler()` function will get the current handler for the specified `$signal`.
+ * 
+ * @param int $signal The signal number.
+ * @return void This function may return an integer value that refers to ** `SIG_DFL` ** or ** `SIG_IGN` **. If a custom handler has been set, that callable is returned.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-signal-get-handler.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_signal_get_handler(int $signal): void;
+/**
+ * Calls signal handlers for pending signals
+ * 
+ * The `pcntl_signal_dispatch()` function calls the signal handlers installed by `pcntl_signal()` for each pending signal.
+ * 
+ * @return bool Returns ** `true` ** on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-signal-dispatch.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_signal_dispatch(): bool;
+/**
+ * Sets and retrieves blocked signals
+ * 
+ * The `pcntl_sigprocmask()` function adds, removes or sets blocked signals, depending on the `$mode` parameter.
+ * 
+ * @param int $mode Sets the behavior of `pcntl_sigprocmask()`. Possible values: ** `SIG_BLOCK` ** : Add the signals to the currently blocked signals. ** `SIG_UNBLOCK` ** : Remove the signals from the currently blocked signals. ** `SIG_SETMASK` ** : Replace the currently blocked signals by the given list of signals.
+ * @param array $signals List of signals.
+ * @param mixed $old_signals The `$old_signals` parameter is set to an array containing the list of the previously blocked signals.
+ * @return bool Returns ** `true` ** on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-sigprocmask.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_sigprocmask(int $mode, array $signals, mixed &$old_signals = null): bool;
+/**
+ * Checks if status code represents a normal exit
+ * 
+ * Checks whether the child status code represents a normal exit.
+ * 
+ * @param int $status The `$status` parameter is the status parameter supplied to a successful call to `pcntl_waitpid()`.
+ * @return bool Returns ** `true` ** if the child status code represents a normal exit, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-wifexited.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_wifexited(int $status): bool;
+/**
+ * Checks whether the child process is currently stopped
+ * 
+ * Checks whether the child process which caused the return is currently stopped; this is only possible if the call to `pcntl_waitpid()` was done using the option `WUNTRACED`.
+ * 
+ * @param int $status The `$status` parameter is the status parameter supplied to a successful call to `pcntl_waitpid()`.
+ * @return bool Returns ** `true` ** if the child process which caused the return is currently stopped, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-wifstopped.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_wifstopped(int $status): bool;
+/**
+ * 
+ * 
+ * @param int $status
+ * @return bool
+ * 
+ * @link https://www.php.net/manual/function.pcntl-wifcontinued.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_wifcontinued(int $status): bool;
+/**
+ * Checks whether the status code represents a termination due to a signal
+ * 
+ * Checks whether the child process exited because of a signal which was not caught.
+ * 
+ * @param int $status The `$status` parameter is the status parameter supplied to a successful call to `pcntl_waitpid()`.
+ * @return bool Returns ** `true` ** if the child process exited because of a signal which was not caught, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-wifsignaled.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_wifsignaled(int $status): bool;
+/**
+ * Returns the return code of a terminated child
+ * 
+ * Returns the return code of a terminated child. This function is only useful if `pcntl_wifexited()` returned ** `true` **.
+ * 
+ * @param int $status The `$status` parameter is the status parameter supplied to a successful call to `pcntl_waitpid()`.
+ * @return int|false Returns the return code. If the functionality is not supported by the OS, ** `false` ** is returned.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-wexitstatus.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_wexitstatus(int $status): int|false;
+/**
+ * Returns the signal which caused the child to terminate
+ * 
+ * Returns the number of the signal that caused the child process to terminate. This function is only useful if `pcntl_wifsignaled()` returned ** `true` **.
+ * 
+ * @param int $status The `$status` parameter is the status parameter supplied to a successful call to `pcntl_waitpid()`.
+ * @return int|false Returns the signal number. If the functionality is not supported by the OS, ** `false` ** is returned.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-wtermsig.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_wtermsig(int $status): int|false;
+/**
+ * Returns the signal which caused the child to stop
+ * 
+ * Returns the number of the signal which caused the child to stop. This function is only useful if `pcntl_wifstopped()` returned ** `true` **.
+ * 
+ * @param int $status The `$status` parameter is the status parameter supplied to a successful call to `pcntl_waitpid()`.
+ * @return int|false Returns the signal number. If the functionality is not supported by the OS, ** `false` ** is returned.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-wstopsig.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_wstopsig(int $status): int|false;
+/**
+ * Executes specified program in current process space
+ * 
+ * Executes the program with the given arguments.
+ * 
+ * @param string $path `$path` must be the path to a binary executable or a script with a valid path pointing to an executable in the shebang (#!/usr/local/bin/perl for example) as the first line. See your system's man execve(2) page for additional information.
+ * @param array $args `$args` is an array of argument strings passed to the program.
+ * @param array $env_vars `$env_vars` is an array of strings which are passed as environment to the program. The array is in the format of name => value, the key being the name of the environmental variable and the value being the value of that variable.
+ * @return bool Returns ** `false` **.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-exec.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_exec(string $path, array $args = [], array $env_vars = []): bool;
+/**
+ * Set an alarm clock for delivery of a signal
+ * 
+ * Creates a timer that will send a ** `SIGALRM` ** signal to the process after the given number of seconds. Any call to `pcntl_alarm()` will cancel any previously set alarm.
+ * 
+ * @param int $seconds The number of seconds to wait. If `$seconds` is zero, no new alarm is created.
+ * @return int Returns the time in seconds that any previously scheduled alarm had remaining before it was to be delivered, or `0` if there was no previously scheduled alarm.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-alarm.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_alarm(int $seconds): int;
+/**
+ * Retrieve the error number set by the last pcntl function which failed
+ * 
+ * @return int Returns error code.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-get-last-error.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_get_last_error(): int;
+/**
+ * Alias of `pcntl_get_last_error()`
+ * 
+ * @return int
+ * 
+ * @link https://www.php.net/manual/function.pcntl-errno.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_errno(): int;
+/**
+ * Get the priority of any process
+ * 
+ * `pcntl_getpriority()` gets the priority of `$process_id`. Because priority levels can differ between system types and kernel versions, please see your system's getpriority(2) man page for specific details.
+ * 
+ * @param ?int $process_id If ** `null` ** , the process id of the current process is used.
+ * @param int $mode One of ** `PRIO_PGRP` ** , ** `PRIO_USER` ** , ** `PRIO_PROCESS` ** , ** `PRIO_DARWIN_BG` ** or ** `PRIO_DARWIN_THREAD` **.
+ * @return int|false `pcntl_getpriority()` returns the priority of the process or ** `false` ** on error. A lower numerical value causes more favorable scheduling.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-getpriority.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_getpriority(?int $process_id = null, int $mode = \PRIO_PROCESS): int|false;
+/**
+ * Change the priority of any process
+ * 
+ * `pcntl_setpriority()` sets the priority of `$process_id`.
+ * 
+ * @param int $priority `$priority` is generally a value in the range `-20` to `20`. The default priority is `0` while a lower numerical value causes more favorable scheduling. Because priority levels can differ between system types and kernel versions, please see your system's setpriority(2) man page for specific details.
+ * @param ?int $process_id If ** `null` ** , the process id of the current process is used.
+ * @param int $mode One of ** `PRIO_PGRP` ** , ** `PRIO_USER` ** , ** `PRIO_PROCESS` ** , ** `PRIO_DARWIN_BG` ** or ** `PRIO_DARWIN_THREAD` **.
+ * @return bool Returns ** `true` ** on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-setpriority.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_setpriority(int $priority, ?int $process_id = null, int $mode = \PRIO_PROCESS): bool;
+/**
+ * Retrieve the system error message associated with the given errno
+ * 
+ * @param int $error_code
+ * @return string Returns error description.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-strerror.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_strerror(int $error_code): string;
+/**
+ * Enable/disable asynchronous signal handling or return the old setting
+ * 
+ * If the `$enable` parameter is ** `null` ** , `pcntl_async_signals()` returns whether asynchronous signal handling is enabled. Otherwise, asynchronous signal handling is enabled or disabled.
+ * 
+ * @param ?bool $enable Whether asynchronous signal handling should be enabled.
+ * @return bool When used as getter (`$enable` parameter is ** `null` **) it returns whether asynchronous signal handling is enabled. When used as setter (`$enable` parameter is not ** `null` **), it returns whether asynchronous signal handling was enabled *before* the function call.
+ * 
+ * @link https://www.php.net/manual/function.pcntl-async-signals.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcntl v8.2.9
+ */
+function pcntl_async_signals(?bool $enable = null): bool;

@@ -1,0 +1,17 @@
+{
+  "suite": "story15/async",
+  "description": "Story 15 — interop: async/await → Promise::_async / _await",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "async_await",
+      "file": "async.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

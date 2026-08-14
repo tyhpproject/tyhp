@@ -1,0 +1,11 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+async function fetchRaw(int $id): string {
+    return "id-" . $id;
+}
+
+async function fetchData(int $id): string {
+    return await fetchRaw($id);
+}

@@ -1,0 +1,312 @@
+<?tyhpdef
+
+namespace Tyhp {
+
+    class Type implements \Stringable
+    {
+        protected function __construct(
+            string $kind,
+            ?string $name = null,
+            array<self|NamedType> $typeArgs = [],
+            bool $isReadOnly = false,
+            bool $isNullable = false,
+        ): void;
+
+        public static function string(): self;
+        public static function int(): self;
+        public static function float(): self;
+        public static function bool(): self;
+        public static function null(): self;
+        public static function void(): self;
+        public static function mixed(): self;
+        public static function never(): self;
+        public static function array(): self;
+        public static function object(): self;
+        public static function callable(): self;
+        public static function iterable(): self;
+        public static function resource(): self;
+        public static function union(self ...$types): self;
+        public static function intersection(self ...$types): self;
+        public static function nullable(self $type): self;
+        public static function generic(string $className, NamedType ...$params): self;
+        public static function fromClassName(string $className): self;
+        public static function of(mixed $value): self;
+        public static function is(mixed $value, self $type): bool;
+        public static function check(mixed $value, self $type): void;
+        public static function compatible(self $broad, self $narrow): bool;
+
+        public function asReadOnly(): self;
+        public function asNullable(): self;
+        public function asNonNullable(): self;
+        public function genericParameter(string $name): ?NamedType;
+        public function getKind(): string;
+        public function getName(): ?string;
+        public function isNullable(): bool;
+        public function isReadOnly(): bool;
+        public function __toString(): string;
+    }
+
+    final class NamedType extends Type
+    {
+        public function __construct(
+            string $parameterName,
+            Type $underlyingType,
+            bool $readOnly = false,
+        ): void;
+
+        public function getParameterName(): string;
+        public function getUnderlyingType(): Type;
+        public function asReadOnly(): self;
+        public function __toString(): string;
+    }
+
+    final class PropertyBackingCell
+    {
+        public function isInitialized(): bool;
+        public function get(): mixed;
+        public function set(mixed $value): void;
+    }
+
+    final class PropertyAccessor<TValue>
+    {
+        public function __construct(
+            ?\Closure<TValue> $get = null,
+            ?\Closure<mixed, void> $set = null,
+            bool $backed = false,
+            string $declaringClass = '',
+            string $propertyName = '',
+            mixed $defaultValue = null,
+            bool $defaultValueIsNull = false,
+            string $visibility = 'public',
+            string $setVisibility = 'public',
+            ?Type $setAcceptType = null,
+            bool $finalGet = false,
+            bool $finalSet = false,
+            ?PropertyBackingCell $sharedBacking = null,
+        ): void;
+
+        public function isBacked(): bool;
+        public function isBackingInitialized(): bool;
+        public function getDeclaringClass(): string;
+        public function hasGet(): bool;
+        public function hasSet(): bool;
+        public function isFinalGet(): bool;
+        public function isFinalSet(): bool;
+        public function isPrivateProperty(): bool;
+        public function getBacking(): TValue;
+        public function setBacking(TValue $value): void;
+
+        public function get(): TValue;
+        public function set(mixed $value): void;
+        public function isset(): bool;
+        public function unset(): void;
+        public function getType(): Type;
+    }
+
+    class ObjectHelper
+    {
+        public static function with<TProperties extends struct, T extends object&TProperties>(T $object, TProperties $properties): T;
+    }
+
+    final class GenericObject
+    {
+        public function needsInit(): bool;
+        public function markBound(): void;
+        public function isInitialized(string $declaringClass): bool;
+        public function init(string $hostClass, string $declaringClass, NamedType ...$genericArguments): void;
+        public function initInterface(string $interface, NamedType ...$args): void;
+        public function setPropertyType(string $property, Type $type): void;
+        public function enablePropertyChecks(): void;
+        public function checkProperty(string $property, mixed $value): void;
+        public function objectType(): ?Type;
+        public function genericType(string $declaringClass, string $parameterName): ?NamedType;
+        public function resolvedType(string $declaringClass, string $parameterName): Type;
+        public function defaultValue(string $declaringClass, string $parameterName): mixed;
+    }
+
+    final class PropertyAccessorObject
+    {
+        public function register<TType>(
+            string $property,
+            object $host,
+            ?\Closure<TType> $get = null,
+            ?\Closure<mixed, void> $set = null,
+            bool $backed = false,
+            mixed $defaultValue = null,
+            bool $defaultValueIsNull = false,
+            string $visibility = 'public',
+            string $setVisibility = 'public',
+            bool $shadowInherited = true,
+            ?string $declaringClass = null,
+            ?Type $setAcceptType = null,
+            bool $finalGet = false,
+            bool $finalSet = false,
+        ): void;
+        public function has(string $property): bool;
+        public function get(string $property): mixed;
+        public function set(string $property, mixed $value): void;
+        public function isset(string $property): bool;
+        public function unset(string $property): void;
+        public function getBacking(string $property, ?string $declaringClass = null): mixed;
+        public function setBacking(string $property, mixed $value, ?string $declaringClass = null): void;
+        public function issetBacking(string $property, ?string $declaringClass = null): bool;
+        public function unsetBacking(string $property, ?string $declaringClass = null): void;
+        public function parentGet(object $host, string $property, ?string $declaringClass = null): mixed;
+        public function parentSet(object $host, string $property, mixed $value, ?string $declaringClass = null): void;
+    }
+}
+
+namespace Tyhp\Concerns {
+
+    use Tyhp\GenericObject;
+    use Tyhp\NamedType;
+    use Tyhp\PropertyAccessor;
+    use Tyhp\PropertyAccessorObject;
+    use Tyhp\Type;
+
+    trait HasGenerics
+    {
+        public ?GenericObject $__tyhpGeneric;
+        public function __bootTrait_Tyhp_Concerns_HasGenerics(): void;
+    }
+
+    trait BootsTraits
+    {
+        public function tyhpBootTraits(): void;
+    }
+
+    trait HandlesGet
+    {
+        protected function tyhpRegisterGetHandler(\Closure $handler): void;
+        public function tyhpTryGet(string $name, mixed &$out): bool;
+        final public function __get(string $name): mixed;
+    }
+
+    trait HandlesSet
+    {
+        protected function tyhpRegisterSetHandler(\Closure $handler): void;
+        public function tyhpTrySet(string $name, mixed $value): bool;
+        final public function __set(string $name, mixed $value): void;
+    }
+
+    trait HandlesIsset
+    {
+        protected function tyhpRegisterIssetHandler(\Closure $handler): void;
+        public function tyhpTryIsset(string $name, bool &$out): bool;
+        final public function __isset(string $name): bool;
+    }
+
+    trait HandlesUnset
+    {
+        protected function tyhpRegisterUnsetHandler(\Closure $handler): void;
+        public function tyhpTryUnset(string $name): bool;
+        final public function __unset(string $name): void;
+    }
+
+    trait HasPropertyAccessors
+    {
+        protected ?PropertyAccessorObject $__tyhpPropertyHook;
+        public function __bootTrait_Tyhp_Concerns_HasPropertyAccessors(): void;
+    }
+
+    trait UsesPropertyAccessors
+    {
+        use BootsTraits;
+        use HandlesGet;
+        use HandlesSet;
+        use HandlesIsset;
+        use HandlesUnset;
+        use HasPropertyAccessors;
+    }
+}
+
+namespace Tyhp\Contracts {
+
+    // Marker for any value that defines a conversion to a scalar/decimal via one of the
+    // specific *Convertible contracts (mirrors tyhp_src/Contracts/Convertible.tyhp).
+    interface Convertible
+    {
+    }
+
+    interface BoolConvertible extends Convertible
+    {
+        public function __toBool(): bool;
+    }
+
+    interface FloatConvertible extends Convertible
+    {
+        public function __toFloat(): float;
+    }
+
+    interface IntConvertible extends Convertible
+    {
+        public function __toInt(): int;
+    }
+
+    interface StringConvertible extends \Stringable, Convertible
+    {
+    }
+
+    interface IsDisposable
+    {
+        public function dispose(): void;
+    }
+}
+
+namespace Tyhp\Exceptions {
+
+    use Tyhp\Type;
+
+    final class AggregateException extends \RuntimeException
+    {
+        public function __construct(
+            array<\Throwable> $innerExceptions,
+            string $message = 'One or more errors occurred',
+            ?\Throwable $previous = null,
+        ): void;
+
+        public function getInnerExceptions(): array<\Throwable>;
+    }
+
+    final class IncompatibleTypeException extends \RuntimeException
+    {
+        public function __construct(
+            Type $expected,
+            Type $actual,
+            ?string $variableOrParameterName = null,
+            ?\Throwable $previous = null,
+        ): void;
+
+        public function getExpectedType(): Type;
+        public function getActualType(): Type;
+        public function getVariableOrParameterName(): ?string;
+    }
+
+    final class InvalidTypeException extends \LogicException
+    {
+    }
+
+    final class InvalidParametersForOperatorOverloadException extends \RuntimeException
+    {
+        public function __construct(
+            string $className,
+            string $methodName,
+            mixed ...$operands,
+        ): void;
+
+        public function getClassName(): string;
+        public function getMethodName(): string;
+    }
+
+    final class PropertyNotFoundException extends \RuntimeException
+    {
+        public function __construct(
+            string $propertyName,
+            string $className,
+            ?\Throwable $previous = null,
+        ): void;
+
+        public function getPropertyName(): string;
+        public function getClassName(): string;
+    }
+}

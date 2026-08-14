@@ -1,0 +1,256 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+final class ExpressionSerializer {
+    public static function toJson(\Tyhp\Expression $expression): string {
+        array<string, mixed> $data = [
+            'parameters' => \array_map(
+                fn(ParameterExpression $p): array<string, mixed> => ['name' => $p->name, 'index' => $p->index, 'type' => $p->type],
+                $expression->parameters
+            ),
+            'returnType' => $expression->returnType,
+            'body' => self::nodeToArray($expression->body),
+        ];
+        string|false $json = \json_encode($data, \JSON_PRETTY_PRINT | \JSON_THROW_ON_ERROR);
+        if (!\is_string($json)) {
+            throw new \JsonException(\json_last_error_msg());
+        }
+
+        return $json;
+    }
+
+    /**
+     * Compares two Expressions for structural equality by comparing
+     * their serialized JSON representations (parameters, return type, and body).
+     */
+    public static function equals(\Tyhp\Expression $a, \Tyhp\Expression $b): bool {
+        return self::toJson($a) === self::toJson($b);
+    }
+
+    private static function nodeToArray(ExpressionNode $node, int $depth = 0): SerializedExpression {
+        if ($depth > 100) {
+            throw new \RuntimeException('Expression tree exceeds maximum nesting depth of 100.');
+        }
+
+        if ($node instanceof ParameterExpression) {
+            return new SerializedParameterExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                name => $node->name,
+                index => $node->index,
+            ];
+        }
+
+        if ($node instanceof PropertyAccessExpression) {
+            return new SerializedPropertyAccessExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                object => self::nodeToArray($node->object, $depth + 1),
+                property => $node->property,
+            ];
+        }
+
+        if ($node instanceof NullSafeAccessExpression) {
+            return new SerializedNullSafeAccessExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                object => self::nodeToArray($node->object, $depth + 1),
+                property => $node->property,
+            ];
+        }
+
+        if ($node instanceof MethodCallExpression) {
+            return new SerializedMethodCallExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                object => self::nodeToArray($node->object, $depth + 1),
+                method => $node->method,
+                arguments => \array_map(
+                    fn(ExpressionNode $arg): SerializedExpression => self::nodeToArray($arg, $depth + 1),
+                    $node->arguments
+                ),
+            ];
+        }
+
+        if ($node instanceof StaticMethodCallExpression) {
+            return new SerializedStaticMethodCallExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                'class' => $node->class,
+                method => $node->method,
+                arguments => \array_map(
+                    fn(ExpressionNode $arg): SerializedExpression => self::nodeToArray($arg, $depth + 1),
+                    $node->arguments
+                ),
+            ];
+        }
+
+        if ($node instanceof BinaryExpression) {
+            return new SerializedBinaryExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                left => self::nodeToArray($node->left, $depth + 1),
+                'operator' => $node->operator,
+                right => self::nodeToArray($node->right, $depth + 1),
+            ];
+        }
+
+        if ($node instanceof UnaryExpression) {
+            return new SerializedUnaryExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                'operator' => $node->operator,
+                operand => self::nodeToArray($node->operand, $depth + 1),
+                isPrefix => $node->isPrefix,
+            ];
+        }
+
+        if ($node instanceof ConstantExpression) {
+            return new SerializedConstantExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                value => $node->value,
+            ];
+        }
+
+        if ($node instanceof TernaryExpression) {
+            return new SerializedTernaryExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                condition => self::nodeToArray($node->condition, $depth + 1),
+                ifTrue => $node->ifTrue !== null ? self::nodeToArray($node->ifTrue, $depth + 1) : null,
+                ifFalse => self::nodeToArray($node->ifFalse, $depth + 1),
+            ];
+        }
+
+        if ($node instanceof CoalesceExpression) {
+            return new SerializedCoalesceExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                left => self::nodeToArray($node->left, $depth + 1),
+                right => self::nodeToArray($node->right, $depth + 1),
+            ];
+        }
+
+        if ($node instanceof ArrayAccessExpression) {
+            return new SerializedArrayAccessExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                'array' => self::nodeToArray($node->array, $depth + 1),
+                index => self::nodeToArray($node->index, $depth + 1),
+            ];
+        }
+
+        if ($node instanceof CastExpression) {
+            return new SerializedCastExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                targetType => $node->targetType,
+                operand => self::nodeToArray($node->operand, $depth + 1),
+            ];
+        }
+
+        if ($node instanceof NewExpression) {
+            return new SerializedNewExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                'class' => $node->class,
+                arguments => \array_map(
+                    fn(ExpressionNode $arg): SerializedExpression => self::nodeToArray($arg, $depth + 1),
+                    $node->arguments
+                ),
+            ];
+        }
+
+        if ($node instanceof InstanceofExpression) {
+            return new SerializedInstanceofExpression() with [
+                nodeType => $node->nodeType,
+                'type' => $node->type,
+                operand => self::nodeToArray($node->operand, $depth + 1),
+                targetType => $node->targetType,
+            ];
+        }
+
+        throw new \InvalidArgumentException('Unsupported ExpressionNode type: ' . \get_class($node));
+    }
+}
+
+struct SerializedExpression {
+    string $nodeType = '';
+    string $type = '';
+}
+
+struct SerializedParameterExpression extends SerializedExpression {
+    string $name = '';
+    int $index = 0;
+}
+
+struct SerializedPropertyAccessExpression extends SerializedExpression {
+    SerializedExpression $object;
+    string $property = '';
+}
+
+struct SerializedNullSafeAccessExpression extends SerializedExpression {
+    SerializedExpression $object;
+    string $property = '';
+}
+
+struct SerializedMethodCallExpression extends SerializedExpression {
+    SerializedExpression $object;
+    string $method = '';
+    array<SerializedExpression> $arguments = [];
+}
+
+struct SerializedStaticMethodCallExpression extends SerializedExpression {
+    string $class = '';
+    string $method = '';
+    array<SerializedExpression> $arguments = [];
+}
+
+struct SerializedBinaryExpression extends SerializedExpression {
+    SerializedExpression $left;
+    string $operator = '';
+    SerializedExpression $right;
+}
+
+struct SerializedUnaryExpression extends SerializedExpression {
+    string $operator = '';
+    SerializedExpression $operand;
+    bool $isPrefix = true;
+}
+
+struct SerializedConstantExpression extends SerializedExpression {
+    mixed $value = null;
+}
+
+struct SerializedTernaryExpression extends SerializedExpression {
+    SerializedExpression $condition;
+    ?SerializedExpression $ifTrue = null;
+    SerializedExpression $ifFalse;
+}
+
+struct SerializedCoalesceExpression extends SerializedExpression {
+    SerializedExpression $left;
+    SerializedExpression $right;
+}
+
+struct SerializedArrayAccessExpression extends SerializedExpression {
+    SerializedExpression $array;
+    SerializedExpression $index;
+}
+
+struct SerializedCastExpression extends SerializedExpression {
+    string $targetType = '';
+    SerializedExpression $operand;
+}
+
+struct SerializedNewExpression extends SerializedExpression {
+    string $class = '';
+    array<SerializedExpression> $arguments = [];
+}
+
+struct SerializedInstanceofExpression extends SerializedExpression {
+    SerializedExpression $operand;
+    string $targetType = '';
+}

@@ -1,0 +1,14 @@
+<?tyhpdef
+
+namespace TestData\Tyhpdef;
+
+interface Describable
+{
+    public function describe(): string;
+    public function format(string $prefix): string;
+}
+
+interface Identifiable
+{
+    public function getId(): int;
+}

@@ -1,0 +1,35 @@
+{
+    "title": "Importing [[UC_OBJ_PLURAL]] included",
+    "content": [
+        {
+            "type": "text",
+            "allowHtml": false,
+            "content": "You only need to import [[OBJ]] members (constants, properties, methods, and enum cases) that you intend to use in Tyhp. This means you can omit private members and any other members you do not need to expose. When importing methods, you only need to declare their signatures — ending with a semicolon, not a curly-brace body — just like method declarations on an interface."
+        },
+        {
+            "type": "text",
+            "allowHtml": false,
+            "content": "When importing methods that have overloads, you do not need to specify the encompassing method that accepts all possible parameter types. Tyhpdef internally constructs this by combining all of the declared overloads."
+        },
+        {
+            "type": "text",
+            "allowHtml": false,
+            "content": "An imported [[OBJ]] in a tyhpdef file can be marked as deprecated or obsolete. When the [[OBJ]] itself is marked, any usage of the [[OBJ]] in Tyhp code (instantiation, type hints, inheritance) will trigger a compiler warning or error. See the section on the deprecated and obsolete keywords for details."
+        },
+        {
+            "type": "text",
+            "allowHtml": false,
+            "content": "Individual [[OBJ]] members (constants, properties, methods, and enum cases) can also be independently marked as deprecated or obsolete. A deprecated member on a non-deprecated [[OBJ]] will only trigger a warning when that specific member is accessed."
+        },
+        {
+            "type": "text",
+            "allowHtml": false,
+            "content": "Members of an imported [[OBJ]] can be aliased using the as keyword, giving them a different name in Tyhp code. The compiler maps aliased names back to their original PHP names at emit time. Constructors, destructors, and magic methods cannot be aliased."
+        },
+        {
+            "type": "text",
+            "allowHtml": false,
+            "content": "If the [[OBJ]] implements an interface that is also declared in tyhpdef, you do not need to re-declare the methods already defined on that interface. The compiler inherits them automatically."
+        }
+    ]
+}

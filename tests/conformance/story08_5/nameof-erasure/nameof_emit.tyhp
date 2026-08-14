@@ -1,0 +1,9 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+class User {}
+
+function demo(): void {
+    string $className = nameof(User);
+}

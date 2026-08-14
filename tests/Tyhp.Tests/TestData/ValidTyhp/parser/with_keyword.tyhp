@@ -1,0 +1,15 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+class Config
+{
+    public bool $enabled = true;
+    public string $name = 'default';
+}
+
+Config $base = new Config();
+Config $copy = clone $base with [
+    enabled => false,
+    name => 'copy',
+];

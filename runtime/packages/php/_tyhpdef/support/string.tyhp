@@ -1,0 +1,1759 @@
+<?tyhp
+
+// // root namespace
+
+// extension StringExtensions {
+//     /**
+//      * Quote string with slashes in a C style.
+//      *
+//      * Returns a string with backslashes added before characters that are listed
+//      * in `$characters`.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param string $characters A list of characters to be escaped.
+//      * @return string The escaped string.
+//      *
+//      * @see https://www.php.net/manual/function.addcslashes.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function addCslashes(extends string $s, string $characters): string
+//     {
+//         return \addcslashes($s, $characters);
+//     }
+
+//     /**
+//      * Quote string with slashes.
+//      *
+//      * Returns a string with backslashes added before characters that need to be
+//      * escaped for database queries, etc. These characters are single quote (`'`),
+//      * double quote (`"`), backslash (`\`), and `NUL` (the `NULL` byte).
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The escaped string.
+//      *
+//      * @see https://www.php.net/manual/function.addslashes.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function addSlashes(extends string $s): string
+//     {
+//         return \addslashes($s);
+//     }
+
+//     /**
+//      * Convert binary data into hexadecimal representation.
+//      *
+//      * Returns an ASCII string containing the hexadecimal representation of this
+//      * binary string.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The hexadecimal representation of the binary data.
+//      *
+//      * @see https://www.php.net/manual/function.bin2hex.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function bin2Hex(extends string $s): string
+//     {
+//         return \bin2hex($s);
+//     }
+
+//     /**
+//      * Octal to decimal.
+//      *
+//      * Returns the decimal equivalent of the octal number represented by this string.
+//      *
+//      * @param string $s The string this method is called on (octal string).
+//      * @return int|float The decimal value as an int, or float for large values.
+//      *
+//      * @see https://www.php.net/manual/function.octdec.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function octDec(extends string $s): int|float
+//     {
+//         return \octdec($s);
+//     }
+
+//     /**
+//      * Hexadecimal to decimal.
+//      *
+//      * Returns the decimal equivalent of the hexadecimal number represented by this string.
+//      *
+//      * @param string $s The string this method is called on (hexadecimal string).
+//      * @return int|float The decimal value as an int, or float for large values.
+//      *
+//      * @see https://www.php.net/manual/function.hexdec.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function hexDec(extends string $s): int|float
+//     {
+//         return \hexdec($s);
+//     }
+
+//     /**
+//      * Binary to decimal.
+//      *
+//      * Returns the decimal equivalent of the binary number represented by this string.
+//      *
+//      * @param string $s The string this method is called on (binary string).
+//      * @return int|float The decimal value as an int, or float for large values.
+//      *
+//      * @see https://www.php.net/manual/function.bindec.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function binDec(extends string $s): int|float
+//     {
+//         return \bindec($s);
+//     }
+
+//     /**
+//      * Convert a number between arbitrary bases.
+//      *
+//      * Returns a string containing this number represented in base `$to_base`. The
+//      * base in which `$s` is given is specified in `$from_base`.
+//      *
+//      * @param string $s The string this method is called on (the number to convert).
+//      * @param int $from_base The base `$s` is in (between 2 and 36 inclusive).
+//      * @param int $to_base The base to convert `$s` to (between 2 and 36 inclusive).
+//      * @return string `$s` converted to base `$to_base`.
+//      *
+//      * @see https://www.php.net/manual/function.base-convert.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function baseConvert(extends string $s, int $from_base, int $to_base): string
+//     {
+//         return \base_convert($s, $from_base, $to_base);
+//     }
+
+//     /**
+//      * Split a string into smaller chunks.
+//      *
+//      * Can be used to split a string into smaller chunks which are useful for e.g.
+//      * converting base64_encode() output to match RFC 2045 semantics.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $length The chunk length. Defaults to `76`.
+//      * @param string $separator The line ending sequence. Defaults to `"\r\n"`.
+//      * @return string The chunked string.
+//      *
+//      * @see https://www.php.net/manual/function.chunk-split.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function chunkSplit(extends string $s, int $length = 76, string $separator = "\r\n"): string
+//     {
+//         return \chunk_split($s, $length, $separator);
+//     }
+
+//     /**
+//      * Decode a uuencoded string.
+//      *
+//      * Decodes a uuencoded string.
+//      *
+//      * @param string $s The string this method is called on (uuencoded data).
+//      * @return string|false The decoded data as a string, or `false` on failure.
+//      *
+//      * @see https://www.php.net/manual/function.convert-uudecode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function convertUuDecode(extends string $s): string|false
+//     {
+//         return \convert_uudecode($s);
+//     }
+
+//     /**
+//      * Uuencode a string.
+//      *
+//      * Encodes a string using the uuencode algorithm.
+//      *
+//      * @param string $s The string this method is called on (data to encode).
+//      * @return string The uuencoded data.
+//      *
+//      * @see https://www.php.net/manual/function.convert-uuencode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function convertUuEncode(extends string $s): string
+//     {
+//         return \convert_uuencode($s);
+//     }
+
+//     /**
+//      * Return information about characters used in a string.
+//      *
+//      * Counts the number of occurrences of every byte-value (0..255) in this string
+//      * and returns the result according to `$mode`.
+//      *
+//      * Mode values:
+//      * - `0` — an array with the byte-value as key and the frequency of every byte as value
+//      * - `1` — same as `0` but only byte-values with a frequency greater than zero are listed
+//      * - `2` — same as `0` but only byte-values with a frequency equal to zero are listed
+//      * - `3` — a string containing all unique characters used
+//      * - `4` — a string containing all characters not used
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $mode See description above. Defaults to `0`.
+//      * @return array|string Depending on `$mode`, either an array of counts or a string of characters.
+//      *
+//      * @see https://www.php.net/manual/function.count-chars.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function countChars(extends string $s, int $mode = 0): array|string
+//     {
+//         return \count_chars($s, $mode);
+//     }
+
+//     /**
+//      * Calculates the crc32 polynomial of a string.
+//      *
+//      * Generates the cyclic redundancy checksum polynomial of 32-bit lengths of this
+//      * string. This is usually used to validate the integrity of data being transmitted.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return int The crc32 checksum as an integer.
+//      *
+//      * @see https://www.php.net/manual/function.crc32.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function crc32(extends string $s): int
+//     {
+//         return \crc32($s);
+//     }
+
+//     /**
+//      * One-way string hashing.
+//      *
+//      * `crypt()` will return a hashed string using the standard Unix DES-based
+//      * algorithm or alternative algorithms as indicated by `$salt`.
+//      *
+//      * @param string $s The string this method is called on (the string to be hashed).
+//      * @param string $salt A salt string to base the hashing on.
+//      * @return string The hashed string, or a string shorter than 13 characters on failure.
+//      *
+//      * @see https://www.php.net/manual/function.crypt.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function crypt(extends string $s, string $salt): string
+//     {
+//         return \crypt($s, $salt);
+//     }
+
+//     // Adapted parameter order: string is not the first PHP parameter
+//     /**
+//      * Split a string by a string.
+//      *
+//      * Returns an array of strings, each of which is a substring of this string
+//      * formed by splitting it on boundaries formed by `$separator`.
+//      *
+//      * Adapted parameter order: the extended string is the subject (haystack). In PHP,
+//      * `explode($separator, $string, $limit)` takes the separator first; here `$s` is
+//      * the string being split and `$separator` is passed as the next argument.
+//      *
+//      * @param string $s The string this method is called on (the string to split).
+//      * @param string $separator The boundary string.
+//      * @param int $limit If `$limit` is positive, the returned array will contain a maximum
+//      *                   of `$limit` elements with the last element containing the rest of the string.
+//      *                   If negative, all components except the last `-$limit` are returned.
+//      *                   If zero, it is treated as `1`. Defaults to `PHP_INT_MAX`.
+//      * @return array An array of strings.
+//      *
+//      * @see https://www.php.net/manual/function.explode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function explode(extends string $s, string $separator, int $limit = \PHP_INT_MAX): array
+//     {
+//         return \explode($separator, $s, $limit);
+//     }
+
+//     /**
+//      * Convert logical Hebrew text to visual text.
+//      *
+//      * Converts logical Hebrew text to visual text.
+//      *
+//      * @param string $s The string this method is called on (Hebrew input).
+//      * @param int $max_chars_per_line This optional parameter indicates maximum number of characters
+//      *                                per line that will be returned. Defaults to `0` (no limit).
+//      * @return string The visual string.
+//      *
+//      * @see https://www.php.net/manual/function.hebrev.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function hebrev(extends string $s, int $max_chars_per_line = 0): string
+//     {
+//         return \hebrev($s, $max_chars_per_line);
+//     }
+
+//     /**
+//      * Decodes a hexadecimally encoded binary string.
+//      *
+//      * Decodes a hexadecimally encoded binary string.
+//      *
+//      * @param string $s The string this method is called on (hexadecimal representation of data).
+//      * @return string|false The binary representation of the given data, or `false` on failure.
+//      *
+//      * @see https://www.php.net/manual/function.hex2bin.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function hex2Bin(extends string $s): string|false
+//     {
+//         return \hex2bin($s);
+//     }
+
+//     /**
+//      * Convert HTML entities to their corresponding characters.
+//      *
+//      * `html_entity_decode()` is the opposite of `htmlentities()` in that it converts
+//      * HTML entities in this string to their corresponding characters.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $flags A bitmask of one or more of the following flags, which specify how to handle
+//      *                   quotes and which document type to use. Defaults to `ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401`.
+//      * @param ?string $encoding An optional encoding used when converting characters. Defaults to `null`
+//      *                          (uses the default_charset configuration option).
+//      * @return string The decoded string.
+//      *
+//      * @see https://www.php.net/manual/function.html-entity-decode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function htmlEntityDecode(
+//         extends string $s,
+//         int $flags = \ENT_QUOTES | \ENT_SUBSTITUTE | \ENT_HTML401,
+//         ?string $encoding = null,
+//     ): string
+//     {
+//         return \html_entity_decode($s, $flags, $encoding);
+//     }
+
+//     /**
+//      * Convert all applicable characters to HTML entities.
+//      *
+//      * This function is identical to `htmlspecialchars()` in all ways, except with
+//      * `htmlentities()`, all characters which have HTML character entity equivalents
+//      * are translated into these entities.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $flags A bitmask of one or more flags controlling quote handling and document type.
+//      *                   Defaults to `ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401`.
+//      * @param ?string $encoding An optional encoding defining used when converting characters.
+//      *                          Defaults to `null` (uses the default_charset configuration option).
+//      * @param bool $double_encode When `false`, PHP will not encode existing HTML entities. Defaults to `true`.
+//      * @return string The encoded string.
+//      *
+//      * @see https://www.php.net/manual/function.htmlentities.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function htmlEntities(
+//         extends string $s,
+//         int $flags = \ENT_QUOTES | \ENT_SUBSTITUTE | \ENT_HTML401,
+//         ?string $encoding = null,
+//         bool $double_encode = true,
+//     ): string
+//     {
+//         return \htmlentities($s, $flags, $encoding, $double_encode);
+//     }
+
+//     /**
+//      * Convert special HTML entities back to characters.
+//      *
+//      * The converted entities are: `&amp;`, `&quot;` (when `ENT_NOQUOTES` is not set),
+//      * `&#039;` (when `ENT_QUOTES` is set), `&lt;` and `&gt;`.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $flags A bitmask of one or more flags. Defaults to `ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401`.
+//      * @return string The decoded string.
+//      *
+//      * @see https://www.php.net/manual/function.htmlspecialchars-decode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function htmlSpecialCharsDecode(
+//         extends string $s,
+//         int $flags = \ENT_QUOTES | \ENT_SUBSTITUTE | \ENT_HTML401,
+//     ): string
+//     {
+//         return \htmlspecialchars_decode($s, $flags);
+//     }
+
+//     /**
+//      * Convert special characters to HTML entities.
+//      *
+//      * Certain characters have special significance in HTML and must be represented
+//      * by HTML entities if they are to preserve their meanings. This function returns
+//      * a string with these conversions made.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $flags A bitmask of one or more flags. Defaults to `ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401`.
+//      * @param ?string $encoding An optional argument defining the encoding used when converting characters.
+//      *                          Defaults to `null` (uses the default_charset configuration option).
+//      * @param bool $double_encode When `false`, PHP will not encode existing HTML entities. Defaults to `true`.
+//      * @return string The converted string.
+//      *
+//      * @see https://www.php.net/manual/function.htmlspecialchars.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function htmlSpecialChars(
+//         extends string $s,
+//         int $flags = \ENT_QUOTES | \ENT_SUBSTITUTE | \ENT_HTML401,
+//         ?string $encoding = null,
+//         bool $double_encode = true,
+//     ): string
+//     {
+//         return \htmlspecialchars($s, $flags, $encoding, $double_encode);
+//     }
+
+//     /**
+//      * Make a string's first character lowercase.
+//      *
+//      * Returns a string with the first character of this string lowercased if that
+//      * character is an ASCII character in the range `"A"` (0x41) to `"Z"` (0x5a).
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The resulting string.
+//      *
+//      * @see https://www.php.net/manual/function.lcfirst.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function lcFirst(extends string $s): string
+//     {
+//         return \lcfirst($s);
+//     }
+
+//     /**
+//      * Strip whitespace (or other characters) from the beginning of a string.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param string $characters Optionally, the stripped characters can also be specified using
+//      *                           the `$characters` parameter. Defaults to `" \n\r\t\v\x00"`.
+//      * @return string The stripped string.
+//      *
+//      * @see https://www.php.net/manual/function.ltrim.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function lTrim(extends string $s, string $characters = " \n\r\t\v\x00"): string
+//     {
+//         return \ltrim($s, $characters);
+//     }
+
+//     /**
+//      * Calculate the md5 hash of a string.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param bool $binary If `true`, returns the raw binary digest (16 bytes). Defaults to `false`
+//      *                     (returns a 32-character hex string).
+//      * @return string The MD5 hash as a hex string, or raw binary if `$binary` is `true`.
+//      *
+//      * @see https://www.php.net/manual/function.md5.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function md5(extends string $s, bool $binary = false): string
+//     {
+//         return \md5($s, $binary);
+//     }
+
+//     /**
+//      * Calculate the metaphone key of a string.
+//      *
+//      * Similar to `soundex()`, metaphone creates the same key for similar sounding
+//      * words. It is more accurate than `soundex()` as it knows the basic rules of
+//      * English pronunciation.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $max_phonemes This parameter restricts the returned metaphone key to
+//      *                          `$max_phonemes` characters in length. Defaults to `0` (no restriction).
+//      * @return string The metaphone key as a string.
+//      *
+//      * @see https://www.php.net/manual/function.metaphone.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function metaphone(extends string $s, int $max_phonemes = 0): string
+//     {
+//         return \metaphone($s, $max_phonemes);
+//     }
+
+//     /**
+//      * Inserts HTML line breaks before all newlines in a string.
+//      *
+//      * Returns this string with `<br />` or `<br>` inserted before all newlines
+//      * (`\r\n`, `\n\r`, `\n` and `\r`).
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param bool $use_xhtml Whether to use XHTML compatible line breaks. Defaults to `true` (`<br />`).
+//      * @return string The string with HTML line breaks inserted.
+//      *
+//      * @see https://www.php.net/manual/function.nl2br.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function nl2Br(extends string $s, bool $use_xhtml = true): string
+//     {
+//         return \nl2br($s, $use_xhtml);
+//     }
+
+//     /**
+//      * Convert the first byte of a string to a value between 0 and 255.
+//      *
+//      * Interprets the binary value of the first byte of this string as an unsigned
+//      * integer between 0 and 255.
+//      *
+//      * If this string is empty, `0` is returned.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return int An integer between 0 and 255.
+//      *
+//      * @see https://www.php.net/manual/function.ord.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function ord(extends string $s): int
+//     {
+//         return \ord($s);
+//     }
+
+//     /**
+//      * Parses the string as if it were the query string passed via a URL.
+//      *
+//      * Parses this string (as if it were a URL-encoded query string) and writes
+//      * variables into `$result`.
+//      *
+//      * @param string $s The string this method is called on (the input string).
+//      * @param array &$result The array populated with the decoded query variables.
+//      * @return void
+//      *
+//      * @see https://www.php.net/manual/function.parse-str.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function parseStr(extends string $s, array &$result): void
+//     {
+//         \parse_str($s, $result);
+//     }
+
+//     /**
+//      * Output a string.
+//      *
+//      * `print` is not actually a real function (it is a language construct), so you
+//      * are not required to use parentheses with its argument list.
+//      *
+//      * @param string $s The string this method is called on (the input data).
+//      * @return int Always returns `1`.
+//      *
+//      * @see https://www.php.net/manual/function.print.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function print(extends string $s): int
+//     {
+//         return print($s);
+//     }
+
+//     /**
+//      * Convert a quoted-printable string to an 8-bit string.
+//      *
+//      * This function returns an 8-bit binary string corresponding to the decoded
+//      * quoted-printable string.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The 8-bit binary string.
+//      *
+//      * @see https://www.php.net/manual/function.quoted-printable-decode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function quotedPrintableDecode(extends string $s): string
+//     {
+//         return \quoted_printable_decode($s);
+//     }
+
+//     /**
+//      * Convert an 8-bit string to a quoted-printable string.
+//      *
+//      * Returns a quoted-printable string created according to » RFC2045, section 6.7.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The encoded string.
+//      *
+//      * @see https://www.php.net/manual/function.quoted-printable-encode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function quotedPrintableEncode(extends string $s): string
+//     {
+//         return \quoted_printable_encode($s);
+//     }
+
+//     /**
+//      * Quote meta characters.
+//      *
+//      * Returns a version of this string with a backslash character (`\`) before every
+//      * character that is among these: `. \ + * ? [ ^ ] ( $ )`.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The string with meta characters quoted.
+//      *
+//      * @see https://www.php.net/manual/function.quotemeta.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function quoteMeta(extends string $s): string
+//     {
+//         return \quotemeta($s);
+//     }
+
+//     /**
+//      * Strip whitespace (or other characters) from the end of a string.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param string $characters Optionally, the stripped characters can also be specified using
+//      *                           the `$characters` parameter. Defaults to `" \n\r\t\v\x00"`.
+//      * @return string The stripped string.
+//      *
+//      * @see https://www.php.net/manual/function.rtrim.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function rTrim(extends string $s, string $characters = " \n\r\t\v\x00"): string
+//     {
+//         return \rtrim($s, $characters);
+//     }
+
+//     /**
+//      * Calculate the sha1 hash of a string.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param bool $binary If `true`, returns the raw binary digest (20 bytes). Defaults to `false`
+//      *                     (returns a 40-character hex string).
+//      * @return string The SHA-1 hash as a hex string, or raw binary if `$binary` is `true`.
+//      *
+//      * @see https://www.php.net/manual/function.sha1.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function sha1(extends string $s, bool $binary = false): string
+//     {
+//         return \sha1($s, $binary);
+//     }
+
+//     /**
+//      * Calculate the similarity between two strings.
+//      *
+//      * This calculates the similarity between this string and `$string2` as described
+//      * in Programming Classics: Implementing the World's Best Algorithms by Oliver (ISBN 0-131-00413-1).
+//      *
+//      * @param string $s The string this method is called on (the first string).
+//      * @param string $string2 The second string.
+//      * @param ?float &$percent By passing a reference as a third argument, `similar_text()` will
+//      *                         calculate the similarity in percent. Defaults to `null`.
+//      * @return int The number of matching characters in both strings.
+//      *
+//      * @see https://www.php.net/manual/function.similar-text.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function similarText(extends string $s, string $string2, ?float &$percent = null): int
+//     {
+//         return \similar_text($s, $string2, $percent);
+//     }
+
+//     /**
+//      * Calculate the soundex key of a string.
+//      *
+//      * Calculates the soundex key of this string. Soundex keys have the property that
+//      * words pronounced similarly produce the same soundex key, so it can be used to
+//      * simplify searches where one does not know the correct spelling of a word.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The soundex key as a string.
+//      *
+//      * @see https://www.php.net/manual/function.soundex.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function soundex(extends string $s): string
+//     {
+//         return \soundex($s);
+//     }
+
+//     /**
+//      * Parses input from a string according to a format.
+//      *
+//      * The function `sscanf()` is the input analog of `printf()`. It reads from this
+//      * string and interprets it according to the specified `$format`.
+//      *
+//      * If only two parameters are passed, the values parsed will be returned as an array.
+//      * Otherwise, if optional parameters are passed, the function will return the number
+//      * of assigned values. The optional parameters must be passed by reference.
+//      *
+//      * @param string $s The string this method is called on (the input to parse).
+//      * @param string $format The interpreted format for `$s`, described in the documentation for `sprintf()`.
+//      * @param mixed &...$vars Optionally, variables by reference that will contain parsed values.
+//      * @return array|int|null If only two arguments given, an array of parsed values; otherwise the number
+//      *                        of assigned values. `null` is returned for other errors.
+//      *
+//      * @see https://www.php.net/manual/function.sscanf.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function sscanf(extends string $s, string $format, mixed &...$vars): array|int|null
+//     {
+//         return \sscanf($s, $format, ...$vars);
+//     }
+
+//     // str_ prefix removed
+
+//     /**
+//      * Determine whether this string contains the given needle.
+//      *
+//      * Performs a case-sensitive check for the presence of `$needle`.
+//      *
+//      * @param string $s The string this method is called on (haystack).
+//      * @param string $needle The substring to search for.
+//      * @return bool True if `$needle` is found in this string; otherwise false.
+//      *
+//      * @see https://www.php.net/manual/function.str-contains.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function contains(extends string $s, string $needle): bool
+//     {
+//         return \str_contains($s, $needle);
+//     }
+
+//     /**
+//      * Checks if a string ends with a given substring.
+//      *
+//      * Performs a case-sensitive check indicating if this string ends with `$needle`.
+//      *
+//      * @param string $s The string this method is called on (haystack).
+//      * @param string $needle The substring to search for in the haystack.
+//      * @return bool `true` if this string ends with `$needle`; otherwise `false`.
+//      *
+//      * @see https://www.php.net/manual/function.str-ends-with.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function endsWith(extends string $s, string $needle): bool
+//     {
+//         return \str_ends_with($s, $needle);
+//     }
+
+//     /**
+//      * Parse a CSV string into an array.
+//      *
+//      * Parses a string input for fields in CSV format and returns an array containing
+//      * the fields read.
+//      *
+//      * @param string $s The string this method is called on (the input string).
+//      * @param string $separator The field delimiter (one single-byte character only). Defaults to `","`.
+//      * @param string $enclosure The field enclosure character (one single-byte character only). Defaults to `"\""`.
+//      * @param string $escape The escape character (at most one single-byte character). Defaults to `"\\"`.
+//      *                       An empty string (`""`) disables the proprietary escape mechanism.
+//      * @return array An indexed array containing the fields read.
+//      *
+//      * @see https://www.php.net/manual/function.str-getcsv.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function getCsv(extends string $s, string $separator = ",", string $enclosure = "\"", string $escape = "\\"): array
+//     {
+//         return \str_getcsv($s, $separator, $enclosure, $escape);
+//     }
+
+//     /**
+//      * Pad a string to a certain length with another string.
+//      *
+//      * This function returns this string padded on the left, the right, or both sides
+//      * to the specified padding length. If the optional argument `$pad_string` is not
+//      * supplied, the `$s` is padded with spaces; otherwise it is padded with characters
+//      * from `$pad_string` up to the limit.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $length If the value of `$length` is negative, less than, or equal to the length
+//      *                   of the input string, no padding takes place, and `$s` will be returned.
+//      * @param string $pad_string The pad string may be truncated if the required number of pad characters
+//      *                           can't be evenly divided by the pad string's length. Defaults to `" "`.
+//      * @param int $pad_type Optional argument `$pad_type` can be `STR_PAD_RIGHT`, `STR_PAD_LEFT`, or
+//      *                      `STR_PAD_BOTH`. Defaults to `STR_PAD_RIGHT`.
+//      * @return string The padded string.
+//      *
+//      * @see https://www.php.net/manual/function.str-pad.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function pad(extends string $s, int $length, string $pad_string = " ", int $pad_type = \STR_PAD_RIGHT): string
+//     {
+//         return \str_pad($s, $length, $pad_string, $pad_type);
+//     }
+
+//     /**
+//      * Repeat a string.
+//      *
+//      * Returns this string repeated `$times` times.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $times Number of times this string should be repeated. Must be greater than or equal to 0.
+//      *                   If `$times` is 0, an empty string will be returned.
+//      * @return string The repeated string.
+//      *
+//      * @see https://www.php.net/manual/function.str-repeat.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function repeat(extends string $s, int $times): string
+//     {
+//         return \str_repeat($s, $times);
+//     }
+
+//     // Adapted parameter order: $subject is the extended string
+//     /**
+//      * Replace all occurrences of the search string with the replacement string.
+//      *
+//      * This function returns a string or an array with all occurrences of `$search`
+//      * in this string (the subject) replaced with the given `$replace` value.
+//      *
+//      * Adapted parameter order: the extended string is the subject (haystack). In PHP,
+//      * `str_replace($search, $replace, $subject, &$count)` takes the subject third;
+//      * here `$s` is the subject and `$search` / `$replace` follow.
+//      *
+//      * @param string $s The string this method is called on (the subject / haystack).
+//      * @param array|string $search The value being searched for (needle). An array may be used for multiple needles.
+//      * @param array|string $replace The replacement value that replaces found `$search` values.
+//      * @param ?int &$count If passed, this will be set to the number of replacements performed. Defaults to `null`.
+//      * @return string|array This string with the replacements applied. (Array return applies when used with array subjects in PHP;
+//      *                      for a string extension the result is typically a string.)
+//      *
+//      * @see https://www.php.net/manual/function.str-replace.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function replace(extends string $s, array|string $search, array|string $replace, ?int &$count = null): string|array
+//     {
+//         return \str_replace($search, $replace, $s, $count);
+//     }
+
+//     // Adapted parameter order: $subject is the extended string
+//     /**
+//      * Case-insensitive version of `replace()` / `str_replace()`.
+//      *
+//      * Returns a string or an array with all occurrences of `$search` in this string
+//      * (ignoring case) replaced with the given `$replace` value.
+//      *
+//      * Adapted parameter order: the extended string is the subject (haystack). In PHP,
+//      * `str_ireplace($search, $replace, $subject, &$count)` takes the subject third;
+//      * here `$s` is the subject and `$search` / `$replace` follow.
+//      *
+//      * @param string $s The string this method is called on (the subject / haystack).
+//      * @param array|string $search The value being searched for (needle). An array may be used for multiple needles.
+//      * @param array|string $replace The replacement value that replaces found `$search` values.
+//      * @param ?int &$count If passed, this will be set to the number of replacements performed. Defaults to `null`.
+//      * @return string|array This string with the replacements applied.
+//      *
+//      * @see https://www.php.net/manual/function.str-ireplace.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function iReplace(extends string $s, array|string $search, array|string $replace, ?int &$count = null): string|array
+//     {
+//         return \str_ireplace($search, $replace, $s, $count);
+//     }
+
+//     /**
+//      * Perform the rot13 transform on a string.
+//      *
+//      * The ROT13 encoding simply shifts every letter by 13 places in the alphabet
+//      * while leaving non-alpha characters untouched. Encoding and decoding are done
+//      * by the same function, passing an encoded string as argument will return the
+//      * original version.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The ROT13 version of the string.
+//      *
+//      * @see https://www.php.net/manual/function.str-rot13.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function rot13(extends string $s): string
+//     {
+//         return \str_rot13($s);
+//     }
+
+//     /**
+//      * Randomly shuffles a string.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The shuffled string.
+//      *
+//      * @see https://www.php.net/manual/function.str-shuffle.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function shuffle(extends string $s): string
+//     {
+//         return \str_shuffle($s);
+//     }
+
+//     /**
+//      * Convert a string to an array.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $length Maximum length of the chunk. Defaults to `1`.
+//      * @return array If `$length` is less than `1`, `false` is not returned here (typed as `array`);
+//      *               otherwise an array of chunks of `$length` characters each. The last chunk may
+//      *               contain fewer characters.
+//      *
+//      * @see https://www.php.net/manual/function.str-split.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function split(extends string $s, int $length = 1): array
+//     {
+//         return \str_split($s, $length);
+//     }
+
+//     /**
+//      * Checks if a string starts with a given substring.
+//      *
+//      * Performs a case-sensitive check indicating if this string begins with `$needle`.
+//      *
+//      * @param string $s The string this method is called on (haystack).
+//      * @param string $needle The substring to search for in the haystack.
+//      * @return bool `true` if this string begins with `$needle`; otherwise `false`.
+//      *
+//      * @see https://www.php.net/manual/function.str-starts-with.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function startsWith(extends string $s, string $needle): bool
+//     {
+//         return \str_starts_with($s, $needle);
+//     }
+
+//     /**
+//      * Return information about words used in a string.
+//      *
+//      * Counts the number of words inside this string. If the optional `$format` is
+//      * not specified, then the return value will be an integer representing the number
+//      * of words found. In the event `$format` is specified, the return value will be
+//      * an array, with content depending on `$format`.
+//      *
+//      * Format values:
+//      * - `0` — returns the number of words found
+//      * - `1` — returns an array containing all the words found inside the string
+//      * - `2` — returns an associative array, where the key is the numeric position of
+//      *   the word inside the string and the value is the actual word itself
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $format See the description above. Defaults to `0`.
+//      * @param ?string $characters A list of additional characters which will be considered as
+//      *                            'word'. Defaults to `null`.
+//      * @return array|int An integer or an array, depending on `$format`.
+//      *
+//      * @see https://www.php.net/manual/function.str-word-count.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function wordCount(extends string $s, int $format = 0, ?string $characters = null): array|int
+//     {
+//         return \str_word_count($s, $format, $characters);
+//     }
+
+//     // str prefix removed (no underscore)
+
+//     /**
+//      * Binary safe case-insensitive string comparison.
+//      *
+//      * @param string $s The string this method is called on (the first string).
+//      * @param string $string2 The second string.
+//      * @return int Returns `< 0` if `$s` is less than `$string2`; `> 0` if `$s` is greater
+//      *             than `$string2`; and `0` if they are equal.
+//      *
+//      * @see https://www.php.net/manual/function.strcasecmp.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function caseComp(extends string $s, string $string2): int
+//     {
+//         return \strcasecmp($s, $string2);
+//     }
+
+//     /**
+//      * Binary safe string comparison.
+//      *
+//      * @param string $s The string this method is called on (the first string).
+//      * @param string $string2 The second string.
+//      * @return int Returns `< 0` if `$s` is less than `$string2`; `> 0` if `$s` is greater
+//      *             than `$string2`; and `0` if they are equal.
+//      *
+//      * @see https://www.php.net/manual/function.strcmp.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function cmp(extends string $s, string $string2): int
+//     {
+//         return \strcmp($s, $string2);
+//     }
+
+//     /**
+//      * Locale based string comparison.
+//      *
+//      * Note that this comparison is case sensitive, and unlike `strcmp()` this function
+//      * is not binary safe.
+//      *
+//      * @param string $s The string this method is called on (the first string).
+//      * @param string $string2 The second string.
+//      * @return int Returns `< 0` if `$s` is less than `$string2`; `> 0` if `$s` is greater
+//      *             than `$string2`; and `0` if they are equal, according to the current locale.
+//      *
+//      * @see https://www.php.net/manual/function.strcoll.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function coll(extends string $s, string $string2): int
+//     {
+//         return \strcoll($s, $string2);
+//     }
+
+//     /**
+//      * Find length of initial segment not matching mask.
+//      *
+//      * Returns the length of the initial segment of this string which does not contain
+//      * any character from `$characters`.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param string $characters The string containing each character that is not allowed.
+//      * @param int $offset The start position of the string to examine. Defaults to `0`.
+//      * @param ?int $length The length of the segment from `$s` to examine. Defaults to `null`
+//      *                     (examine to the end of the string).
+//      * @return int The length of the initial segment of `$s` which consists entirely of
+//      *             characters not in `$characters`.
+//      *
+//      * @see https://www.php.net/manual/function.strcspn.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function cspn(extends string $s, string $characters, int $offset = 0, ?int $length = null): int
+//     {
+//         return \strcspn($s, $characters, $offset, $length);
+//     }
+
+//     /**
+//      * Strip HTML and PHP tags from a string.
+//      *
+//      * This function tries to return a string with all NULL bytes, HTML and PHP tags
+//      * stripped from this string. It uses the same tag stripping state machine as the
+//      * fgetss() function.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param array|string|null $allowed_tags You can use the optional second parameter to specify tags
+//      *                                       which should not be stripped. Defaults to `null` (strip all tags).
+//      * @return string The stripped string.
+//      *
+//      * @see https://www.php.net/manual/function.strip-tags.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function stripTags(extends string $s, array|string|null $allowed_tags = null): string
+//     {
+//         return \strip_tags($s, $allowed_tags);
+//     }
+
+//     /**
+//      * Un-quote string quoted with `addCslashes()` / `addcslashes()`.
+//      *
+//      * Returns a string with backslashes stripped off. Recognizes C-like `\n`, `\r`,
+//      * `\\`, octal, and hexadecimal notation.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The unescaped string.
+//      *
+//      * @see https://www.php.net/manual/function.stripcslashes.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function stripCslashes(extends string $s): string
+//     {
+//         return \stripcslashes($s);
+//     }
+
+//     /**
+//      * Find the position of the first occurrence of a case-insensitive substring.
+//      *
+//      * @param string $s The string this method is called on (haystack).
+//      * @param string $needle The string to find (note that the needle may be a string of one or more characters).
+//      * @param int $offset If specified, search will start this number of characters counted from the
+//      *                   beginning of the string. Defaults to `0`. A negative offset counts from the end.
+//      * @return int|false Returns the position where the needle exists relative to the beginning of the
+//      *                   haystack (independent of offset). Also note that string positions start at 0,
+//      *                   not 1. Returns `false` if the needle was not found.
+//      *
+//      * @see https://www.php.net/manual/function.stripos.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function iPos(extends string $s, string $needle, int $offset = 0): int|false
+//     {
+//         return \stripos($s, $needle, $offset);
+//     }
+
+//     /**
+//      * Un-quotes a quoted string.
+//      *
+//      * Returns a string with backslashes stripped off. (`\'` becomes `'` and so on.)
+//      * Double backslashes (`\\`) are made into a single backslash (`\`).
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The unescaped string.
+//      *
+//      * @see https://www.php.net/manual/function.stripslashes.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function stripSlashes(extends string $s): string
+//     {
+//         return \stripslashes($s);
+//     }
+
+//     /**
+//      * Case-insensitive `str()` / `strstr()`.
+//      *
+//      * Returns part of this string starting from and including the first occurrence
+//      * of `$needle` to the end of `$s`.
+//      *
+//      * @param string $s The string this method is called on (haystack).
+//      * @param string $needle The string to search for.
+//      * @param bool $before_needle If `true`, `iStr()` returns the part of the haystack before the first
+//      *                            occurrence of the needle (excluding the needle). Defaults to `false`.
+//      * @return string|false Returns the portion of the string, or `false` if `$needle` is not found.
+//      *
+//      * @see https://www.php.net/manual/function.stristr.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function iStr(extends string $s, string $needle, bool $before_needle = false): string|false
+//     {
+//         return \stristr($s, $needle, $before_needle);
+//     }
+
+//     /**
+//      * Get string length.
+//      *
+//      * Returns the length of this string in bytes.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return int The length of the string in bytes.
+//      *
+//      * @see https://www.php.net/manual/function.strlen.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function len(extends string $s): int
+//     {
+//         return \strlen($s);
+//     }
+
+//     /**
+//      * Case insensitive string comparisons using a "natural order" algorithm.
+//      *
+//      * This function implements a comparison algorithm that orders alphanumeric strings
+//      * in the way a human being would, while ignoring case differences.
+//      *
+//      * @param string $s The string this method is called on (the first string).
+//      * @param string $string2 The second string.
+//      * @return int Similar to other string comparison functions, this one returns `< 0` if `$s` is
+//      *             less than `$string2`; `> 0` if `$s` is greater than `$string2`, and `0` if they are equal.
+//      *
+//      * @see https://www.php.net/manual/function.strnatcasecmp.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function natCaseCmp(extends string $s, string $string2): int
+//     {
+//         return \strnatcasecmp($s, $string2);
+//     }
+
+//     /**
+//      * String comparisons using a "natural order" algorithm.
+//      *
+//      * This function implements a comparison algorithm that orders alphanumeric strings
+//      * in the way a human being would. The comparison is case-sensitive.
+//      *
+//      * @param string $s The string this method is called on (the first string).
+//      * @param string $string2 The second string.
+//      * @return int Similar to other string comparison functions, this one returns `< 0` if `$s` is
+//      *             less than `$string2`; `> 0` if `$s` is greater than `$string2`, and `0` if they are equal.
+//      *
+//      * @see https://www.php.net/manual/function.strnatcmp.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function natCmp(extends string $s, string $string2): int
+//     {
+//         return \strnatcmp($s, $string2);
+//     }
+
+//     /**
+//      * Binary safe case-insensitive string comparison of the first n characters.
+//      *
+//      * @param string $s The string this method is called on (the first string).
+//      * @param string $string2 The second string.
+//      * @param int $length The length of characters from each string to use in the comparison.
+//      * @return int Returns `< 0` if `$s` is less than `$string2`; `> 0` if `$s` is greater
+//      *             than `$string2`; and `0` if they are equal.
+//      *
+//      * @see https://www.php.net/manual/function.strncasecmp.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function nCaseCmp(extends string $s, string $string2, int $length): int
+//     {
+//         return \strncasecmp($s, $string2, $length);
+//     }
+
+//     /**
+//      * Binary safe string comparison of the first n characters.
+//      *
+//      * @param string $s The string this method is called on (the first string).
+//      * @param string $string2 The second string.
+//      * @param int $length Number of characters to use in the comparison.
+//      * @return int Returns `< 0` if `$s` is less than `$string2`; `> 0` if `$s` is greater
+//      *             than `$string2`; and `0` if they are equal.
+//      *
+//      * @see https://www.php.net/manual/function.strncmp.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function nCmp(extends string $s, string $string2, int $length): int
+//     {
+//         return \strncmp($s, $string2, $length);
+//     }
+
+//     /**
+//      * Search a string for any of a set of characters.
+//      *
+//      * `pbrk()` searches this string for a character from `$characters`.
+//      *
+//      * @param string $s The string this method is called on (haystack).
+//      * @param string $characters The character set (string of characters to search for).
+//      * @return string|false Returns a string starting from the character found, or `false` if it is not found.
+//      *
+//      * @see https://www.php.net/manual/function.strpbrk.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function pbrk(extends string $s, string $characters): string|false
+//     {
+//         return \strpbrk($s, $characters);
+//     }
+
+//     /**
+//      * Find the position of the first occurrence of a substring.
+//      *
+//      * @param string $s The string this method is called on (haystack).
+//      * @param string $needle The string to find.
+//      * @param int $offset If specified, search will start this number of characters counted from the
+//      *                   beginning of the string. Defaults to `0`. A negative offset counts from the end.
+//      * @return int|false Returns the position of where the needle exists relative to the beginning of the
+//      *                   haystack (independent of offset). Also note that string positions start at 0,
+//      *                   not 1. Returns `false` if the needle was not found.
+//      *
+//      * @see https://www.php.net/manual/function.strpos.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function pos(extends string $s, string $needle, int $offset = 0): int|false
+//     {
+//         return \strpos($s, $needle, $offset);
+//     }
+
+//     /**
+//      * Find the last occurrence of a character in a string.
+//      *
+//      * This function returns the portion of this string starting from and including
+//      * the last occurrence of `$needle` to the end of `$s`.
+//      *
+//      * @param string $s The string this method is called on (haystack).
+//      * @param string $needle If `$needle` contains more than one character, only the first is used.
+//      * @return string|false This function returns the portion of the string, or `false` if `$needle` is not found.
+//      *
+//      * @see https://www.php.net/manual/function.strrchr.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function rChr(extends string $s, string $needle): string|false
+//     {
+//         return \strrchr($s, $needle);
+//     }
+
+//     /**
+//      * Reverse a string.
+//      *
+//      * Returns this string reversed.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The reversed string.
+//      *
+//      * @see https://www.php.net/manual/function.strrev.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function rev(extends string $s): string
+//     {
+//         return \strrev($s);
+//     }
+
+//     /**
+//      * Find the position of the last occurrence of a case-insensitive substring.
+//      *
+//      * @param string $s The string this method is called on (haystack).
+//      * @param string $needle The string to find.
+//      * @param int $offset If specified, search will start this number of characters counted from the
+//      *                   beginning of the string. Defaults to `0`. A negative offset counts from the end.
+//      * @return int|false Returns the position where the needle exists relative to the beginning of the
+//      *                   haystack (independent of search direction or offset). Also note that string
+//      *                   positions start at 0, not 1. Returns `false` if the needle was not found.
+//      *
+//      * @see https://www.php.net/manual/function.strripos.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function riPos(extends string $s, string $needle, int $offset = 0): int|false
+//     {
+//         return \strripos($s, $needle, $offset);
+//     }
+
+//     /**
+//      * Find the position of the last occurrence of a substring in a string.
+//      *
+//      * @param string $s The string this method is called on (haystack).
+//      * @param string $needle The string to find.
+//      * @param int $offset If specified, search will start this number of characters counted from the
+//      *                   beginning of the string. Defaults to `0`. A negative offset counts from the end.
+//      * @return int|false Returns the position where the needle exists relative to the beginning of the
+//      *                   haystack (independent of search direction or offset). Also note that string
+//      *                   positions start at 0, not 1. Returns `false` if the needle was not found.
+//      *
+//      * @see https://www.php.net/manual/function.strrpos.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function rPos(extends string $s, string $needle, int $offset = 0): int|false
+//     {
+//         return \strrpos($s, $needle, $offset);
+//     }
+
+//     /**
+//      * Finds the length of the initial segment of a string consisting entirely of
+//      * characters contained within a given mask.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param string $characters The list of allowable characters.
+//      * @param int $offset The start position of the string to examine. Defaults to `0`.
+//      * @param ?int $length The length of the segment from `$s` to examine. Defaults to `null`
+//      *                     (examine to the end of the string).
+//      * @return int The length of the initial segment of `$s` which consists entirely of
+//      *             characters in `$characters`.
+//      *
+//      * @see https://www.php.net/manual/function.strspn.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function spn(extends string $s, string $characters, int $offset = 0, ?int $length = null): int
+//     {
+//         return \strspn($s, $characters, $offset, $length);
+//     }
+
+//     /**
+//      * Find the first occurrence of a string.
+//      *
+//      * Returns part of this string starting from and including the first occurrence
+//      * of `$needle` to the end of `$s`.
+//      *
+//      * @param string $s The string this method is called on (haystack).
+//      * @param string $needle The string to search for.
+//      * @param bool $before_needle If `true`, `str()` returns the part of the haystack before the first
+//      *                            occurrence of the needle (excluding the needle). Defaults to `false`.
+//      * @return string|false Returns the portion of the string, or `false` if `$needle` is not found.
+//      *
+//      * @see https://www.php.net/manual/function.strstr.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function str(extends string $s, string $needle, bool $before_needle = false): string|false
+//     {
+//         return \strstr($s, $needle, $before_needle);
+//     }
+
+//     /**
+//      * Tokenize string.
+//      *
+//      * `tok()` splits this string into smaller strings (tokens), with `$token` as
+//      * the delimiter(s) for each token. Only the first call uses `$s`; subsequent
+//      * calls with only a token continue tokenizing the same string (PHP `strtok` behavior).
+//      *
+//      * @param string $s The string this method is called on (the string being split into smaller strings / tokens).
+//      * @param string $token The delimiter(s) used when splitting up `$s`.
+//      * @return string|false A string token, or `false` if there are no more tokens.
+//      *
+//      * @see https://www.php.net/manual/function.strtok.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function tok(extends string $s, string $token): string|false
+//     {
+//         return \strtok($s, $token);
+//     }
+
+//     /**
+//      * Make a string lowercase.
+//      *
+//      * Returns this string with all alphabetic characters converted to lowercase.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The lowercased string.
+//      *
+//      * @see https://www.php.net/manual/function.strtolower.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function toLower(extends string $s): string
+//     {
+//         return \strtolower($s);
+//     }
+
+//     /**
+//      * Make a string uppercase.
+//      *
+//      * Returns this string with all alphabetic characters converted to uppercase.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The uppercased string.
+//      *
+//      * @see https://www.php.net/manual/function.strtoupper.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function toUpper(extends string $s): string
+//     {
+//         return \strtoupper($s);
+//     }
+
+//     // strtr — unified signature covers both (string $from, string $to) and (array $replace_pairs)
+//     /**
+//      * Translate characters or replace substrings.
+//      *
+//      * If `$from` and `$to` are given as strings, `tr()` will translate each character
+//      * in `$from` in this string to the corresponding character in `$to`.
+//      *
+//      * If `$from` is an array, then the return value will be a string where all the
+//      * keys in `$from` have been replaced by their corresponding values. In this case
+//      * `$to` should be omitted (`null`).
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param array|string $from Either a string of characters to translate from, or an associative
+//      *                           array of replacement pairs (`from => to`).
+//      * @param ?string $to The string replacing `$from` when `$from` is a string. Defaults to `null`
+//      *                    (used when `$from` is an array of replace pairs).
+//      * @return string The translated string.
+//      *
+//      * @see https://www.php.net/manual/function.strtr.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function tr(extends string $s, array|string $from, ?string $to = null): string
+//     {
+//         return \strtr($s, $from, $to);
+//     }
+
+//     /**
+//      * Binary safe comparison of two strings from an offset, up to a length.
+//      *
+//      * `substrCompare()` compares this string from an offset with `$needle` up to
+//      * `$length` characters.
+//      *
+//      * @param string $s The string this method is called on (the main string being compared).
+//      * @param string $needle The secondary string being compared.
+//      * @param int $offset The start position for the comparison. If negative, it starts counting from
+//      *                    the end of the string.
+//      * @param ?int $length The length of the comparison. The default value is the largest of the length
+//      *                     of the string compared to the length of `$needle` after accounting for offsets.
+//      * @param bool $case_insensitive If `true`, comparison is case-insensitive. Defaults to `false`.
+//      * @return int Returns `< 0` if `$s` from the offset is less than `$needle`; `> 0` if greater;
+//      *             and `0` if they are equal.
+//      *
+//      * @see https://www.php.net/manual/function.substr-compare.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function substrCompare(
+//         extends string $s,
+//         string $needle,
+//         int $offset,
+//         ?int $length = null,
+//         bool $case_insensitive = false,
+//     ): int
+//     {
+//         return \substr_compare($s, $needle, $offset, $length, $case_insensitive);
+//     }
+
+//     /**
+//      * Count the number of substring occurrences.
+//      *
+//      * @param string $s The string this method is called on (haystack).
+//      * @param string $needle The string to search for.
+//      * @param int $offset The offset where to start counting. Defaults to `0`. If the offset is negative,
+//      *                   counting starts from the end of the string.
+//      * @param ?int $length The maximum length after the specified offset to search for the substring.
+//      *                     Defaults to `null` (search to the end).
+//      * @return int This function returns an int of the number of times the `$needle` substring occurs
+//      *             in this string.
+//      *
+//      * @see https://www.php.net/manual/function.substr-count.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function substrCount(extends string $s, string $needle, int $offset = 0, ?int $length = null): int
+//     {
+//         return \substr_count($s, $needle, $offset, $length);
+//     }
+
+//     // Adapted parameter order: $string is the extended string
+//     /**
+//      * Replace text within a portion of a string.
+//      *
+//      * `substrReplace()` replaces a copy of this string delimited by the `$offset`
+//      * and (optionally) `$length` parameters with the string given in `$replace`.
+//      *
+//      * Adapted parameter order: the extended string is the subject. Argument order
+//      * matches PHP's `substr_replace($string, $replace, $offset, $length)` with `$s`
+//      * as the first (extended) parameter.
+//      *
+//      * @param string $s The string this method is called on (the input string).
+//      * @param array|string $replace The replacement string.
+//      * @param array|int $offset If `$offset` is non-negative, the replacement will begin at that offset
+//      *                          in `$s`. If negative, counting starts from the end of `$s`.
+//      * @param array|int|null $length If given and is positive, it represents the length of the portion of `$s`
+//      *                               which is to be replaced. If negative, it represents the number of characters
+//      *                               from the end of `$s` at which to stop replacing. Defaults to `null`
+//      *                               (use the rest of the string).
+//      * @return string|array The result string is returned. If `$s` is an array then an array is returned
+//      *                      (for the string extension receiver, typically a string).
+//      *
+//      * @see https://www.php.net/manual/function.substr-replace.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function substrReplace(
+//         extends string $s,
+//         array|string $replace,
+//         array|int $offset,
+//         array|int|null $length = null,
+//     ): string|array
+//     {
+//         return \substr_replace($s, $replace, $offset, $length);
+//     }
+
+//     /**
+//      * Return part of a string.
+//      *
+//      * Returns the portion of this string specified by the `$offset` and `$length` parameters.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $offset If `$offset` is non-negative, the returned string will start at the `$offset`th
+//      *                    position in `$s`, counting from zero. If `$offset` is negative, the returned
+//      *                    string will start at the `$offset`th character from the end of `$s`.
+//      * @param ?int $length If `$length` is given and is positive, the string returned will contain at most
+//      *                     `$length` characters beginning from `$offset`. If negative, that many characters
+//      *                     will be omitted from the end of `$s`. Defaults to `null` (return the rest of the string).
+//      * @return string The extracted part of the string, or an empty string on failure / empty result.
+//      *
+//      * @see https://www.php.net/manual/function.substr.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function substr(extends string $s, int $offset, ?int $length = null): string
+//     {
+//         return \substr($s, $offset, $length);
+//     }
+
+//     /**
+//      * Strip whitespace (or other characters) from the beginning and end of a string.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param string $characters Optionally, the stripped characters can also be specified using
+//      *                           the `$characters` parameter. Simply list all characters that you want
+//      *                           to be stripped. Defaults to `" \n\r\t\v\x00"`.
+//      * @return string The trimmed string.
+//      *
+//      * @see https://www.php.net/manual/function.trim.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function trim(extends string $s, string $characters = " \n\r\t\v\x00"): string
+//     {
+//         return \trim($s, $characters);
+//     }
+
+//     /**
+//      * Make a string's first character uppercase.
+//      *
+//      * Returns a string with the first character of this string capitalized if that
+//      * character is an ASCII character in the range from `"a"` (0x61) to `"z"` (0x7a).
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The resulting string.
+//      *
+//      * @see https://www.php.net/manual/function.ucfirst.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function ucFirst(extends string $s): string
+//     {
+//         return \ucfirst($s);
+//     }
+
+//     /**
+//      * Uppercase the first character of each word in a string.
+//      *
+//      * Returns a string with the first character of each word in this string capitalized
+//      * if that character is an ASCII character in the range from `"a"` (0x61) to `"z"` (0x7a).
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param string $separators The optional `$separators` contains the word separator characters.
+//      *                           Defaults to `" \t\r\n\f\v"`.
+//      * @return string The modified string.
+//      *
+//      * @see https://www.php.net/manual/function.ucwords.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function ucWords(extends string $s, string $separators = " \t\r\n\f\v"): string
+//     {
+//         return \ucwords($s, $separators);
+//     }
+
+//     /**
+//      * Wraps a string to a given number of characters.
+//      *
+//      * Wraps this string to a given number of characters using a string break character.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @param int $width The number of characters at which the string will be wrapped. Defaults to `75`.
+//      * @param string $break The line is broken using the optional `$break` parameter. Defaults to `"\n"`.
+//      * @param bool $cut_long_words If `true`, the string is always wrapped at or before the specified `$width`.
+//      *                             So if you have a word that is larger than the given width, it is broken apart.
+//      *                             Defaults to `false`.
+//      * @return string The given string wrapped at the specified length.
+//      *
+//      * @see https://www.php.net/manual/function.wordwrap.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function wordWrap(extends string $s, int $width = 75, string $break = "\n", bool $cut_long_words = false): string
+//     {
+//         return \wordwrap($s, $width, $break, $cut_long_words);
+//     }
+
+//     // Encoding/decoding
+
+//     /**
+//      * Decodes a JSON string.
+//      *
+//      * Takes a JSON-encoded string and converts it into a PHP variable.
+//      *
+//      * @param string $s The string this method is called on (the JSON string being decoded).
+//      * @param ?bool $associative When `true`, JSON objects will be returned as associative arrays; when `false`,
+//      *                           as objects. When `null`, it behaves as if `JSON_OBJECT_AS_ARRAY` is or is not set
+//      *                           in `$flags`. Defaults to `null`.
+//      * @param int $depth Maximum nesting depth of the structure being decoded. Defaults to `512`.
+//      * @param int $flags Bitmask of `JSON_BIGINT_AS_STRING`, `JSON_INVALID_UTF8_IGNORE`,
+//      *                   `JSON_INVALID_UTF8_SUBSTITUTE`, `JSON_OBJECT_AS_ARRAY`, `JSON_THROW_ON_ERROR`. Defaults to `0`.
+//      * @return mixed The value encoded in JSON in appropriate PHP type. Values `true`, `false` and `null`
+//      *               are returned as `true`, `false` and `null` respectively. `null` is returned if the
+//      *               JSON cannot be decoded or if the encoded data is deeper than the nesting limit
+//      *               (unless `JSON_THROW_ON_ERROR` is set).
+//      *
+//      * @see https://www.php.net/manual/function.json-decode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function jsonDecode(extends string $s, ?bool $associative = null, int $depth = 512, int $flags = 0): mixed
+//     {
+//         return \json_decode($s, $associative, $depth, $flags);
+//     }
+
+//     /**
+//      * Decodes data encoded with MIME base64.
+//      *
+//      * @param string $s The string this method is called on (the encoded data).
+//      * @param bool $strict If `true`, `base64Decode()` returns `false` if the input contains characters
+//      *                     outside the base64 alphabet. Defaults to `false` (invalid characters are silently discarded).
+//      * @return string|false The original data, or `false` on failure. The returned data may be binary.
+//      *
+//      * @see https://www.php.net/manual/function.base64-decode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function base64Decode(extends string $s, bool $strict = false): string|false
+//     {
+//         return \base64_decode($s, $strict);
+//     }
+
+//     /**
+//      * Encodes data with MIME base64.
+//      *
+//      * This encoding is designed to make binary data survive transport through
+//      * transport layers that are not 8-bit clean, such as mail bodies.
+//      *
+//      * @param string $s The string this method is called on (the data to encode).
+//      * @return string The encoded data, as a string.
+//      *
+//      * @see https://www.php.net/manual/function.base64-encode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function base64Encode(extends string $s): string
+//     {
+//         return \base64_encode($s);
+//     }
+
+//     /**
+//      * Decode URL-encoded strings (RFC 3986).
+//      *
+//      * Returns a string in which the sequences with percent (`%`) followed by two hex
+//      * digits have been replaced with literal characters.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The decoded URL string.
+//      *
+//      * @see https://www.php.net/manual/function.rawurldecode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function rawUrlDecode(extends string $s): string
+//     {
+//         return \rawurldecode($s);
+//     }
+
+//     /**
+//      * URL-encode according to RFC 3986.
+//      *
+//      * Returns a string in which all non-alphanumeric characters except `-_.~` have
+//      * been replaced with a percent (`%`) sign followed by two hex digits.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string A string in which all non-alphanumeric characters except `-_.~` have been replaced
+//      *                with a percent (`%`) sign followed by two hex digits.
+//      *
+//      * @see https://www.php.net/manual/function.rawurlencode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function rawUrlEncode(extends string $s): string
+//     {
+//         return \rawurlencode($s);
+//     }
+
+//     /**
+//      * Decodes URL-encoded string.
+//      *
+//      * Decodes any `%##` encoding in this string. Plus symbols (`'+'`) are decoded
+//      * to a space character.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string The decoded URL string.
+//      *
+//      * @see https://www.php.net/manual/function.urldecode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function urlDecode(extends string $s): string
+//     {
+//         return \urldecode($s);
+//     }
+
+//     /**
+//      * URL-encodes a string.
+//      *
+//      * This function is convenient when encoding a string to be used in a query part
+//      * of a URL, as a convenient way to pass variables to the next page.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return string A string in which all non-alphanumeric characters except `-_.` have been replaced
+//      *                with a percent (`%`) sign followed by two hex digits and spaces encoded as plus (`+`) signs.
+//      *
+//      * @see https://www.php.net/manual/function.urlencode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function urlEncode(extends string $s): string
+//     {
+//         return \urlencode($s);
+//     }
+
+//     // Utility
+
+//     /**
+//      * Determine whether a variable is empty.
+//      *
+//      * `empty()` is a language construct. A variable is considered empty if it does
+//      * not exist or if its value equals `false`. For a string, that means `""` (an
+//      * empty string) and `"0"` are empty.
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return bool `true` if `$s` is considered empty; otherwise `false`.
+//      *
+//      * @see https://www.php.net/manual/function.empty.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function empty(extends string $s): bool
+//     {
+//         return empty($s);
+//     }
+
+//     /**
+//      * Finds whether a variable is a number or a numeric string.
+//      *
+//      * Finds whether this string is numeric. Numeric strings consist of optional
+//      * whitespace, optional sign, and digits (optionally with a decimal and/or
+//      * exponent).
+//      *
+//      * @param string $s The string this method is called on.
+//      * @return bool `true` if `$s` is a numeric string; otherwise `false`.
+//      *
+//      * @see https://www.php.net/manual/function.is-numeric.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function isNumeric(extends string $s): bool
+//     {
+//         return \is_numeric($s);
+//     }
+// }

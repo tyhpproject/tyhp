@@ -1,0 +1,17 @@
+{
+  "suite": "story09/emit-basic",
+  "description": "Story 09 — basic emit build conformance",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "greeter_class",
+      "file": "greeter.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Greeter.php"
+      }
+    }
+  ]
+}

@@ -1,0 +1,1311 @@
+<?tyhp
+
+// // root namespace
+
+// extension ArrayExtensions {
+//     /**
+//      * Changes the case of all keys in an array.
+//      *
+//      * Returns an array with all keys from `$a` lowercased or uppercased. Numbered
+//      * indices are left as is.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param int $case Either `CASE_UPPER` or `CASE_LOWER` (default).
+//      * @return array An array with its keys lower- or upper-cased.
+//      *
+//      * @see https://www.php.net/manual/function.array-change-key-case.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function changeKeyCase(extends array $a, int $case = \CASE_LOWER): array
+//     {
+//         return \array_change_key_case($a, $case);
+//     }
+
+//     /**
+//      * Split an array into chunks.
+//      *
+//      * Chunks `$a` into arrays with `$length` elements. The last chunk may contain
+//      * fewer elements.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param int $length The size of each chunk.
+//      * @param bool $preserve_keys When `true`, keys are preserved. Defaults to `false`.
+//      * @return array A multidimensional numerically indexed array, starting with zero,
+//      *               with each dimension containing `$length` elements.
+//      *
+//      * @see https://www.php.net/manual/function.array-chunk.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function chunk(extends array $a, int $length, bool $preserve_keys = false): array
+//     {
+//         return \array_chunk($a, $length, $preserve_keys);
+//     }
+
+//     /**
+//      * Return the values from a single column in the input array.
+//      *
+//      * @param array $a The array this method is called on (a multi-dimensional array or
+//      *                 an array of objects).
+//      * @param string|int|null $column_key The column of values to return. May be an
+//      *                                   integer key, string key, or `null` to return
+//      *                                   complete arrays/objects.
+//      * @param string|int|null $index_key The column to use as the index/key for the
+//      *                                  returned array. Defaults to `null`.
+//      * @return array An array of values representing a single column from the input.
+//      *
+//      * @see https://www.php.net/manual/function.array-column.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function column(extends array $a, string|int|null $column_key, string|int|null $index_key = null): array
+//     {
+//         return \array_column($a, $column_key, $index_key);
+//     }
+
+//     /**
+//      * Creates an array by using this array for keys and another for its values.
+//      *
+//      * @param array $a The array this method is called on (keys).
+//      * @param array $values Array of values to be used.
+//      * @return array The combined array.
+//      *
+//      * @see https://www.php.net/manual/function.array-combine.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function combine(extends array $a, array $values): array
+//     {
+//         return \array_combine($a, $values);
+//     }
+
+//     /**
+//      * Counts all the values of an array.
+//      *
+//      * Returns an array using the values of `$a` as keys and their frequency as values.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return array An associative array of values from `$a` as keys and their count
+//      *               as value.
+//      *
+//      * @see https://www.php.net/manual/function.array-count-values.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function countValues(extends array $a): array
+//     {
+//         return \array_count_values($a);
+//     }
+
+//     /**
+//      * Computes the difference of arrays with additional index check.
+//      *
+//      * Compares `$a` against `$arrays` and returns the values in `$a` that are not
+//      * present in any of the other arrays (keys are also compared).
+//      *
+//      * @param array $a The array this method is called on (array to compare from).
+//      * @param array ...$arrays Arrays to compare against.
+//      * @return array An array containing all the entries from `$a` that are not present
+//      *               in any of the other arrays.
+//      *
+//      * @see https://www.php.net/manual/function.array-diff-assoc.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function diffAssoc(extends array $a, array ...$arrays): array
+//     {
+//         return \array_diff_assoc($a, ...$arrays);
+//     }
+
+//     /**
+//      * Computes the difference of arrays using keys for comparison.
+//      *
+//      * @param array $a The array this method is called on (array to compare from).
+//      * @param array ...$arrays Arrays to compare against.
+//      * @return array An array containing all the entries from `$a` whose keys are absent
+//      *               from all of the other arrays.
+//      *
+//      * @see https://www.php.net/manual/function.array-diff-key.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function diffKey(extends array $a, array ...$arrays): array
+//     {
+//         return \array_diff_key($a, ...$arrays);
+//     }
+
+//     /**
+//      * Computes the difference of arrays with additional index check, using a callback
+//      * for key comparison.
+//      *
+//      * The last argument in `$rest` must be a callable that compares keys.
+//      *
+//      * @param array $a The array this method is called on (array to compare from).
+//      * @param mixed ...$rest Arrays to compare against, followed by a key-comparison callback.
+//      * @return array Entries from `$a` not present in the other arrays (with key check).
+//      *
+//      * @see https://www.php.net/manual/function.array-diff-uassoc.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function diffUAssoc(extends array $a, mixed ...$rest): array
+//     {
+//         return \array_diff_uassoc($a, ...$rest);
+//     }
+
+//     /**
+//      * Computes the difference of arrays using a callback function on the keys for
+//      * comparison.
+//      *
+//      * The last argument in `$rest` must be a callable that compares keys.
+//      *
+//      * @param array $a The array this method is called on (array to compare from).
+//      * @param mixed ...$rest Arrays to compare against, followed by a key-comparison callback.
+//      * @return array Entries from `$a` whose keys are absent from the other arrays.
+//      *
+//      * @see https://www.php.net/manual/function.array-diff-ukey.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function diffUKey(extends array $a, mixed ...$rest): array
+//     {
+//         return \array_diff_ukey($a, ...$rest);
+//     }
+
+//     /**
+//      * Computes the difference of arrays.
+//      *
+//      * Compares `$a` against `$arrays` and returns the values in `$a` that are not
+//      * present in any of the other arrays.
+//      *
+//      * @param array $a The array this method is called on (array to compare from).
+//      * @param array ...$arrays Arrays to compare against.
+//      * @return array An array containing all the entries from `$a` that are not present
+//      *               in any of the other arrays.
+//      *
+//      * @see https://www.php.net/manual/function.array-diff.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function diff(extends array $a, array ...$arrays): array
+//     {
+//         return \array_diff($a, ...$arrays);
+//     }
+
+//     /**
+//      * Fill an array with values, specifying keys.
+//      *
+//      * Fills an array with `$value`, using the values of this array as keys.
+//      *
+//      * @param array $a The array this method is called on (keys).
+//      * @param mixed $value Value to use for filling.
+//      * @return array The filled array.
+//      *
+//      * @see https://www.php.net/manual/function.array-fill-keys.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function fillKeys(extends array $a, mixed $value): array
+//     {
+//         return \array_fill_keys($a, $value);
+//     }
+
+//     /**
+//      * Filters elements of an array using a callback function.
+//      *
+//      * Iterates over each value in `$a`, passing it to `$callback`. If `$callback`
+//      * returns `true`, the current value from `$a` is returned into the result array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param ?callable $callback The callback function to use. Defaults to `null`
+//      *                            (filters out empty entries).
+//      * @param int $mode Flag determining what arguments are sent to `$callback`:
+//      *                  `0` (default) passes value only; `ARRAY_FILTER_USE_KEY` passes
+//      *                  key only; `ARRAY_FILTER_USE_BOTH` passes both.
+//      * @return array The filtered array.
+//      *
+//      * @see https://www.php.net/manual/function.array-filter.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function filter(extends array $a, ?callable $callback = null, int $mode = 0): array
+//     {
+//         return \array_filter($a, $callback, $mode);
+//     }
+
+//     /**
+//      * Exchanges all keys with their associated values in an array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return array The flipped array on success.
+//      *
+//      * @see https://www.php.net/manual/function.array-flip.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function flip(extends array $a): array
+//     {
+//         return \array_flip($a);
+//     }
+
+//     /**
+//      * Computes the intersection of arrays with additional index check.
+//      *
+//      * @param array $a The array this method is called on (array with master values to check).
+//      * @param array ...$arrays Arrays to compare values against.
+//      * @return array An array containing all the values of `$a` that are present in all
+//      *               the arguments (with key check).
+//      *
+//      * @see https://www.php.net/manual/function.array-intersect-assoc.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function intersectAssoc(extends array $a, array ...$arrays): array
+//     {
+//         return \array_intersect_assoc($a, ...$arrays);
+//     }
+
+//     /**
+//      * Computes the intersection of arrays using keys for comparison.
+//      *
+//      * @param array $a The array this method is called on (array with master keys to check).
+//      * @param array ...$arrays Arrays to compare keys against.
+//      * @return array An array containing all the entries of `$a` which have keys that
+//      *               are present in all arguments.
+//      *
+//      * @see https://www.php.net/manual/function.array-intersect-key.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function intersectKey(extends array $a, array ...$arrays): array
+//     {
+//         return \array_intersect_key($a, ...$arrays);
+//     }
+
+//     /**
+//      * Computes the intersection of arrays with additional index check, using a
+//      * callback for key comparison.
+//      *
+//      * The last argument in `$rest` must be a callable that compares keys.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param mixed ...$rest Arrays to compare against, followed by a key-comparison callback.
+//      * @return array An array containing all the entries of `$a` that are present in all
+//      *               arguments (with key check via callback).
+//      *
+//      * @see https://www.php.net/manual/function.array-intersect-uassoc.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function intersectUAssoc(extends array $a, mixed ...$rest): array
+//     {
+//         return \array_intersect_uassoc($a, ...$rest);
+//     }
+
+//     /**
+//      * Computes the intersection of arrays using a callback on the keys for comparison.
+//      *
+//      * The last argument in `$rest` must be a callable that compares keys.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param mixed ...$rest Arrays to compare against, followed by a key-comparison callback.
+//      * @return array An array containing all the entries of `$a` which have keys present
+//      *               in all arguments (keys compared via callback).
+//      *
+//      * @see https://www.php.net/manual/function.array-intersect-ukey.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function intersectUKey(extends array $a, mixed ...$rest): array
+//     {
+//         return \array_intersect_ukey($a, ...$rest);
+//     }
+
+//     /**
+//      * Computes the intersection of arrays.
+//      *
+//      * @param array $a The array this method is called on (array with master values to check).
+//      * @param array ...$arrays Arrays to compare values against.
+//      * @return array An array containing all the values of `$a` that are present in all
+//      *               the arguments.
+//      *
+//      * @see https://www.php.net/manual/function.array-intersect.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function intersect(extends array $a, array ...$arrays): array
+//     {
+//         return \array_intersect($a, ...$arrays);
+//     }
+
+//     /**
+//      * Checks whether a given array is a list.
+//      *
+//      * An array is considered a list if its keys consist of consecutive numbers from
+//      * `0` to `count($a) - 1`.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return bool `true` if `$a` is a list; otherwise `false`.
+//      *
+//      * @see https://www.php.net/manual/function.array-is-list.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function isList(extends array $a): bool
+//     {
+//         return \array_is_list($a);
+//     }
+
+//     // Adapted parameter order: array is not the first PHP parameter
+//     /**
+//      * Checks if the given key or index exists in the array.
+//      *
+//      * Adapted parameter order: the extended array is the haystack. In PHP,
+//      * `array_key_exists($key, $array)` takes the key first; here `$a` is the array
+//      * and `$key` follows.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param mixed $key Value to check.
+//      * @return bool `true` on success or `false` on failure.
+//      *
+//      * @see https://www.php.net/manual/function.array-key-exists.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function keyExists(extends array $a, mixed $key): bool
+//     {
+//         return \array_key_exists($key, $a);
+//     }
+
+//     /**
+//      * Gets the first key of an array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return string|int|null The first key of `$a` if it is not empty; `null` otherwise.
+//      *
+//      * @see https://www.php.net/manual/function.array-key-first.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function keyFirst(extends array $a): string|int|null
+//     {
+//         return \array_key_first($a);
+//     }
+
+//     /**
+//      * Gets the last key of an array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return string|int|null The last key of `$a` if it is not empty; `null` otherwise.
+//      *
+//      * @see https://www.php.net/manual/function.array-key-last.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function keyLast(extends array $a): string|int|null
+//     {
+//         return \array_key_last($a);
+//     }
+
+//     /**
+//      * Return all the keys or a subset of the keys of an array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return array An array of all the keys in `$a`.
+//      *
+//      * @see https://www.php.net/manual/function.array-keys.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function keys(extends array $a): array
+//     {
+//         return \array_keys($a);
+//     }
+
+//     // Adapted parameter order: array is not the first PHP parameter
+//     /**
+//      * Applies the callback to the elements of the given arrays.
+//      *
+//      * Adapted parameter order: the extended array is the primary input array. In PHP,
+//      * `array_map($callback, $array, ...$arrays)` takes the callback first; here `$a`
+//      * is the array and `$callback` follows.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param ?callable $callback A callable to run for each element. `null` can be
+//      *                            passed to perform a zip operation on multiple arrays.
+//      * @param array ...$arrays Supplementary arrays to run through `$callback`.
+//      * @return array An array containing the results of applying `$callback`.
+//      *
+//      * @see https://www.php.net/manual/function.array-map.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function map(extends array $a, ?callable $callback, array ...$arrays): array
+//     {
+//         return \array_map($callback, $a, ...$arrays);
+//     }
+
+//     /**
+//      * Merge one or more arrays recursively.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param array ...$arrays Variable list of arrays to recursively merge.
+//      * @return array An array of values resulting from merging the arguments together.
+//      *
+//      * @see https://www.php.net/manual/function.array-merge-recursive.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function mergeRecursive(extends array $a, array ...$arrays): array
+//     {
+//         return \array_merge_recursive($a, ...$arrays);
+//     }
+
+//     /**
+//      * Merge one or more arrays.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param array ...$arrays Variable list of arrays to merge.
+//      * @return array The resulting array.
+//      *
+//      * @see https://www.php.net/manual/function.array-merge.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function merge(extends array $a, array ...$arrays): array
+//     {
+//         return \array_merge($a, ...$arrays);
+//     }
+
+//     /**
+//      * Sort multiple or multi-dimensional arrays.
+//      *
+//      * This function mutates `$a` (and any additional arrays passed by reference in
+//      * `$rest`) in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param mixed &...$rest Additional arrays and/or sort-order / sort-flag arguments.
+//      * @return bool `true` on success or `false` on failure.
+//      *
+//      * @see https://www.php.net/manual/function.array-multisort.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function multiSort(extends array &$a, mixed &...$rest): bool
+//     {
+//         return \array_multisort($a, ...$rest);
+//     }
+
+//     /**
+//      * Pad array to the specified length with a value.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param int $length New size of the array.
+//      * @param mixed $value Value to pad if `$a` is smaller than `$length`.
+//      * @return array A copy of `$a` padded to size specified by `$length` with value
+//      *               `$value`. If `$length` is positive then the array is padded on the
+//      *               right; if negative, on the left. If the absolute value of `$length`
+//      *               is less than or equal to the length of `$a`, no padding takes place.
+//      *
+//      * @see https://www.php.net/manual/function.array-pad.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function pad(extends array $a, int $length, mixed $value): array
+//     {
+//         return \array_pad($a, $length, $value);
+//     }
+
+//     /**
+//      * Pop the element off the end of array.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @return mixed The last value of `$a`. If `$a` is empty (or is not an array),
+//      *               `null` will be returned.
+//      *
+//      * @see https://www.php.net/manual/function.array-pop.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function pop(extends array &$a): mixed
+//     {
+//         return \array_pop($a);
+//     }
+
+//     /**
+//      * Calculate the product of values in an array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return int|float The product as an integer or float.
+//      *
+//      * @see https://www.php.net/manual/function.array-product.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function product(extends array $a): int|float
+//     {
+//         return \array_product($a);
+//     }
+
+//     /**
+//      * Push one or more elements onto the end of array.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param mixed ...$values The values to push onto `$a`.
+//      * @return int The new number of elements in the array.
+//      *
+//      * @see https://www.php.net/manual/function.array-push.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function push(extends array &$a, mixed ...$values): int
+//     {
+//         return \array_push($a, ...$values);
+//     }
+
+//     /**
+//      * Pick one or more random keys out of an array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param int $num Specifies how many entries should be picked. Defaults to `1`.
+//      * @return array|string|int When picking only one entry, returns the key for a
+//      *                          random entry. Otherwise, an array of keys.
+//      *
+//      * @see https://www.php.net/manual/function.array-rand.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function rand(extends array $a, int $num = 1): array|string|int
+//     {
+//         return \array_rand($a, $num);
+//     }
+
+//     /**
+//      * Iteratively reduce the array to a single value using a callback function.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param callable $callback The callback. Signature: `callback(mixed $carry, mixed $item): mixed`.
+//      * @param mixed $initial If the optional `$initial` is available, it will be used
+//      *                       at the beginning of the process, or as final result if the
+//      *                       array is empty. Defaults to `null`.
+//      * @return mixed The resulting value.
+//      *
+//      * @see https://www.php.net/manual/function.array-reduce.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function reduce(extends array $a, callable $callback, mixed $initial = null): mixed
+//     {
+//         return \array_reduce($a, $callback, $initial);
+//     }
+
+//     /**
+//      * Replaces elements from passed arrays into the first array recursively.
+//      *
+//      * @param array $a The array this method is called on (the array in which elements
+//      *                 are replaced).
+//      * @param array ...$replacements Arrays from which elements will be extracted.
+//      * @return array An array with replaced values recursively.
+//      *
+//      * @see https://www.php.net/manual/function.array-replace-recursive.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function replaceRecursive(extends array $a, array ...$replacements): array
+//     {
+//         return \array_replace_recursive($a, ...$replacements);
+//     }
+
+//     /**
+//      * Replaces elements from passed arrays into the first array.
+//      *
+//      * @param array $a The array this method is called on (the array in which elements
+//      *                 are replaced).
+//      * @param array ...$replacements Arrays from which elements will be extracted.
+//      *                               Values from later arrays overwrite earlier ones.
+//      * @return array An array with replaced values.
+//      *
+//      * @see https://www.php.net/manual/function.array-replace.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function replace(extends array $a, array ...$replacements): array
+//     {
+//         return \array_replace($a, ...$replacements);
+//     }
+
+//     /**
+//      * Return an array with elements in reverse order.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param bool $preserve_keys If set to `true`, numeric keys are preserved.
+//      *                            Non-numeric keys are not affected. Defaults to `false`.
+//      * @return array The reversed array.
+//      *
+//      * @see https://www.php.net/manual/function.array-reverse.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function reverse(extends array $a, bool $preserve_keys = false): array
+//     {
+//         return \array_reverse($a, $preserve_keys);
+//     }
+
+//     // Adapted parameter order: array is not the first PHP parameter
+//     /**
+//      * Searches the array for a given value and returns the first corresponding key
+//      * if successful.
+//      *
+//      * Adapted parameter order: the extended array is the haystack. In PHP,
+//      * `array_search($needle, $haystack, $strict)` takes the needle first; here `$a`
+//      * is the haystack and `$needle` follows.
+//      *
+//      * @param array $a The array this method is called on (haystack).
+//      * @param mixed $needle The searched value.
+//      * @param bool $strict If `true`, also checks the types of `$needle` in `$a`.
+//      *                     Defaults to `false`.
+//      * @return string|int|false The key for `$needle` if it is found in `$a`, or
+//      *                          `false` otherwise.
+//      *
+//      * @see https://www.php.net/manual/function.array-search.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function search(extends array $a, mixed $needle, bool $strict = false): string|int|false
+//     {
+//         return \array_search($needle, $a, $strict);
+//     }
+
+//     /**
+//      * Shift an element off the beginning of array.
+//      *
+//      * This function mutates `$a` in place (and reindexes numeric keys).
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @return mixed The shifted value, or `null` if `$a` is empty or is not an array.
+//      *
+//      * @see https://www.php.net/manual/function.array-shift.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function shift(extends array &$a): mixed
+//     {
+//         return \array_shift($a);
+//     }
+
+//     /**
+//      * Extract a slice of the array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param int $offset If `$offset` is non-negative, the sequence will start at that
+//      *                    offset in `$a`. If negative, it will start that far from the
+//      *                    end of `$a`.
+//      * @param ?int $length If `$length` is given and is positive, then the sequence will
+//      *                     have up to that many elements in it. Defaults to `null`
+//      *                     (through the end of `$a`).
+//      * @param bool $preserve_keys Note that `array_slice()` will reorder and reset the
+//      *                            numeric array indices by default. You can change this
+//      *                            behaviour by setting `$preserve_keys` to `true`.
+//      *                            Defaults to `false`.
+//      * @return array The slice. If `$offset` is larger than the size of `$a`, an empty
+//      *               array is returned.
+//      *
+//      * @see https://www.php.net/manual/function.array-slice.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function slice(extends array $a, int $offset, ?int $length = null, bool $preserve_keys = false): array
+//     {
+//         return \array_slice($a, $offset, $length, $preserve_keys);
+//     }
+
+//     /**
+//      * Remove a portion of the array and replace it with something else.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on (input array).
+//      * @param int $offset If `$offset` is positive then the start of the removed portion
+//      *                    is at that offset from the beginning of `$a`. If negative, from
+//      *                    the end.
+//      * @param ?int $length If `$length` is omitted, removes everything from `$offset` to
+//      *                     the end of the array. Defaults to `null`.
+//      * @param mixed $replacement If `$replacement` is specified, then the removed elements
+//      *                           are replaced with elements from this array. Defaults to `[]`.
+//      * @return array An array consisting of the extracted elements.
+//      *
+//      * @see https://www.php.net/manual/function.array-splice.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function splice(extends array &$a, int $offset, ?int $length = null, mixed $replacement = []): array
+//     {
+//         return \array_splice($a, $offset, $length, $replacement);
+//     }
+
+//     /**
+//      * Calculate the sum of values in an array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return int|float The sum of values as an integer or float; `0` if `$a` is empty.
+//      *
+//      * @see https://www.php.net/manual/function.array-sum.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function sum(extends array $a): int|float
+//     {
+//         return \array_sum($a);
+//     }
+
+//     /**
+//      * Computes the difference of arrays with additional index check, compares data
+//      * by a callback function.
+//      *
+//      * The last argument in `$rest` must be a data-comparison callback.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param mixed ...$rest Arrays to compare against, followed by a data-comparison callback.
+//      * @return array Entries from `$a` that are not present in any other array.
+//      *
+//      * @see https://www.php.net/manual/function.array-udiff-assoc.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function uDiffAssoc(extends array $a, mixed ...$rest): array
+//     {
+//         return \array_udiff_assoc($a, ...$rest);
+//     }
+
+//     /**
+//      * Computes the difference of arrays with additional index check, compares data
+//      * and indexes by separate callback functions.
+//      *
+//      * The last two arguments in `$rest` must be data-comparison and key-comparison
+//      * callbacks.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param mixed ...$rest Arrays to compare against, followed by two callbacks.
+//      * @return array Entries from `$a` that are not present in any other array.
+//      *
+//      * @see https://www.php.net/manual/function.array-udiff-uassoc.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function uDiffUAssoc(extends array $a, mixed ...$rest): array
+//     {
+//         return \array_udiff_uassoc($a, ...$rest);
+//     }
+
+//     /**
+//      * Computes the difference of arrays by using a callback function for data comparison.
+//      *
+//      * The last argument in `$rest` must be a data-comparison callback.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param mixed ...$rest Arrays to compare against, followed by a data-comparison callback.
+//      * @return array Entries from `$a` that are not present in any other array.
+//      *
+//      * @see https://www.php.net/manual/function.array-udiff.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function uDiff(extends array $a, mixed ...$rest): array
+//     {
+//         return \array_udiff($a, ...$rest);
+//     }
+
+//     /**
+//      * Computes the intersection of arrays with additional index check, compares data
+//      * by a callback function.
+//      *
+//      * The last argument in `$rest` must be a data-comparison callback.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param mixed ...$rest Arrays to compare against, followed by a data-comparison callback.
+//      * @return array Entries from `$a` that are present in all other arrays.
+//      *
+//      * @see https://www.php.net/manual/function.array-uintersect-assoc.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function uIntersectAssoc(extends array $a, mixed ...$rest): array
+//     {
+//         return \array_uintersect_assoc($a, ...$rest);
+//     }
+
+//     /**
+//      * Computes the intersection of arrays with additional index check, compares data
+//      * and indexes by separate callback functions.
+//      *
+//      * The last two arguments in `$rest` must be data-comparison and key-comparison
+//      * callbacks.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param mixed ...$rest Arrays to compare against, followed by two callbacks.
+//      * @return array Entries from `$a` that are present in all other arrays.
+//      *
+//      * @see https://www.php.net/manual/function.array-uintersect-uassoc.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function uIntersectUAssoc(extends array $a, mixed ...$rest): array
+//     {
+//         return \array_uintersect_uassoc($a, ...$rest);
+//     }
+
+//     /**
+//      * Computes the intersection of arrays, compares data by a callback function.
+//      *
+//      * The last argument in `$rest` must be a data-comparison callback.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param mixed ...$rest Arrays to compare against, followed by a data-comparison callback.
+//      * @return array Entries from `$a` that are present in all other arrays.
+//      *
+//      * @see https://www.php.net/manual/function.array-uintersect.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function uIntersect(extends array $a, mixed ...$rest): array
+//     {
+//         return \array_uintersect($a, ...$rest);
+//     }
+
+//     /**
+//      * Removes duplicate values from an array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param int $flags The optional second parameter `$flags` may be used to modify
+//      *                   the comparison behavior. Defaults to `SORT_STRING`.
+//      * @return array The filtered array.
+//      *
+//      * @see https://www.php.net/manual/function.array-unique.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function unique(extends array $a, int $flags = \SORT_STRING): array
+//     {
+//         return \array_unique($a, $flags);
+//     }
+
+//     /**
+//      * Prepend one or more elements to the beginning of an array.
+//      *
+//      * This function mutates `$a` in place (and reindexes numeric keys).
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param mixed ...$values The values to prepend.
+//      * @return int The new number of elements in the array.
+//      *
+//      * @see https://www.php.net/manual/function.array-unshift.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function unshift(extends array &$a, mixed ...$values): int
+//     {
+//         return \array_unshift($a, ...$values);
+//     }
+
+//     /**
+//      * Return all the values of an array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return array An indexed array of values.
+//      *
+//      * @see https://www.php.net/manual/function.array-values.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function values(extends array $a): array
+//     {
+//         return \array_values($a);
+//     }
+
+//     /**
+//      * Apply a user function recursively to every member of an array.
+//      *
+//      * This function may mutate `$a` in place if the callback takes values by reference.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param callable $callback Typically takes two parameters: value and key.
+//      * @param mixed $arg If supplied, passed as the third parameter to `$callback`.
+//      *                   Defaults to `null`.
+//      * @return true Returns `true`.
+//      *
+//      * @see https://www.php.net/manual/function.array-walk-recursive.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function walkRecursive(extends array &$a, callable $callback, mixed $arg = null): true
+//     {
+//         return \array_walk_recursive($a, $callback, $arg);
+//     }
+
+//     /**
+//      * Apply a user supplied function to every member of an array.
+//      *
+//      * This function may mutate `$a` in place if the callback takes values by reference.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param callable $callback Typically takes two parameters: value and key.
+//      * @param mixed $arg If supplied, passed as the third parameter to `$callback`.
+//      *                   Defaults to `null`.
+//      * @return true Returns `true`.
+//      *
+//      * @see https://www.php.net/manual/function.array-walk.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function walk(extends array &$a, callable $callback, mixed $arg = null): true
+//     {
+//         return \array_walk($a, $callback, $arg);
+//     }
+
+//     /**
+//      * Sort an array in descending order and maintain index association.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param int $flags Optional sorting type flag. Defaults to `SORT_REGULAR`.
+//      * @return true Always returns `true`.
+//      *
+//      * @see https://www.php.net/manual/function.arsort.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function arSort(extends array &$a, int $flags = \SORT_REGULAR): true
+//     {
+//         return \arsort($a, $flags);
+//     }
+
+//     /**
+//      * Sort an array in ascending order and maintain index association.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param int $flags Optional sorting type flag. Defaults to `SORT_REGULAR`.
+//      * @return true Always returns `true`.
+//      *
+//      * @see https://www.php.net/manual/function.asort.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function aSort(extends array &$a, int $flags = \SORT_REGULAR): true
+//     {
+//         return \asort($a, $flags);
+//     }
+
+//     /**
+//      * Counts all elements in an array or Countable object.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param int $mode If set to `COUNT_RECURSIVE`, counts recursively. Defaults to
+//      *                  `COUNT_NORMAL`.
+//      * @return int The number of elements in `$a`.
+//      *
+//      * @see https://www.php.net/manual/function.count.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function count(extends array $a, int $mode = \COUNT_NORMAL): int
+//     {
+//         return \count($a, $mode);
+//     }
+
+//     /**
+//      * Return the current element in an array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return mixed The current element, or `false` if beyond the end.
+//      *
+//      * @see https://www.php.net/manual/function.current.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function current(extends array $a): mixed
+//     {
+//         return \current($a);
+//     }
+
+//     /**
+//      * Set the internal pointer of an array to its last element.
+//      *
+//      * This function advances the array's internal pointer (by-ref).
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @return mixed The value of the last element, or `false` if empty.
+//      *
+//      * @see https://www.php.net/manual/function.end.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function end(extends array &$a): mixed
+//     {
+//         return \end($a);
+//     }
+
+//     /**
+//      * Import variables into the current symbol table from an array.
+//      *
+//      * This function mutates `$a` when `EXTR_REFS` is used.
+//      *
+//      * @param array &$a The array this method is called on (associative array of variables).
+//      * @param int $flags How invalid/numeric keys and collisions are treated. Defaults
+//      *                   to `EXTR_OVERWRITE`.
+//      * @param string $prefix Only used if `$flags` includes a prefix mode. Defaults to `""`.
+//      * @return int The number of variables successfully imported into the symbol table.
+//      *
+//      * @see https://www.php.net/manual/function.extract.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function extract(extends array &$a, int $flags = \EXTR_OVERWRITE, string $prefix = ""): int
+//     {
+//         return \extract($a, $flags, $prefix);
+//     }
+
+//     /**
+//      * Fetch a key from an array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return string|int|null The key of the current element, or `null` on failure.
+//      *
+//      * @see https://www.php.net/manual/function.key.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function key(extends array $a): string|int|null
+//     {
+//         return \key($a);
+//     }
+
+//     /**
+//      * Sort an array by key in descending order.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param int $flags Optional sorting type flag. Defaults to `SORT_REGULAR`.
+//      * @return true Always returns `true`.
+//      *
+//      * @see https://www.php.net/manual/function.krsort.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function krSort(extends array &$a, int $flags = \SORT_REGULAR): true
+//     {
+//         return \krsort($a, $flags);
+//     }
+
+//     /**
+//      * Sort an array by key in ascending order.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param int $flags Optional sorting type flag. Defaults to `SORT_REGULAR`.
+//      * @return true Always returns `true`.
+//      *
+//      * @see https://www.php.net/manual/function.ksort.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function kSort(extends array &$a, int $flags = \SORT_REGULAR): true
+//     {
+//         return \ksort($a, $flags);
+//     }
+
+//     /**
+//      * Sort an array using a case insensitive "natural order" algorithm.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @return bool `true` on success or `false` on failure.
+//      *
+//      * @see https://www.php.net/manual/function.natcasesort.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function natCaseSort(extends array &$a): bool
+//     {
+//         return \natcasesort($a);
+//     }
+
+//     /**
+//      * Sort an array using a "natural order" algorithm.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @return bool `true` on success or `false` on failure.
+//      *
+//      * @see https://www.php.net/manual/function.natsort.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function natSort(extends array &$a): bool
+//     {
+//         return \natsort($a);
+//     }
+
+//     /**
+//      * Advance the internal pointer of an array.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @return mixed The array value in the next place that's pointed to by the
+//      *               internal array pointer, or `false` if there are no more elements.
+//      *
+//      * @see https://www.php.net/manual/function.next.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function next(extends array &$a): mixed
+//     {
+//         return \next($a);
+//     }
+
+//     /**
+//      * Alias of `current()` — return the current element in an array.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return mixed The current element, or `false` if beyond the end.
+//      *
+//      * @see https://www.php.net/manual/function.pos.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function pos(extends array $a): mixed
+//     {
+//         return \pos($a);
+//     }
+
+//     /**
+//      * Rewind the internal array pointer.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @return mixed The array value in the previous place that's pointed to by the
+//      *               internal array pointer, or `false` if there are no more elements.
+//      *
+//      * @see https://www.php.net/manual/function.prev.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function prev(extends array &$a): mixed
+//     {
+//         return \prev($a);
+//     }
+
+//     /**
+//      * Set the internal pointer of an array to its first element.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @return mixed The value of the first array element, or `false` if the array is empty.
+//      *
+//      * @see https://www.php.net/manual/function.reset.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function reset(extends array &$a): mixed
+//     {
+//         return \reset($a);
+//     }
+
+//     /**
+//      * Sort an array in descending order.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param int $flags Optional sorting type flag. Defaults to `SORT_REGULAR`.
+//      * @return bool `true` on success or `false` on failure.
+//      *
+//      * @see https://www.php.net/manual/function.rsort.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function rSort(extends array &$a, int $flags = \SORT_REGULAR): bool
+//     {
+//         return \rsort($a, $flags);
+//     }
+
+//     /**
+//      * Shuffle an array.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @return true Always returns `true`.
+//      *
+//      * @see https://www.php.net/manual/function.shuffle.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function shuffle(extends array &$a): true
+//     {
+//         return \shuffle($a);
+//     }
+
+//     /**
+//      * Sort an array in ascending order.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param int $flags Optional sorting type flag. Defaults to `SORT_REGULAR`.
+//      * @return true Always returns `true`.
+//      *
+//      * @see https://www.php.net/manual/function.sort.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function sort(extends array &$a, int $flags = \SORT_REGULAR): true
+//     {
+//         return \sort($a, $flags);
+//     }
+
+//     /**
+//      * Sort an array with a user-defined comparison function and maintain index
+//      * association.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param callable $callback The comparison function. Must return an integer less
+//      *                           than, equal to, or greater than zero.
+//      * @return true Always returns `true`.
+//      *
+//      * @see https://www.php.net/manual/function.uasort.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function uaSort(extends array &$a, callable $callback): true
+//     {
+//         return \uasort($a, $callback);
+//     }
+
+//     /**
+//      * Sort an array by keys using a user-defined comparison function.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param callable $callback The comparison function for keys.
+//      * @return true Always returns `true`.
+//      *
+//      * @see https://www.php.net/manual/function.uksort.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function ukSort(extends array &$a, callable $callback): true
+//     {
+//         return \uksort($a, $callback);
+//     }
+
+//     /**
+//      * Sort an array by values using a user-defined comparison function.
+//      *
+//      * This function mutates `$a` in place.
+//      *
+//      * @param array &$a The array this method is called on.
+//      * @param callable $callback The comparison function for values.
+//      * @return true Always returns `true`.
+//      *
+//      * @see https://www.php.net/manual/function.usort.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function uSort(extends array &$a, callable $callback): true
+//     {
+//         return \usort($a, $callback);
+//     }
+
+//     // Adapted parameter order: array is not the first PHP parameter
+//     /**
+//      * Join array elements with a string.
+//      *
+//      * Adapted parameter order: the extended array is the array being joined. In PHP,
+//      * `implode($separator, $array)` takes the separator first; here `$a` is the array
+//      * and `$separator` follows.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @param string $separator The glue string between elements. Defaults to `""`.
+//      * @return string A string containing a string representation of all array elements
+//      *                in the same order, with the glue string between each element.
+//      *
+//      * @see https://www.php.net/manual/function.implode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function implode(extends array $a, string $separator = ""): string
+//     {
+//         return \implode($separator, $a);
+//     }
+
+//     /**
+//      * Returns the JSON representation of a value.
+//      *
+//      * @param array $a The array this method is called on (the value being encoded).
+//      * @param int $flags Bitmask of JSON encode options. Defaults to `0`.
+//      * @param int $depth Maximum nesting depth. Defaults to `512`.
+//      * @return string|false A JSON encoded string on success, or `false` on failure.
+//      *
+//      * @see https://www.php.net/manual/function.json-encode.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function jsonEncode(extends array $a, int $flags = 0, int $depth = 512): string|false
+//     {
+//         return \json_encode($a, $flags, $depth);
+//     }
+
+//     /**
+//      * Determine whether a variable is empty.
+//      *
+//      * `empty()` is a language construct. For an array, an empty array `[]` is
+//      * considered empty.
+//      *
+//      * @param array $a The array this method is called on.
+//      * @return bool `true` if `$a` is considered empty; otherwise `false`.
+//      *
+//      * @see https://www.php.net/manual/function.empty.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function empty(extends array $a): bool
+//     {
+//         return empty($a);
+//     }
+// }

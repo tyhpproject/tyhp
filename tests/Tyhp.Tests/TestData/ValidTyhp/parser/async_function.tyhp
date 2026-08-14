@@ -1,0 +1,28 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+async function fetchCount(): int
+{
+    int $value = await loadCountAsync();
+    return $value;
+}
+
+async function sumAsync(array<int> $values): int
+{
+    int $total = 0;
+    foreach (await asyncValues($values) as $item) {
+        $total += $item;
+    }
+    return $total;
+}
+
+async function loadCountAsync(): int
+{
+    return 42;
+}
+
+async function asyncValues(array<int> $values): array<int>
+{
+    return $values;
+}

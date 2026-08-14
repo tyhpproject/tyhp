@@ -1,0 +1,17 @@
+{
+  "suite": "story15/generics-erasure",
+  "description": "Story 15 — interop: generic class type-parameter erasure",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "generic_box_class",
+      "file": "generics.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Box.php"
+      }
+    }
+  ]
+}

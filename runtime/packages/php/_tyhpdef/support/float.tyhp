@@ -1,0 +1,582 @@
+<?tyhp
+
+// // root namespace
+
+// extension FloatExtensions {
+//     /**
+//      * Absolute value.
+//      *
+//      * Returns the absolute value of this float.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return float The absolute value of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.abs.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function abs(extends float $f): float
+//     {
+//         return \abs($f);
+//     }
+
+//     /**
+//      * Arc cosine.
+//      *
+//      * Returns the arc cosine of `$f` in radians. `$f` should be between -1 and 1.
+//      *
+//      * @param float $f The float this method is called on (argument to acos).
+//      * @return float The arc cosine of `$f` in radians.
+//      *
+//      * @see https://www.php.net/manual/function.acos.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function acos(extends float $f): float
+//     {
+//         return \acos($f);
+//     }
+
+//     /**
+//      * Inverse hyperbolic cosine.
+//      *
+//      * Returns the inverse hyperbolic cosine of `$f`.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return float The inverse hyperbolic cosine of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.acosh.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function acosh(extends float $f): float
+//     {
+//         return \acosh($f);
+//     }
+
+//     /**
+//      * Arc sine.
+//      *
+//      * Returns the arc sine of `$f` in radians. `$f` should be between -1 and 1.
+//      *
+//      * @param float $f The float this method is called on (argument to asin).
+//      * @return float The arc sine of `$f` in radians.
+//      *
+//      * @see https://www.php.net/manual/function.asin.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function asin(extends float $f): float
+//     {
+//         return \asin($f);
+//     }
+
+//     /**
+//      * Inverse hyperbolic sine.
+//      *
+//      * Returns the inverse hyperbolic sine of `$f`.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return float The inverse hyperbolic sine of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.asinh.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function asinh(extends float $f): float
+//     {
+//         return \asinh($f);
+//     }
+
+//     /**
+//      * Arc tangent.
+//      *
+//      * Returns the arc tangent of `$f` in radians.
+//      *
+//      * @param float $f The float this method is called on (argument to atan).
+//      * @return float The arc tangent of `$f` in radians.
+//      *
+//      * @see https://www.php.net/manual/function.atan.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function atan(extends float $f): float
+//     {
+//         return \atan($f);
+//     }
+
+//     /**
+//      * Inverse hyperbolic tangent.
+//      *
+//      * Returns the inverse hyperbolic tangent of `$f`.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return float The inverse hyperbolic tangent of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.atanh.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function atanh(extends float $f): float
+//     {
+//         return \atanh($f);
+//     }
+
+//     /**
+//      * Round fractions up.
+//      *
+//      * Returns the next highest integer value by rounding up `$f` if necessary.
+//      * Note: PHP's `ceil()` always returns a float.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return float `$f` rounded up to the next highest integer, as a float.
+//      *
+//      * @see https://www.php.net/manual/function.ceil.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function ceil(extends float $f): float
+//     {
+//         return \ceil($f);
+//     }
+
+//     /**
+//      * Cosine.
+//      *
+//      * Returns the cosine of `$f`, where `$f` is in radians.
+//      *
+//      * @param float $f The float this method is called on (angle in radians).
+//      * @return float The cosine of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.cos.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function cos(extends float $f): float
+//     {
+//         return \cos($f);
+//     }
+
+//     /**
+//      * Hyperbolic cosine.
+//      *
+//      * Returns the hyperbolic cosine of `$f`, defined as `(exp($f) + exp(-$f))/2`.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return float The hyperbolic cosine of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.cosh.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function cosh(extends float $f): float
+//     {
+//         return \cosh($f);
+//     }
+
+//     /**
+//      * Converts a number in degrees to radians.
+//      *
+//      * @param float $f The float this method is called on (degrees).
+//      * @return float `$f` converted to radians.
+//      *
+//      * @see https://www.php.net/manual/function.deg2rad.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function deg2Rad(extends float $f): float
+//     {
+//         return \deg2rad($f);
+//     }
+
+//     /**
+//      * Calculates the exponent of `e`.
+//      *
+//      * Returns `e` raised to the power of `$f`.
+//      *
+//      * @param float $f The float this method is called on (the exponent).
+//      * @return float `e` raised to the power of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.exp.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function exp(extends float $f): float
+//     {
+//         return \exp($f);
+//     }
+
+//     /**
+//      * Returns `exp($f) - 1`, computed in a way that is accurate even when `$f` is
+//      * close to zero.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return float `exp($f) - 1`.
+//      *
+//      * @see https://www.php.net/manual/function.expm1.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function expm1(extends float $f): float
+//     {
+//         return \expm1($f);
+//     }
+
+//     /**
+//      * Divides two floating-point numbers according to IEEE 754.
+//      *
+//      * Returns the floating point result of dividing `$f` by `$num2`. Division by
+//      * zero yields `INF`, `-INF`, or `NAN` as appropriate rather than a warning.
+//      *
+//      * @param float $f The float this method is called on (dividend).
+//      * @param float $num2 The divisor.
+//      * @return float The floating point result of the division.
+//      *
+//      * @see https://www.php.net/manual/function.fdiv.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function fdiv(extends float $f, float $num2): float
+//     {
+//         return \fdiv($f, $num2);
+//     }
+
+//     /**
+//      * Round fractions down.
+//      *
+//      * Returns the next lowest integer value by rounding down `$f` if necessary.
+//      * Note: PHP's `floor()` always returns a float.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return float `$f` rounded down to the next lowest integer, as a float.
+//      *
+//      * @see https://www.php.net/manual/function.floor.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function floor(extends float $f): float
+//     {
+//         return \floor($f);
+//     }
+
+//     /**
+//      * Returns the floating point remainder (modulo) of the division of `$f` by `$num2`.
+//      *
+//      * @param float $f The float this method is called on (dividend).
+//      * @param float $num2 The divisor.
+//      * @return float The floating point remainder of `$f / $num2`.
+//      *
+//      * @see https://www.php.net/manual/function.fmod.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function fmod(extends float $f, float $num2): float
+//     {
+//         return \fmod($f, $num2);
+//     }
+
+//     /**
+//      * Finds whether a value is a legal finite number.
+//      *
+//      * Checks whether `$f` is a legal finite number on this platform.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return bool `true` if `$f` is a legal finite number; otherwise `false`.
+//      *
+//      * @see https://www.php.net/manual/function.is-finite.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function isFinite(extends float $f): bool
+//     {
+//         return \is_finite($f);
+//     }
+
+//     /**
+//      * Finds whether a value is infinite.
+//      *
+//      * Checks whether `$f` is infinite (positive or negative).
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return bool `true` if `$f` is infinite; otherwise `false`.
+//      *
+//      * @see https://www.php.net/manual/function.is-infinite.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function isInfinite(extends float $f): bool
+//     {
+//         return \is_infinite($f);
+//     }
+
+//     /**
+//      * Finds whether a value is not a number.
+//      *
+//      * Checks whether `$f` is `NAN` (not a number).
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return bool `true` if `$f` is `NAN`; otherwise `false`.
+//      *
+//      * @see https://www.php.net/manual/function.is-nan.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function isNan(extends float $f): bool
+//     {
+//         return \is_nan($f);
+//     }
+
+//     /**
+//      * Base-10 logarithm.
+//      *
+//      * Returns the base-10 logarithm of `$f`.
+//      *
+//      * @param float $f The float this method is called on (argument).
+//      * @return float The base-10 logarithm of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.log10.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function log10(extends float $f): float
+//     {
+//         return \log10($f);
+//     }
+
+//     /**
+//      * Returns `log(1 + $f)`, computed in a way that is accurate even when `$f` is
+//      * close to zero.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return float `log(1 + $f)`.
+//      *
+//      * @see https://www.php.net/manual/function.log1p.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function log1p(extends float $f): float
+//     {
+//         return \log1p($f);
+//     }
+
+//     /**
+//      * Natural logarithm / logarithm of arbitrary base.
+//      *
+//      * If `$base` is omitted (or `M_E`), returns the natural logarithm of `$f`.
+//      * Otherwise returns `log($f) / log($base)`.
+//      *
+//      * @param float $f The float this method is called on (argument).
+//      * @param float $base The optional logarithmic base. Defaults to `M_E` (natural log).
+//      * @return float The logarithm of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.log.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function log(extends float $f, float $base = \M_E): float
+//     {
+//         return \log($f, $base);
+//     }
+
+//     /**
+//      * Find highest value.
+//      *
+//      * If only `$f` is given, returns `$f`. If additional values are provided, returns
+//      * the largest of `$f` and those values.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @param int|float ...$values Additional values to compare.
+//      * @return int|float The highest value among `$f` and `$values`.
+//      *
+//      * @see https://www.php.net/manual/function.max.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function max(extends float $f, int|float ...$values): int|float
+//     {
+//         return \max($f, ...$values);
+//     }
+
+//     /**
+//      * Find lowest value.
+//      *
+//      * If only `$f` is given, returns `$f`. If additional values are provided, returns
+//      * the smallest of `$f` and those values.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @param int|float ...$values Additional values to compare.
+//      * @return int|float The lowest value among `$f` and `$values`.
+//      *
+//      * @see https://www.php.net/manual/function.min.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function min(extends float $f, int|float ...$values): int|float
+//     {
+//         return \min($f, ...$values);
+//     }
+
+//     /**
+//      * Converts a radian number to degrees.
+//      *
+//      * @param float $f The float this method is called on (radians).
+//      * @return float `$f` converted to degrees.
+//      *
+//      * @see https://www.php.net/manual/function.rad2deg.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function rad2Deg(extends float $f): float
+//     {
+//         return \rad2deg($f);
+//     }
+
+//     /**
+//      * Rounds a float.
+//      *
+//      * Returns the rounded value of `$f` to the specified `$precision` (number of digits
+//      * after the decimal point). `$precision` may also be negative or zero (default).
+//      *
+//      * @param float $f The float this method is called on.
+//      * @param int $precision The number of decimal digits to round to. Defaults to `0`.
+//      * @param int $mode One of `PHP_ROUND_HALF_UP`, `PHP_ROUND_HALF_DOWN`,
+//      *                  `PHP_ROUND_HALF_EVEN`, or `PHP_ROUND_HALF_ODD`. Defaults to
+//      *                  `PHP_ROUND_HALF_UP`.
+//      * @return float The value rounded to the given `$precision` as a float.
+//      *
+//      * @see https://www.php.net/manual/function.round.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function round(extends float $f, int $precision = 0, int $mode = \PHP_ROUND_HALF_UP): float
+//     {
+//         return \round($f, $precision, $mode);
+//     }
+
+//     /**
+//      * Sine.
+//      *
+//      * Returns the sine of `$f`, where `$f` is in radians.
+//      *
+//      * @param float $f The float this method is called on (angle in radians).
+//      * @return float The sine of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.sin.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function sin(extends float $f): float
+//     {
+//         return \sin($f);
+//     }
+
+//     /**
+//      * Hyperbolic sine.
+//      *
+//      * Returns the hyperbolic sine of `$f`, defined as `(exp($f) - exp(-$f))/2`.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return float The hyperbolic sine of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.sinh.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function sinh(extends float $f): float
+//     {
+//         return \sinh($f);
+//     }
+
+//     /**
+//      * Square root.
+//      *
+//      * Returns the square root of `$f`.
+//      *
+//      * @param float $f The float this method is called on (argument).
+//      * @return float The square root of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.sqrt.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function sqrt(extends float $f): float
+//     {
+//         return \sqrt($f);
+//     }
+
+//     /**
+//      * Tangent.
+//      *
+//      * Returns the tangent of `$f`, where `$f` is in radians.
+//      *
+//      * @param float $f The float this method is called on (angle in radians).
+//      * @return float The tangent of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.tan.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function tan(extends float $f): float
+//     {
+//         return \tan($f);
+//     }
+
+//     /**
+//      * Hyperbolic tangent.
+//      *
+//      * Returns the hyperbolic tangent of `$f`, defined as `sinh($f)/cosh($f)`.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return float The hyperbolic tangent of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.tanh.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function tanh(extends float $f): float
+//     {
+//         return \tanh($f);
+//     }
+
+//     /**
+//      * Format a number with grouped thousands.
+//      *
+//      * Maps to PHP's `number_format()` (the `number_` prefix is removed for a shorter
+//      * method name).
+//      *
+//      * @param float $f The float this method is called on (the number being formatted).
+//      * @param int $decimals The number of decimal digits. Defaults to `0`.
+//      * @param ?string $decimal_separator Separator for the decimal point. Defaults to `"."`.
+//      * @param ?string $thousands_separator Separator for thousands. Defaults to `","`.
+//      * @return string A formatted version of `$f`.
+//      *
+//      * @see https://www.php.net/manual/function.number-format.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function format(
+//         extends float $f,
+//         int $decimals = 0,
+//         ?string $decimal_separator = ".",
+//         ?string $thousands_separator = ",",
+//     ): string
+//     {
+//         return \number_format($f, $decimals, $decimal_separator, $thousands_separator);
+//     }
+
+//     /**
+//      * Convert this float to an integer.
+//      *
+//      * Performs an int cast of `$f` (truncates toward zero).
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return int `$f` as an integer.
+//      *
+//      * @see https://www.php.net/manual/language.types.integer.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function __toInt(extends float $f): int
+//     {
+//         return (int)$f;
+//     }
+
+//     /**
+//      * Convert this float to a string.
+//      *
+//      * Performs a string cast of `$f`.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return string `$f` as a string.
+//      *
+//      * @see https://www.php.net/manual/language.types.string.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function __toString(extends float $f): string
+//     {
+//         return (string)$f;
+//     }
+
+//     /**
+//      * Determine whether a variable is empty.
+//      *
+//      * `empty()` is a language construct. For a float, `0.0` is considered empty.
+//      *
+//      * @param float $f The float this method is called on.
+//      * @return bool `true` if `$f` is considered empty; otherwise `false`.
+//      *
+//      * @see https://www.php.net/manual/function.empty.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function empty(extends float $f): bool
+//     {
+//         return empty($f);
+//     }
+// }

@@ -1,0 +1,8 @@
+<?tyhp
+
+namespace TestData;
+
+class Simple
+{
+    public string $name = 'test';
+}

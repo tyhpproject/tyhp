@@ -1,0 +1,25 @@
+{
+  "suite": "story16/expression-trees",
+  "description": "Story 16 Phase 3 — multi-parameter Expression, instanceof/is, nameof(fn)",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "expression_trees_functions",
+      "file": "expression_trees.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    },
+    {
+      "id": "expression_trees_user",
+      "file": "expression_trees.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/User.php"
+      }
+    }
+  ]
+}

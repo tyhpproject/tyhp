@@ -1,0 +1,16 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+class Config {
+    public string $name = "";
+    public int $value = 0;
+}
+
+function make(): void {
+    $cfg = new Config() with [name => "test", value => 42];
+}
+
+function copyConfig(Config $cfg): Config {
+    return clone $cfg with [name => "updated"];
+}

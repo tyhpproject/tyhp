@@ -1,0 +1,17 @@
+{
+  "suite": "story08_5/struct-utility-erasure",
+  "description": "Story 08.5 — Phase 5 struct/type utilities erase to their PHP surface in emitted PHP",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "struct_utilities_functions",
+      "file": "struct_utilities.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

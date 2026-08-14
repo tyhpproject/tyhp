@@ -1,0 +1,26 @@
+<?tyhp
+
+namespace Tyhp\Exceptions;
+
+final class PropertyNotFoundException extends \RuntimeException
+{
+    public function __construct(
+        private readonly string $propertyName,
+        private readonly string $className,
+        ?\Throwable $previous = null,
+    ): void {
+        parent::__construct(
+            \sprintf(
+                'Property \'%s\' does not exist on class \'%s\'.',
+                $this->propertyName,
+                $this->className,
+            ),
+            0,
+            $previous,
+        );
+    }
+
+    fn getPropertyName(): string => $this->propertyName;
+
+    fn getClassName(): string => $this->className;
+}

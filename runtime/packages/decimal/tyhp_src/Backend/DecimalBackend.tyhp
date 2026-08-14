@@ -1,0 +1,36 @@
+<?tyhp
+
+namespace Tyhp\Backend;
+
+interface DecimalBackend {
+    public function add(string $a, string $b, int $scale): string;
+
+    public function subtract(string $a, string $b, int $scale): string;
+
+    public function multiply(string $a, string $b, int $scale): string;
+
+    /**
+     * @throws \DivisionByZeroError When $b is zero.
+     */
+    public function divide(string $a, string $b, int $scale): string;
+
+    public function modulo(string $a, string $b, int $scale): string;
+
+    public function power(string $base, int $exponent, int $scale): string;
+
+    /**
+     * @throws \InvalidArgumentException When $value is negative.
+     */
+    public function sqrt(string $value, int $scale): string;
+
+    /**
+     * @return int -1, 0, or 1.
+     */
+    public function compare(string $a, string $b, int $scale): int;
+
+    public function negate(string $value): string;
+
+    public function abs(string $value): string;
+
+    public function getName(): string;
+}

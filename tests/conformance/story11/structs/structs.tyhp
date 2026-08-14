@@ -1,0 +1,22 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+struct Point {
+    int $x = 0;
+    int $y = 0;
+}
+
+struct NamedItem {
+    string 'Display Name' as $displayName = "";
+    int $id = 0;
+}
+
+function main(): void {
+    $p = new Point();
+    $p->x = 10;
+    $val = $p->y;
+
+    $item = new NamedItem();
+    $item->displayName = "Hello";
+}

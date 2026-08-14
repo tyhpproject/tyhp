@@ -1,0 +1,26 @@
+{
+    "name": "tyhp/lambda",
+    "description": "Tyhp parsable lambdas: PropertyPath and Expression tree runtime classes",
+    "type": "library",
+    "license": "Apache-2.0",
+    "version": "805.0.0-alpha.1",
+    "extra": {
+        "tyhp": {
+            "interopContractVersion": 1
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "tyhp/core": "805.0.0-alpha.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "Tyhp\\": "src/Tyhp/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tyhp\\Tests\\Lambda\\": "tests/"
+        }
+    }
+}

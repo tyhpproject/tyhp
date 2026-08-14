@@ -1,0 +1,69 @@
+<?tyhp
+
+namespace Tyhp;
+
+final class CancellationTokenSource implements \Tyhp\Contracts\IsDisposable {
+    private CancellationToken $token;
+    private bool $disposed = false;
+    private ?string $timerId = null;
+
+    public function __construct(?int $cancelAfterMs = null) {
+        $this->token = new CancellationToken();
+
+        if ($cancelAfterMs !== null) {
+            $this->cancelAfter($cancelAfterMs);
+        }
+    }
+
+    public function getToken(): CancellationToken {
+        return $this->token;
+    }
+
+    public function cancel(): void {
+        if ($this->disposed) {
+            return;
+        }
+        $this->token->cancel();
+        $this->cleanupTimer();
+    }
+
+    /**
+     * Schedules automatic cancellation after the specified delay.
+     * Replaces any previously scheduled auto-cancel timer.
+     */
+    public function cancelAfter(int $ms): void {
+        if ($this->disposed) {
+            return;
+        }
+        if ($ms < 0) {
+            throw new \InvalidArgumentException('Delay milliseconds must be non-negative.');
+        }
+        $this->cleanupTimer();
+        $this->timerId = EventLoop::getInstance()->delay($ms, function (): void {
+            $this->cancel();
+        });
+    }
+
+    public function isCancellationRequested(): bool {
+        return $this->token->isCancellationRequested();
+    }
+
+    public function dispose(): void {
+        if ($this->disposed) {
+            return;
+        }
+        $this->disposed = true;
+        $this->cleanupTimer();
+    }
+
+    private function cleanupTimer(): void {
+        ?string $timerId = $this->timerId;
+        if ($timerId !== null) {
+            $this->timerId = null;
+            try {
+                EventLoop::getInstance()->cancelTimer($timerId);
+            } catch (\Throwable) {
+            }
+        }
+    }
+}

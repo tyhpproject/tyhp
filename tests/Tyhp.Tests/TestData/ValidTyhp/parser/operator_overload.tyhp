@@ -1,0 +1,20 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+class Counter
+{
+    private int $count = 0;
+
+    operator +(self $left, int $right)
+    {
+        $result = new static();
+        $result->count = $left->count + $right;
+        return $result;
+    }
+
+    operator ==(self $left, self $right)
+    {
+        return $left->count === $right->count;
+    }
+}

@@ -1,0 +1,20 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+function sampleVoidCastForms(): void
+{
+    (void)$x;
+    ( void ) $y;
+    (VOID)$z;
+
+    for ((void)$a; $i < 10; (void)$i++) {
+    }
+
+    for ((void)$setup(), $i = 0; $i < 3; (void)$tick(), $i++) {
+    }
+
+    // php-src for_cond_exprs: void cast allowed as a non-final item before a trailing expr
+    for (; (void)$side(), $cond; ) {
+    }
+}

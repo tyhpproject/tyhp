@@ -1,0 +1,6618 @@
+<?tyhpdef
+/**
+ * Return the interfaces which are implemented by the given class or interface
+ * 
+ * This function returns an array with the names of the interfaces that the given `$object_or_class` and its parents implement.
+ * 
+ * @param mixed $object_or_class An object (class instance) or a string (class or interface name).
+ * @param bool $autoload Whether toautoloadif not already loaded.
+ * @return array|false An array on success, or ** `false` ** when the given class doesn't exist.
+ * 
+ * @link https://www.php.net/manual/function.class-implements.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function class_implements(mixed $object_or_class, bool $autoload = true): array|false;
+/**
+ * Return the parent classes of the given class
+ * 
+ * This function returns an array with the name of the parent classes of the given `$object_or_class`.
+ * 
+ * @param mixed $object_or_class An object (class instance) or a string (class name).
+ * @param bool $autoload Whether toautoloadif not already loaded.
+ * @return array|false An array on success, or ** `false` ** when the given class doesn't exist.
+ * 
+ * @link https://www.php.net/manual/function.class-parents.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function class_parents(mixed $object_or_class, bool $autoload = true): array|false;
+/**
+ * Return the traits used by the given class
+ * 
+ * This function returns an array with the names of the traits that the given `$object_or_class` uses. This does however not include any traits used by a parent class.
+ * 
+ * @param mixed $object_or_class An object (class instance) or a string (class name).
+ * @param bool $autoload Whether toautoloadif not already loaded.
+ * @return array|false An array on success, or ** `false` ** when the given class doesn't exist.
+ * 
+ * @link https://www.php.net/manual/function.class-uses.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function class_uses(mixed $object_or_class, bool $autoload = true): array|false;
+/**
+ * Default implementation for __autoload()
+ * 
+ * This function is intended to be used as a default implementation for `__autoload()`. If nothing else is specified and `spl_autoload_register()` is called without any parameters then this function will be used for any later call to `__autoload()`.
+ * 
+ * @param string $class The name of the class (and namespace) being instantiated.
+ * @param ?string $file_extensions By default it checks all include paths to contain filenames built up by the lowercase class name appended by the filename extensions.inc and.php.
+ * @return void No value is returned.
+ * 
+ * @link https://www.php.net/manual/function.spl-autoload.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function spl_autoload(string $class, ?string $file_extensions = null): void;
+/**
+ * Try all registered __autoload() functions to load the requested class
+ * 
+ * This function can be used to manually search for a class or interface using the registered __autoload functions.
+ * 
+ * @param string $class The class name being searched.
+ * @return void No value is returned.
+ * 
+ * @link https://www.php.net/manual/function.spl-autoload-call.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function spl_autoload_call(string $class): void;
+/**
+ * Register and return default file extensions for spl_autoload
+ * 
+ * This function can modify and check the file extensions that the built in `__autoload()` fallback function `spl_autoload()` will be using.
+ * 
+ * **Note** :There should not be a space between the defined file extensions.
+ * 
+ * @param ?string $file_extensions If ** `null` ** , it simply returns the current list of extensions each separated by comma. To modify the list of file extensions, simply invoke the functions with the new list of file extensions to use in a single string with each extensions separated by comma.
+ * @return string A comma delimited list of default file extensions for `spl_autoload()`.
+ * 
+ * @link https://www.php.net/manual/function.spl-autoload-extensions.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function spl_autoload_extensions(?string $file_extensions = null): string;
+/**
+ * Return all registered __autoload() functions
+ * 
+ * Get all registered __autoload() functions.
+ * 
+ * @return array An array of all registered __autoload functions. If no function is registered, or the autoload queue is not activated, then the return value will be an empty array.
+ * 
+ * @link https://www.php.net/manual/function.spl-autoload-functions.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function spl_autoload_functions(): array;
+/**
+ * Register given function as __autoload() implementation
+ * 
+ * Register a function with the spl provided __autoload queue. If the queue is not yet activated it will be activated.
+ * 
+ * @param ?callable $callback The autoload function being registered. If ** `null` ** , then the default implementation of `spl_autoload()` will be registered.callback(string `$$class`):voidThe `$class` will not contain the leading backslash of a fully-qualified identifier.
+ * @param bool $throw This parameter specifies whether `spl_autoload_register()` should throw exceptions when the `$callback` cannot be registered. **Warning** This parameter is ignored as of PHP 8.0.0, and a notice will be emitted if set to ** `false` **. `spl_autoload_register()` will now always throw aTypeErroron invalid arguments.
+ * @param bool $prepend If true, `spl_autoload_register()` will prepend the autoloader on the autoload queue instead of appending it.
+ * @return bool Returns ** `true` ** on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.spl-autoload-register.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function spl_autoload_register(?callable $callback = null, bool $throw = true, bool $prepend = false): bool;
+/**
+ * Unregister given function as __autoload() implementation
+ * 
+ * Removes a function from the autoload queue. If the queue is activated and empty after removing the given function then it will be deactivated.
+ * 
+ * @param callable $callback The autoload function being unregistered.
+ * @return bool Returns ** `true` ** on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.spl-autoload-unregister.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function spl_autoload_unregister(callable $callback): bool;
+/**
+ * Return available SPL classes
+ * 
+ * This function returns an array with the current available SPL classes.
+ * 
+ * @return array Returns an array containing the currently available SPL classes.
+ * 
+ * @link https://www.php.net/manual/function.spl-classes.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function spl_classes(): array;
+/**
+ * Return hash id for given object
+ * 
+ * This function returns a unique identifier for the object. This id can be used as a hash key for storing objects, or for identifying an object, as long as the object is not destroyed. Once the object is destroyed, its hash may be reused for other objects. This behavior is similar to `spl_object_id()`.
+ * 
+ * @param object $object Any object.
+ * @return string A string that is unique for each currently existing object and is always the same for each object.
+ * 
+ * @link https://www.php.net/manual/function.spl-object-hash.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function spl_object_hash(object $object): string;
+/**
+ * Return the integer object handle for given object
+ * 
+ * This function returns a unique identifier for the object. The object id is unique for the lifetime of the object. Once the object is destroyed, its id may be reused for other objects. This behavior is similar to `spl_object_hash()`.
+ * 
+ * @param object $object Any object.
+ * @return int An integer identifier that is unique for each currently existing object and is always the same for each object.
+ * 
+ * @link https://www.php.net/manual/function.spl-object-id.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function spl_object_id(object $object): int;
+/**
+ * Call a function for every element in an iterator
+ * 
+ * Calls a function for every element in an iterator.
+ * 
+ * @param \Traversable $iterator The iterator object to iterate over.
+ * @param callable $callback The callback function to call on every element. This function only receives the given `$args` , so it is nullary by default. If `count($args) === 3` , for instance, the callback function is ternary. **Note** :The function must return ** `true` ** in order to continue iterating over the `$iterator`.
+ * @param ?array $args Anarrayof arguments; each element of `$args` is passed to the callback `$callback` as separate argument.
+ * @return int Returns the iteration count.
+ * 
+ * @link https://www.php.net/manual/function.iterator-apply.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function iterator_apply(\Traversable $iterator, callable $callback, ?array $args = null): int;
+
+// Same two-overload pattern as call_user_func_array (Story 16.5). Activate when this stub is retyped.
+// `?array $args` — callback receives ONLY $args, not iterator elements. Return stays int (iteration count).
+/*
+function iterator_apply<TCallable extends callable>(
+    \Traversable $iterator,
+    TCallable $callback,
+    ?__CallableParametersStruct<TCallable> $args = null
+): int;
+
+function iterator_apply<TCallable extends callable>(
+    \Traversable $iterator,
+    TCallable $callback,
+    ?__CallableParametersTuple<TCallable> $args = null
+): int;
+*/
+
+/**
+ * Count the elements in an iterator
+ * 
+ * Count the elements in an iterator. `iterator_count()` is not guaranteed to retain the current position of the `$iterator`.
+ * 
+ * @param \Traversable|array $iterator The iterator being counted.
+ * @return int The number of elements in `$iterator`.
+ * 
+ * @link https://www.php.net/manual/function.iterator-count.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function iterator_count(\Traversable|array $iterator): int;
+/**
+ * Copy the iterator into an array
+ * 
+ * Copy the elements of an iterator into an array.
+ * 
+ * @param \Traversable|array $iterator The iterator being copied.
+ * @param bool $preserve_keys Whether to use the iterator element keys as index.If a key is anarrayorobject, a warning will be generated. ** `null` ** keys will be converted to an empty string,floatkeys will be truncated to theirintcounterpart,resourcekeys will generate a warning and be converted to their resource ID, andboolkeys will be converted to integers. **Note** :If this parameter is not set or set to ** `true` ** , duplicate keys will be overwritten. The last value with a given key will be in the returnedarray. Set this parameter to ** `false` ** to get all the values in any case.
+ * @return array An array containing the elements of the `$iterator`.
+ * 
+ * @link https://www.php.net/manual/function.iterator-to-array.php
+ * 
+ * @generated from PHP v8.2.9, EXT: SPL v8.2.9
+ */
+function iterator_to_array(\Traversable|array $iterator, bool $preserve_keys = true): array;
+class LogicException extends \Exception implements \Throwable, \Stringable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\LogicException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\LogicException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\LogicException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\LogicException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\LogicException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\LogicException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\LogicException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\LogicException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\LogicException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\LogicException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class BadFunctionCallException extends \LogicException implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\BadFunctionCallException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\BadFunctionCallException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\BadFunctionCallException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\BadFunctionCallException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\BadFunctionCallException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\BadFunctionCallException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\BadFunctionCallException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\BadFunctionCallException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\BadFunctionCallException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\BadFunctionCallException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class BadMethodCallException extends \BadFunctionCallException implements \Throwable, \Stringable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\BadMethodCallException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\BadMethodCallException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\BadMethodCallException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\BadMethodCallException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\BadMethodCallException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\BadMethodCallException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\BadMethodCallException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\BadMethodCallException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\BadMethodCallException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\BadMethodCallException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class DomainException extends \LogicException implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\DomainException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\DomainException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\DomainException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\DomainException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\DomainException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\DomainException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\DomainException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\DomainException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\DomainException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\DomainException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class InvalidArgumentException extends \LogicException implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\InvalidArgumentException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\InvalidArgumentException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\InvalidArgumentException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\InvalidArgumentException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\InvalidArgumentException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\InvalidArgumentException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\InvalidArgumentException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\InvalidArgumentException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\InvalidArgumentException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\InvalidArgumentException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class LengthException extends \LogicException implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\LengthException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\LengthException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\LengthException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\LengthException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\LengthException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\LengthException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\LengthException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\LengthException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\LengthException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\LengthException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class OutOfRangeException extends \LogicException implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\OutOfRangeException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\OutOfRangeException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\OutOfRangeException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\OutOfRangeException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\OutOfRangeException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\OutOfRangeException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\OutOfRangeException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\OutOfRangeException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\OutOfRangeException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\OutOfRangeException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class RuntimeException extends \Exception implements \Throwable, \Stringable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\RuntimeException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\RuntimeException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\RuntimeException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\RuntimeException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\RuntimeException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\RuntimeException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\RuntimeException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\RuntimeException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\RuntimeException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\RuntimeException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class OutOfBoundsException extends \RuntimeException implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\OutOfBoundsException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\OutOfBoundsException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\OutOfBoundsException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\OutOfBoundsException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\OutOfBoundsException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\OutOfBoundsException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\OutOfBoundsException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\OutOfBoundsException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\OutOfBoundsException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\OutOfBoundsException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class OverflowException extends \RuntimeException implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\OverflowException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\OverflowException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\OverflowException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\OverflowException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\OverflowException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\OverflowException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\OverflowException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\OverflowException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\OverflowException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\OverflowException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class RangeException extends \RuntimeException implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\RangeException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\RangeException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\RangeException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\RangeException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\RangeException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\RangeException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\RangeException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\RangeException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\RangeException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\RangeException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class UnderflowException extends \RuntimeException implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\UnderflowException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\UnderflowException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\UnderflowException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\UnderflowException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\UnderflowException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\UnderflowException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\UnderflowException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\UnderflowException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\UnderflowException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\UnderflowException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class UnexpectedValueException extends \RuntimeException implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\UnexpectedValueException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\UnexpectedValueException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\UnexpectedValueException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\UnexpectedValueException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\UnexpectedValueException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\UnexpectedValueException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\UnexpectedValueException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\UnexpectedValueException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\UnexpectedValueException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\UnexpectedValueException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+interface RecursiveIterator extends \Iterator, \Traversable
+{
+    /**
+     * `\RecursiveIterator` method `hasChildren`
+     *
+     * @return bool
+     */
+    public function hasChildren(): bool;
+    /**
+     * `\RecursiveIterator` method `getChildren`
+     *
+     * @return ?\RecursiveIterator
+     */
+    public function getChildren(): ?\RecursiveIterator;
+    /**
+     * `\RecursiveIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\RecursiveIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\RecursiveIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\RecursiveIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\RecursiveIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+}
+interface OuterIterator extends \Iterator, \Traversable
+{
+    /**
+     * `\OuterIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\OuterIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\OuterIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\OuterIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\OuterIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\OuterIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+}
+class RecursiveIteratorIterator implements \OuterIterator, \Traversable, \Iterator
+{
+    public const int LEAVES_ONLY;
+    public const int SELF_FIRST;
+    public const int CHILD_FIRST;
+    public const int CATCH_GET_CHILD;
+    /**
+     * `\RecursiveIteratorIterator` method `__construct`
+     *
+     * @param \Traversable $iterator
+     * @param int $mode
+     * @param int $flags
+     * @return void
+     */
+    public function __construct(\Traversable $iterator, int $mode = \RecursiveIteratorIterator::LEAVES_ONLY, int $flags = 0): void;
+    /**
+     * `\RecursiveIteratorIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\RecursiveIteratorIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\RecursiveIteratorIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\RecursiveIteratorIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\RecursiveIteratorIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\RecursiveIteratorIterator` method `getDepth`
+     *
+     * @return int
+     */
+    public function getDepth(): int;
+    /**
+     * `\RecursiveIteratorIterator` method `getSubIterator`
+     *
+     * @param ?int $level
+     * @return ?\RecursiveIterator
+     */
+    public function getSubIterator(?int $level = null): ?\RecursiveIterator;
+    /**
+     * `\RecursiveIteratorIterator` method `getInnerIterator`
+     *
+     * @return \RecursiveIterator
+     */
+    public function getInnerIterator(): \RecursiveIterator;
+    /**
+     * `\RecursiveIteratorIterator` method `beginIteration`
+     *
+     * @return void
+     */
+    public function beginIteration(): void;
+    /**
+     * `\RecursiveIteratorIterator` method `endIteration`
+     *
+     * @return void
+     */
+    public function endIteration(): void;
+    /**
+     * `\RecursiveIteratorIterator` method `callHasChildren`
+     *
+     * @return bool
+     */
+    public function callHasChildren(): bool;
+    /**
+     * `\RecursiveIteratorIterator` method `callGetChildren`
+     *
+     * @return ?\RecursiveIterator
+     */
+    public function callGetChildren(): ?\RecursiveIterator;
+    /**
+     * `\RecursiveIteratorIterator` method `beginChildren`
+     *
+     * @return void
+     */
+    public function beginChildren(): void;
+    /**
+     * `\RecursiveIteratorIterator` method `endChildren`
+     *
+     * @return void
+     */
+    public function endChildren(): void;
+    /**
+     * `\RecursiveIteratorIterator` method `nextElement`
+     *
+     * @return void
+     */
+    public function nextElement(): void;
+    /**
+     * `\RecursiveIteratorIterator` method `setMaxDepth`
+     *
+     * @param int $maxDepth
+     * @return void
+     */
+    public function setMaxDepth(int $maxDepth = -1): void;
+    /**
+     * `\RecursiveIteratorIterator` method `getMaxDepth`
+     *
+     * @return int|false
+     */
+    public function getMaxDepth(): int|false;
+}
+class IteratorIterator implements \OuterIterator, \Traversable, \Iterator
+{
+    /**
+     * `\IteratorIterator` method `__construct`
+     *
+     * @param \Traversable $iterator
+     * @param ?string $class
+     * @return void
+     */
+    public function __construct(\Traversable $iterator, ?string $class = null): void;
+    /**
+     * `\IteratorIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\IteratorIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\IteratorIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\IteratorIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\IteratorIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\IteratorIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+}
+abstract class FilterIterator extends \IteratorIterator implements \Iterator, \Traversable, \OuterIterator
+{
+    /**
+     * `\FilterIterator` method `accept`
+     *
+     * @return bool
+     */
+    public function accept(): bool;
+    /**
+     * `\FilterIterator` method `__construct`
+     *
+     * @param \Iterator $iterator
+     * @return void
+     */
+    public function __construct(\Iterator $iterator): void;
+    /**
+     * `\FilterIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\FilterIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\FilterIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\FilterIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\FilterIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\FilterIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+}
+abstract class RecursiveFilterIterator extends \FilterIterator implements \OuterIterator, \Traversable, \Iterator, \RecursiveIterator
+{
+    /**
+     * `\RecursiveFilterIterator` method `__construct`
+     *
+     * @param \RecursiveIterator $iterator
+     * @return void
+     */
+    public function __construct(\RecursiveIterator $iterator): void;
+    /**
+     * `\RecursiveFilterIterator` method `hasChildren`
+     *
+     * @return bool
+     */
+    public function hasChildren(): bool;
+    /**
+     * `\RecursiveFilterIterator` method `getChildren`
+     *
+     * @return ?\RecursiveFilterIterator
+     */
+    public function getChildren(): ?\RecursiveFilterIterator;
+    /**
+     * `\RecursiveFilterIterator` method `accept`
+     *
+     * @return bool
+     */
+    public function accept(): bool;
+    /**
+     * `\RecursiveFilterIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\RecursiveFilterIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\RecursiveFilterIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\RecursiveFilterIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\RecursiveFilterIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\RecursiveFilterIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+}
+class CallbackFilterIterator extends \FilterIterator implements \OuterIterator, \Traversable, \Iterator
+{
+    /**
+     * `\CallbackFilterIterator` method `__construct`
+     *
+     * @param \Iterator $iterator
+     * @param callable $callback
+     * @return void
+     */
+    public function __construct(\Iterator $iterator, callable $callback): void;
+    /**
+     * `\CallbackFilterIterator` method `accept`
+     *
+     * @return bool
+     */
+    public function accept(): bool;
+    /**
+     * `\CallbackFilterIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\CallbackFilterIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\CallbackFilterIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\CallbackFilterIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\CallbackFilterIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\CallbackFilterIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+}
+class RecursiveCallbackFilterIterator extends \CallbackFilterIterator implements \Iterator, \Traversable, \OuterIterator, \RecursiveIterator
+{
+    /**
+     * `\RecursiveCallbackFilterIterator` method `__construct`
+     *
+     * @param \RecursiveIterator $iterator
+     * @param callable $callback
+     * @return void
+     */
+    public function __construct(\RecursiveIterator $iterator, callable $callback): void;
+    /**
+     * `\RecursiveCallbackFilterIterator` method `hasChildren`
+     *
+     * @return bool
+     */
+    public function hasChildren(): bool;
+    /**
+     * `\RecursiveCallbackFilterIterator` method `getChildren`
+     *
+     * @return \RecursiveCallbackFilterIterator
+     */
+    public function getChildren(): \RecursiveCallbackFilterIterator;
+    /**
+     * `\RecursiveCallbackFilterIterator` method `accept`
+     *
+     * @return bool
+     */
+    public function accept(): bool;
+    /**
+     * `\RecursiveCallbackFilterIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\RecursiveCallbackFilterIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\RecursiveCallbackFilterIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\RecursiveCallbackFilterIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\RecursiveCallbackFilterIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\RecursiveCallbackFilterIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+}
+class ParentIterator extends \RecursiveFilterIterator implements \RecursiveIterator, \Iterator, \Traversable, \OuterIterator
+{
+    /**
+     * `\ParentIterator` method `__construct`
+     *
+     * @param \RecursiveIterator $iterator
+     * @return void
+     */
+    public function __construct(\RecursiveIterator $iterator): void;
+    /**
+     * `\ParentIterator` method `accept`
+     *
+     * @return bool
+     */
+    public function accept(): bool;
+    /**
+     * `\ParentIterator` method `hasChildren`
+     *
+     * @return bool
+     */
+    public function hasChildren(): bool;
+    /**
+     * `\ParentIterator` method `getChildren`
+     *
+     * @return ?\RecursiveFilterIterator
+     */
+    public function getChildren(): ?\RecursiveFilterIterator;
+    /**
+     * `\ParentIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\ParentIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\ParentIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\ParentIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\ParentIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\ParentIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+}
+interface SeekableIterator extends \Iterator, \Traversable
+{
+    /**
+     * `\SeekableIterator` method `seek`
+     *
+     * @param int $offset
+     * @return void
+     */
+    public function seek(int $offset): void;
+    /**
+     * `\SeekableIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\SeekableIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\SeekableIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\SeekableIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\SeekableIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+}
+class LimitIterator extends \IteratorIterator implements \Iterator, \Traversable, \OuterIterator
+{
+    /**
+     * `\LimitIterator` method `__construct`
+     *
+     * @param \Iterator $iterator
+     * @param int $offset
+     * @param int $limit
+     * @return void
+     */
+    public function __construct(\Iterator $iterator, int $offset = 0, int $limit = -1): void;
+    /**
+     * `\LimitIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\LimitIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\LimitIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\LimitIterator` method `seek`
+     *
+     * @param int $offset
+     * @return int
+     */
+    public function seek(int $offset): int;
+    /**
+     * `\LimitIterator` method `getPosition`
+     *
+     * @return int
+     */
+    public function getPosition(): int;
+    /**
+     * `\LimitIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\LimitIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\LimitIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+}
+class CachingIterator extends \IteratorIterator implements \Stringable, \Iterator, \Traversable, \OuterIterator, \ArrayAccess, \Countable
+{
+    public const int CALL_TOSTRING;
+    public const int CATCH_GET_CHILD;
+    public const int TOSTRING_USE_KEY;
+    public const int TOSTRING_USE_CURRENT;
+    public const int TOSTRING_USE_INNER;
+    public const int FULL_CACHE;
+    /**
+     * `\CachingIterator` method `__construct`
+     *
+     * @param \Iterator $iterator
+     * @param int $flags
+     * @return void
+     */
+    public function __construct(\Iterator $iterator, int $flags = \CachingIterator::CALL_TOSTRING): void;
+    /**
+     * `\CachingIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\CachingIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\CachingIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\CachingIterator` method `hasNext`
+     *
+     * @return bool
+     */
+    public function hasNext(): bool;
+    /**
+     * `\CachingIterator` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\CachingIterator` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\CachingIterator` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\CachingIterator` method `offsetGet`
+     *
+     * @param mixed $key
+     * @return mixed
+     */
+    public function offsetGet(mixed $key): mixed;
+    /**
+     * `\CachingIterator` method `offsetSet`
+     *
+     * @param mixed $key
+     * @param mixed $value
+     * @return void
+     */
+    public function offsetSet(mixed $key, mixed $value): void;
+    /**
+     * `\CachingIterator` method `offsetUnset`
+     *
+     * @param mixed $key
+     * @return void
+     */
+    public function offsetUnset(mixed $key): void;
+    /**
+     * `\CachingIterator` method `offsetExists`
+     *
+     * @param mixed $key
+     * @return bool
+     */
+    public function offsetExists(mixed $key): bool;
+    /**
+     * `\CachingIterator` method `getCache`
+     *
+     * @return array
+     */
+    public function getCache(): array;
+    /**
+     * `\CachingIterator` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\CachingIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\CachingIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\CachingIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+}
+class RecursiveCachingIterator extends \CachingIterator implements \Countable, \ArrayAccess, \OuterIterator, \Traversable, \Iterator, \Stringable, \RecursiveIterator
+{
+    public const int CALL_TOSTRING;
+    public const int CATCH_GET_CHILD;
+    public const int TOSTRING_USE_KEY;
+    public const int TOSTRING_USE_CURRENT;
+    public const int TOSTRING_USE_INNER;
+    public const int FULL_CACHE;
+    /**
+     * `\RecursiveCachingIterator` method `__construct`
+     *
+     * @param \Iterator $iterator
+     * @param int $flags
+     * @return void
+     */
+    public function __construct(\Iterator $iterator, int $flags = \RecursiveCachingIterator::CALL_TOSTRING): void;
+    /**
+     * `\RecursiveCachingIterator` method `hasChildren`
+     *
+     * @return bool
+     */
+    public function hasChildren(): bool;
+    /**
+     * `\RecursiveCachingIterator` method `getChildren`
+     *
+     * @return ?\RecursiveCachingIterator
+     */
+    public function getChildren(): ?\RecursiveCachingIterator;
+    /**
+     * `\RecursiveCachingIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\RecursiveCachingIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\RecursiveCachingIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\RecursiveCachingIterator` method `hasNext`
+     *
+     * @return bool
+     */
+    public function hasNext(): bool;
+    /**
+     * `\RecursiveCachingIterator` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\RecursiveCachingIterator` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\RecursiveCachingIterator` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\RecursiveCachingIterator` method `offsetGet`
+     *
+     * @param mixed $key
+     * @return mixed
+     */
+    public function offsetGet(mixed $key): mixed;
+    /**
+     * `\RecursiveCachingIterator` method `offsetSet`
+     *
+     * @param mixed $key
+     * @param mixed $value
+     * @return void
+     */
+    public function offsetSet(mixed $key, mixed $value): void;
+    /**
+     * `\RecursiveCachingIterator` method `offsetUnset`
+     *
+     * @param mixed $key
+     * @return void
+     */
+    public function offsetUnset(mixed $key): void;
+    /**
+     * `\RecursiveCachingIterator` method `offsetExists`
+     *
+     * @param mixed $key
+     * @return bool
+     */
+    public function offsetExists(mixed $key): bool;
+    /**
+     * `\RecursiveCachingIterator` method `getCache`
+     *
+     * @return array
+     */
+    public function getCache(): array;
+    /**
+     * `\RecursiveCachingIterator` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\RecursiveCachingIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\RecursiveCachingIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\RecursiveCachingIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+}
+class NoRewindIterator extends \IteratorIterator implements \Iterator, \Traversable, \OuterIterator
+{
+    /**
+     * `\NoRewindIterator` method `__construct`
+     *
+     * @param \Iterator $iterator
+     * @return void
+     */
+    public function __construct(\Iterator $iterator): void;
+    /**
+     * `\NoRewindIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\NoRewindIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\NoRewindIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\NoRewindIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\NoRewindIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\NoRewindIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+}
+class AppendIterator extends \IteratorIterator implements \Iterator, \Traversable, \OuterIterator
+{
+    /**
+     * `\AppendIterator` method `__construct`
+     *
+     * @return void
+     */
+    public function __construct(): void;
+    /**
+     * `\AppendIterator` method `append`
+     *
+     * @param \Iterator $iterator
+     * @return void
+     */
+    public function append(\Iterator $iterator): void;
+    /**
+     * `\AppendIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\AppendIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\AppendIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\AppendIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\AppendIterator` method `getIteratorIndex`
+     *
+     * @return ?int
+     */
+    public function getIteratorIndex(): ?int;
+    /**
+     * `\AppendIterator` method `getArrayIterator`
+     *
+     * @return \ArrayIterator
+     */
+    public function getArrayIterator(): \ArrayIterator;
+    /**
+     * `\AppendIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\AppendIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+}
+class InfiniteIterator extends \IteratorIterator implements \Iterator, \Traversable, \OuterIterator
+{
+    /**
+     * `\InfiniteIterator` method `__construct`
+     *
+     * @param \Iterator $iterator
+     * @return void
+     */
+    public function __construct(\Iterator $iterator): void;
+    /**
+     * `\InfiniteIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\InfiniteIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\InfiniteIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\InfiniteIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\InfiniteIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\InfiniteIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+}
+class RegexIterator extends \FilterIterator implements \OuterIterator, \Traversable, \Iterator
+{
+    public const int USE_KEY;
+    public const int INVERT_MATCH;
+    public const int MATCH;
+    public const int GET_MATCH;
+    public const int ALL_MATCHES;
+    public const int SPLIT;
+    public const int REPLACE;
+    /** @var ?string */
+    public ?string $replacement;
+    /**
+     * `\RegexIterator` method `__construct`
+     *
+     * @param \Iterator $iterator
+     * @param string $pattern
+     * @param int $mode
+     * @param int $flags
+     * @param int $pregFlags
+     * @return void
+     */
+    public function __construct(\Iterator $iterator, string $pattern, int $mode = \RegexIterator::MATCH, int $flags = 0, int $pregFlags = 0): void;
+    /**
+     * `\RegexIterator` method `accept`
+     *
+     * @return bool
+     */
+    public function accept(): bool;
+    /**
+     * `\RegexIterator` method `getMode`
+     *
+     * @return int
+     */
+    public function getMode(): int;
+    /**
+     * `\RegexIterator` method `setMode`
+     *
+     * @param int $mode
+     * @return void
+     */
+    public function setMode(int $mode): void;
+    /**
+     * `\RegexIterator` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\RegexIterator` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\RegexIterator` method `getRegex`
+     *
+     * @return string
+     */
+    public function getRegex(): string;
+    /**
+     * `\RegexIterator` method `getPregFlags`
+     *
+     * @return int
+     */
+    public function getPregFlags(): int;
+    /**
+     * `\RegexIterator` method `setPregFlags`
+     *
+     * @param int $pregFlags
+     * @return void
+     */
+    public function setPregFlags(int $pregFlags): void;
+    /**
+     * `\RegexIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\RegexIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\RegexIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\RegexIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\RegexIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\RegexIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+}
+class RecursiveRegexIterator extends \RegexIterator implements \Iterator, \Traversable, \OuterIterator, \RecursiveIterator
+{
+    public const int USE_KEY;
+    public const int INVERT_MATCH;
+    public const int MATCH;
+    public const int GET_MATCH;
+    public const int ALL_MATCHES;
+    public const int SPLIT;
+    public const int REPLACE;
+    /** @var ?string */
+    public ?string $replacement;
+    /**
+     * `\RecursiveRegexIterator` method `__construct`
+     *
+     * @param \RecursiveIterator $iterator
+     * @param string $pattern
+     * @param int $mode
+     * @param int $flags
+     * @param int $pregFlags
+     * @return void
+     */
+    public function __construct(\RecursiveIterator $iterator, string $pattern, int $mode = \RecursiveRegexIterator::MATCH, int $flags = 0, int $pregFlags = 0): void;
+    /**
+     * `\RecursiveRegexIterator` method `accept`
+     *
+     * @return bool
+     */
+    public function accept(): bool;
+    /**
+     * `\RecursiveRegexIterator` method `hasChildren`
+     *
+     * @return bool
+     */
+    public function hasChildren(): bool;
+    /**
+     * `\RecursiveRegexIterator` method `getChildren`
+     *
+     * @return \RecursiveRegexIterator
+     */
+    public function getChildren(): \RecursiveRegexIterator;
+    /**
+     * `\RecursiveRegexIterator` method `getMode`
+     *
+     * @return int
+     */
+    public function getMode(): int;
+    /**
+     * `\RecursiveRegexIterator` method `setMode`
+     *
+     * @param int $mode
+     * @return void
+     */
+    public function setMode(int $mode): void;
+    /**
+     * `\RecursiveRegexIterator` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\RecursiveRegexIterator` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\RecursiveRegexIterator` method `getRegex`
+     *
+     * @return string
+     */
+    public function getRegex(): string;
+    /**
+     * `\RecursiveRegexIterator` method `getPregFlags`
+     *
+     * @return int
+     */
+    public function getPregFlags(): int;
+    /**
+     * `\RecursiveRegexIterator` method `setPregFlags`
+     *
+     * @param int $pregFlags
+     * @return void
+     */
+    public function setPregFlags(int $pregFlags): void;
+    /**
+     * `\RecursiveRegexIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\RecursiveRegexIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\RecursiveRegexIterator` method `getInnerIterator`
+     *
+     * @return ?\Iterator
+     */
+    public function getInnerIterator(): ?\Iterator;
+    /**
+     * `\RecursiveRegexIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\RecursiveRegexIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\RecursiveRegexIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+}
+class EmptyIterator implements \Iterator, \Traversable
+{
+    /**
+     * `\EmptyIterator` method `current`
+     *
+     * @return \never
+     */
+    public function current(): \never;
+    /**
+     * `\EmptyIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\EmptyIterator` method `key`
+     *
+     * @return \never
+     */
+    public function key(): \never;
+    /**
+     * `\EmptyIterator` method `valid`
+     *
+     * @return false
+     */
+    public function valid(): false;
+    /**
+     * `\EmptyIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+}
+class RecursiveTreeIterator extends \RecursiveIteratorIterator implements \Iterator, \Traversable, \OuterIterator
+{
+    public const int LEAVES_ONLY;
+    public const int SELF_FIRST;
+    public const int CHILD_FIRST;
+    public const int CATCH_GET_CHILD;
+    public const int BYPASS_CURRENT;
+    public const int BYPASS_KEY;
+    public const int PREFIX_LEFT;
+    public const int PREFIX_MID_HAS_NEXT;
+    public const int PREFIX_MID_LAST;
+    public const int PREFIX_END_HAS_NEXT;
+    public const int PREFIX_END_LAST;
+    public const int PREFIX_RIGHT;
+    /**
+     * `\RecursiveTreeIterator` method `__construct`
+     *
+     * @param mixed $iterator
+     * @param int $flags
+     * @param int $cachingIteratorFlags
+     * @param int $mode
+     * @return void
+     */
+    public function __construct(mixed $iterator, int $flags = \RecursiveTreeIterator::BYPASS_KEY, int $cachingIteratorFlags = \CachingIterator::CATCH_GET_CHILD, int $mode = \RecursiveTreeIterator::SELF_FIRST): void;
+    /**
+     * `\RecursiveTreeIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\RecursiveTreeIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\RecursiveTreeIterator` method `getPrefix`
+     *
+     * @return string
+     */
+    public function getPrefix(): string;
+    /**
+     * `\RecursiveTreeIterator` method `setPostfix`
+     *
+     * @param string $postfix
+     * @return void
+     */
+    public function setPostfix(string $postfix): void;
+    /**
+     * `\RecursiveTreeIterator` method `setPrefixPart`
+     *
+     * @param int $part
+     * @param string $value
+     * @return void
+     */
+    public function setPrefixPart(int $part, string $value): void;
+    /**
+     * `\RecursiveTreeIterator` method `getEntry`
+     *
+     * @return string
+     */
+    public function getEntry(): string;
+    /**
+     * `\RecursiveTreeIterator` method `getPostfix`
+     *
+     * @return string
+     */
+    public function getPostfix(): string;
+    /**
+     * `\RecursiveTreeIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\RecursiveTreeIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\RecursiveTreeIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\RecursiveTreeIterator` method `getDepth`
+     *
+     * @return int
+     */
+    public function getDepth(): int;
+    /**
+     * `\RecursiveTreeIterator` method `getSubIterator`
+     *
+     * @param ?int $level
+     * @return ?\RecursiveIterator
+     */
+    public function getSubIterator(?int $level = null): ?\RecursiveIterator;
+    /**
+     * `\RecursiveTreeIterator` method `getInnerIterator`
+     *
+     * @return \RecursiveIterator
+     */
+    public function getInnerIterator(): \RecursiveIterator;
+    /**
+     * `\RecursiveTreeIterator` method `beginIteration`
+     *
+     * @return void
+     */
+    public function beginIteration(): void;
+    /**
+     * `\RecursiveTreeIterator` method `endIteration`
+     *
+     * @return void
+     */
+    public function endIteration(): void;
+    /**
+     * `\RecursiveTreeIterator` method `callHasChildren`
+     *
+     * @return bool
+     */
+    public function callHasChildren(): bool;
+    /**
+     * `\RecursiveTreeIterator` method `callGetChildren`
+     *
+     * @return ?\RecursiveIterator
+     */
+    public function callGetChildren(): ?\RecursiveIterator;
+    /**
+     * `\RecursiveTreeIterator` method `beginChildren`
+     *
+     * @return void
+     */
+    public function beginChildren(): void;
+    /**
+     * `\RecursiveTreeIterator` method `endChildren`
+     *
+     * @return void
+     */
+    public function endChildren(): void;
+    /**
+     * `\RecursiveTreeIterator` method `nextElement`
+     *
+     * @return void
+     */
+    public function nextElement(): void;
+    /**
+     * `\RecursiveTreeIterator` method `setMaxDepth`
+     *
+     * @param int $maxDepth
+     * @return void
+     */
+    public function setMaxDepth(int $maxDepth = -1): void;
+    /**
+     * `\RecursiveTreeIterator` method `getMaxDepth`
+     *
+     * @return int|false
+     */
+    public function getMaxDepth(): int|false;
+}
+class ArrayObject implements \IteratorAggregate, \Traversable, \ArrayAccess, \Serializable, \Countable
+{
+    public const int STD_PROP_LIST;
+    public const int ARRAY_AS_PROPS;
+    /**
+     * `\ArrayObject` method `__construct`
+     *
+     * @param object|array $array
+     * @param int $flags
+     * @param string $iteratorClass
+     * @return void
+     */
+    public function __construct(object|array $array = [], int $flags = 0, string $iteratorClass = "ArrayIterator"): void;
+    /**
+     * `\ArrayObject` method `offsetExists`
+     *
+     * @param mixed $key
+     * @return bool
+     */
+    public function offsetExists(mixed $key): bool;
+    /**
+     * `\ArrayObject` method `offsetGet`
+     *
+     * @param mixed $key
+     * @return mixed
+     */
+    public function offsetGet(mixed $key): mixed;
+    /**
+     * `\ArrayObject` method `offsetSet`
+     *
+     * @param mixed $key
+     * @param mixed $value
+     * @return void
+     */
+    public function offsetSet(mixed $key, mixed $value): void;
+    /**
+     * `\ArrayObject` method `offsetUnset`
+     *
+     * @param mixed $key
+     * @return void
+     */
+    public function offsetUnset(mixed $key): void;
+    /**
+     * `\ArrayObject` method `append`
+     *
+     * @param mixed $value
+     * @return void
+     */
+    public function append(mixed $value): void;
+    /**
+     * `\ArrayObject` method `getArrayCopy`
+     *
+     * @return array
+     */
+    public function getArrayCopy(): array;
+    /**
+     * `\ArrayObject` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\ArrayObject` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\ArrayObject` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\ArrayObject` method `asort`
+     *
+     * @param int $flags
+     * @return bool
+     */
+    public function asort(int $flags = \SORT_REGULAR): bool;
+    /**
+     * `\ArrayObject` method `ksort`
+     *
+     * @param int $flags
+     * @return bool
+     */
+    public function ksort(int $flags = \SORT_REGULAR): bool;
+    /**
+     * `\ArrayObject` method `uasort`
+     *
+     * @param callable $callback
+     * @return bool
+     */
+    public function uasort(callable $callback): bool;
+    /**
+     * `\ArrayObject` method `uksort`
+     *
+     * @param callable $callback
+     * @return bool
+     */
+    public function uksort(callable $callback): bool;
+    /**
+     * `\ArrayObject` method `natsort`
+     *
+     * @return bool
+     */
+    public function natsort(): bool;
+    /**
+     * `\ArrayObject` method `natcasesort`
+     *
+     * @return bool
+     */
+    public function natcasesort(): bool;
+    /**
+     * `\ArrayObject` method `unserialize`
+     *
+     * @param string $data
+     * @return void
+     */
+    public function unserialize(string $data): void;
+    /**
+     * `\ArrayObject` method `serialize`
+     *
+     * @return string
+     */
+    public function serialize(): string;
+    /**
+     * `\ArrayObject` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\ArrayObject` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+    /**
+     * `\ArrayObject` method `getIterator`
+     *
+     * @return \Iterator
+     */
+    public function getIterator(): \Iterator;
+    /**
+     * `\ArrayObject` method `exchangeArray`
+     *
+     * @param object|array $array
+     * @return array
+     */
+    public function exchangeArray(object|array $array): array;
+    /**
+     * `\ArrayObject` method `setIteratorClass`
+     *
+     * @param string $iteratorClass
+     * @return void
+     */
+    public function setIteratorClass(string $iteratorClass): void;
+    /**
+     * `\ArrayObject` method `getIteratorClass`
+     *
+     * @return string
+     */
+    public function getIteratorClass(): string;
+    /**
+     * `\ArrayObject` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+}
+class ArrayIterator implements \SeekableIterator, \Traversable, \Iterator, \ArrayAccess, \Serializable, \Countable
+{
+    public const int STD_PROP_LIST;
+    public const int ARRAY_AS_PROPS;
+    /**
+     * `\ArrayIterator` method `__construct`
+     *
+     * @param object|array $array
+     * @param int $flags
+     * @return void
+     */
+    public function __construct(object|array $array = [], int $flags = 0): void;
+    /**
+     * `\ArrayIterator` method `offsetExists`
+     *
+     * @param mixed $key
+     * @return bool
+     */
+    public function offsetExists(mixed $key): bool;
+    /**
+     * `\ArrayIterator` method `offsetGet`
+     *
+     * @param mixed $key
+     * @return mixed
+     */
+    public function offsetGet(mixed $key): mixed;
+    /**
+     * `\ArrayIterator` method `offsetSet`
+     *
+     * @param mixed $key
+     * @param mixed $value
+     * @return void
+     */
+    public function offsetSet(mixed $key, mixed $value): void;
+    /**
+     * `\ArrayIterator` method `offsetUnset`
+     *
+     * @param mixed $key
+     * @return void
+     */
+    public function offsetUnset(mixed $key): void;
+    /**
+     * `\ArrayIterator` method `append`
+     *
+     * @param mixed $value
+     * @return void
+     */
+    public function append(mixed $value): void;
+    /**
+     * `\ArrayIterator` method `getArrayCopy`
+     *
+     * @return array
+     */
+    public function getArrayCopy(): array;
+    /**
+     * `\ArrayIterator` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\ArrayIterator` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\ArrayIterator` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\ArrayIterator` method `asort`
+     *
+     * @param int $flags
+     * @return bool
+     */
+    public function asort(int $flags = \SORT_REGULAR): bool;
+    /**
+     * `\ArrayIterator` method `ksort`
+     *
+     * @param int $flags
+     * @return bool
+     */
+    public function ksort(int $flags = \SORT_REGULAR): bool;
+    /**
+     * `\ArrayIterator` method `uasort`
+     *
+     * @param callable $callback
+     * @return bool
+     */
+    public function uasort(callable $callback): bool;
+    /**
+     * `\ArrayIterator` method `uksort`
+     *
+     * @param callable $callback
+     * @return bool
+     */
+    public function uksort(callable $callback): bool;
+    /**
+     * `\ArrayIterator` method `natsort`
+     *
+     * @return bool
+     */
+    public function natsort(): bool;
+    /**
+     * `\ArrayIterator` method `natcasesort`
+     *
+     * @return bool
+     */
+    public function natcasesort(): bool;
+    /**
+     * `\ArrayIterator` method `unserialize`
+     *
+     * @param string $data
+     * @return void
+     */
+    public function unserialize(string $data): void;
+    /**
+     * `\ArrayIterator` method `serialize`
+     *
+     * @return string
+     */
+    public function serialize(): string;
+    /**
+     * `\ArrayIterator` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\ArrayIterator` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+    /**
+     * `\ArrayIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\ArrayIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\ArrayIterator` method `key`
+     *
+     * @return string|int|null
+     */
+    public function key(): string|int|null;
+    /**
+     * `\ArrayIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\ArrayIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\ArrayIterator` method `seek`
+     *
+     * @param int $offset
+     * @return void
+     */
+    public function seek(int $offset): void;
+    /**
+     * `\ArrayIterator` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+}
+class RecursiveArrayIterator extends \ArrayIterator implements \Countable, \Serializable, \ArrayAccess, \Iterator, \Traversable, \SeekableIterator, \RecursiveIterator
+{
+    public const int STD_PROP_LIST;
+    public const int ARRAY_AS_PROPS;
+    public const int CHILD_ARRAYS_ONLY;
+    /**
+     * `\RecursiveArrayIterator` method `hasChildren`
+     *
+     * @return bool
+     */
+    public function hasChildren(): bool;
+    /**
+     * `\RecursiveArrayIterator` method `getChildren`
+     *
+     * @return ?\RecursiveArrayIterator
+     */
+    public function getChildren(): ?\RecursiveArrayIterator;
+    /**
+     * `\RecursiveArrayIterator` method `__construct`
+     *
+     * @param object|array $array
+     * @param int $flags
+     * @return void
+     */
+    public function __construct(object|array $array = [], int $flags = 0): void;
+    /**
+     * `\RecursiveArrayIterator` method `offsetExists`
+     *
+     * @param mixed $key
+     * @return bool
+     */
+    public function offsetExists(mixed $key): bool;
+    /**
+     * `\RecursiveArrayIterator` method `offsetGet`
+     *
+     * @param mixed $key
+     * @return mixed
+     */
+    public function offsetGet(mixed $key): mixed;
+    /**
+     * `\RecursiveArrayIterator` method `offsetSet`
+     *
+     * @param mixed $key
+     * @param mixed $value
+     * @return void
+     */
+    public function offsetSet(mixed $key, mixed $value): void;
+    /**
+     * `\RecursiveArrayIterator` method `offsetUnset`
+     *
+     * @param mixed $key
+     * @return void
+     */
+    public function offsetUnset(mixed $key): void;
+    /**
+     * `\RecursiveArrayIterator` method `append`
+     *
+     * @param mixed $value
+     * @return void
+     */
+    public function append(mixed $value): void;
+    /**
+     * `\RecursiveArrayIterator` method `getArrayCopy`
+     *
+     * @return array
+     */
+    public function getArrayCopy(): array;
+    /**
+     * `\RecursiveArrayIterator` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\RecursiveArrayIterator` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\RecursiveArrayIterator` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\RecursiveArrayIterator` method `asort`
+     *
+     * @param int $flags
+     * @return bool
+     */
+    public function asort(int $flags = \SORT_REGULAR): bool;
+    /**
+     * `\RecursiveArrayIterator` method `ksort`
+     *
+     * @param int $flags
+     * @return bool
+     */
+    public function ksort(int $flags = \SORT_REGULAR): bool;
+    /**
+     * `\RecursiveArrayIterator` method `uasort`
+     *
+     * @param callable $callback
+     * @return bool
+     */
+    public function uasort(callable $callback): bool;
+    /**
+     * `\RecursiveArrayIterator` method `uksort`
+     *
+     * @param callable $callback
+     * @return bool
+     */
+    public function uksort(callable $callback): bool;
+    /**
+     * `\RecursiveArrayIterator` method `natsort`
+     *
+     * @return bool
+     */
+    public function natsort(): bool;
+    /**
+     * `\RecursiveArrayIterator` method `natcasesort`
+     *
+     * @return bool
+     */
+    public function natcasesort(): bool;
+    /**
+     * `\RecursiveArrayIterator` method `unserialize`
+     *
+     * @param string $data
+     * @return void
+     */
+    public function unserialize(string $data): void;
+    /**
+     * `\RecursiveArrayIterator` method `serialize`
+     *
+     * @return string
+     */
+    public function serialize(): string;
+    /**
+     * `\RecursiveArrayIterator` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\RecursiveArrayIterator` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+    /**
+     * `\RecursiveArrayIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\RecursiveArrayIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\RecursiveArrayIterator` method `key`
+     *
+     * @return string|int|null
+     */
+    public function key(): string|int|null;
+    /**
+     * `\RecursiveArrayIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\RecursiveArrayIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\RecursiveArrayIterator` method `seek`
+     *
+     * @param int $offset
+     * @return void
+     */
+    public function seek(int $offset): void;
+    /**
+     * `\RecursiveArrayIterator` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+}
+class SplFileInfo implements \Stringable
+{
+    /**
+     * `\SplFileInfo` method `__construct`
+     *
+     * @param string $filename
+     * @return void
+     */
+    public function __construct(string $filename): void;
+    /**
+     * `\SplFileInfo` method `getPath`
+     *
+     * @return string
+     */
+    public function getPath(): string;
+    /**
+     * `\SplFileInfo` method `getFilename`
+     *
+     * @return string
+     */
+    public function getFilename(): string;
+    /**
+     * `\SplFileInfo` method `getExtension`
+     *
+     * @return string
+     */
+    public function getExtension(): string;
+    /**
+     * `\SplFileInfo` method `getBasename`
+     *
+     * @param string $suffix
+     * @return string
+     */
+    public function getBasename(string $suffix = ""): string;
+    /**
+     * `\SplFileInfo` method `getPathname`
+     *
+     * @return string
+     */
+    public function getPathname(): string;
+    /**
+     * `\SplFileInfo` method `getPerms`
+     *
+     * @return int|false
+     */
+    public function getPerms(): int|false;
+    /**
+     * `\SplFileInfo` method `getInode`
+     *
+     * @return int|false
+     */
+    public function getInode(): int|false;
+    /**
+     * `\SplFileInfo` method `getSize`
+     *
+     * @return int|false
+     */
+    public function getSize(): int|false;
+    /**
+     * `\SplFileInfo` method `getOwner`
+     *
+     * @return int|false
+     */
+    public function getOwner(): int|false;
+    /**
+     * `\SplFileInfo` method `getGroup`
+     *
+     * @return int|false
+     */
+    public function getGroup(): int|false;
+    /**
+     * `\SplFileInfo` method `getATime`
+     *
+     * @return int|false
+     */
+    public function getATime(): int|false;
+    /**
+     * `\SplFileInfo` method `getMTime`
+     *
+     * @return int|false
+     */
+    public function getMTime(): int|false;
+    /**
+     * `\SplFileInfo` method `getCTime`
+     *
+     * @return int|false
+     */
+    public function getCTime(): int|false;
+    /**
+     * `\SplFileInfo` method `getType`
+     *
+     * @return string|false
+     */
+    public function getType(): string|false;
+    /**
+     * `\SplFileInfo` method `isWritable`
+     *
+     * @return bool
+     */
+    public function isWritable(): bool;
+    /**
+     * `\SplFileInfo` method `isReadable`
+     *
+     * @return bool
+     */
+    public function isReadable(): bool;
+    /**
+     * `\SplFileInfo` method `isExecutable`
+     *
+     * @return bool
+     */
+    public function isExecutable(): bool;
+    /**
+     * `\SplFileInfo` method `isFile`
+     *
+     * @return bool
+     */
+    public function isFile(): bool;
+    /**
+     * `\SplFileInfo` method `isDir`
+     *
+     * @return bool
+     */
+    public function isDir(): bool;
+    /**
+     * `\SplFileInfo` method `isLink`
+     *
+     * @return bool
+     */
+    public function isLink(): bool;
+    /**
+     * `\SplFileInfo` method `getLinkTarget`
+     *
+     * @return string|false
+     */
+    public function getLinkTarget(): string|false;
+    /**
+     * `\SplFileInfo` method `getRealPath`
+     *
+     * @return string|false
+     */
+    public function getRealPath(): string|false;
+    /**
+     * `\SplFileInfo` method `getFileInfo`
+     *
+     * @param ?string $class
+     * @return \SplFileInfo
+     */
+    public function getFileInfo(?string $class = null): \SplFileInfo;
+    /**
+     * `\SplFileInfo` method `getPathInfo`
+     *
+     * @param ?string $class
+     * @return ?\SplFileInfo
+     */
+    public function getPathInfo(?string $class = null): ?\SplFileInfo;
+    /**
+     * `\SplFileInfo` method `openFile`
+     *
+     * @param string $mode
+     * @param bool $useIncludePath
+     * @param mixed $context
+     * @return \SplFileObject
+     */
+    public function openFile(string $mode = "r", bool $useIncludePath = false, mixed $context = null): \SplFileObject;
+    /**
+     * `\SplFileInfo` method `setFileClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setFileClass(string $class = "SplFileObject"): void;
+    /**
+     * `\SplFileInfo` method `setInfoClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setInfoClass(string $class = "SplFileInfo"): void;
+    /**
+     * `\SplFileInfo` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\SplFileInfo` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+    /**
+     * `\SplFileInfo` method `_bad_state_ex`
+     *
+     * @return void
+     *
+     * @deprecated */
+    public function _bad_state_ex(): void;
+}
+class DirectoryIterator extends \SplFileInfo implements \Stringable, \SeekableIterator, \Traversable, \Iterator
+{
+    /**
+     * `\DirectoryIterator` method `__construct`
+     *
+     * @param string $directory
+     * @return void
+     */
+    public function __construct(string $directory): void;
+    /**
+     * `\DirectoryIterator` method `getFilename`
+     *
+     * @return string
+     */
+    public function getFilename(): string;
+    /**
+     * `\DirectoryIterator` method `getExtension`
+     *
+     * @return string
+     */
+    public function getExtension(): string;
+    /**
+     * `\DirectoryIterator` method `getBasename`
+     *
+     * @param string $suffix
+     * @return string
+     */
+    public function getBasename(string $suffix = ""): string;
+    /**
+     * `\DirectoryIterator` method `isDot`
+     *
+     * @return bool
+     */
+    public function isDot(): bool;
+    /**
+     * `\DirectoryIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\DirectoryIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\DirectoryIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\DirectoryIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\DirectoryIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\DirectoryIterator` method `seek`
+     *
+     * @param int $offset
+     * @return void
+     */
+    public function seek(int $offset): void;
+    /**
+     * `\DirectoryIterator` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\DirectoryIterator` method `getPath`
+     *
+     * @return string
+     */
+    public function getPath(): string;
+    /**
+     * `\DirectoryIterator` method `getPathname`
+     *
+     * @return string
+     */
+    public function getPathname(): string;
+    /**
+     * `\DirectoryIterator` method `getPerms`
+     *
+     * @return int|false
+     */
+    public function getPerms(): int|false;
+    /**
+     * `\DirectoryIterator` method `getInode`
+     *
+     * @return int|false
+     */
+    public function getInode(): int|false;
+    /**
+     * `\DirectoryIterator` method `getSize`
+     *
+     * @return int|false
+     */
+    public function getSize(): int|false;
+    /**
+     * `\DirectoryIterator` method `getOwner`
+     *
+     * @return int|false
+     */
+    public function getOwner(): int|false;
+    /**
+     * `\DirectoryIterator` method `getGroup`
+     *
+     * @return int|false
+     */
+    public function getGroup(): int|false;
+    /**
+     * `\DirectoryIterator` method `getATime`
+     *
+     * @return int|false
+     */
+    public function getATime(): int|false;
+    /**
+     * `\DirectoryIterator` method `getMTime`
+     *
+     * @return int|false
+     */
+    public function getMTime(): int|false;
+    /**
+     * `\DirectoryIterator` method `getCTime`
+     *
+     * @return int|false
+     */
+    public function getCTime(): int|false;
+    /**
+     * `\DirectoryIterator` method `getType`
+     *
+     * @return string|false
+     */
+    public function getType(): string|false;
+    /**
+     * `\DirectoryIterator` method `isWritable`
+     *
+     * @return bool
+     */
+    public function isWritable(): bool;
+    /**
+     * `\DirectoryIterator` method `isReadable`
+     *
+     * @return bool
+     */
+    public function isReadable(): bool;
+    /**
+     * `\DirectoryIterator` method `isExecutable`
+     *
+     * @return bool
+     */
+    public function isExecutable(): bool;
+    /**
+     * `\DirectoryIterator` method `isFile`
+     *
+     * @return bool
+     */
+    public function isFile(): bool;
+    /**
+     * `\DirectoryIterator` method `isDir`
+     *
+     * @return bool
+     */
+    public function isDir(): bool;
+    /**
+     * `\DirectoryIterator` method `isLink`
+     *
+     * @return bool
+     */
+    public function isLink(): bool;
+    /**
+     * `\DirectoryIterator` method `getLinkTarget`
+     *
+     * @return string|false
+     */
+    public function getLinkTarget(): string|false;
+    /**
+     * `\DirectoryIterator` method `getRealPath`
+     *
+     * @return string|false
+     */
+    public function getRealPath(): string|false;
+    /**
+     * `\DirectoryIterator` method `getFileInfo`
+     *
+     * @param ?string $class
+     * @return \SplFileInfo
+     */
+    public function getFileInfo(?string $class = null): \SplFileInfo;
+    /**
+     * `\DirectoryIterator` method `getPathInfo`
+     *
+     * @param ?string $class
+     * @return ?\SplFileInfo
+     */
+    public function getPathInfo(?string $class = null): ?\SplFileInfo;
+    /**
+     * `\DirectoryIterator` method `openFile`
+     *
+     * @param string $mode
+     * @param bool $useIncludePath
+     * @param mixed $context
+     * @return \SplFileObject
+     */
+    public function openFile(string $mode = "r", bool $useIncludePath = false, mixed $context = null): \SplFileObject;
+    /**
+     * `\DirectoryIterator` method `setFileClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setFileClass(string $class = "SplFileObject"): void;
+    /**
+     * `\DirectoryIterator` method `setInfoClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setInfoClass(string $class = "SplFileInfo"): void;
+    /**
+     * `\DirectoryIterator` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+    /**
+     * `\DirectoryIterator` method `_bad_state_ex`
+     *
+     * @return void
+     *
+     * @deprecated */
+    public function _bad_state_ex(): void;
+}
+class FilesystemIterator extends \DirectoryIterator implements \Iterator, \Traversable, \SeekableIterator, \Stringable
+{
+    public const int CURRENT_MODE_MASK;
+    public const int CURRENT_AS_PATHNAME;
+    public const int CURRENT_AS_FILEINFO;
+    public const int CURRENT_AS_SELF;
+    public const int KEY_MODE_MASK;
+    public const int KEY_AS_PATHNAME;
+    public const int FOLLOW_SYMLINKS;
+    public const int KEY_AS_FILENAME;
+    public const int NEW_CURRENT_AND_KEY;
+    public const int OTHER_MODE_MASK;
+    public const int SKIP_DOTS;
+    public const int UNIX_PATHS;
+    /**
+     * `\FilesystemIterator` method `__construct`
+     *
+     * @param string $directory
+     * @param int $flags
+     * @return void
+     */
+    public function __construct(string $directory, int $flags = 4096): void;
+    /**
+     * `\FilesystemIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\FilesystemIterator` method `key`
+     *
+     * @return string
+     */
+    public function key(): string;
+    /**
+     * `\FilesystemIterator` method `current`
+     *
+     * @return \SplFileInfo|\FilesystemIterator|string
+     */
+    public function current(): \SplFileInfo|\FilesystemIterator|string;
+    /**
+     * `\FilesystemIterator` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\FilesystemIterator` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\FilesystemIterator` method `getFilename`
+     *
+     * @return string
+     */
+    public function getFilename(): string;
+    /**
+     * `\FilesystemIterator` method `getExtension`
+     *
+     * @return string
+     */
+    public function getExtension(): string;
+    /**
+     * `\FilesystemIterator` method `getBasename`
+     *
+     * @param string $suffix
+     * @return string
+     */
+    public function getBasename(string $suffix = ""): string;
+    /**
+     * `\FilesystemIterator` method `isDot`
+     *
+     * @return bool
+     */
+    public function isDot(): bool;
+    /**
+     * `\FilesystemIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\FilesystemIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\FilesystemIterator` method `seek`
+     *
+     * @param int $offset
+     * @return void
+     */
+    public function seek(int $offset): void;
+    /**
+     * `\FilesystemIterator` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\FilesystemIterator` method `getPath`
+     *
+     * @return string
+     */
+    public function getPath(): string;
+    /**
+     * `\FilesystemIterator` method `getPathname`
+     *
+     * @return string
+     */
+    public function getPathname(): string;
+    /**
+     * `\FilesystemIterator` method `getPerms`
+     *
+     * @return int|false
+     */
+    public function getPerms(): int|false;
+    /**
+     * `\FilesystemIterator` method `getInode`
+     *
+     * @return int|false
+     */
+    public function getInode(): int|false;
+    /**
+     * `\FilesystemIterator` method `getSize`
+     *
+     * @return int|false
+     */
+    public function getSize(): int|false;
+    /**
+     * `\FilesystemIterator` method `getOwner`
+     *
+     * @return int|false
+     */
+    public function getOwner(): int|false;
+    /**
+     * `\FilesystemIterator` method `getGroup`
+     *
+     * @return int|false
+     */
+    public function getGroup(): int|false;
+    /**
+     * `\FilesystemIterator` method `getATime`
+     *
+     * @return int|false
+     */
+    public function getATime(): int|false;
+    /**
+     * `\FilesystemIterator` method `getMTime`
+     *
+     * @return int|false
+     */
+    public function getMTime(): int|false;
+    /**
+     * `\FilesystemIterator` method `getCTime`
+     *
+     * @return int|false
+     */
+    public function getCTime(): int|false;
+    /**
+     * `\FilesystemIterator` method `getType`
+     *
+     * @return string|false
+     */
+    public function getType(): string|false;
+    /**
+     * `\FilesystemIterator` method `isWritable`
+     *
+     * @return bool
+     */
+    public function isWritable(): bool;
+    /**
+     * `\FilesystemIterator` method `isReadable`
+     *
+     * @return bool
+     */
+    public function isReadable(): bool;
+    /**
+     * `\FilesystemIterator` method `isExecutable`
+     *
+     * @return bool
+     */
+    public function isExecutable(): bool;
+    /**
+     * `\FilesystemIterator` method `isFile`
+     *
+     * @return bool
+     */
+    public function isFile(): bool;
+    /**
+     * `\FilesystemIterator` method `isDir`
+     *
+     * @return bool
+     */
+    public function isDir(): bool;
+    /**
+     * `\FilesystemIterator` method `isLink`
+     *
+     * @return bool
+     */
+    public function isLink(): bool;
+    /**
+     * `\FilesystemIterator` method `getLinkTarget`
+     *
+     * @return string|false
+     */
+    public function getLinkTarget(): string|false;
+    /**
+     * `\FilesystemIterator` method `getRealPath`
+     *
+     * @return string|false
+     */
+    public function getRealPath(): string|false;
+    /**
+     * `\FilesystemIterator` method `getFileInfo`
+     *
+     * @param ?string $class
+     * @return \SplFileInfo
+     */
+    public function getFileInfo(?string $class = null): \SplFileInfo;
+    /**
+     * `\FilesystemIterator` method `getPathInfo`
+     *
+     * @param ?string $class
+     * @return ?\SplFileInfo
+     */
+    public function getPathInfo(?string $class = null): ?\SplFileInfo;
+    /**
+     * `\FilesystemIterator` method `openFile`
+     *
+     * @param string $mode
+     * @param bool $useIncludePath
+     * @param mixed $context
+     * @return \SplFileObject
+     */
+    public function openFile(string $mode = "r", bool $useIncludePath = false, mixed $context = null): \SplFileObject;
+    /**
+     * `\FilesystemIterator` method `setFileClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setFileClass(string $class = "SplFileObject"): void;
+    /**
+     * `\FilesystemIterator` method `setInfoClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setInfoClass(string $class = "SplFileInfo"): void;
+    /**
+     * `\FilesystemIterator` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+    /**
+     * `\FilesystemIterator` method `_bad_state_ex`
+     *
+     * @return void
+     *
+     * @deprecated */
+    public function _bad_state_ex(): void;
+}
+class RecursiveDirectoryIterator extends \FilesystemIterator implements \Stringable, \SeekableIterator, \Traversable, \Iterator, \RecursiveIterator
+{
+    public const int CURRENT_MODE_MASK;
+    public const int CURRENT_AS_PATHNAME;
+    public const int CURRENT_AS_FILEINFO;
+    public const int CURRENT_AS_SELF;
+    public const int KEY_MODE_MASK;
+    public const int KEY_AS_PATHNAME;
+    public const int FOLLOW_SYMLINKS;
+    public const int KEY_AS_FILENAME;
+    public const int NEW_CURRENT_AND_KEY;
+    public const int OTHER_MODE_MASK;
+    public const int SKIP_DOTS;
+    public const int UNIX_PATHS;
+    /**
+     * `\RecursiveDirectoryIterator` method `__construct`
+     *
+     * @param string $directory
+     * @param int $flags
+     * @return void
+     */
+    public function __construct(string $directory, int $flags = 0): void;
+    /**
+     * `\RecursiveDirectoryIterator` method `hasChildren`
+     *
+     * @param bool $allowLinks
+     * @return bool
+     */
+    public function hasChildren(bool $allowLinks = false): bool;
+    /**
+     * `\RecursiveDirectoryIterator` method `getChildren`
+     *
+     * @return \RecursiveDirectoryIterator
+     */
+    public function getChildren(): \RecursiveDirectoryIterator;
+    /**
+     * `\RecursiveDirectoryIterator` method `getSubPath`
+     *
+     * @return string
+     */
+    public function getSubPath(): string;
+    /**
+     * `\RecursiveDirectoryIterator` method `getSubPathname`
+     *
+     * @return string
+     */
+    public function getSubPathname(): string;
+    /**
+     * `\RecursiveDirectoryIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\RecursiveDirectoryIterator` method `key`
+     *
+     * @return string
+     */
+    public function key(): string;
+    /**
+     * `\RecursiveDirectoryIterator` method `current`
+     *
+     * @return \SplFileInfo|\FilesystemIterator|string
+     */
+    public function current(): \SplFileInfo|\FilesystemIterator|string;
+    /**
+     * `\RecursiveDirectoryIterator` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\RecursiveDirectoryIterator` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\RecursiveDirectoryIterator` method `getFilename`
+     *
+     * @return string
+     */
+    public function getFilename(): string;
+    /**
+     * `\RecursiveDirectoryIterator` method `getExtension`
+     *
+     * @return string
+     */
+    public function getExtension(): string;
+    /**
+     * `\RecursiveDirectoryIterator` method `getBasename`
+     *
+     * @param string $suffix
+     * @return string
+     */
+    public function getBasename(string $suffix = ""): string;
+    /**
+     * `\RecursiveDirectoryIterator` method `isDot`
+     *
+     * @return bool
+     */
+    public function isDot(): bool;
+    /**
+     * `\RecursiveDirectoryIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\RecursiveDirectoryIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\RecursiveDirectoryIterator` method `seek`
+     *
+     * @param int $offset
+     * @return void
+     */
+    public function seek(int $offset): void;
+    /**
+     * `\RecursiveDirectoryIterator` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\RecursiveDirectoryIterator` method `getPath`
+     *
+     * @return string
+     */
+    public function getPath(): string;
+    /**
+     * `\RecursiveDirectoryIterator` method `getPathname`
+     *
+     * @return string
+     */
+    public function getPathname(): string;
+    /**
+     * `\RecursiveDirectoryIterator` method `getPerms`
+     *
+     * @return int|false
+     */
+    public function getPerms(): int|false;
+    /**
+     * `\RecursiveDirectoryIterator` method `getInode`
+     *
+     * @return int|false
+     */
+    public function getInode(): int|false;
+    /**
+     * `\RecursiveDirectoryIterator` method `getSize`
+     *
+     * @return int|false
+     */
+    public function getSize(): int|false;
+    /**
+     * `\RecursiveDirectoryIterator` method `getOwner`
+     *
+     * @return int|false
+     */
+    public function getOwner(): int|false;
+    /**
+     * `\RecursiveDirectoryIterator` method `getGroup`
+     *
+     * @return int|false
+     */
+    public function getGroup(): int|false;
+    /**
+     * `\RecursiveDirectoryIterator` method `getATime`
+     *
+     * @return int|false
+     */
+    public function getATime(): int|false;
+    /**
+     * `\RecursiveDirectoryIterator` method `getMTime`
+     *
+     * @return int|false
+     */
+    public function getMTime(): int|false;
+    /**
+     * `\RecursiveDirectoryIterator` method `getCTime`
+     *
+     * @return int|false
+     */
+    public function getCTime(): int|false;
+    /**
+     * `\RecursiveDirectoryIterator` method `getType`
+     *
+     * @return string|false
+     */
+    public function getType(): string|false;
+    /**
+     * `\RecursiveDirectoryIterator` method `isWritable`
+     *
+     * @return bool
+     */
+    public function isWritable(): bool;
+    /**
+     * `\RecursiveDirectoryIterator` method `isReadable`
+     *
+     * @return bool
+     */
+    public function isReadable(): bool;
+    /**
+     * `\RecursiveDirectoryIterator` method `isExecutable`
+     *
+     * @return bool
+     */
+    public function isExecutable(): bool;
+    /**
+     * `\RecursiveDirectoryIterator` method `isFile`
+     *
+     * @return bool
+     */
+    public function isFile(): bool;
+    /**
+     * `\RecursiveDirectoryIterator` method `isDir`
+     *
+     * @return bool
+     */
+    public function isDir(): bool;
+    /**
+     * `\RecursiveDirectoryIterator` method `isLink`
+     *
+     * @return bool
+     */
+    public function isLink(): bool;
+    /**
+     * `\RecursiveDirectoryIterator` method `getLinkTarget`
+     *
+     * @return string|false
+     */
+    public function getLinkTarget(): string|false;
+    /**
+     * `\RecursiveDirectoryIterator` method `getRealPath`
+     *
+     * @return string|false
+     */
+    public function getRealPath(): string|false;
+    /**
+     * `\RecursiveDirectoryIterator` method `getFileInfo`
+     *
+     * @param ?string $class
+     * @return \SplFileInfo
+     */
+    public function getFileInfo(?string $class = null): \SplFileInfo;
+    /**
+     * `\RecursiveDirectoryIterator` method `getPathInfo`
+     *
+     * @param ?string $class
+     * @return ?\SplFileInfo
+     */
+    public function getPathInfo(?string $class = null): ?\SplFileInfo;
+    /**
+     * `\RecursiveDirectoryIterator` method `openFile`
+     *
+     * @param string $mode
+     * @param bool $useIncludePath
+     * @param mixed $context
+     * @return \SplFileObject
+     */
+    public function openFile(string $mode = "r", bool $useIncludePath = false, mixed $context = null): \SplFileObject;
+    /**
+     * `\RecursiveDirectoryIterator` method `setFileClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setFileClass(string $class = "SplFileObject"): void;
+    /**
+     * `\RecursiveDirectoryIterator` method `setInfoClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setInfoClass(string $class = "SplFileInfo"): void;
+    /**
+     * `\RecursiveDirectoryIterator` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+    /**
+     * `\RecursiveDirectoryIterator` method `_bad_state_ex`
+     *
+     * @return void
+     *
+     * @deprecated */
+    public function _bad_state_ex(): void;
+}
+class GlobIterator extends \FilesystemIterator implements \Stringable, \SeekableIterator, \Traversable, \Iterator, \Countable
+{
+    public const int CURRENT_MODE_MASK;
+    public const int CURRENT_AS_PATHNAME;
+    public const int CURRENT_AS_FILEINFO;
+    public const int CURRENT_AS_SELF;
+    public const int KEY_MODE_MASK;
+    public const int KEY_AS_PATHNAME;
+    public const int FOLLOW_SYMLINKS;
+    public const int KEY_AS_FILENAME;
+    public const int NEW_CURRENT_AND_KEY;
+    public const int OTHER_MODE_MASK;
+    public const int SKIP_DOTS;
+    public const int UNIX_PATHS;
+    /**
+     * `\GlobIterator` method `__construct`
+     *
+     * @param string $pattern
+     * @param int $flags
+     * @return void
+     */
+    public function __construct(string $pattern, int $flags = 0): void;
+    /**
+     * `\GlobIterator` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\GlobIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\GlobIterator` method `key`
+     *
+     * @return string
+     */
+    public function key(): string;
+    /**
+     * `\GlobIterator` method `current`
+     *
+     * @return \SplFileInfo|\FilesystemIterator|string
+     */
+    public function current(): \SplFileInfo|\FilesystemIterator|string;
+    /**
+     * `\GlobIterator` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\GlobIterator` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\GlobIterator` method `getFilename`
+     *
+     * @return string
+     */
+    public function getFilename(): string;
+    /**
+     * `\GlobIterator` method `getExtension`
+     *
+     * @return string
+     */
+    public function getExtension(): string;
+    /**
+     * `\GlobIterator` method `getBasename`
+     *
+     * @param string $suffix
+     * @return string
+     */
+    public function getBasename(string $suffix = ""): string;
+    /**
+     * `\GlobIterator` method `isDot`
+     *
+     * @return bool
+     */
+    public function isDot(): bool;
+    /**
+     * `\GlobIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\GlobIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\GlobIterator` method `seek`
+     *
+     * @param int $offset
+     * @return void
+     */
+    public function seek(int $offset): void;
+    /**
+     * `\GlobIterator` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\GlobIterator` method `getPath`
+     *
+     * @return string
+     */
+    public function getPath(): string;
+    /**
+     * `\GlobIterator` method `getPathname`
+     *
+     * @return string
+     */
+    public function getPathname(): string;
+    /**
+     * `\GlobIterator` method `getPerms`
+     *
+     * @return int|false
+     */
+    public function getPerms(): int|false;
+    /**
+     * `\GlobIterator` method `getInode`
+     *
+     * @return int|false
+     */
+    public function getInode(): int|false;
+    /**
+     * `\GlobIterator` method `getSize`
+     *
+     * @return int|false
+     */
+    public function getSize(): int|false;
+    /**
+     * `\GlobIterator` method `getOwner`
+     *
+     * @return int|false
+     */
+    public function getOwner(): int|false;
+    /**
+     * `\GlobIterator` method `getGroup`
+     *
+     * @return int|false
+     */
+    public function getGroup(): int|false;
+    /**
+     * `\GlobIterator` method `getATime`
+     *
+     * @return int|false
+     */
+    public function getATime(): int|false;
+    /**
+     * `\GlobIterator` method `getMTime`
+     *
+     * @return int|false
+     */
+    public function getMTime(): int|false;
+    /**
+     * `\GlobIterator` method `getCTime`
+     *
+     * @return int|false
+     */
+    public function getCTime(): int|false;
+    /**
+     * `\GlobIterator` method `getType`
+     *
+     * @return string|false
+     */
+    public function getType(): string|false;
+    /**
+     * `\GlobIterator` method `isWritable`
+     *
+     * @return bool
+     */
+    public function isWritable(): bool;
+    /**
+     * `\GlobIterator` method `isReadable`
+     *
+     * @return bool
+     */
+    public function isReadable(): bool;
+    /**
+     * `\GlobIterator` method `isExecutable`
+     *
+     * @return bool
+     */
+    public function isExecutable(): bool;
+    /**
+     * `\GlobIterator` method `isFile`
+     *
+     * @return bool
+     */
+    public function isFile(): bool;
+    /**
+     * `\GlobIterator` method `isDir`
+     *
+     * @return bool
+     */
+    public function isDir(): bool;
+    /**
+     * `\GlobIterator` method `isLink`
+     *
+     * @return bool
+     */
+    public function isLink(): bool;
+    /**
+     * `\GlobIterator` method `getLinkTarget`
+     *
+     * @return string|false
+     */
+    public function getLinkTarget(): string|false;
+    /**
+     * `\GlobIterator` method `getRealPath`
+     *
+     * @return string|false
+     */
+    public function getRealPath(): string|false;
+    /**
+     * `\GlobIterator` method `getFileInfo`
+     *
+     * @param ?string $class
+     * @return \SplFileInfo
+     */
+    public function getFileInfo(?string $class = null): \SplFileInfo;
+    /**
+     * `\GlobIterator` method `getPathInfo`
+     *
+     * @param ?string $class
+     * @return ?\SplFileInfo
+     */
+    public function getPathInfo(?string $class = null): ?\SplFileInfo;
+    /**
+     * `\GlobIterator` method `openFile`
+     *
+     * @param string $mode
+     * @param bool $useIncludePath
+     * @param mixed $context
+     * @return \SplFileObject
+     */
+    public function openFile(string $mode = "r", bool $useIncludePath = false, mixed $context = null): \SplFileObject;
+    /**
+     * `\GlobIterator` method `setFileClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setFileClass(string $class = "SplFileObject"): void;
+    /**
+     * `\GlobIterator` method `setInfoClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setInfoClass(string $class = "SplFileInfo"): void;
+    /**
+     * `\GlobIterator` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+    /**
+     * `\GlobIterator` method `_bad_state_ex`
+     *
+     * @return void
+     *
+     * @deprecated */
+    public function _bad_state_ex(): void;
+}
+class SplFileObject extends \SplFileInfo implements \Stringable, \RecursiveIterator, \Traversable, \Iterator, \SeekableIterator
+{
+    public const int DROP_NEW_LINE;
+    public const int READ_AHEAD;
+    public const int SKIP_EMPTY;
+    public const int READ_CSV;
+    /**
+     * `\SplFileObject` method `__construct`
+     *
+     * @param string $filename
+     * @param string $mode
+     * @param bool $useIncludePath
+     * @param mixed $context
+     * @return void
+     */
+    public function __construct(string $filename, string $mode = "r", bool $useIncludePath = false, mixed $context = null): void;
+    /**
+     * `\SplFileObject` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\SplFileObject` method `eof`
+     *
+     * @return bool
+     */
+    public function eof(): bool;
+    /**
+     * `\SplFileObject` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\SplFileObject` method `fgets`
+     *
+     * @return string
+     */
+    public function fgets(): string;
+    /**
+     * `\SplFileObject` method `fread`
+     *
+     * @param int $length
+     * @return string|false
+     */
+    public function fread(int $length): string|false;
+    /**
+     * `\SplFileObject` method `fgetcsv`
+     *
+     * @param string $separator
+     * @param string $enclosure
+     * @param string $escape
+     * @return array|false
+     */
+    public function fgetcsv(string $separator = ",", string $enclosure = "\"", string $escape = "\\"): array|false;
+    /**
+     * `\SplFileObject` method `fputcsv`
+     *
+     * @param array $fields
+     * @param string $separator
+     * @param string $enclosure
+     * @param string $escape
+     * @param string $eol
+     * @return int|false
+     */
+    public function fputcsv(array $fields, string $separator = ",", string $enclosure = "\"", string $escape = "\\", string $eol = "\n"): int|false;
+    /**
+     * `\SplFileObject` method `setCsvControl`
+     *
+     * @param string $separator
+     * @param string $enclosure
+     * @param string $escape
+     * @return void
+     */
+    public function setCsvControl(string $separator = ",", string $enclosure = "\"", string $escape = "\\"): void;
+    /**
+     * `\SplFileObject` method `getCsvControl`
+     *
+     * @return array
+     */
+    public function getCsvControl(): array;
+    /**
+     * `\SplFileObject` method `flock`
+     *
+     * @param int $operation
+     * @param mixed $wouldBlock
+     * @return bool
+     */
+    public function flock(int $operation, mixed &$wouldBlock = null): bool;
+    /**
+     * `\SplFileObject` method `fflush`
+     *
+     * @return bool
+     */
+    public function fflush(): bool;
+    /**
+     * `\SplFileObject` method `ftell`
+     *
+     * @return int|false
+     */
+    public function ftell(): int|false;
+    /**
+     * `\SplFileObject` method `fseek`
+     *
+     * @param int $offset
+     * @param int $whence
+     * @return int
+     */
+    public function fseek(int $offset, int $whence = \SEEK_SET): int;
+    /**
+     * `\SplFileObject` method `fgetc`
+     *
+     * @return string|false
+     */
+    public function fgetc(): string|false;
+    /**
+     * `\SplFileObject` method `fpassthru`
+     *
+     * @return int
+     */
+    public function fpassthru(): int;
+    /**
+     * `\SplFileObject` method `fscanf`
+     *
+     * @param string $format
+     * @param mixed[] $vars
+     * @return array|int|null
+     */
+    public function fscanf(string $format, mixed &...$vars): array|int|null;
+    /**
+     * `\SplFileObject` method `fwrite`
+     *
+     * @param string $data
+     * @param int $length
+     * @return int|false
+     */
+    public function fwrite(string $data, int $length = 0): int|false;
+    /**
+     * `\SplFileObject` method `fstat`
+     *
+     * @return array
+     */
+    public function fstat(): array;
+    /**
+     * `\SplFileObject` method `ftruncate`
+     *
+     * @param int $size
+     * @return bool
+     */
+    public function ftruncate(int $size): bool;
+    /**
+     * `\SplFileObject` method `current`
+     *
+     * @return array|string|false
+     */
+    public function current(): array|string|false;
+    /**
+     * `\SplFileObject` method `key`
+     *
+     * @return int
+     */
+    public function key(): int;
+    /**
+     * `\SplFileObject` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\SplFileObject` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\SplFileObject` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\SplFileObject` method `setMaxLineLen`
+     *
+     * @param int $maxLength
+     * @return void
+     */
+    public function setMaxLineLen(int $maxLength): void;
+    /**
+     * `\SplFileObject` method `getMaxLineLen`
+     *
+     * @return int
+     */
+    public function getMaxLineLen(): int;
+    /**
+     * `\SplFileObject` method `hasChildren`
+     *
+     * @return false
+     */
+    public function hasChildren(): false;
+    /**
+     * `\SplFileObject` method `getChildren`
+     *
+     * @return ?null
+     */
+    public function getChildren(): ?null;
+    /**
+     * `\SplFileObject` method `seek`
+     *
+     * @param int $line
+     * @return void
+     */
+    public function seek(int $line): void;
+    /**
+     * `\SplFileObject` method `getCurrentLine`
+     *
+     * @return string
+     */
+    public function getCurrentLine(): string;
+    /**
+     * `\SplFileObject` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\SplFileObject` method `getPath`
+     *
+     * @return string
+     */
+    public function getPath(): string;
+    /**
+     * `\SplFileObject` method `getFilename`
+     *
+     * @return string
+     */
+    public function getFilename(): string;
+    /**
+     * `\SplFileObject` method `getExtension`
+     *
+     * @return string
+     */
+    public function getExtension(): string;
+    /**
+     * `\SplFileObject` method `getBasename`
+     *
+     * @param string $suffix
+     * @return string
+     */
+    public function getBasename(string $suffix = ""): string;
+    /**
+     * `\SplFileObject` method `getPathname`
+     *
+     * @return string
+     */
+    public function getPathname(): string;
+    /**
+     * `\SplFileObject` method `getPerms`
+     *
+     * @return int|false
+     */
+    public function getPerms(): int|false;
+    /**
+     * `\SplFileObject` method `getInode`
+     *
+     * @return int|false
+     */
+    public function getInode(): int|false;
+    /**
+     * `\SplFileObject` method `getSize`
+     *
+     * @return int|false
+     */
+    public function getSize(): int|false;
+    /**
+     * `\SplFileObject` method `getOwner`
+     *
+     * @return int|false
+     */
+    public function getOwner(): int|false;
+    /**
+     * `\SplFileObject` method `getGroup`
+     *
+     * @return int|false
+     */
+    public function getGroup(): int|false;
+    /**
+     * `\SplFileObject` method `getATime`
+     *
+     * @return int|false
+     */
+    public function getATime(): int|false;
+    /**
+     * `\SplFileObject` method `getMTime`
+     *
+     * @return int|false
+     */
+    public function getMTime(): int|false;
+    /**
+     * `\SplFileObject` method `getCTime`
+     *
+     * @return int|false
+     */
+    public function getCTime(): int|false;
+    /**
+     * `\SplFileObject` method `getType`
+     *
+     * @return string|false
+     */
+    public function getType(): string|false;
+    /**
+     * `\SplFileObject` method `isWritable`
+     *
+     * @return bool
+     */
+    public function isWritable(): bool;
+    /**
+     * `\SplFileObject` method `isReadable`
+     *
+     * @return bool
+     */
+    public function isReadable(): bool;
+    /**
+     * `\SplFileObject` method `isExecutable`
+     *
+     * @return bool
+     */
+    public function isExecutable(): bool;
+    /**
+     * `\SplFileObject` method `isFile`
+     *
+     * @return bool
+     */
+    public function isFile(): bool;
+    /**
+     * `\SplFileObject` method `isDir`
+     *
+     * @return bool
+     */
+    public function isDir(): bool;
+    /**
+     * `\SplFileObject` method `isLink`
+     *
+     * @return bool
+     */
+    public function isLink(): bool;
+    /**
+     * `\SplFileObject` method `getLinkTarget`
+     *
+     * @return string|false
+     */
+    public function getLinkTarget(): string|false;
+    /**
+     * `\SplFileObject` method `getRealPath`
+     *
+     * @return string|false
+     */
+    public function getRealPath(): string|false;
+    /**
+     * `\SplFileObject` method `getFileInfo`
+     *
+     * @param ?string $class
+     * @return \SplFileInfo
+     */
+    public function getFileInfo(?string $class = null): \SplFileInfo;
+    /**
+     * `\SplFileObject` method `getPathInfo`
+     *
+     * @param ?string $class
+     * @return ?\SplFileInfo
+     */
+    public function getPathInfo(?string $class = null): ?\SplFileInfo;
+    /**
+     * `\SplFileObject` method `openFile`
+     *
+     * @param string $mode
+     * @param bool $useIncludePath
+     * @param mixed $context
+     * @return \SplFileObject
+     */
+    public function openFile(string $mode = "r", bool $useIncludePath = false, mixed $context = null): \SplFileObject;
+    /**
+     * `\SplFileObject` method `setFileClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setFileClass(string $class = "SplFileObject"): void;
+    /**
+     * `\SplFileObject` method `setInfoClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setInfoClass(string $class = "SplFileInfo"): void;
+    /**
+     * `\SplFileObject` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+    /**
+     * `\SplFileObject` method `_bad_state_ex`
+     *
+     * @return void
+     *
+     * @deprecated */
+    public function _bad_state_ex(): void;
+}
+class SplTempFileObject extends \SplFileObject implements \SeekableIterator, \Iterator, \Traversable, \RecursiveIterator, \Stringable
+{
+    public const int DROP_NEW_LINE;
+    public const int READ_AHEAD;
+    public const int SKIP_EMPTY;
+    public const int READ_CSV;
+    /**
+     * `\SplTempFileObject` method `__construct`
+     *
+     * @param int $maxMemory
+     * @return void
+     */
+    public function __construct(int $maxMemory = 2097152): void;
+    /**
+     * `\SplTempFileObject` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\SplTempFileObject` method `eof`
+     *
+     * @return bool
+     */
+    public function eof(): bool;
+    /**
+     * `\SplTempFileObject` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\SplTempFileObject` method `fgets`
+     *
+     * @return string
+     */
+    public function fgets(): string;
+    /**
+     * `\SplTempFileObject` method `fread`
+     *
+     * @param int $length
+     * @return string|false
+     */
+    public function fread(int $length): string|false;
+    /**
+     * `\SplTempFileObject` method `fgetcsv`
+     *
+     * @param string $separator
+     * @param string $enclosure
+     * @param string $escape
+     * @return array|false
+     */
+    public function fgetcsv(string $separator = ",", string $enclosure = "\"", string $escape = "\\"): array|false;
+    /**
+     * `\SplTempFileObject` method `fputcsv`
+     *
+     * @param array $fields
+     * @param string $separator
+     * @param string $enclosure
+     * @param string $escape
+     * @param string $eol
+     * @return int|false
+     */
+    public function fputcsv(array $fields, string $separator = ",", string $enclosure = "\"", string $escape = "\\", string $eol = "\n"): int|false;
+    /**
+     * `\SplTempFileObject` method `setCsvControl`
+     *
+     * @param string $separator
+     * @param string $enclosure
+     * @param string $escape
+     * @return void
+     */
+    public function setCsvControl(string $separator = ",", string $enclosure = "\"", string $escape = "\\"): void;
+    /**
+     * `\SplTempFileObject` method `getCsvControl`
+     *
+     * @return array
+     */
+    public function getCsvControl(): array;
+    /**
+     * `\SplTempFileObject` method `flock`
+     *
+     * @param int $operation
+     * @param mixed $wouldBlock
+     * @return bool
+     */
+    public function flock(int $operation, mixed &$wouldBlock = null): bool;
+    /**
+     * `\SplTempFileObject` method `fflush`
+     *
+     * @return bool
+     */
+    public function fflush(): bool;
+    /**
+     * `\SplTempFileObject` method `ftell`
+     *
+     * @return int|false
+     */
+    public function ftell(): int|false;
+    /**
+     * `\SplTempFileObject` method `fseek`
+     *
+     * @param int $offset
+     * @param int $whence
+     * @return int
+     */
+    public function fseek(int $offset, int $whence = \SEEK_SET): int;
+    /**
+     * `\SplTempFileObject` method `fgetc`
+     *
+     * @return string|false
+     */
+    public function fgetc(): string|false;
+    /**
+     * `\SplTempFileObject` method `fpassthru`
+     *
+     * @return int
+     */
+    public function fpassthru(): int;
+    /**
+     * `\SplTempFileObject` method `fscanf`
+     *
+     * @param string $format
+     * @param mixed[] $vars
+     * @return array|int|null
+     */
+    public function fscanf(string $format, mixed &...$vars): array|int|null;
+    /**
+     * `\SplTempFileObject` method `fwrite`
+     *
+     * @param string $data
+     * @param int $length
+     * @return int|false
+     */
+    public function fwrite(string $data, int $length = 0): int|false;
+    /**
+     * `\SplTempFileObject` method `fstat`
+     *
+     * @return array
+     */
+    public function fstat(): array;
+    /**
+     * `\SplTempFileObject` method `ftruncate`
+     *
+     * @param int $size
+     * @return bool
+     */
+    public function ftruncate(int $size): bool;
+    /**
+     * `\SplTempFileObject` method `current`
+     *
+     * @return array|string|false
+     */
+    public function current(): array|string|false;
+    /**
+     * `\SplTempFileObject` method `key`
+     *
+     * @return int
+     */
+    public function key(): int;
+    /**
+     * `\SplTempFileObject` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\SplTempFileObject` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\SplTempFileObject` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\SplTempFileObject` method `setMaxLineLen`
+     *
+     * @param int $maxLength
+     * @return void
+     */
+    public function setMaxLineLen(int $maxLength): void;
+    /**
+     * `\SplTempFileObject` method `getMaxLineLen`
+     *
+     * @return int
+     */
+    public function getMaxLineLen(): int;
+    /**
+     * `\SplTempFileObject` method `hasChildren`
+     *
+     * @return false
+     */
+    public function hasChildren(): false;
+    /**
+     * `\SplTempFileObject` method `getChildren`
+     *
+     * @return ?null
+     */
+    public function getChildren(): ?null;
+    /**
+     * `\SplTempFileObject` method `seek`
+     *
+     * @param int $line
+     * @return void
+     */
+    public function seek(int $line): void;
+    /**
+     * `\SplTempFileObject` method `getCurrentLine`
+     *
+     * @return string
+     */
+    public function getCurrentLine(): string;
+    /**
+     * `\SplTempFileObject` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\SplTempFileObject` method `getPath`
+     *
+     * @return string
+     */
+    public function getPath(): string;
+    /**
+     * `\SplTempFileObject` method `getFilename`
+     *
+     * @return string
+     */
+    public function getFilename(): string;
+    /**
+     * `\SplTempFileObject` method `getExtension`
+     *
+     * @return string
+     */
+    public function getExtension(): string;
+    /**
+     * `\SplTempFileObject` method `getBasename`
+     *
+     * @param string $suffix
+     * @return string
+     */
+    public function getBasename(string $suffix = ""): string;
+    /**
+     * `\SplTempFileObject` method `getPathname`
+     *
+     * @return string
+     */
+    public function getPathname(): string;
+    /**
+     * `\SplTempFileObject` method `getPerms`
+     *
+     * @return int|false
+     */
+    public function getPerms(): int|false;
+    /**
+     * `\SplTempFileObject` method `getInode`
+     *
+     * @return int|false
+     */
+    public function getInode(): int|false;
+    /**
+     * `\SplTempFileObject` method `getSize`
+     *
+     * @return int|false
+     */
+    public function getSize(): int|false;
+    /**
+     * `\SplTempFileObject` method `getOwner`
+     *
+     * @return int|false
+     */
+    public function getOwner(): int|false;
+    /**
+     * `\SplTempFileObject` method `getGroup`
+     *
+     * @return int|false
+     */
+    public function getGroup(): int|false;
+    /**
+     * `\SplTempFileObject` method `getATime`
+     *
+     * @return int|false
+     */
+    public function getATime(): int|false;
+    /**
+     * `\SplTempFileObject` method `getMTime`
+     *
+     * @return int|false
+     */
+    public function getMTime(): int|false;
+    /**
+     * `\SplTempFileObject` method `getCTime`
+     *
+     * @return int|false
+     */
+    public function getCTime(): int|false;
+    /**
+     * `\SplTempFileObject` method `getType`
+     *
+     * @return string|false
+     */
+    public function getType(): string|false;
+    /**
+     * `\SplTempFileObject` method `isWritable`
+     *
+     * @return bool
+     */
+    public function isWritable(): bool;
+    /**
+     * `\SplTempFileObject` method `isReadable`
+     *
+     * @return bool
+     */
+    public function isReadable(): bool;
+    /**
+     * `\SplTempFileObject` method `isExecutable`
+     *
+     * @return bool
+     */
+    public function isExecutable(): bool;
+    /**
+     * `\SplTempFileObject` method `isFile`
+     *
+     * @return bool
+     */
+    public function isFile(): bool;
+    /**
+     * `\SplTempFileObject` method `isDir`
+     *
+     * @return bool
+     */
+    public function isDir(): bool;
+    /**
+     * `\SplTempFileObject` method `isLink`
+     *
+     * @return bool
+     */
+    public function isLink(): bool;
+    /**
+     * `\SplTempFileObject` method `getLinkTarget`
+     *
+     * @return string|false
+     */
+    public function getLinkTarget(): string|false;
+    /**
+     * `\SplTempFileObject` method `getRealPath`
+     *
+     * @return string|false
+     */
+    public function getRealPath(): string|false;
+    /**
+     * `\SplTempFileObject` method `getFileInfo`
+     *
+     * @param ?string $class
+     * @return \SplFileInfo
+     */
+    public function getFileInfo(?string $class = null): \SplFileInfo;
+    /**
+     * `\SplTempFileObject` method `getPathInfo`
+     *
+     * @param ?string $class
+     * @return ?\SplFileInfo
+     */
+    public function getPathInfo(?string $class = null): ?\SplFileInfo;
+    /**
+     * `\SplTempFileObject` method `openFile`
+     *
+     * @param string $mode
+     * @param bool $useIncludePath
+     * @param mixed $context
+     * @return \SplFileObject
+     */
+    public function openFile(string $mode = "r", bool $useIncludePath = false, mixed $context = null): \SplFileObject;
+    /**
+     * `\SplTempFileObject` method `setFileClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setFileClass(string $class = "SplFileObject"): void;
+    /**
+     * `\SplTempFileObject` method `setInfoClass`
+     *
+     * @param string $class
+     * @return void
+     */
+    public function setInfoClass(string $class = "SplFileInfo"): void;
+    /**
+     * `\SplTempFileObject` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+    /**
+     * `\SplTempFileObject` method `_bad_state_ex`
+     *
+     * @return void
+     *
+     * @deprecated */
+    public function _bad_state_ex(): void;
+}
+class SplDoublyLinkedList implements \Iterator, \Traversable, \Countable, \ArrayAccess, \Serializable
+{
+    public const int IT_MODE_LIFO;
+    public const int IT_MODE_FIFO;
+    public const int IT_MODE_DELETE;
+    public const int IT_MODE_KEEP;
+    /**
+     * `\SplDoublyLinkedList` method `add`
+     *
+     * @param int $index
+     * @param mixed $value
+     * @return void
+     */
+    public function add(int $index, mixed $value): void;
+    /**
+     * `\SplDoublyLinkedList` method `pop`
+     *
+     * @return mixed
+     */
+    public function pop(): mixed;
+    /**
+     * `\SplDoublyLinkedList` method `shift`
+     *
+     * @return mixed
+     */
+    public function shift(): mixed;
+    /**
+     * `\SplDoublyLinkedList` method `push`
+     *
+     * @param mixed $value
+     * @return void
+     */
+    public function push(mixed $value): void;
+    /**
+     * `\SplDoublyLinkedList` method `unshift`
+     *
+     * @param mixed $value
+     * @return void
+     */
+    public function unshift(mixed $value): void;
+    /**
+     * `\SplDoublyLinkedList` method `top`
+     *
+     * @return mixed
+     */
+    public function top(): mixed;
+    /**
+     * `\SplDoublyLinkedList` method `bottom`
+     *
+     * @return mixed
+     */
+    public function bottom(): mixed;
+    /**
+     * `\SplDoublyLinkedList` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+    /**
+     * `\SplDoublyLinkedList` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\SplDoublyLinkedList` method `isEmpty`
+     *
+     * @return bool
+     */
+    public function isEmpty(): bool;
+    /**
+     * `\SplDoublyLinkedList` method `setIteratorMode`
+     *
+     * @param int $mode
+     * @return int
+     */
+    public function setIteratorMode(int $mode): int;
+    /**
+     * `\SplDoublyLinkedList` method `getIteratorMode`
+     *
+     * @return int
+     */
+    public function getIteratorMode(): int;
+    /**
+     * `\SplDoublyLinkedList` method `offsetExists`
+     *
+     * @param mixed $index
+     * @return bool
+     */
+    public function offsetExists(mixed $index): bool;
+    /**
+     * `\SplDoublyLinkedList` method `offsetGet`
+     *
+     * @param mixed $index
+     * @return mixed
+     */
+    public function offsetGet(mixed $index): mixed;
+    /**
+     * `\SplDoublyLinkedList` method `offsetSet`
+     *
+     * @param mixed $index
+     * @param mixed $value
+     * @return void
+     */
+    public function offsetSet(mixed $index, mixed $value): void;
+    /**
+     * `\SplDoublyLinkedList` method `offsetUnset`
+     *
+     * @param mixed $index
+     * @return void
+     */
+    public function offsetUnset(mixed $index): void;
+    /**
+     * `\SplDoublyLinkedList` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\SplDoublyLinkedList` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\SplDoublyLinkedList` method `key`
+     *
+     * @return int
+     */
+    public function key(): int;
+    /**
+     * `\SplDoublyLinkedList` method `prev`
+     *
+     * @return void
+     */
+    public function prev(): void;
+    /**
+     * `\SplDoublyLinkedList` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\SplDoublyLinkedList` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\SplDoublyLinkedList` method `unserialize`
+     *
+     * @param string $data
+     * @return void
+     */
+    public function unserialize(string $data): void;
+    /**
+     * `\SplDoublyLinkedList` method `serialize`
+     *
+     * @return string
+     */
+    public function serialize(): string;
+    /**
+     * `\SplDoublyLinkedList` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\SplDoublyLinkedList` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+}
+class SplQueue extends \SplDoublyLinkedList implements \Serializable, \ArrayAccess, \Countable, \Traversable, \Iterator
+{
+    public const int IT_MODE_LIFO;
+    public const int IT_MODE_FIFO;
+    public const int IT_MODE_DELETE;
+    public const int IT_MODE_KEEP;
+    /**
+     * `\SplQueue` method `enqueue`
+     *
+     * @param mixed $value
+     * @return void
+     */
+    public function enqueue(mixed $value): void;
+    /**
+     * `\SplQueue` method `dequeue`
+     *
+     * @return mixed
+     */
+    public function dequeue(): mixed;
+    /**
+     * `\SplQueue` method `add`
+     *
+     * @param int $index
+     * @param mixed $value
+     * @return void
+     */
+    public function add(int $index, mixed $value): void;
+    /**
+     * `\SplQueue` method `pop`
+     *
+     * @return mixed
+     */
+    public function pop(): mixed;
+    /**
+     * `\SplQueue` method `shift`
+     *
+     * @return mixed
+     */
+    public function shift(): mixed;
+    /**
+     * `\SplQueue` method `push`
+     *
+     * @param mixed $value
+     * @return void
+     */
+    public function push(mixed $value): void;
+    /**
+     * `\SplQueue` method `unshift`
+     *
+     * @param mixed $value
+     * @return void
+     */
+    public function unshift(mixed $value): void;
+    /**
+     * `\SplQueue` method `top`
+     *
+     * @return mixed
+     */
+    public function top(): mixed;
+    /**
+     * `\SplQueue` method `bottom`
+     *
+     * @return mixed
+     */
+    public function bottom(): mixed;
+    /**
+     * `\SplQueue` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+    /**
+     * `\SplQueue` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\SplQueue` method `isEmpty`
+     *
+     * @return bool
+     */
+    public function isEmpty(): bool;
+    /**
+     * `\SplQueue` method `setIteratorMode`
+     *
+     * @param int $mode
+     * @return int
+     */
+    public function setIteratorMode(int $mode): int;
+    /**
+     * `\SplQueue` method `getIteratorMode`
+     *
+     * @return int
+     */
+    public function getIteratorMode(): int;
+    /**
+     * `\SplQueue` method `offsetExists`
+     *
+     * @param mixed $index
+     * @return bool
+     */
+    public function offsetExists(mixed $index): bool;
+    /**
+     * `\SplQueue` method `offsetGet`
+     *
+     * @param mixed $index
+     * @return mixed
+     */
+    public function offsetGet(mixed $index): mixed;
+    /**
+     * `\SplQueue` method `offsetSet`
+     *
+     * @param mixed $index
+     * @param mixed $value
+     * @return void
+     */
+    public function offsetSet(mixed $index, mixed $value): void;
+    /**
+     * `\SplQueue` method `offsetUnset`
+     *
+     * @param mixed $index
+     * @return void
+     */
+    public function offsetUnset(mixed $index): void;
+    /**
+     * `\SplQueue` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\SplQueue` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\SplQueue` method `key`
+     *
+     * @return int
+     */
+    public function key(): int;
+    /**
+     * `\SplQueue` method `prev`
+     *
+     * @return void
+     */
+    public function prev(): void;
+    /**
+     * `\SplQueue` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\SplQueue` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\SplQueue` method `unserialize`
+     *
+     * @param string $data
+     * @return void
+     */
+    public function unserialize(string $data): void;
+    /**
+     * `\SplQueue` method `serialize`
+     *
+     * @return string
+     */
+    public function serialize(): string;
+    /**
+     * `\SplQueue` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\SplQueue` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+}
+class SplStack extends \SplDoublyLinkedList implements \Serializable, \ArrayAccess, \Countable, \Traversable, \Iterator
+{
+    public const int IT_MODE_LIFO;
+    public const int IT_MODE_FIFO;
+    public const int IT_MODE_DELETE;
+    public const int IT_MODE_KEEP;
+    /**
+     * `\SplStack` method `add`
+     *
+     * @param int $index
+     * @param mixed $value
+     * @return void
+     */
+    public function add(int $index, mixed $value): void;
+    /**
+     * `\SplStack` method `pop`
+     *
+     * @return mixed
+     */
+    public function pop(): mixed;
+    /**
+     * `\SplStack` method `shift`
+     *
+     * @return mixed
+     */
+    public function shift(): mixed;
+    /**
+     * `\SplStack` method `push`
+     *
+     * @param mixed $value
+     * @return void
+     */
+    public function push(mixed $value): void;
+    /**
+     * `\SplStack` method `unshift`
+     *
+     * @param mixed $value
+     * @return void
+     */
+    public function unshift(mixed $value): void;
+    /**
+     * `\SplStack` method `top`
+     *
+     * @return mixed
+     */
+    public function top(): mixed;
+    /**
+     * `\SplStack` method `bottom`
+     *
+     * @return mixed
+     */
+    public function bottom(): mixed;
+    /**
+     * `\SplStack` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+    /**
+     * `\SplStack` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\SplStack` method `isEmpty`
+     *
+     * @return bool
+     */
+    public function isEmpty(): bool;
+    /**
+     * `\SplStack` method `setIteratorMode`
+     *
+     * @param int $mode
+     * @return int
+     */
+    public function setIteratorMode(int $mode): int;
+    /**
+     * `\SplStack` method `getIteratorMode`
+     *
+     * @return int
+     */
+    public function getIteratorMode(): int;
+    /**
+     * `\SplStack` method `offsetExists`
+     *
+     * @param mixed $index
+     * @return bool
+     */
+    public function offsetExists(mixed $index): bool;
+    /**
+     * `\SplStack` method `offsetGet`
+     *
+     * @param mixed $index
+     * @return mixed
+     */
+    public function offsetGet(mixed $index): mixed;
+    /**
+     * `\SplStack` method `offsetSet`
+     *
+     * @param mixed $index
+     * @param mixed $value
+     * @return void
+     */
+    public function offsetSet(mixed $index, mixed $value): void;
+    /**
+     * `\SplStack` method `offsetUnset`
+     *
+     * @param mixed $index
+     * @return void
+     */
+    public function offsetUnset(mixed $index): void;
+    /**
+     * `\SplStack` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\SplStack` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\SplStack` method `key`
+     *
+     * @return int
+     */
+    public function key(): int;
+    /**
+     * `\SplStack` method `prev`
+     *
+     * @return void
+     */
+    public function prev(): void;
+    /**
+     * `\SplStack` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\SplStack` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\SplStack` method `unserialize`
+     *
+     * @param string $data
+     * @return void
+     */
+    public function unserialize(string $data): void;
+    /**
+     * `\SplStack` method `serialize`
+     *
+     * @return string
+     */
+    public function serialize(): string;
+    /**
+     * `\SplStack` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\SplStack` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+}
+abstract class SplHeap implements \Iterator, \Traversable, \Countable
+{
+    /**
+     * `\SplHeap` method `extract`
+     *
+     * @return mixed
+     */
+    public function extract(): mixed;
+    /**
+     * `\SplHeap` method `insert`
+     *
+     * @param mixed $value
+     * @return bool
+     */
+    public function insert(mixed $value): bool;
+    /**
+     * `\SplHeap` method `top`
+     *
+     * @return mixed
+     */
+    public function top(): mixed;
+    /**
+     * `\SplHeap` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\SplHeap` method `isEmpty`
+     *
+     * @return bool
+     */
+    public function isEmpty(): bool;
+    /**
+     * `\SplHeap` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\SplHeap` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\SplHeap` method `key`
+     *
+     * @return int
+     */
+    public function key(): int;
+    /**
+     * `\SplHeap` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\SplHeap` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\SplHeap` method `recoverFromCorruption`
+     *
+     * @return bool
+     */
+    public function recoverFromCorruption(): bool;
+    /**
+     * `\SplHeap` method `compare`
+     *
+     * @param mixed $value1
+     * @param mixed $value2
+     * @return int
+     */
+    public function compare(mixed $value1, mixed $value2): int;
+    /**
+     * `\SplHeap` method `isCorrupted`
+     *
+     * @return bool
+     */
+    public function isCorrupted(): bool;
+    /**
+     * `\SplHeap` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+}
+class SplMinHeap extends \SplHeap implements \Countable, \Traversable, \Iterator
+{
+    /**
+     * `\SplMinHeap` method `compare`
+     *
+     * @param mixed $value1
+     * @param mixed $value2
+     * @return int
+     */
+    public function compare(mixed $value1, mixed $value2): int;
+    /**
+     * `\SplMinHeap` method `extract`
+     *
+     * @return mixed
+     */
+    public function extract(): mixed;
+    /**
+     * `\SplMinHeap` method `insert`
+     *
+     * @param mixed $value
+     * @return bool
+     */
+    public function insert(mixed $value): bool;
+    /**
+     * `\SplMinHeap` method `top`
+     *
+     * @return mixed
+     */
+    public function top(): mixed;
+    /**
+     * `\SplMinHeap` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\SplMinHeap` method `isEmpty`
+     *
+     * @return bool
+     */
+    public function isEmpty(): bool;
+    /**
+     * `\SplMinHeap` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\SplMinHeap` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\SplMinHeap` method `key`
+     *
+     * @return int
+     */
+    public function key(): int;
+    /**
+     * `\SplMinHeap` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\SplMinHeap` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\SplMinHeap` method `recoverFromCorruption`
+     *
+     * @return bool
+     */
+    public function recoverFromCorruption(): bool;
+    /**
+     * `\SplMinHeap` method `isCorrupted`
+     *
+     * @return bool
+     */
+    public function isCorrupted(): bool;
+    /**
+     * `\SplMinHeap` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+}
+class SplMaxHeap extends \SplHeap implements \Countable, \Traversable, \Iterator
+{
+    /**
+     * `\SplMaxHeap` method `compare`
+     *
+     * @param mixed $value1
+     * @param mixed $value2
+     * @return int
+     */
+    public function compare(mixed $value1, mixed $value2): int;
+    /**
+     * `\SplMaxHeap` method `extract`
+     *
+     * @return mixed
+     */
+    public function extract(): mixed;
+    /**
+     * `\SplMaxHeap` method `insert`
+     *
+     * @param mixed $value
+     * @return bool
+     */
+    public function insert(mixed $value): bool;
+    /**
+     * `\SplMaxHeap` method `top`
+     *
+     * @return mixed
+     */
+    public function top(): mixed;
+    /**
+     * `\SplMaxHeap` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\SplMaxHeap` method `isEmpty`
+     *
+     * @return bool
+     */
+    public function isEmpty(): bool;
+    /**
+     * `\SplMaxHeap` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\SplMaxHeap` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\SplMaxHeap` method `key`
+     *
+     * @return int
+     */
+    public function key(): int;
+    /**
+     * `\SplMaxHeap` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\SplMaxHeap` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\SplMaxHeap` method `recoverFromCorruption`
+     *
+     * @return bool
+     */
+    public function recoverFromCorruption(): bool;
+    /**
+     * `\SplMaxHeap` method `isCorrupted`
+     *
+     * @return bool
+     */
+    public function isCorrupted(): bool;
+    /**
+     * `\SplMaxHeap` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+}
+class SplPriorityQueue implements \Iterator, \Traversable, \Countable
+{
+    public const int EXTR_BOTH;
+    public const int EXTR_PRIORITY;
+    public const int EXTR_DATA;
+    /**
+     * `\SplPriorityQueue` method `compare`
+     *
+     * @param mixed $priority1
+     * @param mixed $priority2
+     * @return int
+     */
+    public function compare(mixed $priority1, mixed $priority2): int;
+    /**
+     * `\SplPriorityQueue` method `insert`
+     *
+     * @param mixed $value
+     * @param mixed $priority
+     * @return void
+     */
+    public function insert(mixed $value, mixed $priority): void;
+    /**
+     * `\SplPriorityQueue` method `setExtractFlags`
+     *
+     * @param int $flags
+     * @return int
+     */
+    public function setExtractFlags(int $flags): int;
+    /**
+     * `\SplPriorityQueue` method `top`
+     *
+     * @return mixed
+     */
+    public function top(): mixed;
+    /**
+     * `\SplPriorityQueue` method `extract`
+     *
+     * @return mixed
+     */
+    public function extract(): mixed;
+    /**
+     * `\SplPriorityQueue` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\SplPriorityQueue` method `isEmpty`
+     *
+     * @return bool
+     */
+    public function isEmpty(): bool;
+    /**
+     * `\SplPriorityQueue` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\SplPriorityQueue` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\SplPriorityQueue` method `key`
+     *
+     * @return int
+     */
+    public function key(): int;
+    /**
+     * `\SplPriorityQueue` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\SplPriorityQueue` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\SplPriorityQueue` method `recoverFromCorruption`
+     *
+     * @return void
+     */
+    public function recoverFromCorruption(): void;
+    /**
+     * `\SplPriorityQueue` method `isCorrupted`
+     *
+     * @return bool
+     */
+    public function isCorrupted(): bool;
+    /**
+     * `\SplPriorityQueue` method `getExtractFlags`
+     *
+     * @return int
+     */
+    public function getExtractFlags(): int;
+    /**
+     * `\SplPriorityQueue` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+}
+class SplFixedArray implements \IteratorAggregate, \Traversable, \ArrayAccess, \Countable, \JsonSerializable
+{
+    /**
+     * `\SplFixedArray` method `__construct`
+     *
+     * @param int $size
+     * @return void
+     */
+    public function __construct(int $size = 0): void;
+    /**
+     * `\SplFixedArray` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\SplFixedArray` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\SplFixedArray` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+    /**
+     * `\SplFixedArray` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\SplFixedArray` method `toArray`
+     *
+     * @return array
+     */
+    public function toArray(): array;
+    /**
+     * `\SplFixedArray` method `fromArray`
+     *
+     * @param array $array
+     * @param bool $preserveKeys
+     * @return \SplFixedArray
+     */
+    public function fromArray(array $array, bool $preserveKeys = true): \SplFixedArray;
+    /**
+     * `\SplFixedArray` method `getSize`
+     *
+     * @return int
+     */
+    public function getSize(): int;
+    /**
+     * `\SplFixedArray` method `setSize`
+     *
+     * @param int $size
+     * @return void
+     */
+    public function setSize(int $size): void;
+    /**
+     * `\SplFixedArray` method `offsetExists`
+     *
+     * @param mixed $index
+     * @return bool
+     */
+    public function offsetExists(mixed $index): bool;
+    /**
+     * `\SplFixedArray` method `offsetGet`
+     *
+     * @param mixed $index
+     * @return mixed
+     */
+    public function offsetGet(mixed $index): mixed;
+    /**
+     * `\SplFixedArray` method `offsetSet`
+     *
+     * @param mixed $index
+     * @param mixed $value
+     * @return void
+     */
+    public function offsetSet(mixed $index, mixed $value): void;
+    /**
+     * `\SplFixedArray` method `offsetUnset`
+     *
+     * @param mixed $index
+     * @return void
+     */
+    public function offsetUnset(mixed $index): void;
+    /**
+     * `\SplFixedArray` method `getIterator`
+     *
+     * @return \Iterator
+     */
+    public function getIterator(): \Iterator;
+    /**
+     * `\SplFixedArray` method `jsonSerialize`
+     *
+     * @return array
+     */
+    public function jsonSerialize(): array;
+}
+interface SplObserver
+{
+    /**
+     * `\SplObserver` method `update`
+     *
+     * @param \SplSubject $subject
+     * @return void
+     */
+    public function update(\SplSubject $subject): void;
+}
+interface SplSubject
+{
+    /**
+     * `\SplSubject` method `attach`
+     *
+     * @param \SplObserver $observer
+     * @return void
+     */
+    public function attach(\SplObserver $observer): void;
+    /**
+     * `\SplSubject` method `detach`
+     *
+     * @param \SplObserver $observer
+     * @return void
+     */
+    public function detach(\SplObserver $observer): void;
+    /**
+     * `\SplSubject` method `notify`
+     *
+     * @return void
+     */
+    public function notify(): void;
+}
+class SplObjectStorage implements \Countable, \Iterator, \Traversable, \Serializable, \ArrayAccess
+{
+    /**
+     * `\SplObjectStorage` method `attach`
+     *
+     * @param object $object
+     * @param mixed $info
+     * @return void
+     */
+    public function attach(object $object, mixed $info = null): void;
+    /**
+     * `\SplObjectStorage` method `detach`
+     *
+     * @param object $object
+     * @return void
+     */
+    public function detach(object $object): void;
+    /**
+     * `\SplObjectStorage` method `contains`
+     *
+     * @param object $object
+     * @return bool
+     */
+    public function contains(object $object): bool;
+    /**
+     * `\SplObjectStorage` method `addAll`
+     *
+     * @param \SplObjectStorage $storage
+     * @return int
+     */
+    public function addAll(\SplObjectStorage $storage): int;
+    /**
+     * `\SplObjectStorage` method `removeAll`
+     *
+     * @param \SplObjectStorage $storage
+     * @return int
+     */
+    public function removeAll(\SplObjectStorage $storage): int;
+    /**
+     * `\SplObjectStorage` method `removeAllExcept`
+     *
+     * @param \SplObjectStorage $storage
+     * @return int
+     */
+    public function removeAllExcept(\SplObjectStorage $storage): int;
+    /**
+     * `\SplObjectStorage` method `getInfo`
+     *
+     * @return mixed
+     */
+    public function getInfo(): mixed;
+    /**
+     * `\SplObjectStorage` method `setInfo`
+     *
+     * @param mixed $info
+     * @return void
+     */
+    public function setInfo(mixed $info): void;
+    /**
+     * `\SplObjectStorage` method `count`
+     *
+     * @param int $mode
+     * @return int
+     */
+    public function count(int $mode = \COUNT_NORMAL): int;
+    /**
+     * `\SplObjectStorage` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\SplObjectStorage` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\SplObjectStorage` method `key`
+     *
+     * @return int
+     */
+    public function key(): int;
+    /**
+     * `\SplObjectStorage` method `current`
+     *
+     * @return object
+     */
+    public function current(): object;
+    /**
+     * `\SplObjectStorage` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\SplObjectStorage` method `unserialize`
+     *
+     * @param string $data
+     * @return void
+     */
+    public function unserialize(string $data): void;
+    /**
+     * `\SplObjectStorage` method `serialize`
+     *
+     * @return string
+     */
+    public function serialize(): string;
+    /**
+     * `\SplObjectStorage` method `offsetExists`
+     *
+     * @param mixed $object
+     * @return bool
+     */
+    public function offsetExists(mixed $object): bool;
+    /**
+     * `\SplObjectStorage` method `offsetGet`
+     *
+     * @param mixed $object
+     * @return mixed
+     */
+    public function offsetGet(mixed $object): mixed;
+    /**
+     * `\SplObjectStorage` method `offsetSet`
+     *
+     * @param mixed $object
+     * @param mixed $info
+     * @return void
+     */
+    public function offsetSet(mixed $object, mixed $info = null): void;
+    /**
+     * `\SplObjectStorage` method `offsetUnset`
+     *
+     * @param mixed $object
+     * @return void
+     */
+    public function offsetUnset(mixed $object): void;
+    /**
+     * `\SplObjectStorage` method `getHash`
+     *
+     * @param object $object
+     * @return string
+     */
+    public function getHash(object $object): string;
+    /**
+     * `\SplObjectStorage` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\SplObjectStorage` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+    /**
+     * `\SplObjectStorage` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+}
+class MultipleIterator implements \Iterator, \Traversable
+{
+    public const int MIT_NEED_ANY;
+    public const int MIT_NEED_ALL;
+    public const int MIT_KEYS_NUMERIC;
+    public const int MIT_KEYS_ASSOC;
+    /**
+     * `\MultipleIterator` method `__construct`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function __construct(int $flags = 1): void;
+    /**
+     * `\MultipleIterator` method `getFlags`
+     *
+     * @return int
+     */
+    public function getFlags(): int;
+    /**
+     * `\MultipleIterator` method `setFlags`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function setFlags(int $flags): void;
+    /**
+     * `\MultipleIterator` method `attachIterator`
+     *
+     * @param \Iterator $iterator
+     * @param string|int|null $info
+     * @return void
+     */
+    public function attachIterator(\Iterator $iterator, string|int|null $info = null): void;
+    /**
+     * `\MultipleIterator` method `detachIterator`
+     *
+     * @param \Iterator $iterator
+     * @return void
+     */
+    public function detachIterator(\Iterator $iterator): void;
+    /**
+     * `\MultipleIterator` method `containsIterator`
+     *
+     * @param \Iterator $iterator
+     * @return bool
+     */
+    public function containsIterator(\Iterator $iterator): bool;
+    /**
+     * `\MultipleIterator` method `countIterators`
+     *
+     * @return int
+     */
+    public function countIterators(): int;
+    /**
+     * `\MultipleIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\MultipleIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\MultipleIterator` method `key`
+     *
+     * @return array
+     */
+    public function key(): array;
+    /**
+     * `\MultipleIterator` method `current`
+     *
+     * @return array
+     */
+    public function current(): array;
+    /**
+     * `\MultipleIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\MultipleIterator` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+}

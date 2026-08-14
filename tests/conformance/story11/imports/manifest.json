@@ -1,0 +1,25 @@
+{
+  "suite": "story11/imports",
+  "description": "Story 11 — use statement emission for referenced imports",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "imports_user_class",
+      "file": "Models/User.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Models/User.php"
+      }
+    },
+    {
+      "id": "imports_demo_functions",
+      "file": "demo.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+<?tyhpdef
+
+namespace TestData\Minimal;
+
+class Widget
+{
+    public string $name;
+
+    public function __construct(string $name): void;
+}

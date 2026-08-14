@@ -1,0 +1,74 @@
+<?tyhp
+
+namespace Tyhp;
+
+/**
+ * A property-access chain extracted from a lambda or built via {@see PropertyPathBuilder}.
+ *
+ * @template TSource
+ * @template TReturn
+ * @extends Expression<TSource, TReturn>
+ */
+class PropertyPath<TSource, TReturn> extends Expression<TSource, TReturn> {
+    public readonly array<string> $path;
+
+    /**
+     * @param array<string> $path Property names in access order.
+     * @param bool $allowEmpty When true, an empty path is allowed (identity / builder root).
+     * @param array<bool> $nullSafeFlags Per-segment `?->` flags aligned with $path; missing entries are false.
+     */
+    public function __construct(
+        string $sourceType,
+        string $resultType,
+        array<string> $path,
+        \Closure $callable,
+        bool $allowEmpty = false,
+        array<bool> $nullSafeFlags = [],
+    ) {
+        if ($path === [] && !$allowEmpty) {
+            throw new \InvalidArgumentException(nameof(PropertyPath) . ' requires at least one path segment.');
+        }
+
+        $this->path = $path;
+
+        \Tyhp\Expression\Structs\PathNode $pathNodes = Expression\FluentSupport::buildPathNodes(
+            $sourceType,
+            $path,
+            $nullSafeFlags,
+        );
+
+        parent::__construct(
+            $pathNodes->body,
+            [$pathNodes->parameterExpression],
+            $callable,
+            $resultType,
+        );
+    }
+
+    public function getPropertyName(): string {
+        return $this->path[\array_key_last($this->path)] ?? '';
+    }
+
+    public function getPath(): string {
+        return \implode('.', $this->path);
+    }
+
+    public function getSegments(): array<string> {
+        return $this->path;
+    }
+
+    public function getValue(TSource $source): TReturn {
+        mixed $result = ($this->callable)($source);
+        // Always stash first so callers who catch can inspect the mismatched value.
+        $this->lastResult = $result;
+        if ($result is TReturn) {
+            return $result;
+        }
+
+        throw new Exceptions\IncompatibleTypeException(
+            typeof(TReturn),
+            Type::of($result),
+            nameof($this->lastResult),
+        );
+    }
+}

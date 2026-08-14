@@ -1,0 +1,17 @@
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+ARG TARGETARCH
+WORKDIR /source
+
+# Release builds compile built-in types into the binary only.
+# PHP extension and runtime tyhpdefs are distributed via Composer (see TYHPDEF_DISTRIBUTION.md).
+
+COPY --link *.csproj .
+COPY --link . .
+
+RUN dotnet restore -r win-$TARGETARCH tyhp.csproj
+RUN dotnet publish -r win-$TARGETARCH --no-restore -o /out/win-$TARGETARCH tyhp.csproj
+RUN dotnet restore -r linux-$TARGETARCH tyhp.csproj
+RUN dotnet publish -r linux-$TARGETARCH --no-restore -o /out/linux-$TARGETARCH tyhp.csproj
+
+FROM scratch
+COPY --link --from=build /out .

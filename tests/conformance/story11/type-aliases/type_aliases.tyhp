@@ -1,0 +1,15 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+type UserId = int;
+
+class User {
+    public type NameType = string;
+
+    public NameType $name = "";
+
+    public function getId(): UserId {
+        return 42;
+    }
+}

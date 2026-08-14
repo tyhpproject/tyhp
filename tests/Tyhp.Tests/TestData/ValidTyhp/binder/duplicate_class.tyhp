@@ -1,0 +1,13 @@
+<?tyhp
+
+namespace TestData\Binder;
+
+class Duplicate
+{
+    public int $first = 1;
+}
+
+class Duplicate
+{
+    public int $second = 2;
+}

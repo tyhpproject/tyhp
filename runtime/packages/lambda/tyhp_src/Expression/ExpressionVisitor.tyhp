@@ -1,0 +1,65 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+abstract class ExpressionVisitor {
+    public function visit(ExpressionNode $node): mixed {
+        return $node->accept($this);
+    }
+
+    public function visitParameter(ParameterExpression $node): mixed {
+        return null;
+    }
+
+    public function visitPropertyAccess(PropertyAccessExpression $node): mixed {
+        return null;
+    }
+
+    public function visitNullSafeAccess(NullSafeAccessExpression $node): mixed {
+        return null;
+    }
+
+    public function visitMethodCall(MethodCallExpression $node): mixed {
+        return null;
+    }
+
+    public function visitStaticMethodCall(StaticMethodCallExpression $node): mixed {
+        return null;
+    }
+
+    public function visitBinary(BinaryExpression $node): mixed {
+        return null;
+    }
+
+    public function visitUnary(UnaryExpression $node): mixed {
+        return null;
+    }
+
+    public function visitConstant(ConstantExpression $node): mixed {
+        return null;
+    }
+
+    public function visitTernary(TernaryExpression $node): mixed {
+        return null;
+    }
+
+    public function visitCoalesce(CoalesceExpression $node): mixed {
+        return null;
+    }
+
+    public function visitArrayAccess(ArrayAccessExpression $node): mixed {
+        return null;
+    }
+
+    public function visitCast(CastExpression $node): mixed {
+        return null;
+    }
+
+    public function visitNew(NewExpression $node): mixed {
+        return null;
+    }
+
+    public function visitInstanceof(InstanceofExpression $node): mixed {
+        return null;
+    }
+}

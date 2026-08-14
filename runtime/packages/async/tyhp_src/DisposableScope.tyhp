@@ -1,0 +1,105 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\Contracts\AsyncIsDisposable;
+use Tyhp\Contracts\IsDisposable;
+use Tyhp\Exceptions\AggregateException;
+
+final class DisposableScope implements IsDisposable {
+    private array<IsDisposable|AsyncIsDisposable> $disposables = [];
+    private bool $disposed = false;
+    private \SplObjectStorage $released;
+
+    private function __construct() {
+        $this->released = new \SplObjectStorage();
+    }
+
+    public static function create(): DisposableScope {
+        return new DisposableScope();
+    }
+
+    /**
+     * Registers a disposable resource with this scope.
+     * Resources are disposed in reverse registration order (LIFO)
+     * when this scope exits via __destruct() or explicit dispose().
+     */
+    public function using(IsDisposable|AsyncIsDisposable $resource): mixed {
+        $this->disposables[] = $resource;
+        return $resource;
+    }
+
+    public function __destruct() {
+        if ($this->disposed) {
+            return;
+        }
+        $this->disposed = true;
+        try {
+            $this->disposeAll();
+        } catch (\Throwable $e) {
+            \trigger_error(
+                \sprintf('DisposableScope disposal error during destruction: %s', $e->getMessage()),
+                E_USER_WARNING
+            );
+        }
+    }
+
+    public function dispose(): void {
+        if ($this->disposed) {
+            return;
+        }
+        $this->disposed = true;
+        $this->disposeAll();
+    }
+
+    /**
+     * Releases a resource from this scope so it will not be disposed on scope exit.
+     * Call this after manually disposing a resource to prevent double-disposal.
+     */
+    public function release(IsDisposable|AsyncIsDisposable $resource): void {
+        $this->released->attach($resource);
+    }
+
+    /**
+     * Disposes all registered resources in reverse order, skipping any
+     * that have been released. If outside a Fiber context, uses
+     * EventLoop::run() to block-wait on async disposables.
+     */
+    private function disposeAll(): void {
+        array<\Throwable> $errors = [];
+        ?EventLoop $eventLoop = \Fiber::getCurrent() === null ? EventLoop::getInstance() : null;
+
+        foreach (\array_reverse($this->disposables) as $disposable) {
+            if ($this->released->contains($disposable)) {
+                continue;
+            }
+            try {
+                if ($disposable instanceof AsyncIsDisposable) {
+                    (Promise<void>) $promise = $disposable->disposeAsync();
+                    if ($eventLoop !== null) {
+                        $eventLoop->run($promise);
+                    } else {
+                        \Tyhp\Promise::_await<void>($promise);
+                    }
+                } else if ($disposable instanceof IsDisposable) {
+                    $disposable->dispose();
+                }
+            } catch (\Throwable $e) {
+                $errors[] = $e;
+            }
+        }
+        $this->disposables = [];
+        if (!empty($errors)) {
+            foreach ($errors as $err) {
+                \trigger_error(
+                    \sprintf('DisposableScope disposal error [%s]: %s', \get_class($err), $err->getMessage()),
+                    E_USER_WARNING
+                );
+            }
+            if (\count($errors) === 1) {
+                throw $errors[0];
+            }
+            throw new AggregateException($errors, 'One or more errors during disposal');
+        }
+    }
+}

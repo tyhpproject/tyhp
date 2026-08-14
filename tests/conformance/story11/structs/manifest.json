@@ -1,0 +1,17 @@
+{
+  "suite": "story11/structs",
+  "description": "Story 11 — struct → associative array emission",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "struct_usage_functions",
+      "file": "structs.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

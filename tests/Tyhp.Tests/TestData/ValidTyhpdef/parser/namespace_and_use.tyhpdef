@@ -1,0 +1,18 @@
+<?tyhpdef
+
+namespace TestData\Tyhpdef\Sub {
+    class Helper
+    {
+        public function run(): void;
+    }
+}
+
+namespace TestData\Tyhpdef {
+    use TestData\Tyhpdef\Sub\Helper;
+    use TestData\Tyhpdef\Sub\Helper as SubHelper;
+
+    class Consumer
+    {
+        public function useHelper(Helper $helper): void;
+    }
+}

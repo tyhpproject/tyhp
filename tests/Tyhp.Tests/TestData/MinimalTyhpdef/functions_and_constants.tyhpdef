@@ -1,0 +1,9 @@
+<?tyhpdef
+
+namespace TestData\Minimal;
+
+const int DEFAULT_LIMIT;
+
+function limit(): int;
+
+function scale(int $value, float $factor): int;

@@ -1,0 +1,28 @@
+{
+  "suite": "story14_5/exit-die-call",
+  "description": "Story 14.5 — exit/die call forms + FCC (native PHP 8.5; lower PHP 8.2 rewrite)",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "native_exit_die_forms",
+      "file": "exit_die.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    },
+    {
+      "id": "lower_exit_die_forms_php82",
+      "file": "exit_die_lower.tyhp",
+      "config": {
+        "output:phpVersion": "8.2"
+      },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Lower/_functions.php"
+      }
+    }
+  ]
+}

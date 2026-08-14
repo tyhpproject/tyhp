@@ -1,0 +1,8 @@
+<?tyhp
+
+namespace TestData\Binder;
+
+class Widget
+{
+    public string $name = 'widget';
+}

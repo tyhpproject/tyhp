@@ -1,0 +1,4 @@
+<?tyhp
+function demo(): void {
+    __ClassName $cls = 'MissingClass';
+}

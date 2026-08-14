@@ -1,0 +1,17 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+final class CoalesceExpression extends ExpressionNode {
+    public function __construct(
+        public readonly ExpressionNode $left,
+        public readonly ExpressionNode $right,
+        string $type = 'mixed',
+    ) {
+        parent::__construct($type, 'coalesce');
+    }
+
+    public function accept(ExpressionVisitor $visitor): mixed {
+        return $visitor->visitCoalesce($this);
+    }
+}

@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <LangVersion>13.0</LangVersion>
+    <Version>805.0.0-alpha.1</Version>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseAppHost>true</UseAppHost>
+    <IsWindows Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">true</IsWindows>
+    <IsOSX Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'">true</IsOSX>
+    <IsLinux Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))' == 'true'">true</IsLinux>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(IsWindows)'=='true'">
+    <DefineConstants>Windows</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(IsOSX)'=='true'">
+    <DefineConstants>OSX</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(IsLinux)'=='true'">
+    <DefineConstants>Linux</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tyhp.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+    <None Include="tests/**" />
+  </ItemGroup>
+  <ItemGroup>
+    <CSFile Include="Tyhp/**/*.cs" />
+    <PackageReference Include="Antlr4.Runtime.Standard" Version="4.13.1" />
+    <PackageReference Include="Goblinfactory.Konsole" Version="6.2.2" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.5.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Localization" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
+    <!-- <PackageReference Include="My.Extensions.Localization.Json" Version="3.1.0" /> -->
+  </ItemGroup>
+    <!-- <ItemGroup>
+        <LocalizationSourceFiles Include="Tyhp/Localization/*.resx" />
+    </ItemGroup>
+    <Target Name="CopyLocalizationFiles" AfterTargets="AfterBuild">
+        <Copy SourceFiles="@(LocalizationSourceFiles)" DestinationFolder="$(OutDir)/Localization" SkipUnchangedFiles="true" />
+    </Target>
+    <Target Name="CopyLocalizationFilesOnPublish" AfterTargets="Publish">
+        <Copy SourceFiles="@(LocalizationSourceFiles)" DestinationFolder="$(PublishDir)/Localization" SkipUnchangedFiles="true" />
+    </Target> -->
+
+</Project>

@@ -1,0 +1,30 @@
+<?tyhp
+
+namespace Tyhp\Exceptions;
+
+final class InvalidParametersForOperatorOverloadException extends \RuntimeException
+{
+    public function __construct(
+        private readonly string $className,
+        private readonly string $methodName,
+        mixed ...$operands,
+    ): void {
+        $types = \array_map(
+            fn(mixed $v): string => \is_object($v) ? \get_class($v) : \get_debug_type($v),
+            $operands,
+        );
+
+        parent::__construct(
+            \sprintf(
+                'Invalid parameters for operator overload %s::%s() — received: %s.',
+                $this->className,
+                $this->methodName,
+                \implode(', ', $types),
+            ),
+        );
+    }
+
+    fn getClassName(): string => $this->className;
+
+    fn getMethodName(): string => $this->methodName;
+}

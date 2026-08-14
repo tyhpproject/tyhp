@@ -1,0 +1,19 @@
+# As text:
+- Spelling nad casing: "Tyhp"
+- "Poppins" font
+- font weight bold
+- default letter spacing
+- color: #000000, #FFFFFF, or #34A4F4
+
+# As logo:
+- Transparent background
+- triangle of color: #000000 or #34A4F4
+- Letters "Ty" overlaying triangle of font "Poppins" and bold
+- letters should be cenerted verticaly and horizantily
+- leters should be 80% height of triangle with default spacing
+- text color should be #34A4F4 when triangle color is #000000
+- text color should be #000000 or #FFFFFF when triangle color is #34A4F4
+
+# Line drawing logo
+- only color allowed is black with transparent background
+- 2 options: triangle outline with solid black letters, or solid black triangle with letters as cutout

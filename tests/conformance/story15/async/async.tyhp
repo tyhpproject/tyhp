@@ -1,0 +1,11 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+async function answer(): int {
+    return 42;
+}
+
+async function getAnswer(): int {
+    return await answer();
+}

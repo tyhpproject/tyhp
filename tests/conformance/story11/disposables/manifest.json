@@ -1,0 +1,25 @@
+{
+  "suite": "story11/disposables",
+  "description": "Story 11 — := disposable assignment → DisposableScope",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "disposable_class",
+      "file": "disposables.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/DbConnection.php"
+      }
+    },
+    {
+      "id": "disposable_assignment",
+      "file": "disposables.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

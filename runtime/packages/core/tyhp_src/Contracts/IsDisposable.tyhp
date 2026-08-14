@@ -1,0 +1,8 @@
+<?tyhp
+
+namespace Tyhp\Contracts;
+
+interface IsDisposable
+{
+    public function dispose(): void;
+}

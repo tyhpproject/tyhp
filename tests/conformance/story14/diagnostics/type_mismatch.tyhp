@@ -1,0 +1,4 @@
+<?tyhp
+function demo(): void {
+    int $n = "nope";
+}

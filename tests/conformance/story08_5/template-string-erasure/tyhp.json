@@ -1,0 +1,6 @@
+{
+  "include": ["**/*.tyhp"],
+  "output": {
+    "path": "build/"
+  }
+}

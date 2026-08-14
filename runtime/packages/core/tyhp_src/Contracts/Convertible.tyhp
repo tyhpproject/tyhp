@@ -1,0 +1,10 @@
+<?tyhp
+
+namespace Tyhp\Contracts;
+
+// Marker for any value that defines a conversion to a scalar/decimal via one of the
+// specific *Convertible contracts. Non-generic: Tyhp generics are erased, so a generic
+// __to<T>() cannot dispatch at runtime; conversion is driven by the specific interfaces
+// (IntConvertible::__toInt(), etc.) and the cast-rewrite feature.
+interface Convertible {
+}

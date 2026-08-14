@@ -1,0 +1,8 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+class Greeter {
+    public function greet(): void {
+        echo 'hello';
+    }
+}

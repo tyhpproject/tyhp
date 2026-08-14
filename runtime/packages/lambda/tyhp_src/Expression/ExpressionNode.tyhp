@@ -1,0 +1,12 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+abstract class ExpressionNode {
+    public function __construct(
+        public readonly string $type,
+        public readonly string $nodeType,
+    ) {}
+
+    abstract public function accept(ExpressionVisitor $visitor): mixed;
+}

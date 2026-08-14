@@ -1,0 +1,17 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+final class ParameterExpression extends ExpressionNode {
+    public function __construct(
+        public readonly string $name,
+        public readonly string $paramType,
+        public readonly int $index,
+    ) {
+        parent::__construct($paramType, 'parameter');
+    }
+
+    public function accept(ExpressionVisitor $visitor): mixed {
+        return $visitor->visitParameter($this);
+    }
+}

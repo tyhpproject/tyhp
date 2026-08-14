@@ -1,0 +1,30 @@
+<?tyhp
+
+namespace Tyhp\Concerns;
+
+use Tyhp\GenericObject;
+
+/**
+ * Hosts a {@see GenericObject} bag for runtime generic type tracking.
+ *
+ * Applied by the emitter (or authored) on classes that need Mechanism C tracking. Call sites use
+ * `$this->__tyhpGeneric->resolvedType(...)`, `$this->__tyhpGeneric->init(...)`, etc.
+ *
+ * The bag starts null: PHP forbids `new` in trait property defaults. `__bootTrait_*` (via
+ * {@see BootsTraits::tyhpBootTraits}) creates it before first use. The emitter injects
+ * `$this->tyhpBootTraits()` in constructors and `__initGenerics` (including under
+ * `newInstanceWithoutConstructor()` factories) — it does not emit a separate `??=` for the bag.
+ *
+ * Requires {@see BootsTraits} (composed via <c>use BootsTraits;</c> in this trait).
+ */
+trait HasGenerics
+{
+    use BootsTraits;
+
+    public ?GenericObject $__tyhpGeneric = null;
+
+    public function __bootTrait_Tyhp_Concerns_HasGenerics(): void
+    {
+        $this->__tyhpGeneric ??= new GenericObject();
+    }
+}

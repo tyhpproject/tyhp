@@ -1,0 +1,48 @@
+<?tyhp
+
+namespace Tyhp\Concerns;
+
+/**
+ * Default `__set` dispatcher. Feature traits register handlers via `tyhpRegisterSetHandler`
+ * from their `__bootTrait_*` methods.
+ *
+ * `__set` is final (polyfill integrity). Extend via `tyhpRegisterSetHandler`. If the class
+ * already defines `__set`, call `tyhpTrySet` at the top of that implementation.
+ */
+trait HandlesSet
+{
+    use BootsTraits;
+
+    /** @var list<callable<string, mixed, bool>> handlers: function (string $name, mixed $value): bool */
+    private array<callable<string, mixed, bool>> $__tyhpSetHandlers = [];
+
+    /**
+     * Subclass extension point: register an additional set handler (safe after boot).
+     */
+    protected function tyhpRegisterSetHandler(callable<string, mixed, bool> $handler): void
+    {
+        $this->__tyhpSetHandlers[] = $handler;
+    }
+
+    public function tyhpTrySet(string $name, mixed $value): bool
+    {
+        $this->tyhpBootTraits();
+
+        foreach ($this->__tyhpSetHandlers as $handler) {
+            if ($handler($name, $value) === true) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    final public function __set(string $name, mixed $value): void
+    {
+        if ($this->tyhpTrySet($name, $value)) {
+            return;
+        }
+
+        $this->{$name} = $value;
+    }
+}

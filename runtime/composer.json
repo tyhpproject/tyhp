@@ -1,0 +1,40 @@
+{
+    "name": "tyhp/runtime",
+    "description": "Tyhp runtime library monorepo — development workspace",
+    "type": "project",
+    "license": "MIT",
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "require": {
+        "php": ">=8.2",
+        "tyhp/core": "805.0.0-alpha.1",
+        "tyhp/decimal": "805.0.0-alpha.1",
+        "tyhp/async": "805.0.0-alpha.1",
+        "tyhp/lambda": "805.0.0-alpha.1",
+        "tyhp/php": "805.0.0-alpha.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0|^11.0",
+        "friendsofphp/php-cs-fixer": "^3.0"
+    },
+    "repositories": [
+        { "type": "path", "url": "packages/core" },
+        { "type": "path", "url": "packages/decimal" },
+        { "type": "path", "url": "packages/async" },
+        { "type": "path", "url": "packages/lambda" },
+        { "type": "path", "url": "packages/php" }
+    ],
+    "autoload-dev": {
+        "psr-4": {
+            "Tyhp\\Tests\\Core\\": "packages/core/tests/",
+            "Tyhp\\Tests\\Decimal\\": "packages/decimal/tests/",
+            "Tyhp\\Tests\\Async\\": "packages/async/tests/",
+            "Tyhp\\Tests\\Lambda\\": "packages/lambda/tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "cs-fix": "php-cs-fixer fix",
+        "cs-check": "php-cs-fixer fix --dry-run --diff"
+    }
+}

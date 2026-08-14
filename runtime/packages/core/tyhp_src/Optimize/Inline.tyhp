@@ -1,0 +1,8 @@
+<?tyhp
+
+namespace Tyhp\Optimize;
+
+#[\Attribute(\Attribute::TARGET_METHOD | \Attribute::TARGET_FUNCTION)]
+final class Inline
+{
+}

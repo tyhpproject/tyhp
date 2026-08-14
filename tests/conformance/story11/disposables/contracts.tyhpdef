@@ -1,0 +1,13 @@
+<?tyhpdef
+
+// A conformance suite is its own project root, so it sees no `vendor/` and no
+// `runtime/packages/` — the real `tyhp/core` contract is out of reach. Declare just the
+// interface `:=` needs so `implements \Tyhp\Contracts\IsDisposable` resolves (3018) while
+// the emitted PHP still names the runtime type the golden expects.
+namespace Tyhp\Contracts {
+
+    interface IsDisposable
+    {
+        public function dispose(): void;
+    }
+}

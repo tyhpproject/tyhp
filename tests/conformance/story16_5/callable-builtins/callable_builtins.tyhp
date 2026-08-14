@@ -1,0 +1,14 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+function greet(string $name, int $age): string {
+    return $name;
+}
+
+function demo(): string {
+    string $named = \call_user_func_array(greet(...), ['name' => 'Ada', 'age' => 36]);
+    string $positional = \call_user_func_array(greet(...), ['Ada', 36]);
+    string $direct = \call_user_func(greet(...), 'Ada', 36);
+    return $named . $positional . $direct;
+}

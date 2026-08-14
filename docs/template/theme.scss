@@ -1,0 +1,155 @@
+/*************************** Theme Colours****************************/
+// Define theme colour scheme
+$theme-color-primary: #34a4f4;
+
+$theme-text-color-primary: #252930;
+$theme-text-color-secondary: lighten($theme-text-color-primary, 25%);
+$theme-text-color-light: lighten($theme-text-color-primary, 40%);
+
+$theme-bg-light: #f4fcf6;
+$theme-bg-dark: $theme-color-primary;
+$theme-bg-color: $theme-color-primary;
+
+$theme-border-color:  #efefef;
+$theme-divider-color: #efefef;
+
+$theme-divider: lighten($theme-text-color-primary, 75%);
+
+$theme-color-new: #2880bf;
+$theme-error: #EC575B;
+
+$smoky-white: #f5f5f5;
+$google-color: #d73d32;
+$facebook-color: #3b5998;
+$twitter-color: #1DA1F2;
+$github-color: #24282D;
+$producthunt-color: #da552f;
+$wordpress-color: #028cb0;
+
+$single-col-max: 800px;
+
+$theme-success-color: #5cb377;
+$theme-warning-color: #EEBF41;
+$theme-info-color: #5b99ea;
+$theme-danger-color: #d26d69;
+
+
+
+/*************************** Variables Section. *****************************/
+// Create variables to override the default value for variables used in the Bootstrap SCSS files.
+
+$gray-100: lighten($theme-text-color-secondary, 65%);
+$gray-200: lighten($theme-text-color-secondary, 55%);
+$gray-300: lighten($theme-text-color-secondary, 50%);
+$gray-400: lighten($theme-text-color-secondary, 45%);
+$gray-500: lighten($theme-text-color-secondary, 40%);
+$gray-600: lighten($theme-text-color-secondary, 30%);
+$gray-700: lighten($theme-text-color-secondary, 20%);
+$gray-800: lighten($theme-text-color-secondary, 10%);
+$gray-900: $theme-text-color-primary;
+
+
+/* Override BS5 sass color */
+$primary: $theme-color-primary;
+$secondary: $theme-text-color-secondary;
+$success: $theme-success-color;
+$danger: $theme-danger-color;
+$warning: $theme-warning-color;
+$info: $theme-info-color;
+
+.logo-icon {
+    height: 3.4rem;
+}
+
+.header {
+    background: inherit;
+}
+
+.docs-sidebar {
+    background: inherit;
+}
+
+.logo-icon-dark {
+    display: none;
+}
+
+.logo-icon-light {
+    display: initial;
+}
+
+/*************************** Docs page content switching ****************************/
+/* Hide all docs-article blocks by default */
+.docs-article {
+    display: none;
+  }
+  
+  /* Show first docs-article by default ONLY if no targets are active */
+  .docs-article:first-of-type {
+    display: block;
+  }
+  
+  /* Show docs-article when directly targeted */
+  .docs-article:target {
+    display: block;
+  }
+  
+  /* Show docs-article when any of its child docs-section elements are targeted */
+  .docs-article:has(.docs-section:target) {
+    display: block;
+  }
+  
+  /* FORCE HIDE first article when ANY target is active - higher specificity */
+  body:has(.docs-article:target) .docs-article:first-of-type:not(:target) {
+    display: none !important;
+  }
+  
+  body:has(.docs-section:target) .docs-article:first-of-type:not(:has(.docs-section:target)) {
+    display: none !important;
+  }
+
+/* General rule that works with :has() */
+nav a[href^="#"]:where(:has(~ * :target)) {
+    /* This syntax might not work as expected */
+  }
+
+/*************************** Import Bootstrap  *****************************/
+@import "../CoderDocs-BS5-v3.0/assets/scss/bootstrap/scss/bootstrap.scss";
+
+
+/*************************** Theme Styles Section ****************************/
+@import "../CoderDocs-BS5-v3.0/assets/scss/theme/styles.scss";
+
+@include color-mode(dark) {
+    $theme-text-color-light: #252930;
+    $theme-text-color-primary: lighten($theme-text-color-light, 80%);
+    $theme-text-color-secondary: lighten($theme-text-color-light, 50%);
+
+    $theme-bg-light: #081925;
+
+    $theme-border-color:  #101010;
+    $theme-divider-color: #101010;
+
+    $theme-divider: darken($theme-text-color-primary, 75%);
+
+    @import "../CoderDocs-BS5-v3.0/assets/scss/theme/styles.scss";
+
+    .logo-icon {
+        height: 3.4rem;
+    }
+    
+    .header {
+        background: inherit;
+    }
+
+    .docs-sidebar {
+        background: inherit;
+    }
+
+    .logo-icon-dark {
+        display: initial;
+    }
+    
+    .logo-icon-light {
+        display: none;
+    }
+}

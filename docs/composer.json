@@ -1,0 +1,15 @@
+{
+    "name": "tyhp/docs",
+    "description": "Documentation for Tyhp",
+    "type": "project",
+    "autoload": {
+        "psr-4": {
+            "Tyhp\\Docs\\": "generator-src/"
+        }
+    },
+    "require": {
+        "colinodell/json5": "^3.0",
+        "league/commonmark": "^2",
+        "symfony/yaml": "^6 || ^7"
+    }
+}

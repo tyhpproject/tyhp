@@ -1,0 +1,17 @@
+{
+  "suite": "story11/type-aliases",
+  "description": "Story 11 — type alias erasure to underlying PHP types",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "type_alias_user_class",
+      "file": "type_aliases.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/User.php"
+      }
+    }
+  ]
+}

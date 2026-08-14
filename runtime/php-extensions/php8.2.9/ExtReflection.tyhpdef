@@ -1,0 +1,3023 @@
+<?tyhpdef
+class ReflectionException extends \Exception implements \Throwable, \Stringable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\ReflectionException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\ReflectionException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\ReflectionException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\ReflectionException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\ReflectionException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\ReflectionException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\ReflectionException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\ReflectionException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\ReflectionException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\ReflectionException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class Reflection
+{
+    /**
+     * `\Reflection` method `getModifierNames`
+     *
+     * @param int $modifiers
+     * @return array
+     */
+    public function getModifierNames(int $modifiers): array;
+}
+interface Reflector extends \Stringable
+{
+    /**
+     * `\Reflector` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+abstract class ReflectionFunctionAbstract implements \Reflector, \Stringable
+{
+    /** @var string */
+    public string $name;
+    /**
+     * `\ReflectionFunctionAbstract` method `__clone`
+     *
+     * @return void
+     */
+    public function __clone(): void;
+    /**
+     * `\ReflectionFunctionAbstract` method `inNamespace`
+     *
+     * @return bool
+     */
+    public function inNamespace(): bool;
+    /**
+     * `\ReflectionFunctionAbstract` method `isClosure`
+     *
+     * @return bool
+     */
+    public function isClosure(): bool;
+    /**
+     * `\ReflectionFunctionAbstract` method `isDeprecated`
+     *
+     * @return bool
+     */
+    public function isDeprecated(): bool;
+    /**
+     * `\ReflectionFunctionAbstract` method `isInternal`
+     *
+     * @return bool
+     */
+    public function isInternal(): bool;
+    /**
+     * `\ReflectionFunctionAbstract` method `isUserDefined`
+     *
+     * @return bool
+     */
+    public function isUserDefined(): bool;
+    /**
+     * `\ReflectionFunctionAbstract` method `isGenerator`
+     *
+     * @return bool
+     */
+    public function isGenerator(): bool;
+    /**
+     * `\ReflectionFunctionAbstract` method `isVariadic`
+     *
+     * @return bool
+     */
+    public function isVariadic(): bool;
+    /**
+     * `\ReflectionFunctionAbstract` method `isStatic`
+     *
+     * @return bool
+     */
+    public function isStatic(): bool;
+    /**
+     * `\ReflectionFunctionAbstract` method `getClosureThis`
+     *
+     * @return ?object
+     */
+    public function getClosureThis(): ?object;
+    /**
+     * `\ReflectionFunctionAbstract` method `getClosureScopeClass`
+     *
+     * @return ?\ReflectionClass
+     */
+    public function getClosureScopeClass(): ?\ReflectionClass<object>;
+    /**
+     * `\ReflectionFunctionAbstract` method `getClosureCalledClass`
+     *
+     * @return ?\ReflectionClass
+     */
+    public function getClosureCalledClass(): ?\ReflectionClass<object>;
+    /**
+     * `\ReflectionFunctionAbstract` method `getClosureUsedVariables`
+     *
+     * @return array
+     */
+    public function getClosureUsedVariables(): array;
+    /**
+     * `\ReflectionFunctionAbstract` method `getDocComment`
+     *
+     * @return string|false
+     */
+    public function getDocComment(): string|false;
+    /**
+     * `\ReflectionFunctionAbstract` method `getEndLine`
+     *
+     * @return int|false
+     */
+    public function getEndLine(): int|false;
+    /**
+     * `\ReflectionFunctionAbstract` method `getExtension`
+     *
+     * @return ?\ReflectionExtension
+     */
+    public function getExtension(): ?\ReflectionExtension;
+    /**
+     * `\ReflectionFunctionAbstract` method `getExtensionName`
+     *
+     * @return string|false
+     */
+    public function getExtensionName(): string|false;
+    /**
+     * `\ReflectionFunctionAbstract` method `getFileName`
+     *
+     * @return string|false
+     */
+    public function getFileName(): string|false;
+    /**
+     * `\ReflectionFunctionAbstract` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionFunctionAbstract` method `getNamespaceName`
+     *
+     * @return string
+     */
+    public function getNamespaceName(): string;
+    /**
+     * `\ReflectionFunctionAbstract` method `getNumberOfParameters`
+     *
+     * @return int
+     */
+    public function getNumberOfParameters(): int;
+    /**
+     * `\ReflectionFunctionAbstract` method `getNumberOfRequiredParameters`
+     *
+     * @return int
+     */
+    public function getNumberOfRequiredParameters(): int;
+    /**
+     * `\ReflectionFunctionAbstract` method `getParameters`
+     *
+     * @return array
+     */
+    public function getParameters(): array;
+    /**
+     * `\ReflectionFunctionAbstract` method `getShortName`
+     *
+     * @return string
+     */
+    public function getShortName(): string;
+    /**
+     * `\ReflectionFunctionAbstract` method `getStartLine`
+     *
+     * @return int|false
+     */
+    public function getStartLine(): int|false;
+    /**
+     * `\ReflectionFunctionAbstract` method `getStaticVariables`
+     *
+     * @return array
+     */
+    public function getStaticVariables(): array;
+    /**
+     * `\ReflectionFunctionAbstract` method `returnsReference`
+     *
+     * @return bool
+     */
+    public function returnsReference(): bool;
+    /**
+     * `\ReflectionFunctionAbstract` method `hasReturnType`
+     *
+     * @return bool
+     */
+    public function hasReturnType(): bool;
+    /**
+     * `\ReflectionFunctionAbstract` method `getReturnType`
+     *
+     * @return ?\ReflectionType
+     */
+    public function getReturnType(): ?\ReflectionType;
+    /**
+     * `\ReflectionFunctionAbstract` method `hasTentativeReturnType`
+     *
+     * @return bool
+     */
+    public function hasTentativeReturnType(): bool;
+    /**
+     * `\ReflectionFunctionAbstract` method `getTentativeReturnType`
+     *
+     * @return ?\ReflectionType
+     */
+    public function getTentativeReturnType(): ?\ReflectionType;
+    /**
+     * `\ReflectionFunctionAbstract` method `getAttributes`
+     *
+     * @param ?string $name
+     * @param int $flags
+     * @return array
+     */
+    public function getAttributes(?string $name = null, int $flags = 0): array;
+    /**
+     * `\ReflectionFunctionAbstract` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class ReflectionFunction extends \ReflectionFunctionAbstract implements \Stringable, \Reflector
+{
+    public const int IS_DEPRECATED;
+    /** @var string */
+    public string $name;
+    /**
+     * `\ReflectionFunction` method `__construct`
+     *
+     * @param \Closure|string $function
+     * @return void
+     */
+    public function __construct(\Closure|string $function): void;
+    /**
+     * `\ReflectionFunction` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionFunction` method `isAnonymous`
+     *
+     * @return bool
+     */
+    public function isAnonymous(): bool;
+    /**
+     * `\ReflectionFunction` method `isDisabled`
+     *
+     * @return bool
+     *
+     * @deprecated */
+    public function isDisabled(): bool;
+    /**
+     * `\ReflectionFunction` method `invoke`
+     *
+     * @param mixed[] $args
+     * @return mixed
+     */
+    public function invoke(mixed ...$args): mixed;
+    /**
+     * `\ReflectionFunction` method `invokeArgs`
+     *
+     * @param array $args
+     * @return mixed
+     */
+    public function invokeArgs(array $args): mixed;
+
+    // Story 16.5: once callable-signature utilities can key off the *reflected* function
+    // (e.g. ReflectionFunction carrying TCallable, or a sibling utility), replace the mixed
+    // invoke / invokeArgs signatures above — same Rest / Struct / Tuple + ReturnType pattern
+    // as call_user_func / call_user_func_array. Exact class-generic spelling TBD.
+    //   public function invoke(...__CallableParametersRest<reflected fn> $args): __CallableReturnType<…>;
+    //   public function invokeArgs(__CallableParametersStruct<…> $args): __CallableReturnType<…>;
+    //   public function invokeArgs(__CallableParametersTuple<…> $args): __CallableReturnType<…>;
+    /**
+     * `\ReflectionFunction` method `getClosure`
+     *
+     * @return \Closure
+     */
+    public function getClosure(): \Closure;
+    /**
+     * `\ReflectionFunction` method `inNamespace`
+     *
+     * @return bool
+     */
+    public function inNamespace(): bool;
+    /**
+     * `\ReflectionFunction` method `isClosure`
+     *
+     * @return bool
+     */
+    public function isClosure(): bool;
+    /**
+     * `\ReflectionFunction` method `isDeprecated`
+     *
+     * @return bool
+     */
+    public function isDeprecated(): bool;
+    /**
+     * `\ReflectionFunction` method `isInternal`
+     *
+     * @return bool
+     */
+    public function isInternal(): bool;
+    /**
+     * `\ReflectionFunction` method `isUserDefined`
+     *
+     * @return bool
+     */
+    public function isUserDefined(): bool;
+    /**
+     * `\ReflectionFunction` method `isGenerator`
+     *
+     * @return bool
+     */
+    public function isGenerator(): bool;
+    /**
+     * `\ReflectionFunction` method `isVariadic`
+     *
+     * @return bool
+     */
+    public function isVariadic(): bool;
+    /**
+     * `\ReflectionFunction` method `isStatic`
+     *
+     * @return bool
+     */
+    public function isStatic(): bool;
+    /**
+     * `\ReflectionFunction` method `getClosureThis`
+     *
+     * @return ?object
+     */
+    public function getClosureThis(): ?object;
+    /**
+     * `\ReflectionFunction` method `getClosureScopeClass`
+     *
+     * @return ?\ReflectionClass
+     */
+    public function getClosureScopeClass(): ?\ReflectionClass;
+    /**
+     * `\ReflectionFunction` method `getClosureCalledClass`
+     *
+     * @return ?\ReflectionClass
+     */
+    public function getClosureCalledClass(): ?\ReflectionClass;
+    /**
+     * `\ReflectionFunction` method `getClosureUsedVariables`
+     *
+     * @return array
+     */
+    public function getClosureUsedVariables(): array;
+    /**
+     * `\ReflectionFunction` method `getDocComment`
+     *
+     * @return string|false
+     */
+    public function getDocComment(): string|false;
+    /**
+     * `\ReflectionFunction` method `getEndLine`
+     *
+     * @return int|false
+     */
+    public function getEndLine(): int|false;
+    /**
+     * `\ReflectionFunction` method `getExtension`
+     *
+     * @return ?\ReflectionExtension
+     */
+    public function getExtension(): ?\ReflectionExtension;
+    /**
+     * `\ReflectionFunction` method `getExtensionName`
+     *
+     * @return string|false
+     */
+    public function getExtensionName(): string|false;
+    /**
+     * `\ReflectionFunction` method `getFileName`
+     *
+     * @return string|false
+     */
+    public function getFileName(): string|false;
+    /**
+     * `\ReflectionFunction` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionFunction` method `getNamespaceName`
+     *
+     * @return string
+     */
+    public function getNamespaceName(): string;
+    /**
+     * `\ReflectionFunction` method `getNumberOfParameters`
+     *
+     * @return int
+     */
+    public function getNumberOfParameters(): int;
+    /**
+     * `\ReflectionFunction` method `getNumberOfRequiredParameters`
+     *
+     * @return int
+     */
+    public function getNumberOfRequiredParameters(): int;
+    /**
+     * `\ReflectionFunction` method `getParameters`
+     *
+     * @return array
+     */
+    public function getParameters(): array;
+    /**
+     * `\ReflectionFunction` method `getShortName`
+     *
+     * @return string
+     */
+    public function getShortName(): string;
+    /**
+     * `\ReflectionFunction` method `getStartLine`
+     *
+     * @return int|false
+     */
+    public function getStartLine(): int|false;
+    /**
+     * `\ReflectionFunction` method `getStaticVariables`
+     *
+     * @return array
+     */
+    public function getStaticVariables(): array;
+    /**
+     * `\ReflectionFunction` method `returnsReference`
+     *
+     * @return bool
+     */
+    public function returnsReference(): bool;
+    /**
+     * `\ReflectionFunction` method `hasReturnType`
+     *
+     * @return bool
+     */
+    public function hasReturnType(): bool;
+    /**
+     * `\ReflectionFunction` method `getReturnType`
+     *
+     * @return ?\ReflectionType
+     */
+    public function getReturnType(): ?\ReflectionType;
+    /**
+     * `\ReflectionFunction` method `hasTentativeReturnType`
+     *
+     * @return bool
+     */
+    public function hasTentativeReturnType(): bool;
+    /**
+     * `\ReflectionFunction` method `getTentativeReturnType`
+     *
+     * @return ?\ReflectionType
+     */
+    public function getTentativeReturnType(): ?\ReflectionType;
+    /**
+     * `\ReflectionFunction` method `getAttributes`
+     *
+     * @param ?string $name
+     * @param int $flags
+     * @return array
+     */
+    public function getAttributes(?string $name = null, int $flags = 0): array;
+}
+final class ReflectionGenerator
+{
+    /**
+     * `\ReflectionGenerator` method `__construct`
+     *
+     * @param \Generator $generator
+     * @return void
+     */
+    public function __construct(\Generator $generator): void;
+    /**
+     * `\ReflectionGenerator` method `getExecutingLine`
+     *
+     * @return int
+     */
+    public function getExecutingLine(): int;
+    /**
+     * `\ReflectionGenerator` method `getExecutingFile`
+     *
+     * @return string
+     */
+    public function getExecutingFile(): string;
+    /**
+     * `\ReflectionGenerator` method `getTrace`
+     *
+     * @param int $options
+     * @return array
+     */
+    public function getTrace(int $options = \DEBUG_BACKTRACE_PROVIDE_OBJECT): array;
+    /**
+     * `\ReflectionGenerator` method `getFunction`
+     *
+     * @return \ReflectionFunctionAbstract
+     */
+    public function getFunction(): \ReflectionFunctionAbstract;
+    /**
+     * `\ReflectionGenerator` method `getThis`
+     *
+     * @return ?object
+     */
+    public function getThis(): ?object;
+    /**
+     * `\ReflectionGenerator` method `getExecutingGenerator`
+     *
+     * @return \Generator
+     */
+    public function getExecutingGenerator(): \Generator;
+}
+class ReflectionParameter implements \Stringable, \Reflector
+{
+    /** @var string */
+    public string $name;
+    /**
+     * `\ReflectionParameter` method `__clone`
+     *
+     * @return void
+     */
+    public function __clone(): void;
+    /**
+     * `\ReflectionParameter` method `__construct`
+     *
+     * @param mixed $function
+     * @param string|int $param
+     * @return void
+     */
+    public function __construct(mixed $function, string|int $param): void;
+    /**
+     * `\ReflectionParameter` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionParameter` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionParameter` method `isPassedByReference`
+     *
+     * @return bool
+     */
+    public function isPassedByReference(): bool;
+    /**
+     * `\ReflectionParameter` method `canBePassedByValue`
+     *
+     * @return bool
+     */
+    public function canBePassedByValue(): bool;
+    /**
+     * `\ReflectionParameter` method `getDeclaringFunction`
+     *
+     * @return \ReflectionFunctionAbstract
+     */
+    public function getDeclaringFunction(): \ReflectionFunctionAbstract;
+    /**
+     * `\ReflectionParameter` method `getDeclaringClass`
+     *
+     * @return ?\ReflectionClass
+     */
+    public function getDeclaringClass(): ?\ReflectionClass;
+    /**
+     * `\ReflectionParameter` method `getClass`
+     *
+     * @return ?\ReflectionClass
+     *
+     * @deprecated */
+    public function getClass(): ?\ReflectionClass;
+    /**
+     * `\ReflectionParameter` method `hasType`
+     *
+     * @return bool
+     */
+    public function hasType(): bool;
+    /**
+     * `\ReflectionParameter` method `getType`
+     *
+     * @return ?\ReflectionType
+     */
+    public function getType(): ?\ReflectionType;
+    /**
+     * `\ReflectionParameter` method `isArray`
+     *
+     * @return bool
+     *
+     * @deprecated */
+    public function isArray(): bool;
+    /**
+     * `\ReflectionParameter` method `isCallable`
+     *
+     * @return bool
+     *
+     * @deprecated */
+    public function isCallable(): bool;
+    /**
+     * `\ReflectionParameter` method `allowsNull`
+     *
+     * @return bool
+     */
+    public function allowsNull(): bool;
+    /**
+     * `\ReflectionParameter` method `getPosition`
+     *
+     * @return int
+     */
+    public function getPosition(): int;
+    /**
+     * `\ReflectionParameter` method `isOptional`
+     *
+     * @return bool
+     */
+    public function isOptional(): bool;
+    /**
+     * `\ReflectionParameter` method `isDefaultValueAvailable`
+     *
+     * @return bool
+     */
+    public function isDefaultValueAvailable(): bool;
+    /**
+     * `\ReflectionParameter` method `getDefaultValue`
+     *
+     * @return mixed
+     */
+    public function getDefaultValue(): mixed;
+    /**
+     * `\ReflectionParameter` method `isDefaultValueConstant`
+     *
+     * @return bool
+     */
+    public function isDefaultValueConstant(): bool;
+    /**
+     * `\ReflectionParameter` method `getDefaultValueConstantName`
+     *
+     * @return ?string
+     */
+    public function getDefaultValueConstantName(): ?string;
+    /**
+     * `\ReflectionParameter` method `isVariadic`
+     *
+     * @return bool
+     */
+    public function isVariadic(): bool;
+    /**
+     * `\ReflectionParameter` method `isPromoted`
+     *
+     * @return bool
+     */
+    public function isPromoted(): bool;
+    /**
+     * `\ReflectionParameter` method `getAttributes`
+     *
+     * @param ?string $name
+     * @param int $flags
+     * @return array
+     */
+    public function getAttributes(?string $name = null, int $flags = 0): array;
+}
+abstract class ReflectionType implements \Stringable
+{
+    /**
+     * `\ReflectionType` method `__clone`
+     *
+     * @return void
+     */
+    public function __clone(): void;
+    /**
+     * `\ReflectionType` method `allowsNull`
+     *
+     * @return bool
+     */
+    public function allowsNull(): bool;
+    /**
+     * `\ReflectionType` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class ReflectionNamedType extends \ReflectionType implements \Stringable
+{
+    /**
+     * `\ReflectionNamedType` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionNamedType` method `isBuiltin`
+     *
+     * @return bool
+     */
+    public function isBuiltin(): bool;
+    /**
+     * `\ReflectionNamedType` method `allowsNull`
+     *
+     * @return bool
+     */
+    public function allowsNull(): bool;
+    /**
+     * `\ReflectionNamedType` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class ReflectionUnionType extends \ReflectionType implements \Stringable
+{
+    /**
+     * `\ReflectionUnionType` method `getTypes`
+     *
+     * @return array
+     */
+    public function getTypes(): array;
+    /**
+     * `\ReflectionUnionType` method `allowsNull`
+     *
+     * @return bool
+     */
+    public function allowsNull(): bool;
+    /**
+     * `\ReflectionUnionType` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class ReflectionIntersectionType extends \ReflectionType implements \Stringable
+{
+    /**
+     * `\ReflectionIntersectionType` method `getTypes`
+     *
+     * @return array
+     */
+    public function getTypes(): array;
+    /**
+     * `\ReflectionIntersectionType` method `allowsNull`
+     *
+     * @return bool
+     */
+    public function allowsNull(): bool;
+    /**
+     * `\ReflectionIntersectionType` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class ReflectionMethod extends \ReflectionFunctionAbstract implements \Stringable, \Reflector
+{
+    public const int IS_STATIC;
+    public const int IS_PUBLIC;
+    public const int IS_PROTECTED;
+    public const int IS_PRIVATE;
+    public const int IS_ABSTRACT;
+    public const int IS_FINAL;
+    /** @var string */
+    public string $name;
+    /** @var string */
+    public string $class;
+    /**
+     * `\ReflectionMethod` method `__construct`
+     *
+     * @param object|string $objectOrMethod
+     * @param ?string $method
+     * @return void
+     */
+    public function __construct(object|string $objectOrMethod, ?string $method = null): void;
+    /**
+     * `\ReflectionMethod` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionMethod` method `isPublic`
+     *
+     * @return bool
+     */
+    public function isPublic(): bool;
+    /**
+     * `\ReflectionMethod` method `isPrivate`
+     *
+     * @return bool
+     */
+    public function isPrivate(): bool;
+    /**
+     * `\ReflectionMethod` method `isProtected`
+     *
+     * @return bool
+     */
+    public function isProtected(): bool;
+    /**
+     * `\ReflectionMethod` method `isAbstract`
+     *
+     * @return bool
+     */
+    public function isAbstract(): bool;
+    /**
+     * `\ReflectionMethod` method `isFinal`
+     *
+     * @return bool
+     */
+    public function isFinal(): bool;
+    /**
+     * `\ReflectionMethod` method `isConstructor`
+     *
+     * @return bool
+     */
+    public function isConstructor(): bool;
+    /**
+     * `\ReflectionMethod` method `isDestructor`
+     *
+     * @return bool
+     */
+    public function isDestructor(): bool;
+    /**
+     * `\ReflectionMethod` method `getClosure`
+     *
+     * @param ?object $object
+     * @return \Closure
+     */
+    public function getClosure(?object $object = null): \Closure;
+    /**
+     * `\ReflectionMethod` method `getModifiers`
+     *
+     * @return int
+     */
+    public function getModifiers(): int;
+    /**
+     * `\ReflectionMethod` method `invoke`
+     *
+     * @param ?object $object
+     * @param mixed[] $args
+     * @return mixed
+     */
+    public function invoke(?object $object, mixed ...$args): mixed;
+    /**
+     * `\ReflectionMethod` method `invokeArgs`
+     *
+     * @param ?object $object
+     * @param array $args
+     * @return mixed
+     */
+    public function invokeArgs(?object $object, array $args): mixed;
+
+    // Story 16.5: same as ReflectionFunction::invoke / invokeArgs — args/return derived from the
+    // reflected method signature (needs ReflectionMethod keyed by callable type; spelling TBD).
+    //   public function invoke(?object $object, ...__CallableParametersRest<…> $args): __CallableReturnType<…>;
+    //   public function invokeArgs(?object $object, __CallableParametersStruct<…> $args): __CallableReturnType<…>;
+    //   public function invokeArgs(?object $object, __CallableParametersTuple<…> $args): __CallableReturnType<…>;
+    /**
+     * `\ReflectionMethod` method `getDeclaringClass`
+     *
+     * @return \ReflectionClass
+     */
+    public function getDeclaringClass(): \ReflectionClass;
+    /**
+     * `\ReflectionMethod` method `getPrototype`
+     *
+     * @return \ReflectionMethod
+     */
+    public function getPrototype(): \ReflectionMethod;
+    /**
+     * `\ReflectionMethod` method `hasPrototype`
+     *
+     * @return bool
+     */
+    public function hasPrototype(): bool;
+    /**
+     * `\ReflectionMethod` method `setAccessible`
+     *
+     * @param bool $accessible
+     * @return void
+     */
+    public function setAccessible(bool $accessible): void;
+    /**
+     * `\ReflectionMethod` method `inNamespace`
+     *
+     * @return bool
+     */
+    public function inNamespace(): bool;
+    /**
+     * `\ReflectionMethod` method `isClosure`
+     *
+     * @return bool
+     */
+    public function isClosure(): bool;
+    /**
+     * `\ReflectionMethod` method `isDeprecated`
+     *
+     * @return bool
+     */
+    public function isDeprecated(): bool;
+    /**
+     * `\ReflectionMethod` method `isInternal`
+     *
+     * @return bool
+     */
+    public function isInternal(): bool;
+    /**
+     * `\ReflectionMethod` method `isUserDefined`
+     *
+     * @return bool
+     */
+    public function isUserDefined(): bool;
+    /**
+     * `\ReflectionMethod` method `isGenerator`
+     *
+     * @return bool
+     */
+    public function isGenerator(): bool;
+    /**
+     * `\ReflectionMethod` method `isVariadic`
+     *
+     * @return bool
+     */
+    public function isVariadic(): bool;
+    /**
+     * `\ReflectionMethod` method `isStatic`
+     *
+     * @return bool
+     */
+    public function isStatic(): bool;
+    /**
+     * `\ReflectionMethod` method `getClosureThis`
+     *
+     * @return ?object
+     */
+    public function getClosureThis(): ?object;
+    /**
+     * `\ReflectionMethod` method `getClosureScopeClass`
+     *
+     * @return ?\ReflectionClass
+     */
+    public function getClosureScopeClass(): ?\ReflectionClass;
+    /**
+     * `\ReflectionMethod` method `getClosureCalledClass`
+     *
+     * @return ?\ReflectionClass
+     */
+    public function getClosureCalledClass(): ?\ReflectionClass;
+    /**
+     * `\ReflectionMethod` method `getClosureUsedVariables`
+     *
+     * @return array
+     */
+    public function getClosureUsedVariables(): array;
+    /**
+     * `\ReflectionMethod` method `getDocComment`
+     *
+     * @return string|false
+     */
+    public function getDocComment(): string|false;
+    /**
+     * `\ReflectionMethod` method `getEndLine`
+     *
+     * @return int|false
+     */
+    public function getEndLine(): int|false;
+    /**
+     * `\ReflectionMethod` method `getExtension`
+     *
+     * @return ?\ReflectionExtension
+     */
+    public function getExtension(): ?\ReflectionExtension;
+    /**
+     * `\ReflectionMethod` method `getExtensionName`
+     *
+     * @return string|false
+     */
+    public function getExtensionName(): string|false;
+    /**
+     * `\ReflectionMethod` method `getFileName`
+     *
+     * @return string|false
+     */
+    public function getFileName(): string|false;
+    /**
+     * `\ReflectionMethod` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionMethod` method `getNamespaceName`
+     *
+     * @return string
+     */
+    public function getNamespaceName(): string;
+    /**
+     * `\ReflectionMethod` method `getNumberOfParameters`
+     *
+     * @return int
+     */
+    public function getNumberOfParameters(): int;
+    /**
+     * `\ReflectionMethod` method `getNumberOfRequiredParameters`
+     *
+     * @return int
+     */
+    public function getNumberOfRequiredParameters(): int;
+    /**
+     * `\ReflectionMethod` method `getParameters`
+     *
+     * @return array
+     */
+    public function getParameters(): array;
+    /**
+     * `\ReflectionMethod` method `getShortName`
+     *
+     * @return string
+     */
+    public function getShortName(): string;
+    /**
+     * `\ReflectionMethod` method `getStartLine`
+     *
+     * @return int|false
+     */
+    public function getStartLine(): int|false;
+    /**
+     * `\ReflectionMethod` method `getStaticVariables`
+     *
+     * @return array
+     */
+    public function getStaticVariables(): array;
+    /**
+     * `\ReflectionMethod` method `returnsReference`
+     *
+     * @return bool
+     */
+    public function returnsReference(): bool;
+    /**
+     * `\ReflectionMethod` method `hasReturnType`
+     *
+     * @return bool
+     */
+    public function hasReturnType(): bool;
+    /**
+     * `\ReflectionMethod` method `getReturnType`
+     *
+     * @return ?\ReflectionType
+     */
+    public function getReturnType(): ?\ReflectionType;
+    /**
+     * `\ReflectionMethod` method `hasTentativeReturnType`
+     *
+     * @return bool
+     */
+    public function hasTentativeReturnType(): bool;
+    /**
+     * `\ReflectionMethod` method `getTentativeReturnType`
+     *
+     * @return ?\ReflectionType
+     */
+    public function getTentativeReturnType(): ?\ReflectionType;
+    /**
+     * `\ReflectionMethod` method `getAttributes`
+     *
+     * @param ?string $name
+     * @param int $flags
+     * @return array
+     */
+    public function getAttributes(?string $name = null, int $flags = 0): array;
+}
+class ReflectionClass<T extends object> implements \Stringable, \Reflector
+{
+    public const int IS_IMPLICIT_ABSTRACT;
+    public const int IS_EXPLICIT_ABSTRACT;
+    public const int IS_FINAL;
+    public const int IS_READONLY;
+    /** @var string */
+    public string $name;
+    /**
+     * `\ReflectionClass` method `__clone`
+     *
+     * @return void
+     */
+    public function __clone(): void;
+    /**
+     * `\ReflectionClass` method `__construct`
+     *
+     * @param object|string $objectOrClass
+     * @return void
+     */
+    public function __construct(T|__ClassName<T>|__ClassName $objectOrClass): void;
+    /**
+     * `\ReflectionClass` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionClass` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): __ClassName<T>;
+    /**
+     * `\ReflectionClass` method `isInternal`
+     *
+     * @return bool
+     */
+    public function isInternal(): bool;
+    /**
+     * `\ReflectionClass` method `isUserDefined`
+     *
+     * @return bool
+     */
+    public function isUserDefined(): bool;
+    /**
+     * `\ReflectionClass` method `isAnonymous`
+     *
+     * @return bool
+     */
+    public function isAnonymous(): bool;
+    /**
+     * `\ReflectionClass` method `isInstantiable`
+     *
+     * @return bool
+     */
+    public function isInstantiable(): bool;
+    /**
+     * `\ReflectionClass` method `isCloneable`
+     *
+     * @return bool
+     */
+    public function isCloneable(): bool;
+    /**
+     * `\ReflectionClass` method `getFileName`
+     *
+     * @return string|false
+     */
+    public function getFileName(): string|false;
+    /**
+     * `\ReflectionClass` method `getStartLine`
+     *
+     * @return int|false
+     */
+    public function getStartLine(): int|false;
+    /**
+     * `\ReflectionClass` method `getEndLine`
+     *
+     * @return int|false
+     */
+    public function getEndLine(): int|false;
+    /**
+     * `\ReflectionClass` method `getDocComment`
+     *
+     * @return string|false
+     */
+    public function getDocComment(): string|false;
+    /**
+     * `\ReflectionClass` method `getConstructor`
+     *
+     * @return ?\ReflectionMethod
+     */
+    public function getConstructor(): ?\ReflectionMethod;
+    /**
+     * `\ReflectionClass` method `hasMethod`
+     *
+     * @param string $name
+     * @return bool
+     */
+    public function hasMethod(string $name): bool;
+    /**
+     * `\ReflectionClass` method `getMethod`
+     *
+     * @param string $name
+     * @return \ReflectionMethod
+     */
+    public function getMethod(string $name): \ReflectionMethod;
+    /**
+     * `\ReflectionClass` method `getMethods`
+     *
+     * @param ?int $filter
+     * @return array<int, \ReflectionMethod>
+     */
+    public function getMethods(?int $filter = null): array<int, \ReflectionMethod>;
+    /**
+     * `\ReflectionClass` method `hasProperty`
+     *
+     * @param string $name
+     * @return bool
+     */
+    public function hasProperty(string $name): bool;
+    /**
+     * `\ReflectionClass` method `getProperty`
+     *
+     * @param string $name
+     * @return \ReflectionProperty
+     */
+    public function getProperty(string $name): \ReflectionProperty;
+    /**
+     * `\ReflectionClass` method `getProperties`
+     *
+     * @param ?int $filter
+     * @return array<int, \ReflectionProperty>
+     */
+    public function getProperties(?int $filter = null): array<int, \ReflectionProperty>;
+    /**
+     * `\ReflectionClass` method `hasConstant`
+     *
+     * @param string $name
+     * @return bool
+     */
+    public function hasConstant(string $name): bool;
+    /**
+     * `\ReflectionClass` method `getConstants`
+     *
+     * @param ?int $filter
+     * @return array
+     */
+    public function getConstants(?int $filter = null): array;
+    /**
+     * `\ReflectionClass` method `getReflectionConstants`
+     *
+     * @param ?int $filter
+     * @return array
+     */
+    public function getReflectionConstants(?int $filter = null): array;
+    /**
+     * `\ReflectionClass` method `getConstant`
+     *
+     * @param string $name
+     * @return mixed
+     */
+    public function getConstant(string $name): mixed;
+    /**
+     * `\ReflectionClass` method `getReflectionConstant`
+     *
+     * @param string $name
+     * @return \ReflectionClassConstant|false
+     */
+    public function getReflectionConstant(string $name): \ReflectionClassConstant|false;
+    /**
+     * `\ReflectionClass` method `getInterfaces`
+     *
+     * @return array
+     */
+    public function getInterfaces(): array;
+    /**
+     * `\ReflectionClass` method `getInterfaceNames`
+     *
+     * @return array
+     */
+    public function getInterfaceNames(): array;
+    /**
+     * `\ReflectionClass` method `isInterface`
+     *
+     * @return bool
+     */
+    public function isInterface(): bool;
+    /**
+     * `\ReflectionClass` method `getTraits`
+     *
+     * @return array
+     */
+    public function getTraits(): array;
+    /**
+     * `\ReflectionClass` method `getTraitNames`
+     *
+     * @return array
+     */
+    public function getTraitNames(): array;
+    /**
+     * `\ReflectionClass` method `getTraitAliases`
+     *
+     * @return array
+     */
+    public function getTraitAliases(): array;
+    /**
+     * `\ReflectionClass` method `isTrait`
+     *
+     * @return bool
+     */
+    public function isTrait(): bool;
+    /**
+     * `\ReflectionClass` method `isEnum`
+     *
+     * @return bool
+     */
+    public function isEnum(): bool;
+    /**
+     * `\ReflectionClass` method `isAbstract`
+     *
+     * @return bool
+     */
+    public function isAbstract(): bool;
+    /**
+     * `\ReflectionClass` method `isFinal`
+     *
+     * @return bool
+     */
+    public function isFinal(): bool;
+    /**
+     * `\ReflectionClass` method `isReadOnly`
+     *
+     * @return bool
+     */
+    public function isReadOnly(): bool;
+    /**
+     * `\ReflectionClass` method `getModifiers`
+     *
+     * @return int
+     */
+    public function getModifiers(): int;
+    /**
+     * `\ReflectionClass` method `isInstance`
+     *
+     * @param object $object
+     * @return bool
+     */
+    public function isInstance(object $object): bool;
+    /**
+     * `\ReflectionClass` method `newInstance`
+     *
+     * @param mixed[] $args
+     * @return object
+     */
+    public function newInstance(mixed ...$args): T;
+    /**
+     * `\ReflectionClass` method `newInstanceWithoutConstructor`
+     *
+     * @return object
+     */
+    public function newInstanceWithoutConstructor(): T;
+    /**
+     * `\ReflectionClass` method `newInstanceArgs`
+     *
+     * @param array $args
+     * @return ?object
+     */
+    public function newInstanceArgs(array $args = []): ?object;
+
+    // Story 16.5 (+ possibly Story 27 `new<>`): constructor args should be typed as
+    // __CallableParametersRest / Struct / Tuple of the reflected class's constructor.
+    // Return is the reflected class instance (not __CallableReturnType). Spelling TBD
+    // (e.g. ReflectionClass<T> + constructor-of-T utilities).
+    //   public function newInstance(...__CallableParametersRest<ctor of T> $args): T;
+    //   public function newInstanceArgs(__CallableParametersStruct<…> $args = …): ?T;
+    //   public function newInstanceArgs(__CallableParametersTuple<…> $args = …): ?T;
+    /**
+     * `\ReflectionClass` method `getParentClass`
+     *
+     * @return \ReflectionClass|false
+     */
+    public function getParentClass(): \ReflectionClass|false;
+    /**
+     * `\ReflectionClass` method `isSubclassOf`
+     *
+     * @param \ReflectionClass|string $class
+     * @return bool
+     */
+    public function isSubclassOf(\ReflectionClass|string $class): bool;
+    /**
+     * `\ReflectionClass` method `getStaticProperties`
+     *
+     * @return ?array
+     */
+    public function getStaticProperties(): ?array;
+    /**
+     * `\ReflectionClass` method `getStaticPropertyValue`
+     *
+     * @param string $name
+     * @param mixed $default
+     * @return mixed
+     */
+    public function getStaticPropertyValue(string $name, mixed $default = null): mixed;
+    /**
+     * `\ReflectionClass` method `setStaticPropertyValue`
+     *
+     * @param string $name
+     * @param mixed $value
+     * @return void
+     */
+    public function setStaticPropertyValue(string $name, mixed $value): void;
+    /**
+     * `\ReflectionClass` method `getDefaultProperties`
+     *
+     * @return array
+     */
+    public function getDefaultProperties(): array;
+    /**
+     * `\ReflectionClass` method `isIterable`
+     *
+     * @return bool
+     */
+    public function isIterable(): bool;
+    /**
+     * `\ReflectionClass` method `isIterateable`
+     *
+     * @return bool
+     */
+    public function isIterateable(): bool;
+    /**
+     * `\ReflectionClass` method `implementsInterface`
+     *
+     * @param \ReflectionClass|string $interface
+     * @return bool
+     */
+    public function implementsInterface(\ReflectionClass|string $interface): bool;
+    /**
+     * `\ReflectionClass` method `getExtension`
+     *
+     * @return ?\ReflectionExtension
+     */
+    public function getExtension(): ?\ReflectionExtension;
+    /**
+     * `\ReflectionClass` method `getExtensionName`
+     *
+     * @return string|false
+     */
+    public function getExtensionName(): string|false;
+    /**
+     * `\ReflectionClass` method `inNamespace`
+     *
+     * @return bool
+     */
+    public function inNamespace(): bool;
+    /**
+     * `\ReflectionClass` method `getNamespaceName`
+     *
+     * @return string
+     */
+    public function getNamespaceName(): string;
+    /**
+     * `\ReflectionClass` method `getShortName`
+     *
+     * @return string
+     */
+    public function getShortName(): string;
+    /**
+     * `\ReflectionClass` method `getAttributes`
+     *
+     * @param ?string $name
+     * @param int $flags
+     * @return array
+     */
+    public function getAttributes(?string $name = null, int $flags = 0): array;
+}
+class ReflectionObject extends \ReflectionClass implements \Reflector, \Stringable
+{
+    public const int IS_IMPLICIT_ABSTRACT;
+    public const int IS_EXPLICIT_ABSTRACT;
+    public const int IS_FINAL;
+    public const int IS_READONLY;
+    /** @var string */
+    public string $name;
+    /**
+     * `\ReflectionObject` method `__construct`
+     *
+     * @param object $object
+     * @return void
+     */
+    public function __construct(object $object): void;
+    /**
+     * `\ReflectionObject` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionObject` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionObject` method `isInternal`
+     *
+     * @return bool
+     */
+    public function isInternal(): bool;
+    /**
+     * `\ReflectionObject` method `isUserDefined`
+     *
+     * @return bool
+     */
+    public function isUserDefined(): bool;
+    /**
+     * `\ReflectionObject` method `isAnonymous`
+     *
+     * @return bool
+     */
+    public function isAnonymous(): bool;
+    /**
+     * `\ReflectionObject` method `isInstantiable`
+     *
+     * @return bool
+     */
+    public function isInstantiable(): bool;
+    /**
+     * `\ReflectionObject` method `isCloneable`
+     *
+     * @return bool
+     */
+    public function isCloneable(): bool;
+    /**
+     * `\ReflectionObject` method `getFileName`
+     *
+     * @return string|false
+     */
+    public function getFileName(): string|false;
+    /**
+     * `\ReflectionObject` method `getStartLine`
+     *
+     * @return int|false
+     */
+    public function getStartLine(): int|false;
+    /**
+     * `\ReflectionObject` method `getEndLine`
+     *
+     * @return int|false
+     */
+    public function getEndLine(): int|false;
+    /**
+     * `\ReflectionObject` method `getDocComment`
+     *
+     * @return string|false
+     */
+    public function getDocComment(): string|false;
+    /**
+     * `\ReflectionObject` method `getConstructor`
+     *
+     * @return ?\ReflectionMethod
+     */
+    public function getConstructor(): ?\ReflectionMethod;
+    /**
+     * `\ReflectionObject` method `hasMethod`
+     *
+     * @param string $name
+     * @return bool
+     */
+    public function hasMethod(string $name): bool;
+    /**
+     * `\ReflectionObject` method `getMethod`
+     *
+     * @param string $name
+     * @return \ReflectionMethod
+     */
+    public function getMethod(string $name): \ReflectionMethod;
+    /**
+     * `\ReflectionObject` method `getMethods`
+     *
+     * @param ?int $filter
+     * @return array
+     */
+    public function getMethods(?int $filter = null): array;
+    /**
+     * `\ReflectionObject` method `hasProperty`
+     *
+     * @param string $name
+     * @return bool
+     */
+    public function hasProperty(string $name): bool;
+    /**
+     * `\ReflectionObject` method `getProperty`
+     *
+     * @param string $name
+     * @return \ReflectionProperty
+     */
+    public function getProperty(string $name): \ReflectionProperty;
+    /**
+     * `\ReflectionObject` method `getProperties`
+     *
+     * @param ?int $filter
+     * @return array
+     */
+    public function getProperties(?int $filter = null): array;
+    /**
+     * `\ReflectionObject` method `hasConstant`
+     *
+     * @param string $name
+     * @return bool
+     */
+    public function hasConstant(string $name): bool;
+    /**
+     * `\ReflectionObject` method `getConstants`
+     *
+     * @param ?int $filter
+     * @return array
+     */
+    public function getConstants(?int $filter = null): array;
+    /**
+     * `\ReflectionObject` method `getReflectionConstants`
+     *
+     * @param ?int $filter
+     * @return array
+     */
+    public function getReflectionConstants(?int $filter = null): array;
+    /**
+     * `\ReflectionObject` method `getConstant`
+     *
+     * @param string $name
+     * @return mixed
+     */
+    public function getConstant(string $name): mixed;
+    /**
+     * `\ReflectionObject` method `getReflectionConstant`
+     *
+     * @param string $name
+     * @return \ReflectionClassConstant|false
+     */
+    public function getReflectionConstant(string $name): \ReflectionClassConstant|false;
+    /**
+     * `\ReflectionObject` method `getInterfaces`
+     *
+     * @return array
+     */
+    public function getInterfaces(): array;
+    /**
+     * `\ReflectionObject` method `getInterfaceNames`
+     *
+     * @return array
+     */
+    public function getInterfaceNames(): array;
+    /**
+     * `\ReflectionObject` method `isInterface`
+     *
+     * @return bool
+     */
+    public function isInterface(): bool;
+    /**
+     * `\ReflectionObject` method `getTraits`
+     *
+     * @return array
+     */
+    public function getTraits(): array;
+    /**
+     * `\ReflectionObject` method `getTraitNames`
+     *
+     * @return array
+     */
+    public function getTraitNames(): array;
+    /**
+     * `\ReflectionObject` method `getTraitAliases`
+     *
+     * @return array
+     */
+    public function getTraitAliases(): array;
+    /**
+     * `\ReflectionObject` method `isTrait`
+     *
+     * @return bool
+     */
+    public function isTrait(): bool;
+    /**
+     * `\ReflectionObject` method `isEnum`
+     *
+     * @return bool
+     */
+    public function isEnum(): bool;
+    /**
+     * `\ReflectionObject` method `isAbstract`
+     *
+     * @return bool
+     */
+    public function isAbstract(): bool;
+    /**
+     * `\ReflectionObject` method `isFinal`
+     *
+     * @return bool
+     */
+    public function isFinal(): bool;
+    /**
+     * `\ReflectionObject` method `isReadOnly`
+     *
+     * @return bool
+     */
+    public function isReadOnly(): bool;
+    /**
+     * `\ReflectionObject` method `getModifiers`
+     *
+     * @return int
+     */
+    public function getModifiers(): int;
+    /**
+     * `\ReflectionObject` method `isInstance`
+     *
+     * @param object $object
+     * @return bool
+     */
+    public function isInstance(object $object): bool;
+    /**
+     * `\ReflectionObject` method `newInstance`
+     *
+     * @param mixed[] $args
+     * @return object
+     */
+    public function newInstance(mixed ...$args): object;
+    /**
+     * `\ReflectionObject` method `newInstanceWithoutConstructor`
+     *
+     * @return object
+     */
+    public function newInstanceWithoutConstructor(): object;
+    /**
+     * `\ReflectionObject` method `newInstanceArgs`
+     *
+     * @param array $args
+     * @return ?object
+     */
+    public function newInstanceArgs(array $args = []): ?object;
+
+    // Story 16.5 (+ possibly Story 27 `new<>`): same constructor-arg pattern as ReflectionClass
+    // (Rest / Struct / Tuple of the reflected object's constructor). Spelling TBD.
+    //   public function newInstance(...__CallableParametersRest<ctor> $args): T;
+    //   public function newInstanceArgs(__CallableParametersStruct<…> $args = …): ?T;
+    //   public function newInstanceArgs(__CallableParametersTuple<…> $args = …): ?T;
+    /**
+     * `\ReflectionObject` method `getParentClass`
+     *
+     * @return \ReflectionClass|false
+     */
+    public function getParentClass(): \ReflectionClass|false;
+    /**
+     * `\ReflectionObject` method `isSubclassOf`
+     *
+     * @param \ReflectionClass|string $class
+     * @return bool
+     */
+    public function isSubclassOf(\ReflectionClass|string $class): bool;
+    /**
+     * `\ReflectionObject` method `getStaticProperties`
+     *
+     * @return ?array
+     */
+    public function getStaticProperties(): ?array;
+    /**
+     * `\ReflectionObject` method `getStaticPropertyValue`
+     *
+     * @param string $name
+     * @param mixed $default
+     * @return mixed
+     */
+    public function getStaticPropertyValue(string $name, mixed $default = null): mixed;
+    /**
+     * `\ReflectionObject` method `setStaticPropertyValue`
+     *
+     * @param string $name
+     * @param mixed $value
+     * @return void
+     */
+    public function setStaticPropertyValue(string $name, mixed $value): void;
+    /**
+     * `\ReflectionObject` method `getDefaultProperties`
+     *
+     * @return array
+     */
+    public function getDefaultProperties(): array;
+    /**
+     * `\ReflectionObject` method `isIterable`
+     *
+     * @return bool
+     */
+    public function isIterable(): bool;
+    /**
+     * `\ReflectionObject` method `isIterateable`
+     *
+     * @return bool
+     */
+    public function isIterateable(): bool;
+    /**
+     * `\ReflectionObject` method `implementsInterface`
+     *
+     * @param \ReflectionClass|string $interface
+     * @return bool
+     */
+    public function implementsInterface(\ReflectionClass|string $interface): bool;
+    /**
+     * `\ReflectionObject` method `getExtension`
+     *
+     * @return ?\ReflectionExtension
+     */
+    public function getExtension(): ?\ReflectionExtension;
+    /**
+     * `\ReflectionObject` method `getExtensionName`
+     *
+     * @return string|false
+     */
+    public function getExtensionName(): string|false;
+    /**
+     * `\ReflectionObject` method `inNamespace`
+     *
+     * @return bool
+     */
+    public function inNamespace(): bool;
+    /**
+     * `\ReflectionObject` method `getNamespaceName`
+     *
+     * @return string
+     */
+    public function getNamespaceName(): string;
+    /**
+     * `\ReflectionObject` method `getShortName`
+     *
+     * @return string
+     */
+    public function getShortName(): string;
+    /**
+     * `\ReflectionObject` method `getAttributes`
+     *
+     * @param ?string $name
+     * @param int $flags
+     * @return array
+     */
+    public function getAttributes(?string $name = null, int $flags = 0): array;
+}
+class ReflectionProperty implements \Stringable, \Reflector
+{
+    public const int IS_STATIC;
+    public const int IS_READONLY;
+    public const int IS_PUBLIC;
+    public const int IS_PROTECTED;
+    public const int IS_PRIVATE;
+    /** @var string */
+    public string $name;
+    /** @var string */
+    public string $class;
+    /**
+     * `\ReflectionProperty` method `__clone`
+     *
+     * @return void
+     */
+    public function __clone(): void;
+    /**
+     * `\ReflectionProperty` method `__construct`
+     *
+     * @param object|string $class
+     * @param string $property
+     * @return void
+     */
+    public function __construct(object|string $class, string $property): void;
+    /**
+     * `\ReflectionProperty` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionProperty` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionProperty` method `getValue`
+     *
+     * @param ?object $object
+     * @return mixed
+     */
+    public function getValue(?object $object = null): mixed;
+    /**
+     * `\ReflectionProperty` method `setValue`
+     *
+     * @param mixed $objectOrValue
+     * @param mixed $value
+     * @return void
+     */
+    public function setValue(mixed $objectOrValue, mixed $value = null): void;
+    /**
+     * `\ReflectionProperty` method `isInitialized`
+     *
+     * @param ?object $object
+     * @return bool
+     */
+    public function isInitialized(?object $object = null): bool;
+    /**
+     * `\ReflectionProperty` method `isPublic`
+     *
+     * @return bool
+     */
+    public function isPublic(): bool;
+    /**
+     * `\ReflectionProperty` method `isPrivate`
+     *
+     * @return bool
+     */
+    public function isPrivate(): bool;
+    /**
+     * `\ReflectionProperty` method `isProtected`
+     *
+     * @return bool
+     */
+    public function isProtected(): bool;
+    /**
+     * `\ReflectionProperty` method `isStatic`
+     *
+     * @return bool
+     */
+    public function isStatic(): bool;
+    /**
+     * `\ReflectionProperty` method `isReadOnly`
+     *
+     * @return bool
+     */
+    public function isReadOnly(): bool;
+    /**
+     * `\ReflectionProperty` method `isDefault`
+     *
+     * @return bool
+     */
+    public function isDefault(): bool;
+    /**
+     * `\ReflectionProperty` method `isPromoted`
+     *
+     * @return bool
+     */
+    public function isPromoted(): bool;
+    /**
+     * `\ReflectionProperty` method `getModifiers`
+     *
+     * @return int
+     */
+    public function getModifiers(): int;
+    /**
+     * `\ReflectionProperty` method `getDeclaringClass`
+     *
+     * @return \ReflectionClass
+     */
+    public function getDeclaringClass(): \ReflectionClass;
+    /**
+     * `\ReflectionProperty` method `getDocComment`
+     *
+     * @return string|false
+     */
+    public function getDocComment(): string|false;
+    /**
+     * `\ReflectionProperty` method `setAccessible`
+     *
+     * @param bool $accessible
+     * @return void
+     */
+    public function setAccessible(bool $accessible): void;
+    /**
+     * `\ReflectionProperty` method `getType`
+     *
+     * @return ?\ReflectionType
+     */
+    public function getType(): ?\ReflectionType;
+    /**
+     * `\ReflectionProperty` method `hasType`
+     *
+     * @return bool
+     */
+    public function hasType(): bool;
+    /**
+     * `\ReflectionProperty` method `hasDefaultValue`
+     *
+     * @return bool
+     */
+    public function hasDefaultValue(): bool;
+    /**
+     * `\ReflectionProperty` method `getDefaultValue`
+     *
+     * @return mixed
+     */
+    public function getDefaultValue(): mixed;
+    /**
+     * `\ReflectionProperty` method `getAttributes`
+     *
+     * @param ?string $name
+     * @param int $flags
+     * @return array
+     */
+    public function getAttributes(?string $name = null, int $flags = 0): array;
+}
+class ReflectionClassConstant implements \Stringable, \Reflector
+{
+    public const int IS_PUBLIC;
+    public const int IS_PROTECTED;
+    public const int IS_PRIVATE;
+    public const int IS_FINAL;
+    /** @var string */
+    public string $name;
+    /** @var string */
+    public string $class;
+    /**
+     * `\ReflectionClassConstant` method `__clone`
+     *
+     * @return void
+     */
+    public function __clone(): void;
+    /**
+     * `\ReflectionClassConstant` method `__construct`
+     *
+     * @param object|string $class
+     * @param string $constant
+     * @return void
+     */
+    public function __construct(object|string $class, string $constant): void;
+    /**
+     * `\ReflectionClassConstant` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionClassConstant` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionClassConstant` method `getValue`
+     *
+     * @return mixed
+     */
+    public function getValue(): mixed;
+    /**
+     * `\ReflectionClassConstant` method `isPublic`
+     *
+     * @return bool
+     */
+    public function isPublic(): bool;
+    /**
+     * `\ReflectionClassConstant` method `isPrivate`
+     *
+     * @return bool
+     */
+    public function isPrivate(): bool;
+    /**
+     * `\ReflectionClassConstant` method `isProtected`
+     *
+     * @return bool
+     */
+    public function isProtected(): bool;
+    /**
+     * `\ReflectionClassConstant` method `isFinal`
+     *
+     * @return bool
+     */
+    public function isFinal(): bool;
+    /**
+     * `\ReflectionClassConstant` method `getModifiers`
+     *
+     * @return int
+     */
+    public function getModifiers(): int;
+    /**
+     * `\ReflectionClassConstant` method `getDeclaringClass`
+     *
+     * @return \ReflectionClass
+     */
+    public function getDeclaringClass(): \ReflectionClass;
+    /**
+     * `\ReflectionClassConstant` method `getDocComment`
+     *
+     * @return string|false
+     */
+    public function getDocComment(): string|false;
+    /**
+     * `\ReflectionClassConstant` method `getAttributes`
+     *
+     * @param ?string $name
+     * @param int $flags
+     * @return array
+     */
+    public function getAttributes(?string $name = null, int $flags = 0): array;
+    /**
+     * `\ReflectionClassConstant` method `isEnumCase`
+     *
+     * @return bool
+     */
+    public function isEnumCase(): bool;
+}
+class ReflectionExtension implements \Stringable, \Reflector
+{
+    /** @var string */
+    public string $name;
+    /**
+     * `\ReflectionExtension` method `__clone`
+     *
+     * @return void
+     */
+    public function __clone(): void;
+    /**
+     * `\ReflectionExtension` method `__construct`
+     *
+     * @param string $name
+     * @return void
+     */
+    public function __construct(string $name): void;
+    /**
+     * `\ReflectionExtension` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionExtension` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionExtension` method `getVersion`
+     *
+     * @return ?string
+     */
+    public function getVersion(): ?string;
+    /**
+     * `\ReflectionExtension` method `getFunctions`
+     *
+     * @return array
+     */
+    public function getFunctions(): array;
+    /**
+     * `\ReflectionExtension` method `getConstants`
+     *
+     * @return array
+     */
+    public function getConstants(): array;
+    /**
+     * `\ReflectionExtension` method `getINIEntries`
+     *
+     * @return array
+     */
+    public function getINIEntries(): array;
+    /**
+     * `\ReflectionExtension` method `getClasses`
+     *
+     * @return array
+     */
+    public function getClasses(): array;
+    /**
+     * `\ReflectionExtension` method `getClassNames`
+     *
+     * @return array
+     */
+    public function getClassNames(): array;
+    /**
+     * `\ReflectionExtension` method `getDependencies`
+     *
+     * @return array
+     */
+    public function getDependencies(): array;
+    /**
+     * `\ReflectionExtension` method `info`
+     *
+     * @return void
+     */
+    public function info(): void;
+    /**
+     * `\ReflectionExtension` method `isPersistent`
+     *
+     * @return bool
+     */
+    public function isPersistent(): bool;
+    /**
+     * `\ReflectionExtension` method `isTemporary`
+     *
+     * @return bool
+     */
+    public function isTemporary(): bool;
+}
+class ReflectionZendExtension implements \Stringable, \Reflector
+{
+    /** @var string */
+    public string $name;
+    /**
+     * `\ReflectionZendExtension` method `__clone`
+     *
+     * @return void
+     */
+    public function __clone(): void;
+    /**
+     * `\ReflectionZendExtension` method `__construct`
+     *
+     * @param string $name
+     * @return void
+     */
+    public function __construct(string $name): void;
+    /**
+     * `\ReflectionZendExtension` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionZendExtension` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionZendExtension` method `getVersion`
+     *
+     * @return string
+     */
+    public function getVersion(): string;
+    /**
+     * `\ReflectionZendExtension` method `getAuthor`
+     *
+     * @return string
+     */
+    public function getAuthor(): string;
+    /**
+     * `\ReflectionZendExtension` method `getURL`
+     *
+     * @return string
+     */
+    public function getURL(): string;
+    /**
+     * `\ReflectionZendExtension` method `getCopyright`
+     *
+     * @return string
+     */
+    public function getCopyright(): string;
+}
+final class ReflectionReference
+{
+    /**
+     * `\ReflectionReference` method `fromArrayElement`
+     *
+     * @param array $array
+     * @param string|int $key
+     * @return ?\ReflectionReference
+     */
+    public function fromArrayElement(array $array, string|int $key): ?\ReflectionReference;
+    /**
+     * `\ReflectionReference` method `getId`
+     *
+     * @return string
+     */
+    public function getId(): string;
+    /**
+     * `\ReflectionReference` method `__clone`
+     *
+     * @return void
+     */
+    public function __clone(): void;
+    /**
+     * `\ReflectionReference` method `__construct`
+     *
+     * @return void
+     */
+    public function __construct(): void;
+}
+class ReflectionAttribute implements \Stringable, \Reflector
+{
+    public const int IS_INSTANCEOF;
+    /**
+     * `\ReflectionAttribute` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionAttribute` method `getTarget`
+     *
+     * @return int
+     */
+    public function getTarget(): int;
+    /**
+     * `\ReflectionAttribute` method `isRepeated`
+     *
+     * @return bool
+     */
+    public function isRepeated(): bool;
+    /**
+     * `\ReflectionAttribute` method `getArguments`
+     *
+     * @return array
+     */
+    public function getArguments(): array;
+    /**
+     * `\ReflectionAttribute` method `newInstance`
+     *
+     * @return object
+     */
+    public function newInstance(): object;
+    /**
+     * `\ReflectionAttribute` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionAttribute` method `__clone`
+     *
+     * @return void
+     */
+    public function __clone(): void;
+    /**
+     * `\ReflectionAttribute` method `__construct`
+     *
+     * @return void
+     */
+    public function __construct(): void;
+}
+class ReflectionEnum extends \ReflectionClass implements \Reflector, \Stringable
+{
+    public const int IS_IMPLICIT_ABSTRACT;
+    public const int IS_EXPLICIT_ABSTRACT;
+    public const int IS_FINAL;
+    public const int IS_READONLY;
+    /** @var string */
+    public string $name;
+    /**
+     * `\ReflectionEnum` method `__construct`
+     *
+     * @param object|string $objectOrClass
+     * @return void
+     */
+    public function __construct(object|string $objectOrClass): void;
+    /**
+     * `\ReflectionEnum` method `hasCase`
+     *
+     * @param string $name
+     * @return bool
+     */
+    public function hasCase(string $name): bool;
+    /**
+     * `\ReflectionEnum` method `getCase`
+     *
+     * @param string $name
+     * @return \ReflectionEnumUnitCase
+     */
+    public function getCase(string $name): \ReflectionEnumUnitCase;
+    /**
+     * `\ReflectionEnum` method `getCases`
+     *
+     * @return array
+     */
+    public function getCases(): array;
+    /**
+     * `\ReflectionEnum` method `isBacked`
+     *
+     * @return bool
+     */
+    public function isBacked(): bool;
+    /**
+     * `\ReflectionEnum` method `getBackingType`
+     *
+     * @return ?\ReflectionNamedType
+     */
+    public function getBackingType(): ?\ReflectionNamedType;
+    /**
+     * `\ReflectionEnum` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionEnum` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionEnum` method `isInternal`
+     *
+     * @return bool
+     */
+    public function isInternal(): bool;
+    /**
+     * `\ReflectionEnum` method `isUserDefined`
+     *
+     * @return bool
+     */
+    public function isUserDefined(): bool;
+    /**
+     * `\ReflectionEnum` method `isAnonymous`
+     *
+     * @return bool
+     */
+    public function isAnonymous(): bool;
+    /**
+     * `\ReflectionEnum` method `isInstantiable`
+     *
+     * @return bool
+     */
+    public function isInstantiable(): bool;
+    /**
+     * `\ReflectionEnum` method `isCloneable`
+     *
+     * @return bool
+     */
+    public function isCloneable(): bool;
+    /**
+     * `\ReflectionEnum` method `getFileName`
+     *
+     * @return string|false
+     */
+    public function getFileName(): string|false;
+    /**
+     * `\ReflectionEnum` method `getStartLine`
+     *
+     * @return int|false
+     */
+    public function getStartLine(): int|false;
+    /**
+     * `\ReflectionEnum` method `getEndLine`
+     *
+     * @return int|false
+     */
+    public function getEndLine(): int|false;
+    /**
+     * `\ReflectionEnum` method `getDocComment`
+     *
+     * @return string|false
+     */
+    public function getDocComment(): string|false;
+    /**
+     * `\ReflectionEnum` method `getConstructor`
+     *
+     * @return ?\ReflectionMethod
+     */
+    public function getConstructor(): ?\ReflectionMethod;
+    /**
+     * `\ReflectionEnum` method `hasMethod`
+     *
+     * @param string $name
+     * @return bool
+     */
+    public function hasMethod(string $name): bool;
+    /**
+     * `\ReflectionEnum` method `getMethod`
+     *
+     * @param string $name
+     * @return \ReflectionMethod
+     */
+    public function getMethod(string $name): \ReflectionMethod;
+    /**
+     * `\ReflectionEnum` method `getMethods`
+     *
+     * @param ?int $filter
+     * @return array
+     */
+    public function getMethods(?int $filter = null): array;
+    /**
+     * `\ReflectionEnum` method `hasProperty`
+     *
+     * @param string $name
+     * @return bool
+     */
+    public function hasProperty(string $name): bool;
+    /**
+     * `\ReflectionEnum` method `getProperty`
+     *
+     * @param string $name
+     * @return \ReflectionProperty
+     */
+    public function getProperty(string $name): \ReflectionProperty;
+    /**
+     * `\ReflectionEnum` method `getProperties`
+     *
+     * @param ?int $filter
+     * @return array
+     */
+    public function getProperties(?int $filter = null): array;
+    /**
+     * `\ReflectionEnum` method `hasConstant`
+     *
+     * @param string $name
+     * @return bool
+     */
+    public function hasConstant(string $name): bool;
+    /**
+     * `\ReflectionEnum` method `getConstants`
+     *
+     * @param ?int $filter
+     * @return array
+     */
+    public function getConstants(?int $filter = null): array;
+    /**
+     * `\ReflectionEnum` method `getReflectionConstants`
+     *
+     * @param ?int $filter
+     * @return array
+     */
+    public function getReflectionConstants(?int $filter = null): array;
+    /**
+     * `\ReflectionEnum` method `getConstant`
+     *
+     * @param string $name
+     * @return mixed
+     */
+    public function getConstant(string $name): mixed;
+    /**
+     * `\ReflectionEnum` method `getReflectionConstant`
+     *
+     * @param string $name
+     * @return \ReflectionClassConstant|false
+     */
+    public function getReflectionConstant(string $name): \ReflectionClassConstant|false;
+    /**
+     * `\ReflectionEnum` method `getInterfaces`
+     *
+     * @return array
+     */
+    public function getInterfaces(): array;
+    /**
+     * `\ReflectionEnum` method `getInterfaceNames`
+     *
+     * @return array
+     */
+    public function getInterfaceNames(): array;
+    /**
+     * `\ReflectionEnum` method `isInterface`
+     *
+     * @return bool
+     */
+    public function isInterface(): bool;
+    /**
+     * `\ReflectionEnum` method `getTraits`
+     *
+     * @return array
+     */
+    public function getTraits(): array;
+    /**
+     * `\ReflectionEnum` method `getTraitNames`
+     *
+     * @return array
+     */
+    public function getTraitNames(): array;
+    /**
+     * `\ReflectionEnum` method `getTraitAliases`
+     *
+     * @return array
+     */
+    public function getTraitAliases(): array;
+    /**
+     * `\ReflectionEnum` method `isTrait`
+     *
+     * @return bool
+     */
+    public function isTrait(): bool;
+    /**
+     * `\ReflectionEnum` method `isEnum`
+     *
+     * @return bool
+     */
+    public function isEnum(): bool;
+    /**
+     * `\ReflectionEnum` method `isAbstract`
+     *
+     * @return bool
+     */
+    public function isAbstract(): bool;
+    /**
+     * `\ReflectionEnum` method `isFinal`
+     *
+     * @return bool
+     */
+    public function isFinal(): bool;
+    /**
+     * `\ReflectionEnum` method `isReadOnly`
+     *
+     * @return bool
+     */
+    public function isReadOnly(): bool;
+    /**
+     * `\ReflectionEnum` method `getModifiers`
+     *
+     * @return int
+     */
+    public function getModifiers(): int;
+    /**
+     * `\ReflectionEnum` method `isInstance`
+     *
+     * @param object $object
+     * @return bool
+     */
+    public function isInstance(object $object): bool;
+    /**
+     * `\ReflectionEnum` method `newInstance`
+     *
+     * @param mixed[] $args
+     * @return object
+     */
+    public function newInstance(mixed ...$args): object;
+    /**
+     * `\ReflectionEnum` method `newInstanceWithoutConstructor`
+     *
+     * @return object
+     */
+    public function newInstanceWithoutConstructor(): object;
+    /**
+     * `\ReflectionEnum` method `newInstanceArgs`
+     *
+     * @param array $args
+     * @return ?object
+     */
+    public function newInstanceArgs(array $args = []): ?object;
+
+    // Story 16.5 (+ possibly Story 27 `new<>`): same constructor-arg pattern as ReflectionClass
+    // (enums rarely construct via newInstance; still note for parity). Spelling TBD.
+    //   public function newInstance(...__CallableParametersRest<ctor> $args): T;
+    //   public function newInstanceArgs(__CallableParametersStruct<…> $args = …): ?T;
+    //   public function newInstanceArgs(__CallableParametersTuple<…> $args = …): ?T;
+    /**
+     * `\ReflectionEnum` method `getParentClass`
+     *
+     * @return \ReflectionClass|false
+     */
+    public function getParentClass(): \ReflectionClass|false;
+    /**
+     * `\ReflectionEnum` method `isSubclassOf`
+     *
+     * @param \ReflectionClass|string $class
+     * @return bool
+     */
+    public function isSubclassOf(\ReflectionClass|string $class): bool;
+    /**
+     * `\ReflectionEnum` method `getStaticProperties`
+     *
+     * @return ?array
+     */
+    public function getStaticProperties(): ?array;
+    /**
+     * `\ReflectionEnum` method `getStaticPropertyValue`
+     *
+     * @param string $name
+     * @param mixed $default
+     * @return mixed
+     */
+    public function getStaticPropertyValue(string $name, mixed $default = null): mixed;
+    /**
+     * `\ReflectionEnum` method `setStaticPropertyValue`
+     *
+     * @param string $name
+     * @param mixed $value
+     * @return void
+     */
+    public function setStaticPropertyValue(string $name, mixed $value): void;
+    /**
+     * `\ReflectionEnum` method `getDefaultProperties`
+     *
+     * @return array
+     */
+    public function getDefaultProperties(): array;
+    /**
+     * `\ReflectionEnum` method `isIterable`
+     *
+     * @return bool
+     */
+    public function isIterable(): bool;
+    /**
+     * `\ReflectionEnum` method `isIterateable`
+     *
+     * @return bool
+     */
+    public function isIterateable(): bool;
+    /**
+     * `\ReflectionEnum` method `implementsInterface`
+     *
+     * @param \ReflectionClass|string $interface
+     * @return bool
+     */
+    public function implementsInterface(\ReflectionClass|string $interface): bool;
+    /**
+     * `\ReflectionEnum` method `getExtension`
+     *
+     * @return ?\ReflectionExtension
+     */
+    public function getExtension(): ?\ReflectionExtension;
+    /**
+     * `\ReflectionEnum` method `getExtensionName`
+     *
+     * @return string|false
+     */
+    public function getExtensionName(): string|false;
+    /**
+     * `\ReflectionEnum` method `inNamespace`
+     *
+     * @return bool
+     */
+    public function inNamespace(): bool;
+    /**
+     * `\ReflectionEnum` method `getNamespaceName`
+     *
+     * @return string
+     */
+    public function getNamespaceName(): string;
+    /**
+     * `\ReflectionEnum` method `getShortName`
+     *
+     * @return string
+     */
+    public function getShortName(): string;
+    /**
+     * `\ReflectionEnum` method `getAttributes`
+     *
+     * @param ?string $name
+     * @param int $flags
+     * @return array
+     */
+    public function getAttributes(?string $name = null, int $flags = 0): array;
+}
+class ReflectionEnumUnitCase extends \ReflectionClassConstant implements \Reflector, \Stringable
+{
+    public const int IS_PUBLIC;
+    public const int IS_PROTECTED;
+    public const int IS_PRIVATE;
+    public const int IS_FINAL;
+    /** @var string */
+    public string $name;
+    /** @var string */
+    public string $class;
+    /**
+     * `\ReflectionEnumUnitCase` method `__construct`
+     *
+     * @param object|string $class
+     * @param string $constant
+     * @return void
+     */
+    public function __construct(object|string $class, string $constant): void;
+    /**
+     * `\ReflectionEnumUnitCase` method `getEnum`
+     *
+     * @return \ReflectionEnum
+     */
+    public function getEnum(): \ReflectionEnum;
+    /**
+     * `\ReflectionEnumUnitCase` method `getValue`
+     *
+     * @return \UnitEnum
+     */
+    public function getValue(): \UnitEnum;
+    /**
+     * `\ReflectionEnumUnitCase` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionEnumUnitCase` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionEnumUnitCase` method `isPublic`
+     *
+     * @return bool
+     */
+    public function isPublic(): bool;
+    /**
+     * `\ReflectionEnumUnitCase` method `isPrivate`
+     *
+     * @return bool
+     */
+    public function isPrivate(): bool;
+    /**
+     * `\ReflectionEnumUnitCase` method `isProtected`
+     *
+     * @return bool
+     */
+    public function isProtected(): bool;
+    /**
+     * `\ReflectionEnumUnitCase` method `isFinal`
+     *
+     * @return bool
+     */
+    public function isFinal(): bool;
+    /**
+     * `\ReflectionEnumUnitCase` method `getModifiers`
+     *
+     * @return int
+     */
+    public function getModifiers(): int;
+    /**
+     * `\ReflectionEnumUnitCase` method `getDeclaringClass`
+     *
+     * @return \ReflectionClass
+     */
+    public function getDeclaringClass(): \ReflectionClass;
+    /**
+     * `\ReflectionEnumUnitCase` method `getDocComment`
+     *
+     * @return string|false
+     */
+    public function getDocComment(): string|false;
+    /**
+     * `\ReflectionEnumUnitCase` method `getAttributes`
+     *
+     * @param ?string $name
+     * @param int $flags
+     * @return array
+     */
+    public function getAttributes(?string $name = null, int $flags = 0): array;
+    /**
+     * `\ReflectionEnumUnitCase` method `isEnumCase`
+     *
+     * @return bool
+     */
+    public function isEnumCase(): bool;
+}
+class ReflectionEnumBackedCase extends \ReflectionEnumUnitCase implements \Stringable, \Reflector
+{
+    public const int IS_PUBLIC;
+    public const int IS_PROTECTED;
+    public const int IS_PRIVATE;
+    public const int IS_FINAL;
+    /** @var string */
+    public string $name;
+    /** @var string */
+    public string $class;
+    /**
+     * `\ReflectionEnumBackedCase` method `__construct`
+     *
+     * @param object|string $class
+     * @param string $constant
+     * @return void
+     */
+    public function __construct(object|string $class, string $constant): void;
+    /**
+     * `\ReflectionEnumBackedCase` method `getBackingValue`
+     *
+     * @return string|int
+     */
+    public function getBackingValue(): string|int;
+    /**
+     * `\ReflectionEnumBackedCase` method `getEnum`
+     *
+     * @return \ReflectionEnum
+     */
+    public function getEnum(): \ReflectionEnum;
+    /**
+     * `\ReflectionEnumBackedCase` method `getValue`
+     *
+     * @return \UnitEnum
+     */
+    public function getValue(): \UnitEnum;
+    /**
+     * `\ReflectionEnumBackedCase` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+    /**
+     * `\ReflectionEnumBackedCase` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\ReflectionEnumBackedCase` method `isPublic`
+     *
+     * @return bool
+     */
+    public function isPublic(): bool;
+    /**
+     * `\ReflectionEnumBackedCase` method `isPrivate`
+     *
+     * @return bool
+     */
+    public function isPrivate(): bool;
+    /**
+     * `\ReflectionEnumBackedCase` method `isProtected`
+     *
+     * @return bool
+     */
+    public function isProtected(): bool;
+    /**
+     * `\ReflectionEnumBackedCase` method `isFinal`
+     *
+     * @return bool
+     */
+    public function isFinal(): bool;
+    /**
+     * `\ReflectionEnumBackedCase` method `getModifiers`
+     *
+     * @return int
+     */
+    public function getModifiers(): int;
+    /**
+     * `\ReflectionEnumBackedCase` method `getDeclaringClass`
+     *
+     * @return \ReflectionClass
+     */
+    public function getDeclaringClass(): \ReflectionClass;
+    /**
+     * `\ReflectionEnumBackedCase` method `getDocComment`
+     *
+     * @return string|false
+     */
+    public function getDocComment(): string|false;
+    /**
+     * `\ReflectionEnumBackedCase` method `getAttributes`
+     *
+     * @param ?string $name
+     * @param int $flags
+     * @return array
+     */
+    public function getAttributes(?string $name = null, int $flags = 0): array;
+    /**
+     * `\ReflectionEnumBackedCase` method `isEnumCase`
+     *
+     * @return bool
+     */
+    public function isEnumCase(): bool;
+}
+final class ReflectionFiber
+{
+    /**
+     * `\ReflectionFiber` method `__construct`
+     *
+     * @param \Fiber $fiber
+     * @return void
+     */
+    public function __construct(\Fiber $fiber): void;
+    /**
+     * `\ReflectionFiber` method `getFiber`
+     *
+     * @return \Fiber
+     */
+    public function getFiber(): \Fiber;
+    /**
+     * `\ReflectionFiber` method `getExecutingFile`
+     *
+     * @return ?string
+     */
+    public function getExecutingFile(): ?string;
+    /**
+     * `\ReflectionFiber` method `getExecutingLine`
+     *
+     * @return ?int
+     */
+    public function getExecutingLine(): ?int;
+    /**
+     * `\ReflectionFiber` method `getCallable`
+     *
+     * @return callable
+     */
+    public function getCallable(): callable;
+    /**
+     * `\ReflectionFiber` method `getTrace`
+     *
+     * @param int $options
+     * @return array
+     */
+    public function getTrace(int $options = \DEBUG_BACKTRACE_PROVIDE_OBJECT): array;
+}

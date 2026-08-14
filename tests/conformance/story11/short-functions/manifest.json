@@ -1,0 +1,25 @@
+{
+  "suite": "story11/short-functions",
+  "description": "Story 11 — named fn → function expansion",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "short_fn_top_level",
+      "file": "short_functions.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    },
+    {
+      "id": "short_fn_method",
+      "file": "short_functions.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Calculator.php"
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+interface IsDisposable
+{
+    public function dispose(): void;
+}
+
+class FileHandle implements IsDisposable
+{
+    public function dispose(): void
+    {
+    }
+}
+
+function useResource(): void
+{
+    using (FileHandle $handle = new FileHandle()) {
+        // resource auto-disposed when scope exits
+    }
+}

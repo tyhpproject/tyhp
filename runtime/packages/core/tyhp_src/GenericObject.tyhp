@@ -1,0 +1,133 @@
+<?tyhp
+
+namespace Tyhp;
+
+/**
+ * Runtime bag of bound generic type arguments for one object instance.
+ *
+ * Hosted by {@see \Tyhp\Concerns\HasGenerics} as `$__tyhpGeneric`. Created in that trait's
+ * `__bootTrait_*` via `tyhpBootTraits()`. Emitter call sites look like
+ * `$this->__tyhpGeneric->resolvedType(static::class, 'T')`.
+ */
+final class GenericObject
+{
+    private ?Type $objectType = null;
+
+    /// Bound type arguments keyed by the class that DECLARED the parameter, so a class and its
+    /// generic ancestors coexist on one object even when they spell a parameter the same way.
+    private array<string, array<string, NamedType>> $generics = [];
+
+    /// True once an initialization chain has COMPLETED on this object. Gates the injected call at
+    /// the top of every generated constructor, so an ancestor constructor reached through
+    /// `parent::__construct(...)` does not re-walk a chain that is already bound.
+    private bool $bound = false;
+
+    /// When false, {@see checkProperty} is a no-op so constructor / promoted property initialization
+    /// can assign without a runtime type check. Enabled at the end of `__construct` by the emitter.
+    private bool $propertyChecksEnabled = false;
+
+    private array<string, array<NamedType>> $interfaceGenerics = [];
+    private array<string, Type> $typedProperties = [];
+
+    public function needsInit(): bool
+    {
+        return !$this->bound;
+    }
+
+    /// Called at the END of an initialization chain, so a set flag implies a completed chain rather
+    /// than merely a started one.
+    public function markBound(): void
+    {
+        $this->bound = true;
+    }
+
+    public function isInitialized(string $declaringClass): bool
+    {
+        return isset($this->generics[$declaringClass]);
+    }
+
+    /// First write wins. A later pass carrying declared defaults cannot overwrite a binding an
+    /// earlier pass established from real type arguments, which is what makes the ordinary
+    /// `parent::__construct(...)` a generated constructor emits safe to re-enter.
+    ///
+    /// `$hostClass` is the runtime class of the object that owns this bag (`static::class` at the
+    /// call site) — used for {@see objectType()}, not the declaring level being recorded.
+    public function init(string $hostClass, string $declaringClass, NamedType ...$genericArguments): void
+    {
+        if (!isset($this->generics[$declaringClass])) {
+            $this->generics[$declaringClass] = [];
+        }
+
+        foreach ($genericArguments as $argument) {
+            string $parameterName = $argument->getParameterName();
+
+            if (isset($this->generics[$declaringClass][$parameterName])) {
+                continue;
+            }
+
+            $this->generics[$declaringClass][$parameterName] = $argument;
+        }
+
+        // The chain runs most-derived first, so first-write-wins leaves this holding the most
+        // derived generic level's arguments — which is what `Type::of($obj)` should report.
+        $this->objectType ??= Type::generic($hostClass, ...$genericArguments);
+    }
+
+    public function initInterface(string $interface, NamedType ...$args): void
+    {
+        $this->interfaceGenerics[$interface] = $args;
+    }
+
+    public function setPropertyType(string $property, Type $type): void
+    {
+        $this->typedProperties[$property] = $type;
+    }
+
+    /// Turn on runtime checks for free generic-typed properties. Emitted at the end of every
+    /// `__construct` on a class that uses {@see \Tyhp\Concerns\HasGenerics} so ctor / promoted
+    /// writes stay unchecked.
+    public function enablePropertyChecks(): void
+    {
+        $this->propertyChecksEnabled = true;
+    }
+
+    /// Enforce a registered property type. No-op until {@see enablePropertyChecks} runs, and no-op
+    /// when `$property` was never registered. Used by synthetic set hooks (native 8.4+ and the
+    /// &lt;8.4 polyfill).
+    public function checkProperty(string $property, mixed $value): void
+    {
+        if (!$this->propertyChecksEnabled) {
+            return;
+        }
+
+        if (!\array_key_exists($property, $this->typedProperties)) {
+            return;
+        }
+
+        Type::check($value, $this->typedProperties[$property]);
+    }
+
+    public function objectType(): ?Type
+    {
+        return $this->objectType;
+    }
+
+    public function genericType(string $declaringClass, string $parameterName): ?NamedType
+    {
+        return $this->generics[$declaringClass][$parameterName] ?? null;
+    }
+
+    /// Resolved underlying {@see Type} for a bound parameter, or `mixed` when unbound.
+    /// Prefer this over `genericType(…)?->getUnderlyingType() ?? Type::mixed()`.
+    public function resolvedType(string $declaringClass, string $parameterName): Type
+    {
+        NamedType|null $named = $this->genericType($declaringClass, $parameterName);
+        return $named?->getUnderlyingType() ?? Type::mixed();
+    }
+
+    /// Zero value for a bound parameter — what `default(T)` evaluates to at runtime.
+    public function defaultValue(string $declaringClass, string $parameterName): mixed
+    {
+        return $this->resolvedType($declaringClass, $parameterName)->defaultValue();
+    }
+}

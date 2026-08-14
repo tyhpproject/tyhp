@@ -1,0 +1,16 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+class Money
+{
+    public int $amount = 0;
+}
+
+extension MoneyFormatting
+{
+    function format(extends Money $this, string $currency): string
+    {
+        return $currency . ' ' . $this->amount;
+    }
+}

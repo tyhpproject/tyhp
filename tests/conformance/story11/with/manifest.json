@@ -1,0 +1,25 @@
+{
+  "suite": "story11/with",
+  "description": "Story 11 — object with / clone with (PHP 8.4 ObjectHelper path)",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "with_config_class",
+      "file": "with.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Config.php"
+      }
+    },
+    {
+      "id": "with_usage_functions",
+      "file": "with.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

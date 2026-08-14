@@ -1,0 +1,499 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\Exceptions\InvalidTypeException;
+
+/**
+ * Binds type arguments to a Tyhp generic class or callable from hand-written PHP.
+ *
+ * Tyhp call sites never need this for classes: `new Box<int>(...)` compiles straight to the
+ * generated per-class factory, which re-spells the real constructor signature and so keeps
+ * argument checking. Tyhp call sites for method/function generics compile to the emitted
+ * `__tyhpGeneric` binder directly. This is the interop path for PHP callers.
+ *
+ *     // Class (Mechanism C)
+ *     $box = \Tyhp\Generic::bind(Box::class, \Tyhp\Type::int())->new(42);
+ *     $box = \Tyhp\Generic::bind(Box::class, \Tyhp\Type::int())(42); // __invoke ≡ ->new
+ *
+ *     // Callable (Mechanism D) — prefer a first-class callable to the *clean* name
+ *     $awaitInt = \Tyhp\Generic::bind(\Tyhp\Promise::_await(...), \Tyhp\Type::int());
+ *     $awaitInt($promise);
+ *
+ * For classes, binding has to happen before the constructor body runs, so the instance is
+ * materialized without its constructor, bound, and only then constructed. That split is
+ * observable: between `bind()` and the call that follows it the instance exists with no
+ * constructor having run, and nothing outside this class can reach it.
+ *
+ * For callables, `bind` invokes the emitted `__tyhpGeneric` binder and returns that `\Closure`
+ * unchanged — no extra `...$args` wrapper — so by-ref parameters and return-by-ref stay correct.
+ *
+ * `TTarget` exists only in PHPDoc. Tyhp's own generics are runtime bindings carried on the
+ * constructed instance; making this class generic in Tyhp would bind a parameter nothing here
+ * reads. The template costs nothing at runtime and is what lets PHPStan / Psalm / Phan / IDEs
+ * infer the constructed type from `bind(Foo::class, …)`.
+ *
+ * @template TTarget of object
+ *
+ * @phpstan-template TTarget of object
+ * @psalm-template TTarget of object
+ */
+final class Generic
+{
+    /**
+     * @var array<string, \ReflectionClass<object>>
+     * @phpstan-var array<string, \ReflectionClass<object>>
+     * @psalm-var array<string, \ReflectionClass<object>>
+     */
+    private static array<string, \ReflectionClass> $reflectionCache = [];
+
+    private bool $spent = false;
+
+    /**
+     * Bind type arguments to a generic class or callable.
+     *
+     * When `$target` is a `class-string`, returns a {@see Generic} binder whose `new(...)` /
+     * `__invoke(...)` runs that class's constructor and yields an instance of `TClass`.
+     * When `$target` is any other callable, returns the emitted value-signature `\Closure`
+     * from that callable's `__tyhpGeneric` binder (same signature as `$target`, with generics
+     * bound).
+     *
+     * Pass one `\Tyhp\Type` (or `null`) per generic parameter of the target, in declaration
+     * order. A null argument leaves that parameter unbound, which resolves the same way a
+     * missing argument does at a Tyhp call site: declared default, else constraint, else mixed.
+     *
+     * Tools: PHPStan and Psalm understand the conditional `@return` / `@phpstan-return` /
+     * `@psalm-return`. Phan understands the templates and `class-string` / `callable` union on
+     * `$target`, but may treat the return as `mixed`. Constructor parameter lists cannot be
+     * reified from `TClass` in any of the three; use `->new()` when the constructed type
+     * matters and accept variadic `mixed` for ctor args.
+     *
+     * @template TCallable of callable
+     * @template TClass of object
+     *
+     * @param class-string<TClass>|TCallable $target
+     * @param ?\Tyhp\Type                    ...$typeArguments
+     *
+     * @return ($target is class-string<TClass> ? self<TClass> : TCallable)
+     *
+     * @phpstan-template TCallable of callable
+     * @phpstan-template TClass of object
+     * @phpstan-param class-string<TClass>|TCallable $target
+     * @phpstan-param ?\Tyhp\Type                    ...$typeArguments
+     * @phpstan-return ($target is class-string<TClass> ? self<TClass> : TCallable)
+     *
+     * @psalm-template TCallable of callable
+     * @psalm-template TClass of object
+     * @psalm-param class-string<TClass>|TCallable $target
+     * @psalm-param ?\Tyhp\Type                    ...$typeArguments
+     * @psalm-return ($target is class-string<TClass> ? self<TClass> : TCallable)
+     *
+     * @throws InvalidTypeException     When the target is not a generic Tyhp class / has no
+     *                                  binder, or when an instance method is bound without a
+     *                                  receiver.
+     * @throws \ReflectionException     When a class-string does not name a loadable class.
+     * @throws \InvalidArgumentException When `$target` is neither a class-string nor a
+     *                                  resolvable named callable, or is an anonymous Closure.
+     */
+    public static function bind(mixed $target, ?\Tyhp\Type ...$typeArguments): mixed
+    {
+        if (\is_string($target)) {
+            // 'Foo::bar' / function names are callables; bare class-strings are the class path.
+            if (\str_contains($target, '::') || (\is_callable($target) && !\class_exists($target))) {
+                return self::bindCallable($target, $typeArguments);
+            }
+
+            if (\class_exists($target)) {
+                return self::bindClass($target, $typeArguments);
+            }
+        }
+
+        if (\is_callable($target)) {
+            return self::bindCallable($target, $typeArguments);
+        }
+
+        throw new \InvalidArgumentException(
+            'Generic::bind() expects a class-string or callable as its first argument.',
+        );
+    }
+
+    /**
+     * Materialize `$className` with `$typeArguments` bound but its constructor not yet run.
+     *
+     * @template T of object
+     *
+     * @param class-string<T>       $className
+     * @param list<?\Tyhp\Type>     $typeArguments
+     *
+     * @return self<T>
+     *
+     * @phpstan-template T of object
+     * @phpstan-param class-string<T>   $className
+     * @phpstan-param list<?\Tyhp\Type> $typeArguments
+     * @phpstan-return self<T>
+     *
+     * @psalm-template T of object
+     * @psalm-param class-string<T>   $className
+     * @psalm-param list<?\Tyhp\Type> $typeArguments
+     * @psalm-return self<T>
+     *
+     * @throws InvalidTypeException When `$className` was not compiled as a generic Tyhp class.
+     * @throws \ReflectionException When `$className` does not exist.
+     */
+    private static function bindClass(__ClassName $className, array<string|int, ?\Tyhp\Type> $typeArguments): self
+    {
+        self::$reflectionCache[$className] ??= new \ReflectionClass<object>($className);
+
+        \ReflectionClass<object> $reflection = self::$reflectionCache[$className];
+
+        // Generated onto the class rather than declared in source, so it is absent exactly when the
+        // class was not compiled as a generic class.
+        // Name must track GeneratedNames.GenericInitHook.
+        string $hook = '__initGenerics__tyhpGeneric';
+
+        if (!$reflection->hasMethod($hook)) {
+            throw new InvalidTypeException(
+                \sprintf('Class \'%s\' is not a generic Tyhp class.', $className),
+            );
+        }
+
+        object $target = $reflection->newInstanceWithoutConstructor();
+
+        // Reflection reaches the protected hook directly; PHP 8.1 dropped the setAccessible dance.
+        $reflection->getMethod($hook)->invokeArgs($target, $typeArguments);
+
+        return new self($className, $target);
+    }
+
+    /**
+     * Resolve a named callable to its `__tyhpGeneric` binder, invoke it with the type arguments,
+     * and return that Closure unchanged.
+     *
+     * @param mixed             $callable
+     * @param list<?\Tyhp\Type> $typeArguments
+     *
+     * @return \Closure
+     *
+     * @phpstan-param mixed             $callable
+     * @phpstan-param list<?\Tyhp\Type> $typeArguments
+     * @phpstan-return \Closure
+     *
+     * @psalm-param mixed             $callable
+     * @psalm-param list<?\Tyhp\Type> $typeArguments
+     * @psalm-return \Closure
+     *
+     * @throws InvalidTypeException
+     * @throws \InvalidArgumentException
+     */
+    private static function bindCallable(mixed $callable, array<string|int, ?\Tyhp\Type> $typeArguments): \Closure
+    {
+        if ($callable instanceof \Closure) {
+            \ReflectionFunction $ref = new \ReflectionFunction($callable);
+            if ($ref->isAnonymous()) {
+                throw new \InvalidArgumentException(
+                    'Generic::bind() cannot bind an anonymous Closure; pass a first-class callable '
+                    . 'to a named function/method (or the binder name ending in __tyhpGeneric).',
+                );
+            }
+
+            mixed $thisObj = $ref->getClosureThis();
+            ?\ReflectionClass<object> $calledClass = $ref->getClosureCalledClass();
+            string $name = $ref->getName();
+
+            if ($calledClass !== null) {
+                return self::invokeMethodBinder(
+                    $calledClass->getName(),
+                    $name,
+                    \is_object($thisObj) ? $thisObj : null,
+                    $typeArguments,
+                );
+            }
+
+            return self::invokeFunctionBinder($name, $typeArguments);
+        }
+
+        // PHP bound-method shape is exactly [0 => receiver|class, 1 => method]. Count alone is not
+        // enough — a 2-element associative array has no integer keys 0/1.
+        if (
+            \is_array($callable)
+            && \array_key_exists(0, $callable)
+            && \array_key_exists(1, $callable)
+            && \is_string($callable[1])
+        ) {
+            mixed $receiverOrClass = $callable[0];
+            string $methodName = $callable[1];
+
+            if (\is_object($receiverOrClass)) {
+                $className = $receiverOrClass::class; // ! this should return __ClassName<T> so we do not have to call class_exists on the next line
+                if (\class_exists_alt($className)) {
+                    return self::invokeMethodBinder(
+                        $className,
+                        $methodName,
+                        $receiverOrClass,
+                        $typeArguments,
+                    );
+                }
+            }
+
+            if (\is_string($receiverOrClass) && \class_exists_alt($receiverOrClass)) {
+                return self::invokeMethodBinder(
+                    $receiverOrClass,
+                    $methodName,
+                    null,
+                    $typeArguments,
+                );
+            }
+        }
+
+        if (\is_string($callable)) {
+            if (\str_contains($callable, '::')) {
+                array $split = \explode('::', $callable, 2);
+                string|__ClassName<object> $className2 = (string) $split[0];
+                if (\class_exists_alt($className2)) {
+                    return self::invokeMethodBinder(
+                        $className2,
+                        (string) $split[1],
+                        null,
+                        $typeArguments,
+                    );
+                }
+            }
+
+            return self::invokeFunctionBinder($callable, $typeArguments);
+        }
+
+        throw new \InvalidArgumentException(
+            'Generic::bind() could not resolve the callable to a named function or method.',
+        );
+    }
+
+    /**
+     * @param class-string<object> $className
+     * @param string               $methodName
+     * @param object|null          $thisObj        Required when `$methodName` is a non-static binder.
+     * @param list<?\Tyhp\Type>    $typeArguments
+     *
+     * @return \Closure
+     *
+     * @phpstan-param class-string<object> $className
+     * @phpstan-param string               $methodName
+     * @phpstan-param object|null          $thisObj
+     * @phpstan-param list<?\Tyhp\Type>    $typeArguments
+     * @phpstan-return \Closure
+     *
+     * @psalm-param class-string<object> $className
+     * @psalm-param string               $methodName
+     * @psalm-param object|null          $thisObj
+     * @psalm-param list<?\Tyhp\Type>    $typeArguments
+     * @psalm-return \Closure
+     *
+     * @throws InvalidTypeException
+     */
+    private static function invokeMethodBinder(
+        __ClassName<object> $className,
+        string $methodName,
+        mixed $thisObj,
+        array<string|int, ?\Tyhp\Type> $typeArguments,
+    ): \Closure {
+        string $suffix = '__tyhpGeneric';
+        string $binderName = \str_ends_with($methodName, $suffix)
+            ? $methodName
+            : $methodName . $suffix;
+
+        self::$reflectionCache[$className] ??= new \ReflectionClass<object>($className);
+        \ReflectionClass<object> $class = self::$reflectionCache[$className];
+
+        if (!$class->hasMethod($binderName)) {
+            throw new InvalidTypeException(
+                \sprintf(
+                    'Method %s::%s has no generic binder \'%s\'; it was not compiled as a '
+                    . 'runtime-tracked Tyhp generic method.',
+                    $className,
+                    $methodName,
+                    $binderName,
+                ),
+            );
+        }
+
+        \ReflectionMethod $binder = $class->getMethod($binderName);
+        if (!$binder->isStatic() && !\is_object($thisObj)) {
+            throw new InvalidTypeException(
+                \sprintf(
+                    'Generic::bind() requires an instance first-class callable for non-static '
+                    . 'method %s::%s (e.g. $obj->%s(...)).',
+                    $className,
+                    $methodName,
+                    $methodName,
+                ),
+            );
+        }
+
+        mixed $bound = $binder->isStatic()
+            ? $binder->invokeArgs(null, $typeArguments)
+            : $binder->invokeArgs(\is_object($thisObj) ? $thisObj : null, $typeArguments);
+
+        if (!$bound instanceof \Closure) {
+            throw new InvalidTypeException(
+                \sprintf(
+                    'Generic binder %s::%s did not return a \\Closure.',
+                    $className,
+                    $binderName,
+                ),
+            );
+        }
+
+        return $bound;
+    }
+
+    /**
+     * @param string            $functionName
+     * @param list<?\Tyhp\Type> $typeArguments
+     *
+     * @return \Closure
+     *
+     * @phpstan-param string            $functionName
+     * @phpstan-param list<?\Tyhp\Type> $typeArguments
+     * @phpstan-return \Closure
+     *
+     * @psalm-param string            $functionName
+     * @psalm-param list<?\Tyhp\Type> $typeArguments
+     * @psalm-return \Closure
+     *
+     * @throws InvalidTypeException
+     */
+    private static function invokeFunctionBinder(
+        string $functionName,
+        array<string|int, ?\Tyhp\Type> $typeArguments,
+    ): \Closure {
+        string $suffix = '__tyhpGeneric';
+        string $binderName = \str_ends_with($functionName, $suffix)
+            ? $functionName
+            : $functionName . $suffix;
+
+        if (!\function_exists($binderName)) {
+            throw new InvalidTypeException(
+                \sprintf(
+                    'Function %s has no generic binder \'%s\'; it was not compiled as a '
+                    . 'runtime-tracked Tyhp generic function.',
+                    $functionName,
+                    $binderName,
+                ),
+            );
+        }
+
+        mixed $bound = \call_user_func_array_unsafe($binderName, $typeArguments);
+        if (!$bound instanceof \Closure) {
+            throw new InvalidTypeException(
+                \sprintf('Generic binder %s did not return a \\Closure.', $binderName),
+            );
+        }
+
+        return $bound;
+    }
+
+    /**
+     * @param string  $className Fully-qualified name of `TTarget`.
+     * @param TTarget $target    Unconstructed instance with generics already bound.
+     *
+     * @phpstan-param string  $className
+     * @phpstan-param TTarget $target
+     *
+     * @psalm-param string  $className
+     * @psalm-param TTarget $target
+     */
+    private function __construct(
+        private readonly string $className,
+        private readonly object $target,
+    ): void {}
+
+    /**
+     * Run the constructor and hand back the instance.
+     *
+     * Prefer {@see new()} where the inferred type matters: IDEs and analyzers track a templated
+     * return through a named method more reliably than through `__invoke`.
+     *
+     * @param mixed ...$constructorArguments Arguments forwarded to `TTarget::__construct`.
+     *
+     * @return TTarget
+     *
+     * @phpstan-param mixed ...$constructorArguments
+     * @phpstan-return TTarget
+     *
+     * @psalm-param mixed ...$constructorArguments
+     * @psalm-return TTarget
+     *
+     * @throws InvalidTypeException When the target has no constructor to run.
+     * @throws \LogicException      When this binder has already been constructed.
+     */
+    public function __invoke(mixed ...$constructorArguments): object
+    {
+        return $this->newWithArgs($constructorArguments);
+    }
+
+    /**
+     * Run the constructor and hand back the instance.
+     *
+     * Single use: marked spent before the constructor runs, so a throwing constructor cannot leave
+     * a half-constructed instance reachable for a second attempt.
+     *
+     * @param mixed ...$constructorArguments Arguments forwarded to `TTarget::__construct`.
+     *
+     * @return TTarget
+     *
+     * @phpstan-param mixed ...$constructorArguments
+     * @phpstan-return TTarget
+     *
+     * @psalm-param mixed ...$constructorArguments
+     * @psalm-return TTarget
+     *
+     * @throws InvalidTypeException When the target has no constructor to run.
+     * @throws \LogicException      When this binder has already been constructed.
+     */
+    public function new(mixed ...$constructorArguments): object
+    {
+        return $this->newWithArgs($constructorArguments);
+    }
+
+    /**
+     * @param list<mixed> $constructorArguments
+     *
+     * @return TTarget
+     *
+     * @phpstan-param list<mixed> $constructorArguments
+     * @phpstan-return TTarget
+     *
+     * @psalm-param list<mixed> $constructorArguments
+     * @psalm-return TTarget
+     *
+     * @throws InvalidTypeException
+     * @throws \LogicException
+     */
+    private function newWithArgs(array $constructorArguments): object
+    {
+        if ($this->spent) {
+            throw new \LogicException(
+                \sprintf(
+                    'Generic instance of \'%s\' has already been constructed.',
+                    $this->className,
+                ),
+            );
+        }
+
+        $this->spent = true;
+
+        // Mechanism C synthesizes a constructor for every class in a generic chain that does not
+        // declare one, so a missing one means the class was never compiled as a generic class.
+        if (!\method_exists($this->target, '__construct')) {
+            throw new InvalidTypeException(
+                \sprintf(
+                    'Class \'%s\' has no constructor; it is not a generic Tyhp class.',
+                    $this->className,
+                ),
+            );
+        }
+
+        \call_user_func_array_unsafe([$this->target, '__construct'], $constructorArguments);
+
+        return $this->target;
+    }
+}

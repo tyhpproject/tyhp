@@ -1,0 +1,16 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+struct Point {
+    int $x = 0;
+    int $y = 0;
+}
+
+function origin(): Point {
+    return new Point();
+}
+
+function usePoint(Point $p): int {
+    return $p->x;
+}

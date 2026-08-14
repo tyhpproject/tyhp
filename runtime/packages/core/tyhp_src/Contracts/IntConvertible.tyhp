@@ -1,0 +1,7 @@
+<?tyhp
+
+namespace Tyhp\Contracts;
+
+interface IntConvertible extends \Tyhp\Contracts\Convertible {
+    public function __toInt(): int;
+}

@@ -1,0 +1,10 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+class Animal {}
+class Dog extends Animal {}
+
+function isDog(Animal $a): $a is Dog {
+    return $a instanceof Dog;
+}

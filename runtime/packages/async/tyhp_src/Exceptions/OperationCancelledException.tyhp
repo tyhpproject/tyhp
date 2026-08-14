@@ -1,0 +1,22 @@
+<?tyhp
+
+namespace Tyhp\Exceptions;
+
+use Tyhp\CancellationToken;
+
+final class OperationCancelledException extends \RuntimeException {
+    private CancellationToken $token;
+
+    public function __construct(
+        CancellationToken $token,
+        string $message = 'The operation was cancelled',
+        ?\Throwable $previous = null
+    ) {
+        $this->token = $token;
+        parent::__construct($message, 0, $previous);
+    }
+
+    public function getToken(): CancellationToken {
+        return $this->token;
+    }
+}

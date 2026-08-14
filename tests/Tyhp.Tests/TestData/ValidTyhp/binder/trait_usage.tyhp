@@ -1,0 +1,17 @@
+<?tyhp
+
+namespace TestData\Binder;
+
+trait Loggable
+{
+    public function log(string $message): void
+    {
+    }
+}
+
+class Service
+{
+    use Loggable {
+        log as public writeLog;
+    }
+}

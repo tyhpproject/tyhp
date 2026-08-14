@@ -1,0 +1,12 @@
+<?tyhpdef
+
+namespace TestData\Tyhpdef;
+
+class Widget
+{
+    public const int MAX;
+    public string $label;
+
+    public function __construct(string $label): void;
+    public function describe(): string;
+}

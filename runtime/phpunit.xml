@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         failOnWarning="true"
+         failOnRisky="true"
+         enforceTimeLimit="true"
+         defaultTimeLimit="10">
+    <testsuites>
+        <testsuite name="core">
+            <directory>packages/core/tests</directory>
+        </testsuite>
+        <testsuite name="decimal">
+            <directory>packages/decimal/tests</directory>
+        </testsuite>
+        <testsuite name="async">
+            <directory>packages/async/tests</directory>
+        </testsuite>
+        <testsuite name="lambda">
+            <directory>packages/lambda/tests</directory>
+        </testsuite>
+    </testsuites>
+    <coverage>
+        <report>
+            <clover outputFile="coverage.xml"/>
+            <text outputFile="php://stdout"/>
+        </report>
+    </coverage>
+    <source>
+        <include>
+            <directory>packages/core/src</directory>
+            <directory>packages/decimal/src</directory>
+            <directory>packages/async/src</directory>
+            <directory>packages/lambda/src</directory>
+        </include>
+    </source>
+</phpunit>

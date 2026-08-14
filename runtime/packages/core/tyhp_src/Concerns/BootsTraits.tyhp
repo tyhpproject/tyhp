@@ -1,0 +1,42 @@
+<?tyhp
+
+namespace Tyhp\Concerns;
+
+/**
+ * Discovers and runs `__bootTrait_*` methods once per instance.
+ *
+ * Call `tyhpBootTraits()` explicitly from constructors when possible (emitter should inject this).
+ * Magic-method dispatcher traits also call it lazily before handling so boot still runs if the
+ * constructor path was skipped.
+ *
+ * Discovery is by method-name prefix only — no `class_uses` walk and no FQN validation.
+ */
+trait BootsTraits
+{
+    private bool $__tyhpTraitsBooted = false;
+
+    public function tyhpBootTraits(): void
+    {
+        if ($this->__tyhpTraitsBooted) {
+            return;
+        }
+
+        $this->__tyhpTraitsBooted = true;
+
+        \ReflectionClass<object> $reflection = new \ReflectionClass<object>($this);
+        array<string> $bootMethods = [];
+
+        foreach ($reflection->getMethods() as $method) {
+            string $name = $method->getName();
+            if (\str_starts_with($name, '__bootTrait_')) {
+                $bootMethods[] = $name;
+            }
+        }
+
+        \sort($bootMethods);
+
+        foreach ($bootMethods as $bootMethod) {
+            $this->{$bootMethod}();
+        }
+    }
+}

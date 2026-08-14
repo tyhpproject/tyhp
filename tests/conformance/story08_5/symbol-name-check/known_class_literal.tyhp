@@ -1,0 +1,6 @@
+<?tyhp
+class User {}
+
+function demo(): void {
+    __ClassName $cls = 'User';
+}

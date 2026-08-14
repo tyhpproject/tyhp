@@ -1,0 +1,18 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+final class UnaryExpression extends ExpressionNode {
+    public function __construct(
+        public readonly string $operator,
+        public readonly ExpressionNode $operand,
+        public readonly bool $isPrefix,
+        string $type = 'mixed',
+    ) {
+        parent::__construct($type, 'unary');
+    }
+
+    public function accept(ExpressionVisitor $visitor): mixed {
+        return $visitor->visitUnary($this);
+    }
+}

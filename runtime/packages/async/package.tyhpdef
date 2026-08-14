@@ -1,0 +1,435 @@
+<?tyhpdef
+
+namespace Tyhp {
+
+    use Tyhp\Contracts\AsyncIsDisposable;
+    use Tyhp\Contracts\IsDisposable;
+
+    /**
+     * Core Promise implementation built on PHP Fibers.
+     *
+     * Combines JavaScript's then/catch/finally API with C#'s Task-style patterns.
+     * Each Promise wraps a dedicated Fiber that executes an async operation.
+     * The Fiber can be suspended via _await() and resumed when the awaited
+     * Promise settles.
+     *
+     * Generic default `= void` (unparameterized `Promise` ≡ `Promise<void>`) depends on Story 28.
+     * Until then, explicit type arguments are required at call sites.
+     *
+     * Async generators: Tyhp does NOT support async generators. Use standard
+     * `Generator<TKey, TValue, TSend, TReturn>` and yield `Promise<T>` values;
+     * use `Promise::fromGenerator()` to adapt generator-based coroutines.
+     */
+    final class Promise<TReturn extends void|mixed>
+    {
+        /**
+         * Returns the Fiber-to-Promise mapping, initializing it on first access.
+         * @internal Accessed by EventLoop.
+         */
+        public static function getFiberMap(): \WeakMap;
+
+        /**
+         * Creates a new Promise that wraps the given executor in a Fiber.
+         * The Fiber is scheduled with the event loop, not started immediately.
+         */
+        public function __construct(callable<TReturn> $executor): void;
+
+        /**
+         * Wraps a callable in a Promise.
+         * The `async` keyword desugars to this internally.
+         */
+        public static function _async<T extends void|mixed>(callable<T> $fn): Promise<T>;
+
+        /**
+         * Suspends the current Fiber until the given Promise settles.
+         * The `await` keyword desugars to this internally.
+         */
+        public static function _await<T>(Promise<T> $promise): T;
+
+        /**
+         * Registers fulfillment and/or rejection handlers, returning a new Promise.
+         */
+        async public function then<TResult>(
+            ?callable<TReturn, TResult> $onFulfilled = null,
+            ?callable<\Throwable, TResult> $onRejected = null
+        ): TReturn|TResult;
+
+        /**
+         * Registers a rejection handler.
+         */
+        async public function catch<TResult>(callable<\Throwable, TResult> $onRejected): TReturn|TResult;
+
+        /**
+         * Registers a handler that runs when this Promise settles, regardless of outcome.
+         * The original value or error propagates through unchanged.
+         */
+        async public function finally(callable<void> $onFinally): TReturn;
+
+        /**
+         * Registers a continuation that receives both the result and error (C# style).
+         */
+        async public function continueWith(callable $continuation): mixed;
+
+        /**
+         * Creates a pre-resolved Promise with the given value.
+         * If the value is already a Promise, it is returned as-is.
+         *
+         * Story 06 plan refers to this factory as `resolved<T>`; the runtime method name is `resolve`.
+         */
+        public static function resolve<T extends void|mixed>(T $value = null): Promise<T>;
+
+        /**
+         * Creates a pre-rejected Promise with the given reason.
+         *
+         * Story 06 plan refers to this factory as `rejected<T>`; the runtime method name is `reject`.
+         */
+        public static function reject<T extends void|mixed>(\Throwable $reason): Promise<T>;
+
+        /**
+         * Creates a Promise with externally-controlled resolution.
+         * Returns an object with promise, resolve, and reject properties.
+         */
+        public static function withResolvers(): object;
+
+        /**
+         * Blocks the current thread until this Promise settles or the timeout expires.
+         * Runs the event loop until settlement.
+         */
+        public function wait(int $timeoutMs = -1): mixed;
+
+        /**
+         * Gets the resolved value or throws the rejection reason.
+         */
+        public function getResult(): mixed;
+
+        public function getState(): PromiseState;
+        public function isCompleted(): bool;
+        public function isFulfilled(): bool;
+        public function isFaulted(): bool;
+        public function getError(): ?\Throwable;
+
+        /**
+         * Entry point for async code from synchronous PHP.
+         * Creates a Promise from the callable, starts the event loop, and blocks
+         * until the Promise settles.
+         */
+        public static function run<T extends void|mixed>(callable<T> $fn, ?CancellationToken $token = null): T;
+
+        /**
+         * Creates a Promise that resolves after the specified delay.
+         * Supports CancellationToken for cooperative cancellation.
+         */
+        async public static function delay(int $ms, ?CancellationToken $token = null): void;
+
+        /**
+         * Waits for all Promises to resolve and returns their results.
+         */
+        async public static function all<T>(array<Promise<T> > $promises, ?CancellationToken $token = null): array<T>;
+
+        /**
+         * C# Task.WhenAll-style alias for all().
+         */
+        public static function whenAll(Promise ...$promises): static;
+
+        /**
+         * Waits for all Promises to settle and returns an array of outcome objects.
+         * Each outcome has a status property ('fulfilled' or 'rejected') and either
+         * a value or reason property. Never rejects.
+         */
+        async public static function allSettled(array<Promise> $promises): array;
+
+        /**
+         * Resolves or rejects with the first Promise to settle.
+         */
+        async public static function race<T>(array<Promise<T> > $promises, ?CancellationToken $token = null): T;
+
+        /**
+         * C# Task.WhenAny-style alias for race().
+         */
+        public static function whenAny(Promise ...$promises): static;
+
+        /**
+         * Resolves with the first fulfilled Promise; rejects if all reject.
+         */
+        async public static function any<T>(array<Promise<T> > $promises, ?CancellationToken $token = null): T;
+
+        /**
+         * Rejects with TimeoutException if the Promise does not settle within the deadline.
+         * Implemented as a race between the original Promise and a delay.
+         */
+        async public static function timeout<T>(Promise<T> $promise, int $ms, ?CancellationToken $token = null): T;
+
+        /**
+         * Processes items through a callable with bounded concurrency.
+         * Results are returned in the original input order.
+         */
+        async public static function batch<TItem, TResult>(
+            array<TItem> $items,
+            callable<TItem, Promise<TResult> > $processor,
+            int $concurrency = 5,
+            ?CancellationToken $token = null
+        ): array<TResult>;
+
+        /**
+         * Adapts a Generator (coroutine-style) into a Promise.
+         * Each yield $promise suspends the generator and awaits the Promise.
+         */
+        async public static function fromGenerator(\Generator $generator): mixed;
+
+        /**
+         * Transitions this Promise to the Fulfilled state.
+         * If the value is itself a Promise, this Promise adopts its eventual state.
+         *
+         * @internal Used by the Fiber executor wrapper and EventLoop.
+         */
+        public function doResolve(mixed $value): void;
+
+        /**
+         * Transitions this Promise to the Rejected state.
+         *
+         * @internal Used by the Fiber executor wrapper and EventLoop.
+         */
+        public function doReject(\Throwable $reason): void;
+    }
+
+    enum PromiseState: string {
+        case Pending = 'pending';
+        case Fulfilled = 'fulfilled';
+        case Rejected = 'rejected';
+    }
+
+    final class Deferred<T extends void|mixed>
+    {
+        /**
+         * Creates a new Deferred with a pending Promise.
+         * The Promise's executor suspends immediately via Fiber::suspend(),
+         * waiting for external resolution through resolve() or reject().
+         */
+        public function __construct(): void;
+
+        public function getPromise(): Promise<T>;
+        public function resolve(T $value = null): void;
+        public function reject(\Throwable $reason): void;
+    }
+
+    /**
+     * Singleton event loop that drives all async operations.
+     *
+     * Provides cooperative Fiber scheduling, timer management, and real I/O
+     * via stream_select(). Follows a tick-based model inspired by Node.js's
+     * libuv and ReactPHP's event loop.
+     *
+     * Tick order:
+     *  1. Process microtask queue (Fiber resumes, deferred callbacks)
+     *  2. Process timer queue (expired delay/interval callbacks)
+     *  3. Poll I/O via stream_select (non-blocking read/write on streams)
+     *  4. Process I/O callbacks (handlers for ready streams)
+     *  5. Check for completion (all queues empty + root settled?)
+     */
+    final class EventLoop
+    {
+        public static function getInstance(): EventLoop;
+
+        /** @internal For testing only. */
+        public static function resetInstance(): void;
+
+        /**
+         * Schedules a Fiber to be started on the next microtask drain.
+         */
+        public function scheduleFiber(\Fiber $fiber): void;
+
+        /**
+         * Schedules a suspended Fiber to be resumed with a value.
+         */
+        public function scheduleFiberResume(\Fiber $fiber, mixed $value = null): void;
+
+        /**
+         * Schedules a suspended Fiber to be resumed with a thrown exception.
+         */
+        public function scheduleFiberThrow(\Fiber $fiber, \Throwable $error): void;
+
+        /**
+         * Schedules a one-shot callback to fire after the given delay.
+         * Uses hrtime(true) (nanosecond monotonic clock) for timing precision.
+         */
+        public function delay(int $ms, callable $callback): string;
+
+        /**
+         * Cancels a previously scheduled timer.
+         * Cancelled timers are lazily removed from the priority queue on extraction.
+         */
+        public function cancelTimer(string $id): void;
+
+        /**
+         * Schedules a recurring callback to fire at the given interval.
+         */
+        public function interval(int $ms, callable $callback): string;
+
+        public function addReadStream(mixed $stream, callable $callback): void;
+        public function addWriteStream(mixed $stream, callable $callback): void;
+        public function removeReadStream(mixed $stream): void;
+        public function removeWriteStream(mixed $stream): void;
+
+        /**
+         * Defers a callback to run at the start of the next microtask drain.
+         */
+        public function defer(callable $callback): void;
+
+        /**
+         * Queues a microtask to run before timers and I/O.
+         * Microtasks are drained completely before moving to the next phase.
+         */
+        public function queueMicrotask(callable $callback): void;
+
+        /**
+         * Runs the event loop until the root Promise settles and all work is done.
+         * Blocks until the Promise resolves (returning the value) or rejects (throwing).
+         */
+        public function run(Promise $rootPromise): mixed;
+
+        /**
+         * Runs the event loop until the given Promise settles or timeout expires.
+         * Used by Promise::wait() to block synchronous callers.
+         */
+        public function runUntilSettled(Promise $promise, int $timeoutMs = -1): mixed;
+
+        /**
+         * Performs a single tick of the event loop.
+         * Returns true if there is still pending work to do.
+         */
+        public function tick(): bool;
+
+        public function stop(): void;
+        public function isRunning(): bool;
+    }
+
+    final class CancellationToken
+    {
+        public function __construct(): void;
+
+        public function isCancellationRequested(): bool;
+        public function throwIfCancellationRequested(): void;
+
+        /**
+         * Registers a callback to be invoked when cancellation is requested.
+         * If already cancelled, the callback fires immediately.
+         * Returns a closure that deregisters the callback when called.
+         */
+        public function register(callable $callback): \Closure;
+
+        /**
+         * Returns a singleton token that is never cancelled.
+         */
+        public static function none(): CancellationToken;
+
+        /**
+         * Transitions the token to the cancelled state and fires all registered callbacks.
+         *
+         * @internal Only CancellationTokenSource should call this method.
+         */
+        public function cancel(): void;
+    }
+
+    final class CancellationTokenSource implements IsDisposable
+    {
+        public function __construct(?int $cancelAfterMs = null): void;
+
+        public function getToken(): CancellationToken;
+        public function cancel(): void;
+
+        /**
+         * Schedules automatic cancellation after the specified delay.
+         * Replaces any previously scheduled auto-cancel timer.
+         */
+        public function cancelAfter(int $ms): void;
+
+        public function isCancellationRequested(): bool;
+        public function dispose(): void;
+    }
+
+    final class DisposableHelper
+    {
+        /**
+         * Disposes one or more disposable resources asynchronously.
+         * Resources are disposed in reverse order (LIFO).
+         */
+        public static function dispose(IsDisposable|AsyncIsDisposable ...$disposables): Promise<void>;
+    }
+
+    final class DisposableScope implements IsDisposable
+    {
+        public static function create(): DisposableScope;
+
+        /**
+         * Registers a disposable resource with this scope.
+         * Resources are disposed in reverse registration order (LIFO)
+         * when this scope exits via __destruct() or explicit dispose().
+         */
+        public function using(IsDisposable|AsyncIsDisposable $resource): mixed;
+
+        public function __destruct(): void;
+        public function dispose(): void;
+    }
+}
+
+namespace Tyhp\Contracts {
+
+    use Tyhp\Promise;
+
+    interface AsyncIterator<T>
+    {
+        public function next(): Promise<bool>;
+        public function current(): Promise<T>;
+    }
+
+    interface AsyncIterable<T>
+    {
+        public function getAsyncIterator(): AsyncIterator<T>;
+    }
+
+    interface AsyncKeyValueIterator<TKey, TValue> extends AsyncIterator<TValue>
+    {
+        public function currentKey(): Promise<TKey>;
+        public function currentValue(): Promise<TValue>;
+    }
+
+    interface AsyncIsDisposable
+    {
+        public function disposeAsync(): Promise<void>;
+    }
+}
+
+namespace Tyhp\Exceptions {
+
+    use Tyhp\CancellationToken;
+
+    final class OperationCancelledException extends \RuntimeException
+    {
+        public function __construct(
+            CancellationToken $token,
+            string $message = 'The operation was cancelled',
+            ?\Throwable $previous = null,
+        ): void;
+
+        public function getToken(): CancellationToken;
+    }
+
+    final class TimeoutException extends \RuntimeException
+    {
+        public function __construct(
+            string $message = 'The operation timed out',
+            int $timeoutMs = 0,
+            ?\Throwable $previous = null,
+        ): void;
+
+        public function getTimeoutMs(): int;
+    }
+
+    final class InvalidPromiseStateException extends \LogicException
+    {
+    }
+
+    final class AsyncContextException extends \RuntimeException
+    {
+    }
+}

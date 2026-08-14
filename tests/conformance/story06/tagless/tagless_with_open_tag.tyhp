@@ -1,0 +1,8 @@
+<?tyhp
+
+namespace Test\Tagless;
+
+function greet(string $name): string
+{
+    return "Hello, " . $name;
+}

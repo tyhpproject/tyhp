@@ -1,0 +1,13 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+extension StringExtensions {
+    function shout(extends string $this): string {
+        return \strtoupper($this);
+    }
+}
+
+function yell(string $s): string {
+    return $s->shout();
+}

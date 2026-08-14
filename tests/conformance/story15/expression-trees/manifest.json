@@ -1,0 +1,17 @@
+{
+  "suite": "story15/expression-trees",
+  "description": "Story 15 — interop: lambda PropertyPath FQN surface (identity-ish emit)",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "property_path_surface",
+      "file": "expression_trees.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

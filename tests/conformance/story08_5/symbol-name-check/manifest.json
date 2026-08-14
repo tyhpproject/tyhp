@@ -1,0 +1,42 @@
+{
+  "suite": "story08_5/symbol-name-check",
+  "description": "Story 08.5 — symbol-name type checker diagnostics",
+  "defaults": {
+    "action": "lint",
+    "config": {
+      "phpVersion": "8.2"
+    }
+  },
+  "cases": [
+    {
+      "id": "known_class_literal",
+      "file": "known_class_literal.tyhp",
+      "expect": {
+        "errorCount": 0
+      }
+    },
+    {
+      "id": "unknown_class_literal",
+      "file": "unknown_class_literal.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4101]
+      }
+    },
+    {
+      "id": "union_type_name_literal",
+      "file": "union_type_name_literal.tyhp",
+      "expect": {
+        "errorCount": 0
+      }
+    },
+    {
+      "id": "invalid_union_type_name_literal",
+      "file": "invalid_union_type_name_literal.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4008]
+      }
+    }
+  ]
+}

@@ -1,0 +1,649 @@
+<?tyhp
+
+namespace Tyhp;
+
+class Type implements \Stringable
+{
+    private static array<string, self> $singletons = [];
+
+    protected function __construct(
+        private readonly string $kind,
+        private readonly ?string $name = null,
+        private readonly array<self|NamedType> $typeArgs = [],
+        private readonly bool $isReadOnly = false,
+        private readonly bool $isNullable = false,
+    ): void {}
+
+    public static fn string(): self => self::$singletons['string'] ??= new self('scalar', 'string');
+
+    public static fn int(): self => self::$singletons['int'] ??= new self('scalar', 'int');
+
+    public static fn float(): self => self::$singletons['float'] ??= new self('scalar', 'float');
+
+    public static fn bool(): self => self::$singletons['bool'] ??= new self('scalar', 'bool');
+
+    public static fn null(): self => self::$singletons['null'] ??= new self('scalar', 'null', isNullable: true);
+
+    public static fn void(): self => self::$singletons['void'] ??= new self('scalar', 'void');
+
+    public static fn mixed(): self => self::$singletons['mixed'] ??= new self('scalar', 'mixed');
+
+    public static fn never(): self => self::$singletons['never'] ??= new self('scalar', 'never');
+
+    public static fn array(): self => self::$singletons['array'] ??= new self('scalar', 'array');
+
+    public static fn object(): self => self::$singletons['object'] ??= new self('scalar', 'object');
+
+    public static fn callable(): self => self::$singletons['callable'] ??= new self('scalar', 'callable');
+
+    public static fn iterable(): self => self::$singletons['iterable'] ??= new self('scalar', 'iterable');
+
+    public static fn resource(): self => self::$singletons['resource'] ??= new self('scalar', 'resource');
+
+    public static function union(self ...$types): self
+    {
+        array<self|NamedType> $flattened = [];
+        foreach ($types as $type) {
+            if ($type->kind === 'union') {
+                foreach ($type->typeArgs as $member) {
+                    $flattened[] = $member;
+                }
+            } else {
+                $flattened[] = $type;
+            }
+        }
+
+        array<self|NamedType> $unique = [];
+        foreach ($flattened as $type) {
+            foreach ($unique as $existing) {
+                if ($type === $existing) {
+                    continue 2;
+                }
+            }
+            $unique[] = $type;
+        }
+
+        if (\count($unique) < 2) {
+            throw new Exceptions\InvalidTypeException(
+                'Union type requires at least 2 member types.',
+            );
+        }
+
+        return new self('union', null, $unique);
+    }
+
+    public static function intersection(self ...$types): self
+    {
+        array<self|NamedType> $flattened = [];
+        foreach ($types as $type) {
+            if ($type->kind === 'intersection') {
+                foreach ($type->typeArgs as $member) {
+                    $flattened[] = $member;
+                }
+            } else {
+                $flattened[] = $type;
+            }
+        }
+
+        array<self|NamedType> $unique = [];
+        foreach ($flattened as $type) {
+            foreach ($unique as $existing) {
+                if ($type === $existing) {
+                    continue 2;
+                }
+            }
+            $unique[] = $type;
+        }
+
+        if (\count($unique) < 2) {
+            throw new Exceptions\InvalidTypeException(
+                'Intersection type requires at least 2 member types.',
+            );
+        }
+
+        return new self('intersection', null, $unique);
+    }
+
+    public static function nullable(self $type): self
+    {
+        if ($type->isNullable) {
+            return $type;
+        }
+
+        if ($type->kind === 'scalar' && ($type->name === 'null' || $type->name === 'mixed')) {
+            return $type;
+        }
+
+        return new self(
+            $type->kind,
+            $type->name,
+            $type->typeArgs,
+            $type->isReadOnly,
+            true,
+        );
+    }
+
+    public static fn generic(string $className, NamedType ...$params): self => new self('generic', $className, $params);
+
+    public static fn fromClassName(string $className): self => self::$singletons["class:$className"] ??= new self('class', $className);
+
+    /**
+     * Build a Type from a callable's reflected return type, or null when the callable has no
+     * return type (or cannot be reflected). Used by Mechanism D wrappers to infer a method
+     * generic from a `callable<…, T>` / `Closure<…, T>` value argument when the call site
+     * omitted `<T>`.
+     */
+    public static function fromCallableReturn(callable $callable): ?self
+    {
+        ?\ReflectionFunctionAbstract $ref = null;
+        try {
+            if ($callable instanceof \Closure) {
+                $ref = new \ReflectionFunction($callable);
+            } elseif (
+                \is_array($callable)
+                && \array_key_exists(0, $callable)
+                && \array_key_exists(1, $callable)
+                && \is_string($callable[1])
+            ) {
+                mixed $rawTarget = $callable[0];
+                string $methodName = $callable[1];
+                if (\is_object($rawTarget)) {
+                    $ref = new \ReflectionMethod($rawTarget, $methodName);
+                } elseif (\is_string($rawTarget)) {
+                    $ref = new \ReflectionMethod($rawTarget, $methodName);
+                }
+            } elseif (\is_string($callable)) {
+                $ref = \str_contains($callable, '::')
+                    ? new \ReflectionMethod($callable)
+                    : new \ReflectionFunction($callable);
+            } elseif (\is_object($callable)) {
+                $ref = new \ReflectionMethod($callable, '__invoke');
+            }
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($ref === null) {
+            return null;
+        }
+
+        ?\ReflectionType $returnType = $ref->getReturnType();
+        if ($returnType === null) {
+            return null;
+        }
+
+        ?string $relativeClassName = null;
+        if ($ref instanceof \ReflectionMethod) {
+            $relativeClassName = (string)$ref->getDeclaringClass()->getName();
+        } else {
+            ?\ReflectionClass<object> $scope = $ref->getClosureScopeClass();
+            if ($scope !== null) {
+                $relativeClassName = (string)$scope->getName();
+            }
+        }
+
+        return self::fromReflectionType($returnType, $relativeClassName);
+    }
+
+    /**
+     * Convert a PHP reflection type into a Tyhp Type. `$relativeClassName` resolves
+     * `self` / `static` / `parent` relative to the callable's declaring class when known.
+     */
+    public static function fromReflectionType(
+        \ReflectionType $type,
+        ?string $relativeClassName = null,
+    ): self {
+        if ($type instanceof \ReflectionUnionType) {
+            array<self> $members = [];
+            bool $nullable = false;
+            foreach ($type->getTypes() as $member) {
+                if ($member instanceof \ReflectionNamedType) {
+                    if ($member->getName() === 'null') {
+                        $nullable = true;
+                        continue;
+                    }
+
+                    $members[] = self::fromNamedReflectionType($member, $relativeClassName);
+                } elseif ($member instanceof \ReflectionUnionType) {
+                    $members[] = self::fromReflectionType($member, $relativeClassName);
+                } elseif ($member instanceof \ReflectionIntersectionType) {
+                    $members[] = self::fromReflectionType($member, $relativeClassName);
+                }
+            }
+
+            self $combined = match (true) {
+                \count($members) === 0 => self::mixed(),
+                \count($members) === 1 => $members[0],
+                default => self::union(...$members),
+            };
+            return $nullable ? self::nullable($combined) : $combined;
+        }
+
+        if ($type instanceof \ReflectionIntersectionType) {
+            array<self> $members = [];
+            foreach ($type->getTypes() as $member) {
+                if ($member instanceof \ReflectionNamedType) {
+                    $members[] = self::fromNamedReflectionType($member, $relativeClassName);
+                } elseif ($member instanceof \ReflectionUnionType) {
+                    $members[] = self::fromReflectionType($member, $relativeClassName);
+                } elseif ($member instanceof \ReflectionIntersectionType) {
+                    $members[] = self::fromReflectionType($member, $relativeClassName);
+                }
+            }
+
+            return \count($members) >= 2
+                ? self::intersection(...$members)
+                : ($members[0] ?? self::mixed());
+        }
+
+        if ($type instanceof \ReflectionNamedType) {
+            return self::fromNamedReflectionType($type, $relativeClassName);
+        }
+
+        return self::mixed();
+    }
+
+    private static function fromNamedReflectionType(
+        \ReflectionNamedType $type,
+        ?string $relativeClassName,
+    ): self {
+        string $name = $type->getName();
+        self $result = match ($name) {
+            'string' => self::string(),
+            'int' => self::int(),
+            'float' => self::float(),
+            'bool' => self::bool(),
+            'array' => self::array(),
+            'object' => self::object(),
+            'callable' => self::callable(),
+            'iterable' => self::iterable(),
+            'void' => self::void(),
+            'never' => self::never(),
+            'mixed' => self::mixed(),
+            'null' => self::null(),
+            'false' => self::bool(),
+            'true' => self::bool(),
+            'self', 'static' => $relativeClassName !== null
+                ? self::fromClassName($relativeClassName)
+                : self::object(),
+            'parent' => self::fromParentClassName($relativeClassName),
+            default => self::fromClassName($name),
+        };
+
+        if ($type->allowsNull() && $name !== 'mixed' && $name !== 'null') {
+            return self::nullable($result);
+        }
+
+        return $result;
+    }
+
+    private static function fromParentClassName(?string $relativeClassName): self
+    {
+        if ($relativeClassName === null) {
+            return self::object();
+        }
+
+        string|false $parent = \get_parent_class($relativeClassName);
+        if (!\is_string($parent)) {
+            return self::fromClassName($relativeClassName);
+        }
+
+        return self::fromClassName($parent);
+    }
+
+    public static function of(mixed $value): self
+    {
+        if ($value === null) {
+            return self::null();
+        }
+
+        string $debugType = \get_debug_type($value);
+
+        return match ($debugType) {
+            'string' => self::string(),
+            'int' => self::int(),
+            'float' => self::float(),
+            'bool' => self::bool(),
+            'array' => self::array(),
+            'resource', 'resource (closed)' => self::resource(),
+            default => \is_object($value)
+                ? self::resolveObjectType($value)
+                : self::fromClassName($debugType),
+        };
+    }
+
+    private static function resolveObjectType(object $value): self
+    {
+        return self::tryGetGenericObjectType($value) ?? self::fromClassName($value::class);
+    }
+
+    /// Runtime generic type recorded by {@see \Tyhp\Concerns\HasGenerics}, if any.
+    /// Duck-typed so this file never names {@see \Tyhp\GenericObject} (circular with Type factories).
+    private static function tryGetGenericObjectType(object $value): ?self
+    {
+        if (!\property_exists($value, '__tyhpGeneric')) {
+            return null;
+        }
+
+        mixed $bag = $value->__tyhpGeneric ?? null;
+        if (!\is_object($bag) || !\method_exists($bag, 'objectType')) {
+            return null;
+        }
+
+        mixed $objectType = $bag->objectType();
+        return $objectType instanceof self ? $objectType : null;
+    }
+
+    public static function isType<TTarget>(mixed $value): $value is TTarget
+    {
+        return self::is($value, typeof(TTarget));
+    }
+
+    public static function is(mixed $value, self $type): bool
+    {
+        if ($type instanceof NamedType) {
+            return self::is($value, $type->getUnderlyingType());
+        }
+
+        if ($type->isNullable && $value === null) {
+            return true;
+        }
+
+        return match ($type->kind) {
+            'scalar' => self::isScalar($value, $type),
+            'class' => \is_object($value) && \is_a($value, $type->name ?? ''),
+            'union' => self::isUnion($value, $type),
+            'intersection' => self::isIntersection($value, $type),
+            'generic' => self::isGeneric($value, $type),
+            default => false,
+        };
+    }
+
+    public static function check(mixed $value, self $type): void
+    {
+        if (!self::is($value, $type)) {
+            throw new \Tyhp\Exceptions\IncompatibleTypeException($type, self::of($value));
+        }
+    }
+
+    /**
+     * The zero value for this type — what `default(T)` evaluates to once `T` is known at runtime.
+     *
+     * A nullable type defaults to `null` rather than to its inner type's zero value, matching
+     * `default(?int)`. Types with no meaningful zero (`void`, `never`, `mixed`, `resource`,
+     * unions, intersections) and object types without a declared default also yield `null`.
+     */
+    public function defaultValue(): mixed
+    {
+        if ($this->isNullable) {
+            return null;
+        }
+
+        return match ($this->kind) {
+            'scalar' => match ($this->name) {
+                'string' => '',
+                'int' => 0,
+                'float' => 0.0,
+                'bool' => false,
+                'array', 'iterable' => [],
+                default => null,
+            },
+            default => null,
+        };
+    }
+
+    private static function isScalar(mixed $value, self $type): bool
+    {
+        return match ($type->name) {
+            'string' => \is_string($value),
+            'int' => \is_int($value),
+            'float' => \is_float($value) || \is_int($value),
+            'bool' => \is_bool($value),
+            'null' => $value === null,
+            'void' => false,
+            'mixed' => true,
+            'never' => false,
+            'array' => \is_array($value),
+            'object' => \is_object($value),
+            'callable' => \is_callable($value),
+            'iterable' => \is_iterable($value),
+            'resource' => \is_resource($value) || \get_debug_type($value) === 'resource (closed)',
+            default => false,
+        };
+    }
+
+    private static function isUnion(mixed $value, self $type): bool
+    {
+        foreach ($type->typeArgs as $memberType) {
+            if (self::is($value, $memberType)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function isIntersection(mixed $value, self $type): bool
+    {
+        foreach ($type->typeArgs as $memberType) {
+            if (!self::is($value, $memberType)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function isGeneric(mixed $value, self $type): bool
+    {
+        if (!\is_object($value)) {
+            return false;
+        }
+
+        if (!\is_a($value, $type->name ?? '')) {
+            return false;
+        }
+
+        ?self $objectType = self::tryGetGenericObjectType($value);
+        if ($objectType !== null) {
+            return self::compatible($type, $objectType);
+        }
+
+        return true;
+    }
+
+    public static function compatible(self $broad, self $narrow): bool
+    {
+        if ($broad instanceof NamedType) {
+            $broad = $broad->getUnderlyingType();
+        }
+
+        if ($narrow instanceof NamedType) {
+            $narrow = $narrow->getUnderlyingType();
+        }
+
+        if ($broad->kind === 'scalar' && $broad->name === 'mixed') {
+            return true;
+        }
+
+        if ($narrow->kind === 'scalar' && $narrow->name === 'never') {
+            return true;
+        }
+
+        if ($narrow->isNullable && !$broad->isNullable) {
+            return false;
+        }
+
+        if ($broad->kind === 'union') {
+            return self::isCompatibleWithUnion($broad, $narrow);
+        }
+
+        if ($broad->kind === 'intersection') {
+            return self::areIntersectionArgsCompatible($broad, $narrow);
+        }
+
+        if ($broad->kind === $narrow->kind && $broad->name === $narrow->name) {
+            if ($broad->kind === 'generic') {
+                return self::areGenericArgsCompatible($broad, $narrow);
+            }
+
+            return true;
+        }
+
+        if ($broad->kind === 'class' && $narrow->kind === 'class') {
+            return \is_a($narrow->name ?? '', $broad->name ?? '', true);
+        }
+
+        return false;
+    }
+
+    private static function isCompatibleWithUnion(self $broad, self $narrow): bool
+    {
+        if ($narrow->kind === 'union') {
+            foreach ($narrow->typeArgs as $narrowMember) {
+                bool $found = false;
+
+                foreach ($broad->typeArgs as $broadMember) {
+                    if (self::compatible($broadMember, $narrowMember)) {
+                        $found = true;
+                        break;
+                    }
+                }
+
+                if (!$found) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        foreach ($broad->typeArgs as $broadMember) {
+            if (self::compatible($broadMember, $narrow)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function areGenericArgsCompatible(self $broad, self $narrow): bool
+    {
+        if (\count($broad->typeArgs) !== \count($narrow->typeArgs)) {
+            return false;
+        }
+
+        foreach ($broad->typeArgs as $i => $broadArg) {
+            ?self $narrowArg = $narrow->typeArgs[$i] ?? null;
+
+            if ($narrowArg === null) {
+                return false;
+            }
+
+            self $broadType = $broadArg instanceof NamedType ? $broadArg->getUnderlyingType() : $broadArg;
+            self $narrowType = $narrowArg instanceof NamedType ? $narrowArg->getUnderlyingType() : $narrowArg;
+
+            if (!self::compatible($broadType, $narrowType)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function areIntersectionArgsCompatible(self $broad, self $narrow): bool
+    {
+        array<self|NamedType> $narrowMembers = $narrow->kind === 'intersection' ? $narrow->typeArgs : [$narrow];
+
+        foreach ($broad->typeArgs as $broadMember) {
+            bool $satisfied = false;
+
+            foreach ($narrowMembers as $narrowMember) {
+                if (self::compatible($broadMember, $narrowMember)) {
+                    $satisfied = true;
+                    break;
+                }
+            }
+
+            if (!$satisfied) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public function asReadOnly(): self
+    {
+        if ($this->isReadOnly) {
+            return $this;
+        }
+
+        return new self(
+            $this->kind,
+            $this->name,
+            $this->typeArgs,
+            true,
+            $this->isNullable,
+        );
+    }
+
+    public fn asNullable(): self => self::nullable($this);
+
+    public function asNonNullable(): self
+    {
+        if (!$this->isNullable) {
+            return $this;
+        }
+
+        return new self(
+            $this->kind,
+            $this->name,
+            $this->typeArgs,
+            $this->isReadOnly,
+            false,
+        );
+    }
+
+    public function genericParameter(string $name): ?NamedType
+    {
+        foreach ($this->typeArgs as $arg) {
+            if ($arg instanceof NamedType && $arg->getParameterName() === $name) {
+                return $arg;
+            }
+        }
+
+        return null;
+    }
+
+    fn getKind(): string => $this->kind;
+
+    fn getName(): ?string => $this->name;
+
+    fn isNullable(): bool => $this->isNullable;
+
+    fn isReadOnly(): bool => $this->isReadOnly;
+
+    public function __toString(): string
+    {
+        string $str = match ($this->kind) {
+            'scalar' => $this->name ?? 'unknown',
+            'class' => $this->name ?? 'object',
+            'generic' => ($this->name ?? 'object')
+                . '<' . \implode(', ', \array_map(\strval(...), $this->typeArgs)) . '>',
+            'union' => \implode('|', \array_map(\strval(...), $this->typeArgs)),
+            'intersection' => \implode('&', \array_map(\strval(...), $this->typeArgs)),
+            default => 'unknown',
+        };
+
+        if ($this->isNullable) {
+            if ($this->kind === 'union') {
+                $str .= '|null';
+            } elseif ($this->kind !== 'scalar' || $this->name !== 'null') {
+                $str = '?' . $str;
+            }
+        }
+
+        return $str;
+    }
+}

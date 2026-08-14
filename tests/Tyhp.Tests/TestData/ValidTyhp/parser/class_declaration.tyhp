@@ -1,0 +1,19 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+class Widget
+{
+    public const int MAX_ITEMS = 100;
+    public string $label;
+
+    public function __construct(string $label): void
+    {
+        $this->label = $label;
+    }
+
+    public function describe(): string
+    {
+        return $this->label;
+    }
+}

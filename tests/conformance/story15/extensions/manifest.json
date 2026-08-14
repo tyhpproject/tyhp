@@ -1,0 +1,25 @@
+{
+  "suite": "story15/extensions",
+  "description": "Story 15 — interop: extension method call → Extension::method($receiver)",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "extension_class",
+      "file": "extensions.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/StringExtensions.php"
+      }
+    },
+    {
+      "id": "extension_callsites",
+      "file": "extensions.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

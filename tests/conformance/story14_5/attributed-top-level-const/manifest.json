@@ -1,0 +1,47 @@
+{
+  "suite": "story14_5/attributed-top-level-const",
+  "description": "Story 14.5 — attributed top-level const (native PHP 8.5 preserve; lower PHP 8.2 strip + TYHP5017)",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "native_const_marker",
+      "file": "const_attrs.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/ConstMarker.php"
+      }
+    },
+    {
+      "id": "native_attributed_const",
+      "file": "const_attrs.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    },
+    {
+      "id": "lower_const_marker_php82",
+      "file": "const_attrs_lower.tyhp",
+      "config": {
+        "output:phpVersion": "8.2"
+      },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Lower/ConstMarker.php"
+      }
+    },
+    {
+      "id": "lower_attributed_const_php82",
+      "file": "const_attrs_lower.tyhp",
+      "config": {
+        "output:phpVersion": "8.2"
+      },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Lower/_functions.php"
+      }
+    }
+  ]
+}

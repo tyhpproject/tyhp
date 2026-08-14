@@ -1,0 +1,15 @@
+{
+    "quiet": false,
+    "locale": "en-US",
+    "type": "library",
+    "include": [
+        "./tyhp_src/**/*.tyhp",
+        "../../php-extensions/php8.2.9/**/*.tyhpdef",
+        "../core/package.tyhpdef"
+    ],
+    "exclude": [],
+    "output": {
+        "path": "../dist/tyhp-async/804.0.0/src",
+        "phpVersion": "8.4"
+    }
+}

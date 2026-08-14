@@ -1,0 +1,20 @@
+<?tyhp
+
+namespace TestData\Binder;
+
+class Account
+{
+    public const int MAX_LOGIN_ATTEMPTS = 5;
+    public string $username;
+    private int $attempts = 0;
+
+    public function __construct(string $username): void
+    {
+        $this->username = $username;
+    }
+
+    public function recordAttempt(): void
+    {
+        $this->attempts++;
+    }
+}

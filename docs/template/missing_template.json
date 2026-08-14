@@ -1,0 +1,14 @@
+{
+    "title": "[[TITLE]]",
+    "content": [
+        {
+            "type": "header",
+            
+            // optional (default: false)
+            "allowHtml": false,
+            
+            // string with content
+            "content": "Missing content (auto-genrated)"
+        }
+    ]
+}

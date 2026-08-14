@@ -1,0 +1,454 @@
+<?tyhpdef
+const int FORCE_GZIP;
+const int FORCE_DEFLATE;
+const int ZLIB_ENCODING_RAW;
+const int ZLIB_ENCODING_GZIP;
+const int ZLIB_ENCODING_DEFLATE;
+const int ZLIB_NO_FLUSH;
+const int ZLIB_PARTIAL_FLUSH;
+const int ZLIB_SYNC_FLUSH;
+const int ZLIB_FULL_FLUSH;
+const int ZLIB_BLOCK;
+const int ZLIB_FINISH;
+const int ZLIB_FILTERED;
+const int ZLIB_HUFFMAN_ONLY;
+const int ZLIB_RLE;
+const int ZLIB_FIXED;
+const int ZLIB_DEFAULT_STRATEGY;
+const string ZLIB_VERSION;
+const int ZLIB_VERNUM;
+const int ZLIB_OK;
+const int ZLIB_STREAM_END;
+const int ZLIB_NEED_DICT;
+const int ZLIB_ERRNO;
+const int ZLIB_STREAM_ERROR;
+const int ZLIB_DATA_ERROR;
+const int ZLIB_MEM_ERROR;
+const int ZLIB_BUF_ERROR;
+const int ZLIB_VERSION_ERROR;
+/**
+ * ob_start callback function to gzip output buffer
+ * 
+ * `ob_gzhandler()` is intended to be used as a callback function for `ob_start()` to help facilitate sending gz-encoded data to web browsers that support compressed web pages. Before `ob_gzhandler()` actually sends compressed data, it determines what type of content encoding the browser will accept ("gzip", "deflate" or none at all) and will return its output accordingly. All browsers are supported since it's up to the browser to send the correct header saying that it accepts compressed web pages. If a browser doesn't support compressed pages this function returns ** `false` **.
+ * 
+ * @param string $data
+ * @param int $flags
+ * @return string|false
+ * 
+ * @link https://www.php.net/manual/function.ob-gzhandler.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function ob_gzhandler(string $data, int $flags): string|false;
+/**
+ * Returns the coding type used for output compression
+ * 
+ * Returns the coding type used for output compression.
+ * 
+ * @return string|false Possible return values are `gzip` , `deflate` , or ** `false` **.
+ * 
+ * @link https://www.php.net/manual/function.zlib-get-coding-type.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function zlib_get_coding_type(): string|false;
+/**
+ * Read entire gz-file into an array
+ * 
+ * This function is identical to `readgzfile()` , except that it returns the file in an array.
+ * 
+ * @param string $filename The file name.
+ * @param int $use_include_path You can set this optional parameter to `1` , if you want to search for the file in theinclude_pathtoo.
+ * @return array|false An array containing the file, one line per cell, empty lines included, and with newlines still attached, or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.gzfile.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzfile(string $filename, int $use_include_path = 0): array|false;
+/**
+ * Open gz-file
+ * 
+ * Opens a gzip (.gz) file for reading or writing.
+ * 
+ * @param string $filename The file name.
+ * @param string $mode As in `fopen()` (`rb` or `wb`) but can also include a compression level (`wb9`) or a strategy: `f` for filtered data as in `wb6f` , `h` for `Huffman only compression` as in `wb1h`. (See the description of `deflateInit2` inzlib.hfor more information about the strategy parameter.)
+ * @param int $use_include_path You can set this optional parameter to `1` , if you want to search for the file in theinclude_pathtoo.
+ * @return void Returns a file pointer to the file opened, after that, everything you read from this file descriptor will be transparently decompressed and what you write gets compressed.
+ * 
+ * @link https://www.php.net/manual/function.gzopen.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzopen(string $filename, string $mode, int $use_include_path = 0): void;
+/**
+ * Output a gz-file
+ * 
+ * Reads a file, decompresses it and writes it to standard output.
+ * 
+ * @param string $filename The file name. This file will be opened from the filesystem and its contents written to standard output.
+ * @param int $use_include_path You can set this optional parameter to `1` , if you want to search for the file in theinclude_pathtoo.
+ * @return int|false Returns the number of (uncompressed) bytes read from the file on success, or ** `false` ** on failure
+ * 
+ * @link https://www.php.net/manual/function.readgzfile.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function readgzfile(string $filename, int $use_include_path = 0): int|false;
+/**
+ * Compress data with the specified encoding
+ * 
+ * Compress data with the specified encoding.
+ * 
+ * @param string $data The data to compress.
+ * @param int $encoding The compression algorithm. Either ** `ZLIB_ENCODING_RAW` ** , ** `ZLIB_ENCODING_DEFLATE` ** or ** `ZLIB_ENCODING_GZIP` **.
+ * @param int $level
+ * @return string|false
+ * 
+ * @link https://www.php.net/manual/function.zlib-encode.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function zlib_encode(string $data, int $encoding, int $level = -1): string|false;
+/**
+ * Uncompress any raw/gzip/zlib encoded data
+ * 
+ * Uncompress any raw/gzip/zlib encoded data.
+ * 
+ * @param string $data
+ * @param int $max_length
+ * @return string|false Returns the uncompressed data, or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.zlib-decode.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function zlib_decode(string $data, int $max_length = 0): string|false;
+/**
+ * Deflate a string
+ * 
+ * This function compresses the given string using the `DEFLATE` data format.
+ * 
+ * @param string $data The data to deflate.
+ * @param int $level The level of compression. Can be given as 0 for no compression up to 9 for maximum compression. If not given, the default compression level will be the default compression level of the zlib library.
+ * @param int $encoding One of ** `ZLIB_ENCODING_*` ** constants.
+ * @return string|false The deflated string or ** `false` ** if an error occurred.
+ * 
+ * @link https://www.php.net/manual/function.gzdeflate.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzdeflate(string $data, int $level = -1, int $encoding = \ZLIB_ENCODING_RAW): string|false;
+/**
+ * Create a gzip compressed string
+ * 
+ * This function returns a compressed version of the input `$data` compatible with the output of the **gzip** program.
+ * 
+ * @param string $data The data to encode.
+ * @param int $level The level of compression. Can be given as 0 for no compression up to 9 for maximum compression. If not given, the default compression level will be the default compression level of the zlib library.
+ * @param int $encoding The encoding mode. Can be ** `FORCE_GZIP` ** (the default) or ** `FORCE_DEFLATE` **. ** `FORCE_DEFLATE` ** generates RFC 1950 compliant output, consisting of a zlib header, the deflated data, and an Adler checksum.
+ * @return string|false The encoded string, or ** `false` ** if an error occurred.
+ * 
+ * @link https://www.php.net/manual/function.gzencode.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzencode(string $data, int $level = -1, int $encoding = \ZLIB_ENCODING_GZIP): string|false;
+/**
+ * Compress a string
+ * 
+ * This function compresses the given string using the `ZLIB` data format.
+ * 
+ * **Note** :This is *not* the same as gzip compression, which includes some header data. See `gzencode()` for gzip compression.
+ * 
+ * @param string $data The data to compress.
+ * @param int $level The level of compression. Can be given as 0 for no compression up to 9 for maximum compression.If -1 is used, the default compression of the zlib library is used which is 6.
+ * @param int $encoding One of ** `ZLIB_ENCODING_*` ** constants.
+ * @return string|false The compressed string or ** `false` ** if an error occurred.
+ * 
+ * @link https://www.php.net/manual/function.gzcompress.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzcompress(string $data, int $level = -1, int $encoding = \ZLIB_ENCODING_DEFLATE): string|false;
+/**
+ * Inflate a deflated string
+ * 
+ * This function inflates a deflated string.
+ * 
+ * @param string $data The data compressed by `gzdeflate()`.
+ * @param int $max_length The maximum length of decoded data.
+ * @return string|false The original uncompressed data or ** `false` ** on error.
+ * 
+ * @link https://www.php.net/manual/function.gzinflate.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzinflate(string $data, int $max_length = 0): string|false;
+/**
+ * Decodes a gzip compressed string
+ * 
+ * This function returns a decoded version of the input `$data`.
+ * 
+ * @param string $data The data to decode, encoded by `gzencode()`.
+ * @param int $max_length The maximum length of data to decode.
+ * @return string|false The decoded string, or or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.gzdecode.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzdecode(string $data, int $max_length = 0): string|false;
+/**
+ * Uncompress a compressed string
+ * 
+ * This function uncompress a compressed string.
+ * 
+ * @param string $data The data compressed by `gzcompress()`.
+ * @param int $max_length The maximum length of data to decode.
+ * @return string|false The original uncompressed data or ** `false` ** on error.
+ * 
+ * @link https://www.php.net/manual/function.gzuncompress.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzuncompress(string $data, int $max_length = 0): string|false;
+/**
+ * Binary-safe gz-file write
+ * 
+ * `gzwrite()` writes the contents of `$data` to the given gz-file.
+ * 
+ * @param mixed $stream The gz-file pointer. It must be valid, and must point to a file successfully opened by `gzopen()`.
+ * @param string $data The string to write.
+ * @param ?int $length The number of uncompressed bytes to write. If supplied, writing will stop after `$length` (uncompressed) bytes have been written or the end of `$data` is reached, whichever comes first.
+ * @return int|false Returns the number of (uncompressed) bytes written to the given gz-file stream, or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.gzwrite.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzwrite(mixed $stream, string $data, ?int $length = null): int|false;
+/**
+ * Alias of `gzwrite()`
+ * 
+ * @param mixed $stream
+ * @param string $data
+ * @param ?int $length
+ * @return int|false
+ * 
+ * @link https://www.php.net/manual/function.gzputs.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzputs(mixed $stream, string $data, ?int $length = null): int|false;
+/**
+ * Rewind the position of a gz-file pointer
+ * 
+ * Sets the file position indicator of the given gz-file pointer to the beginning of the file stream.
+ * 
+ * @param mixed $stream The gz-file pointer. It must be valid, and must point to a file successfully opened by `gzopen()`.
+ * @return bool Returns ** `true` ** on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.gzrewind.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzrewind(mixed $stream): bool;
+/**
+ * Close an open gz-file pointer
+ * 
+ * Closes the given gz-file pointer.
+ * 
+ * @param mixed $stream The gz-file pointer. It must be valid, and must point to a file successfully opened by `gzopen()`.
+ * @return bool Returns ** `true` ** on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.gzclose.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzclose(mixed $stream): bool;
+/**
+ * Test forEOFon a gz-file pointer
+ * 
+ * Tests the given GZ file pointer forEOF.
+ * 
+ * @param mixed $stream The gz-file pointer. It must be valid, and must point to a file successfully opened by `gzopen()`.
+ * @return bool Returns ** `true` ** if the gz-file pointer is at EOF or an error occurs; otherwise returns ** `false` **.
+ * 
+ * @link https://www.php.net/manual/function.gzeof.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzeof(mixed $stream): bool;
+/**
+ * Get character from gz-file pointer
+ * 
+ * Returns a string containing a single (uncompressed) character read from the given gz-file pointer.
+ * 
+ * @param mixed $stream The gz-file pointer. It must be valid, and must point to a file successfully opened by `gzopen()`.
+ * @return string|false The uncompressed character or ** `false` ** on EOF (unlike `gzeof()`).
+ * 
+ * @link https://www.php.net/manual/function.gzgetc.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzgetc(mixed $stream): string|false;
+/**
+ * Output all remaining data on a gz-file pointer
+ * 
+ * Reads toEOFon the given gz-file pointer from the current position and writes the (uncompressed) results to standard output.
+ * 
+ * **Note** :You may need to call `gzrewind()` to reset the file pointer to the beginning of the file if you have already written data to it.
+ * 
+ * @param mixed $stream The gz-file pointer. It must be valid, and must point to a file successfully opened by `gzopen()`.
+ * @return int The number of uncompressed characters read from `$gz` and passed through to the input.
+ * 
+ * @link https://www.php.net/manual/function.gzpassthru.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzpassthru(mixed $stream): int;
+/**
+ * Seek on a gz-file pointer
+ * 
+ * Sets the file position indicator for the given file pointer to the given offset byte into the file stream. Equivalent to calling (in C) `gzseek(zp, offset, SEEK_SET)`.
+ * 
+ * @param mixed $stream The gz-file pointer. It must be valid, and must point to a file successfully opened by `gzopen()`.
+ * @param int $offset The seeked offset.
+ * @param int $whence `$whence` values are: ** `SEEK_SET` ** - Set position equal to `$offset` bytes. ** `SEEK_CUR` ** - Set position to current location plus `$offset`.If `$whence` is not specified, it is assumed to be ** `SEEK_SET` **.
+ * @return int Upon success, returns 0; otherwise, returns -1. Note that seeking past EOF is not considered an error.
+ * 
+ * @link https://www.php.net/manual/function.gzseek.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzseek(mixed $stream, int $offset, int $whence = \SEEK_SET): int;
+/**
+ * Tell gz-file pointer read/write position
+ * 
+ * Gets the position of the given file pointer; i.e., its offset into the uncompressed file stream.
+ * 
+ * @param mixed $stream The gz-file pointer. It must be valid, and must point to a file successfully opened by `gzopen()`.
+ * @return int|false The position of the file pointer or ** `false` ** if an error occurs.
+ * 
+ * @link https://www.php.net/manual/function.gztell.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gztell(mixed $stream): int|false;
+/**
+ * Binary-safe gz-file read
+ * 
+ * `gzread()` reads up to `$length` bytes from the given gz-file pointer. Reading stops when `$length` (uncompressed) bytes have been read orEOFis reached, whichever comes first.
+ * 
+ * @param mixed $stream The gz-file pointer. It must be valid, and must point to a file successfully opened by `gzopen()`.
+ * @param int $length The number of bytes to read.
+ * @return string|false The data that have been read, or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.gzread.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzread(mixed $stream, int $length): string|false;
+/**
+ * Get line from file pointer
+ * 
+ * Gets a (uncompressed) string of up to length - 1 bytes read from the given file pointer. Reading ends when length - 1 bytes have been read, on a newline, or on EOF (whichever comes first).
+ * 
+ * @param mixed $stream The gz-file pointer. It must be valid, and must point to a file successfully opened by `gzopen()`.
+ * @param ?int $length The length of data to get.
+ * @return string|false The uncompressed string, or ** `false` ** on error.
+ * 
+ * @link https://www.php.net/manual/function.gzgets.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function gzgets(mixed $stream, ?int $length = null): string|false;
+/**
+ * Initialize an incremental deflate context
+ * 
+ * Initializes an incremental deflate context using the specified `$encoding`.
+ * 
+ * @param int $encoding One of the ** `ZLIB_ENCODING_*` ** constants.
+ * @param array $options An associative array which may contain the following elements:levelThe compression level in range -1..9; defaults to -1.memoryThe compression memory level in range 1..9; defaults to 8.windowThe zlib window size (logarithmic) in range `8`.. `15` ; defaults to `15`. zlib changes a window size of `8` to `9` , and as of zlib 1.2.8 fails with a warning, if a window size of `8` is requested for ** `ZLIB_ENCODING_RAW` ** or ** `ZLIB_ENCODING_GZIP` **.strategyOne of ** `ZLIB_FILTERED` ** , ** `ZLIB_HUFFMAN_ONLY` ** , ** `ZLIB_RLE` ** , ** `ZLIB_FIXED` ** or ** `ZLIB_DEFAULT_STRATEGY` ** (the default).dictionaryAstringor anarrayofstringsof the preset dictionary (default: no preset dictionary).
+ * @return \DeflateContext|false Returns a deflate context resource (`zlib.deflate`) on success, or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.deflate-init.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function deflate_init(int $encoding, array $options = []): \DeflateContext|false;
+/**
+ * Incrementally deflate data
+ * 
+ * Incrementally deflates data in the specified context.
+ * 
+ * @param \DeflateContext $context A context created with `deflate_init()`.
+ * @param string $data A chunk of data to compress.
+ * @param int $flush_mode One of ** `ZLIB_BLOCK` ** , ** `ZLIB_NO_FLUSH` ** , ** `ZLIB_PARTIAL_FLUSH` ** , ** `ZLIB_SYNC_FLUSH` ** (default), ** `ZLIB_FULL_FLUSH` ** , ** `ZLIB_FINISH` **. Normally you will want to set ** `ZLIB_NO_FLUSH` ** to maximize compression, and ** `ZLIB_FINISH` ** to terminate with the last chunk of data. See the» zlib manualfor a detailed description of these constants.
+ * @return string|false Returns a chunk of compressed data, or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.deflate-add.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function deflate_add(\DeflateContext $context, string $data, int $flush_mode = \ZLIB_SYNC_FLUSH): string|false;
+/**
+ * Initialize an incremental inflate context
+ * 
+ * Initialize an incremental inflate context with the specified `$encoding`.
+ * 
+ * @param int $encoding One of the ** `ZLIB_ENCODING_*` ** constants.
+ * @param array $options An associative array which may contain the following elements:levelThe compression level in range -1..9; defaults to -1.memoryThe compression memory level in range 1..9; defaults to 8.windowThe zlib window size (logarithmic) in range 8..15; defaults to 15.strategyOne of ** `ZLIB_FILTERED` ** , ** `ZLIB_HUFFMAN_ONLY` ** , ** `ZLIB_RLE` ** , ** `ZLIB_FIXED` ** or ** `ZLIB_DEFAULT_STRATEGY` ** (the default).dictionaryAstringor anarrayofstringsof the preset dictionary (default: no preset dictionary).
+ * @return \InflateContext|false Returns an inflate context resource (`zlib.inflate`) on success, or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.inflate-init.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function inflate_init(int $encoding, array $options = []): \InflateContext|false;
+/**
+ * Incrementally inflate encoded data
+ * 
+ * Incrementally inflates encoded data in the specified `$context`.
+ * 
+ * @param \InflateContext $context A context created with `inflate_init()`.
+ * @param string $data A chunk of compressed data.
+ * @param int $flush_mode One of ** `ZLIB_BLOCK` ** , ** `ZLIB_NO_FLUSH` ** , ** `ZLIB_PARTIAL_FLUSH` ** , ** `ZLIB_SYNC_FLUSH` ** (default), ** `ZLIB_FULL_FLUSH` ** , ** `ZLIB_FINISH` **. Normally you will want to set ** `ZLIB_NO_FLUSH` ** to maximize compression, and ** `ZLIB_FINISH` ** to terminate with the last chunk of data. See the» zlib manualfor a detailed description of these constants.
+ * @return string|false Returns a chunk of uncompressed data, or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.inflate-add.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function inflate_add(\InflateContext $context, string $data, int $flush_mode = \ZLIB_SYNC_FLUSH): string|false;
+/**
+ * Get decompression status
+ * 
+ * Usually returns either ** `ZLIB_OK` ** or ** `ZLIB_STREAM_END` **.
+ * 
+ * @param \InflateContext $context
+ * @return int Returns decompression status.
+ * 
+ * @link https://www.php.net/manual/function.inflate-get-status.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function inflate_get_status(\InflateContext $context): int;
+/**
+ * Get number of bytes read so far
+ * 
+ * @param \InflateContext $context
+ * @return int Returns number of bytes read so far or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.inflate-get-read-len.php
+ * 
+ * @generated from PHP v8.2.9, EXT: zlib v8.2.9
+ */
+function inflate_get_read_len(\InflateContext $context): int;
+final class InflateContext
+{
+}
+final class DeflateContext
+{
+}

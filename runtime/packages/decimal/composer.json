@@ -1,0 +1,34 @@
+{
+    "name": "tyhp/decimal",
+    "description": "Tyhp runtime decimal \u2014 arbitrary-precision decimal arithmetic",
+    "type": "library",
+    "license": "Apache-2.0",
+    "version": "805.0.0-alpha.1",
+    "extra": {
+        "tyhp": {
+            "interopContractVersion": 1
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "tyhp/core": "805.0.0-alpha.1"
+    },
+    "suggest": {
+        "ext-decimal": "Preferred backend (php-decimal / mpdecimal) for arbitrary-precision decimal arithmetic",
+        "ext-bcmath": "Alternative backend for arbitrary-precision decimal arithmetic",
+        "ext-gmp": "Alternative backend for arbitrary-precision decimal arithmetic"
+    },
+    "autoload": {
+        "psr-4": {
+            "Tyhp\\": "src/Tyhp/"
+        },
+        "files": [
+            "src/Tyhp/_functions.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tyhp\\Tests\\Decimal\\": "tests/"
+        }
+    }
+}

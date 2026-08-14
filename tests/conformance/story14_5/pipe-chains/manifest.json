@@ -1,0 +1,28 @@
+{
+  "suite": "story14_5/pipe-chains",
+  "description": "Story 14.5 — pipe |> chains (native PHP 8.5; lower PHP 8.2 nested-call rewrite)",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "native_pipe_chains",
+      "file": "pipe.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    },
+    {
+      "id": "lower_pipe_chains_php82",
+      "file": "pipe_lower.tyhp",
+      "config": {
+        "output:phpVersion": "8.2"
+      },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Lower/_functions.php"
+      }
+    }
+  ]
+}

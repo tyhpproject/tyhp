@@ -1,0 +1,175 @@
+<?tyhp
+
+namespace Tyhp\Backend;
+
+final class GmpBackend implements DecimalBackend
+{
+    private static array<int, \GMP> $scaleFactors = [];
+
+    private static function scaleFactor(int $scale): \GMP {
+        return self::$scaleFactors[$scale] ??= \gmp_pow(\gmp_init(10), $scale);
+    }
+
+    private function toScaled(string $value, int $scale): \GMP {
+        bool $negative = false;
+
+        if (\str_starts_with($value, '-')) {
+            $negative = true;
+            $value = \substr($value, 1);
+        }
+
+        array $parts = \explode('.', $value, 2);
+        string $intPart = (string) ($parts[0] === '' ? '0' : $parts[0]);
+        string $fracPart = (string) ($parts[1] ?? '');
+
+        if (\strlen($fracPart) > $scale) {
+            $fracPart = \substr($fracPart, 0, $scale);
+        } else {
+            $fracPart = \str_pad($fracPart, $scale, '0');
+        }
+
+        string $combined = $intPart . $fracPart;
+        \GMP $gmp = \gmp_init($combined);
+
+        return $negative ? \gmp_neg($gmp) : $gmp;
+    }
+
+    private function fromScaled(\GMP $value, int $scale): string {
+        string $str = \gmp_strval($value);
+        bool $negative = false;
+
+        if (\str_starts_with($str, '-')) {
+            $negative = true;
+            $str = \substr($str, 1);
+        }
+
+        if ($scale === 0) {
+            return ($negative ? '-' : '') . $str;
+        }
+
+        $str = \str_pad($str, $scale + 1, '0', \STR_PAD_LEFT);
+        string $intPart = \substr($str, 0, -$scale);
+        string $fracPart = \substr($str, -$scale);
+
+        string $result = $intPart . '.' . $fracPart;
+
+        return ($negative ? '-' : '') . $result;
+    }
+
+    public function add(string $a, string $b, int $scale): string {
+        \GMP $sa = $this->toScaled($a, $scale);
+        \GMP $sb = $this->toScaled($b, $scale);
+
+        return $this->fromScaled(\gmp_add($sa, $sb), $scale);
+    }
+
+    public function subtract(string $a, string $b, int $scale): string {
+        \GMP $sa = $this->toScaled($a, $scale);
+        \GMP $sb = $this->toScaled($b, $scale);
+
+        return $this->fromScaled(\gmp_sub($sa, $sb), $scale);
+    }
+
+    public function multiply(string $a, string $b, int $scale): string {
+        \GMP $sa = $this->toScaled($a, $scale);
+        \GMP $sb = $this->toScaled($b, $scale);
+        \GMP $product = \gmp_mul($sa, $sb);
+        \GMP $divisor = self::scaleFactor($scale);
+
+        return $this->fromScaled(\gmp_div_q($product, $divisor), $scale);
+    }
+
+    public function divide(string $a, string $b, int $scale): string {
+        \GMP $sb = $this->toScaled($b, $scale);
+
+        if (\gmp_cmp($sb, \gmp_init(0)) === 0) {
+            throw new \DivisionByZeroError('Division by zero');
+        }
+
+        \GMP $sa = $this->toScaled($a, $scale);
+        \GMP $multiplier = self::scaleFactor($scale);
+        \GMP $numerator = \gmp_mul($sa, $multiplier);
+
+        return $this->fromScaled(\gmp_div_q($numerator, $sb), $scale);
+    }
+
+    public function modulo(string $a, string $b, int $scale): string {
+        \GMP $sb = $this->toScaled($b, $scale);
+
+        if (\gmp_cmp($sb, \gmp_init(0)) === 0) {
+            throw new \DivisionByZeroError('Modulo by zero');
+        }
+
+        \GMP $sa = $this->toScaled($a, $scale);
+        \GMP $remainder = \gmp_div_r($sa, $sb);
+
+        return $this->fromScaled($remainder, $scale);
+    }
+
+    public function power(string $base, int $exponent, int $scale): string {
+        if ($exponent === 0) {
+            return $this->fromScaled($this->toScaled('1', $scale), $scale);
+        }
+
+        \GMP $sBase = $this->toScaled($base, $scale);
+        \GMP $result = \gmp_pow($sBase, $exponent);
+        \GMP $scaleFactor = self::scaleFactor($scale * ($exponent - 1));
+
+        return $this->fromScaled(\gmp_div_q($result, $scaleFactor), $scale);
+    }
+
+    public function sqrt(string $value, int $scale): string {
+        \GMP $sValue = $this->toScaled($value, $scale);
+
+        if (\gmp_cmp($sValue, \gmp_init(0)) < 0) {
+            throw new \InvalidArgumentException('Square root of a negative number is not supported');
+        }
+
+        \GMP $multiplier = self::scaleFactor($scale);
+        \GMP $scaled = \gmp_mul($sValue, $multiplier);
+        \GMP $sqrtResult = \gmp_sqrt($scaled);
+
+        return $this->fromScaled($sqrtResult, $scale);
+    }
+
+    public function compare(string $a, string $b, int $scale): int {
+        \GMP $sa = $this->toScaled($a, $scale);
+        \GMP $sb = $this->toScaled($b, $scale);
+        int $cmp = \gmp_cmp($sa, $sb);
+
+        if ($cmp < 0) {
+            return -1;
+        }
+
+        if ($cmp > 0) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    public function negate(string $value): string {
+        string $stripped = \ltrim(\str_replace(['-', '.'], '', $value), '0');
+        if ($stripped === '') {
+            return $value;
+        }
+
+        if (\str_starts_with($value, '-')) {
+            return \substr($value, 1);
+        }
+
+        return '-' . $value;
+    }
+
+    public function abs(string $value): string {
+        if (\str_starts_with($value, '-')) {
+            return \substr($value, 1);
+        }
+
+        return $value;
+    }
+
+    public function getName(): string {
+        return 'gmp';
+    }
+}

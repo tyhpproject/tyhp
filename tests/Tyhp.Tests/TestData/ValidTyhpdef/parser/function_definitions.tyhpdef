@@ -1,0 +1,11 @@
+<?tyhpdef
+
+namespace TestData\Tyhpdef;
+
+function add(int $left, int $right): int;
+
+function greet(string $name, string $prefix = 'Hello'): string;
+
+async function fetchValue(): int;
+
+function double(int $value): int;

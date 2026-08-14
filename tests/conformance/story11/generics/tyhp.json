@@ -1,0 +1,7 @@
+{
+  "include": ["**/*.tyhp"],
+  "output": {
+    "path": "build/",
+    "phpVersion": "8.4"
+  }
+}

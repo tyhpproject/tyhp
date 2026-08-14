@@ -1,0 +1,5 @@
+namespace Test\Tagless;
+
+function broken(): void
+{
+?>

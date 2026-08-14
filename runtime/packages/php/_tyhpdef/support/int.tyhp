@@ -1,0 +1,222 @@
+<?tyhp
+
+// // root namespace
+
+// extension IntExtensions {
+//     /**
+//      * Absolute value.
+//      *
+//      * Returns the absolute value of this integer.
+//      *
+//      * @param int $n The integer this method is called on.
+//      * @return int The absolute value of `$n`.
+//      *
+//      * @see https://www.php.net/manual/function.abs.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function abs(extends int $n): int
+//     {
+//         return \abs($n);
+//     }
+
+//     /**
+//      * Round fractions up.
+//      *
+//      * Returns the next highest integer value by rounding up `$n` if necessary.
+//      * Note: PHP's `ceil()` always returns a float (the float range is larger than int).
+//      *
+//      * @param int $n The integer this method is called on.
+//      * @return float `$n` rounded up to the next highest integer, as a float.
+//      *
+//      * @see https://www.php.net/manual/function.ceil.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function ceil(extends int $n): float
+//     {
+//         return \ceil($n);
+//     }
+
+//     /**
+//      * Decimal to binary.
+//      *
+//      * Returns a string containing a binary representation of the given `$n` argument.
+//      *
+//      * @param int $n The integer this method is called on.
+//      * @return string Binary string representation of `$n`.
+//      *
+//      * @see https://www.php.net/manual/function.decbin.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function decBin(extends int $n): string
+//     {
+//         return \decbin($n);
+//     }
+
+//     /**
+//      * Decimal to hexadecimal.
+//      *
+//      * Returns a string containing a hexadecimal representation of the given `$n`
+//      * argument. The hexadecimal string is returned with lowercase letters.
+//      *
+//      * @param int $n The integer this method is called on.
+//      * @return string Hexadecimal string representation of `$n`.
+//      *
+//      * @see https://www.php.net/manual/function.dechex.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function decHex(extends int $n): string
+//     {
+//         return \dechex($n);
+//     }
+
+//     /**
+//      * Decimal to octal.
+//      *
+//      * Returns a string containing an octal representation of the given `$n` argument.
+//      *
+//      * @param int $n The integer this method is called on.
+//      * @return string Octal string representation of `$n`.
+//      *
+//      * @see https://www.php.net/manual/function.decoct.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function decOct(extends int $n): string
+//     {
+//         return \decoct($n);
+//     }
+
+//     /**
+//      * Round fractions down.
+//      *
+//      * Returns the next lowest integer value by rounding down `$n` if necessary.
+//      * Note: PHP's `floor()` always returns a float (the float range is larger than int).
+//      *
+//      * @param int $n The integer this method is called on.
+//      * @return float `$n` rounded down to the next lowest integer, as a float.
+//      *
+//      * @see https://www.php.net/manual/function.floor.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function floor(extends int $n): float
+//     {
+//         return \floor($n);
+//     }
+
+//     /**
+//      * Integer division.
+//      *
+//      * Returns the integer quotient of the division of `$n` by `$num2`.
+//      *
+//      * @param int $n The integer this method is called on (dividend).
+//      * @param int $num2 The divisor.
+//      * @return int The integer quotient of the division of `$n` by `$num2`.
+//      *
+//      * @see https://www.php.net/manual/function.intdiv.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function intDiv(extends int $n, int $num2): int
+//     {
+//         return \intdiv($n, $num2);
+//     }
+
+//     /**
+//      * Find highest value.
+//      *
+//      * If only `$n` is given, returns `$n`. If additional values are provided, returns
+//      * the largest of `$n` and those values.
+//      *
+//      * @param int $n The integer this method is called on.
+//      * @param int|float ...$values Additional values to compare.
+//      * @return int|float The highest value among `$n` and `$values`.
+//      *
+//      * @see https://www.php.net/manual/function.max.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function max(extends int $n, int|float ...$values): int|float
+//     {
+//         return \max($n, ...$values);
+//     }
+
+//     /**
+//      * Find lowest value.
+//      *
+//      * If only `$n` is given, returns `$n`. If additional values are provided, returns
+//      * the smallest of `$n` and those values.
+//      *
+//      * @param int $n The integer this method is called on.
+//      * @param int|float ...$values Additional values to compare.
+//      * @return int|float The lowest value among `$n` and `$values`.
+//      *
+//      * @see https://www.php.net/manual/function.min.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function min(extends int $n, int|float ...$values): int|float
+//     {
+//         return \min($n, ...$values);
+//     }
+
+//     /**
+//      * Generate a single-byte string from a number.
+//      *
+//      * Returns a one-character string containing the character specified by interpreting
+//      * `$n` as an unsigned integer.
+//      *
+//      * @param int $n The integer this method is called on (code point / byte value).
+//      * @return string A single-character string.
+//      *
+//      * @see https://www.php.net/manual/function.chr.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function chr(extends int $n): string
+//     {
+//         return \chr($n);
+//     }
+
+//     /**
+//      * Convert this integer to a float.
+//      *
+//      * Performs a float cast of `$n`.
+//      *
+//      * @param int $n The integer this method is called on.
+//      * @return float `$n` as a float.
+//      *
+//      * @see https://www.php.net/manual/language.types.float.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function __toFloat(extends int $n): float
+//     {
+//         return (float)$n;
+//     }
+
+//     /**
+//      * Convert this integer to a string.
+//      *
+//      * Performs a string cast of `$n`.
+//      *
+//      * @param int $n The integer this method is called on.
+//      * @return string `$n` as a string.
+//      *
+//      * @see https://www.php.net/manual/language.types.string.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function __toString(extends int $n): string
+//     {
+//         return (string)$n;
+//     }
+
+//     /**
+//      * Determine whether a variable is empty.
+//      *
+//      * `empty()` is a language construct. For an integer, `0` is considered empty.
+//      *
+//      * @param int $n The integer this method is called on.
+//      * @return bool `true` if `$n` is considered empty; otherwise `false`.
+//      *
+//      * @see https://www.php.net/manual/function.empty.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function empty(extends int $n): bool
+//     {
+//         return empty($n);
+//     }
+// }

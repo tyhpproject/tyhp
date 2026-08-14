@@ -1,0 +1,15 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+class Box<T> {
+    private ?T $item = null;
+
+    public function set(T $value): void {
+        $this->item = $value;
+    }
+
+    public function get(): ?T {
+        return $this->item;
+    }
+}

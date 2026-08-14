@@ -1,0 +1,27 @@
+{
+  "suite": "story08_5/template-string-check",
+  "description": "Story 08.5 — template-string type checker diagnostics",
+  "defaults": {
+    "action": "lint",
+    "config": {
+      "phpVersion": "8.2"
+    }
+  },
+  "cases": [
+    {
+      "id": "api_method_literal",
+      "file": "api_method_literal.tyhp",
+      "expect": {
+        "errorCount": 0
+      }
+    },
+    {
+      "id": "api_method_mismatch",
+      "file": "api_method_mismatch.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4008]
+      }
+    }
+  ]
+}

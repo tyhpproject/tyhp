@@ -1,0 +1,23 @@
+<?tyhp
+
+namespace Tyhp\Exceptions;
+
+final class AggregateException extends \RuntimeException
+{
+    public function __construct(
+        private readonly array<\Throwable> $innerExceptions,
+        string $message = 'One or more errors occurred',
+        ?\Throwable $previous = null,
+    ): parent($message, 0, $previous) {
+        foreach ($innerExceptions as $e) {
+            if (!$e instanceof \Throwable) {
+                throw new \InvalidArgumentException('All inner exceptions must implement \\Throwable');
+            }
+        }
+    }
+
+    public function getInnerExceptions(): array<\Throwable>
+    {
+        return $this->innerExceptions;
+    }
+}

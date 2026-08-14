@@ -1,0 +1,50 @@
+<?tyhp
+
+namespace Tyhp\Concerns;
+
+/**
+ * Default `__isset` dispatcher. Feature traits register handlers via `tyhpRegisterIssetHandler`
+ * from their `__bootTrait_*` methods.
+ *
+ * `__isset` is final (polyfill integrity). Extend via `tyhpRegisterIssetHandler`. If the class
+ * already defines `__isset`, call `tyhpTryIsset` at the top of that implementation.
+ */
+trait HandlesIsset
+{
+    use BootsTraits;
+
+    /** @var list<callable<string, bool, bool>> handlers: function (string $name, bool &$out): bool */
+    private array<callable<string, bool, bool>> $__tyhpIssetHandlers = [];
+
+    /**
+     * Subclass extension point: register an additional isset handler (safe after boot).
+     */
+    protected function tyhpRegisterIssetHandler(callable<string, bool, bool> $handler): void
+    {
+        $this->__tyhpIssetHandlers[] = $handler;
+    }
+
+    public function tyhpTryIsset(string $name, bool &$out): bool
+    {
+        $this->tyhpBootTraits();
+
+        foreach ($this->__tyhpIssetHandlers as $handler) {
+            // Direct invoke (not call_user_func) so &$out is passed by reference.
+            if ($handler($name, $out) === true) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    final public function __isset(string $name): bool
+    {
+        bool $result = false;
+        if ($this->tyhpTryIsset($name, $result)) {
+            return $result;
+        }
+
+        return isset($this->{$name});
+    }
+}

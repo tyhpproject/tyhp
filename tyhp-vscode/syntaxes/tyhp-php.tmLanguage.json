@@ -1,0 +1,907 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "PHP (Tyhp)",
+  "scopeName": "source.tyhp.php",
+  "fileTypes": ["php"],
+  "patterns": [
+    { "include": "#open-tag-echo" },
+    { "include": "#open-tag" },
+    { "include": "#inline-html" }
+  ],
+  "repository": {
+    "open-tag": {
+      "begin": "(<\\?)((?i:php))(?:\\s|$)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.embedded.begin.php" },
+        "2": { "name": "entity.name.tag.php" }
+      },
+      "end": "(\\?>)",
+      "endCaptures": {
+        "1": { "name": "punctuation.section.embedded.end.php" }
+      },
+      "contentName": "meta.embedded.block.php",
+      "patterns": [
+        { "include": "#code-body" }
+      ]
+    },
+    "open-tag-echo": {
+      "begin": "(<\\?)(=)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.embedded.begin.php" },
+        "2": { "name": "punctuation.section.embedded.begin.php" }
+      },
+      "end": "(\\?>)",
+      "endCaptures": {
+        "1": { "name": "punctuation.section.embedded.end.php" }
+      },
+      "contentName": "meta.embedded.block.php",
+      "patterns": [
+        { "include": "#code-body" }
+      ]
+    },
+    "inline-html": {
+      "name": "text.html.basic",
+      "match": "[\\s\\S]"
+    },
+    "code-body": {
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#attribute" },
+        { "include": "#php-catch-block" },
+        { "include": "#php-constructor-declaration" },
+        { "include": "#php-magic-method-declaration" },
+        { "include": "#php-function-declaration" },
+        { "include": "#php-closure" },
+        { "include": "#php-class-declaration" },
+        { "include": "#php-interface-declaration" },
+        { "include": "#php-trait-declaration" },
+        { "include": "#php-enum-declaration" },
+        { "include": "#string-single-quoted" },
+        { "include": "#string-double-quoted" },
+        { "include": "#string-heredoc" },
+        { "include": "#string-nowdoc" },
+        { "include": "#string-backtick" },
+        { "include": "#number" },
+        { "include": "#cast" },
+        { "include": "#magic-constant" },
+        { "include": "#keyword-modifier" },
+        { "include": "#php-namespace-declaration" },
+        { "include": "#keyword-control" },
+        { "include": "#keyword-declaration" },
+        { "include": "#php-anonymous-class" },
+        { "include": "#new-expression" },
+        { "include": "#keyword-other" },
+        { "include": "#nullable-type" },
+        { "include": "#this-variable" },
+        { "include": "#variable" },
+        { "include": "#member-access" },
+        { "include": "#static-access" },
+        { "include": "#class-reference-static" },
+        { "include": "#operator" },
+        { "include": "#function-call" },
+        { "include": "#declare-directive" },
+        { "include": "#type-hint-class" },
+        { "include": "#namespace-function-call" },
+        { "include": "#namespace-name" },
+        { "include": "#code-block" },
+        { "include": "#round-brackets" },
+        { "include": "#square-brackets" },
+        { "include": "#punctuation" },
+        { "include": "#named-argument" },
+        { "include": "#identifier" }
+      ]
+    },
+    "code-block": {
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.block.begin.php" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.block.end.php" }
+      },
+      "patterns": [
+        { "include": "#code-body" }
+      ]
+    },
+    "round-brackets": {
+      "begin": "\\(",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.parens.begin.php" }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.parens.end.php" }
+      },
+      "patterns": [
+        { "include": "#code-body" }
+      ]
+    },
+    "square-brackets": {
+      "begin": "\\[",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.array.begin.php" }
+      },
+      "end": "\\]",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.array.end.php" }
+      },
+      "patterns": [
+        { "include": "#code-body" }
+      ]
+    },
+    "comment": {
+      "patterns": [
+        { "include": "#comment-doc-block" },
+        { "include": "#comment-block" },
+        { "include": "#comment-line-double-slash" },
+        { "include": "#comment-line-hash" }
+      ]
+    },
+    "comment-doc-block": {
+      "begin": "/\\*\\*(?!/)",
+      "end": "\\*/",
+      "name": "comment.block.documentation.phpdoc.php",
+      "patterns": [
+        {
+          "begin": "(@(?:param|return|var|throws|property|property-read|property-write))\\s+(?=[?\\\\A-Za-z_(])",
+          "beginCaptures": {
+            "1": { "name": "keyword.other.phpdoc.php" }
+          },
+          "end": "(?=\\s|\\*/|$)",
+          "contentName": "meta.other.type.phpdoc.php",
+          "patterns": [
+            { "include": "#phpdoc-type" }
+          ]
+        },
+        {
+          "match": "@[a-zA-Z][a-zA-Z-]*",
+          "name": "keyword.other.phpdoc.php"
+        }
+      ]
+    },
+    "phpdoc-type": {
+      "patterns": [
+        {
+          "match": "\\b(?i:int|integer|float|double|string|bool|boolean|array|object|callable|iterable|void|null|mixed|resource|never|true|false)\\b",
+          "name": "keyword.other.type.php"
+        },
+        { "match": "\\b(?i:self|static|parent)\\b", "name": "storage.type.php" },
+        { "match": "\\?", "name": "keyword.operator.nullable-type.php" },
+        { "match": "\\|", "name": "punctuation.separator.delimiter.php" },
+        { "match": "&", "name": "punctuation.separator.delimiter.php" },
+        { "match": "\\[\\]", "name": "keyword.other.array.phpdoc.php" },
+        { "match": "<|>|,", "name": "punctuation.definition.type.php" },
+        {
+          "match": "(\\\\)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*(?:\\\\[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)*)",
+          "captures": {
+            "1": { "name": "punctuation.separator.inheritance.php" },
+            "2": { "name": "support.class.php" }
+          }
+        },
+        {
+          "match": "\\b[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*\\b",
+          "name": "support.class.php"
+        }
+      ]
+    },
+    "comment-block": {
+      "begin": "/\\*",
+      "end": "\\*/",
+      "name": "comment.block.php"
+    },
+    "comment-line-double-slash": {
+      "match": "(//).*$",
+      "name": "comment.line.double-slash.php",
+      "captures": {
+        "1": { "name": "punctuation.definition.comment.php" }
+      }
+    },
+    "comment-line-hash": {
+      "match": "(#)(?!\\[).*$",
+      "name": "comment.line.number-sign.php",
+      "captures": {
+        "1": { "name": "punctuation.definition.comment.php" }
+      }
+    },
+    "string-single-quoted": {
+      "begin": "'",
+      "end": "'",
+      "name": "string.quoted.single.php",
+      "patterns": [
+        {
+          "match": "\\\\[\\\\']",
+          "name": "constant.character.escape.php"
+        }
+      ]
+    },
+    "string-double-quoted": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.php",
+      "patterns": [
+        { "include": "#string-escape" },
+        { "include": "#string-interpolation" }
+      ]
+    },
+    "string-escape": {
+      "match": "\\\\(?:[\\\\\"$nrtvef]|x[0-9a-fA-F]{1,2}|u\\{[0-9a-fA-F]+\\}|[0-7]{1,3})",
+      "name": "constant.character.escape.php"
+    },
+    "string-interpolation": {
+      "patterns": [
+        { "include": "#string-interpolation-dollar-curly" },
+        { "include": "#string-interpolation-curly-dollar" },
+        { "include": "#string-interpolation-simple-property" },
+        { "include": "#string-interpolation-simple-array" },
+        { "include": "#string-interpolation-simple" }
+      ]
+    },
+    "string-interpolation-dollar-curly": {
+      "begin": "(\\$\\{)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.variable.php" }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.variable.php" }
+      },
+      "patterns": [
+        { "include": "#code-body" }
+      ]
+    },
+    "string-interpolation-curly-dollar": {
+      "begin": "(\\{)(?=\\$)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.variable.php" }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.variable.php" }
+      },
+      "patterns": [
+        { "include": "#code-body" }
+      ]
+    },
+    "string-interpolation-simple-property": {
+      "match": "(\\$)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)(->)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+      "captures": {
+        "1": { "name": "punctuation.definition.variable.php" },
+        "2": { "name": "variable.other.php" },
+        "3": { "name": "keyword.operator.class.php" },
+        "4": { "name": "variable.other.property.php" }
+      }
+    },
+    "string-interpolation-simple-array": {
+      "match": "(\\$)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)(\\[)([^\\]]*)(\\])",
+      "captures": {
+        "1": { "name": "punctuation.definition.variable.php" },
+        "2": { "name": "variable.other.php" },
+        "3": { "name": "punctuation.section.array.begin.php" },
+        "4": { "name": "meta.array.index.php" },
+        "5": { "name": "punctuation.section.array.end.php" }
+      }
+    },
+    "string-interpolation-simple": {
+      "match": "(\\$)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+      "captures": {
+        "1": { "name": "punctuation.definition.variable.php" },
+        "2": { "name": "variable.other.php" }
+      }
+    },
+    "string-heredoc": {
+      "begin": "(<<<)\\s*([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*|\"[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*\")\\s*$",
+      "beginCaptures": {
+        "1": { "name": "keyword.operator.heredoc.php" },
+        "2": { "name": "entity.name.tag.heredoc.php" }
+      },
+      "end": "^\\s*([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)(?=;?\\s*$)",
+      "endCaptures": {
+        "1": { "name": "entity.name.tag.heredoc.php" }
+      },
+      "name": "string.unquoted.heredoc.php",
+      "patterns": [
+        { "include": "#string-escape" },
+        { "include": "#string-interpolation" }
+      ]
+    },
+    "string-nowdoc": {
+      "begin": "(<<<)\\s*'([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)'\\s*$",
+      "beginCaptures": {
+        "1": { "name": "keyword.operator.heredoc.php" },
+        "2": { "name": "entity.name.tag.heredoc.php" }
+      },
+      "end": "^\\s*([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)(?=;?\\s*$)",
+      "endCaptures": {
+        "1": { "name": "entity.name.tag.heredoc.php" }
+      },
+      "name": "string.unquoted.nowdoc.php"
+    },
+    "string-backtick": {
+      "begin": "`",
+      "end": "`",
+      "name": "string.interpolated.php",
+      "patterns": [
+        { "include": "#string-escape" },
+        { "include": "#string-interpolation" }
+      ]
+    },
+    "number": {
+      "patterns": [
+        {
+          "match": "\\b0[xX][0-9a-fA-F]+(_[0-9a-fA-F]+)*\\b",
+          "name": "constant.numeric.hex.php"
+        },
+        {
+          "match": "\\b0[bB][01]+(_[01]+)*\\b",
+          "name": "constant.numeric.binary.php"
+        },
+        {
+          "match": "\\b0[oO][0-7]+(_[0-7]+)*\\b",
+          "name": "constant.numeric.octal.php"
+        },
+        {
+          "match": "\\b(?:\\d+(_\\d+)*\\.(?:\\d+(_\\d+)*)?|\\d*(_\\d+)*\\.\\d+(_\\d+)*)(?:[eE][+-]?\\d+(_\\d+)*)?\\b|\\b\\d+(_\\d+)*[eE][+-]?\\d+(_\\d+)*\\b",
+          "name": "constant.numeric.float.php"
+        },
+        {
+          "match": "\\b\\d+(_\\d+)*\\b",
+          "name": "constant.numeric.decimal.php"
+        }
+      ]
+    },
+    "variable": {
+      "match": "(\\$)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+      "captures": {
+        "1": { "name": "punctuation.definition.variable.php" },
+        "2": { "name": "variable.other.php" }
+      }
+    },
+    "namespace-name": {
+      "patterns": [
+        {
+          "match": "(\\\\)((?:[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*\\\\)*)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+          "captures": {
+            "1": { "name": "punctuation.separator.inheritance.php" },
+            "2": {
+              "patterns": [
+                { "match": "\\\\", "name": "punctuation.separator.inheritance.php" },
+                { "match": "[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*", "name": "support.other.namespace.php" }
+              ]
+            },
+            "3": { "name": "support.class.php" }
+          }
+        },
+        {
+          "match": "\\b((?:[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*\\\\)+)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)\\b",
+          "captures": {
+            "1": {
+              "patterns": [
+                { "match": "\\\\", "name": "punctuation.separator.inheritance.php" },
+                { "match": "[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*", "name": "support.other.namespace.php" }
+              ]
+            },
+            "2": { "name": "support.class.php" }
+          }
+        }
+      ]
+    },
+    "keyword-control": {
+      "match": "\\b(?i:if|else|elseif|endif|while|endwhile|do|for|endfor|foreach|endforeach|switch|endswitch|case|default|break|continue|goto|return|yield\\s+from|yield|try|catch|finally|throw|declare|enddeclare|match|echo|print)\\b",
+      "name": "keyword.control.php"
+    },
+    "keyword-declaration": {
+      "patterns": [
+        { "match": "\\b(?i:function|fn)\\b", "name": "storage.type.function.php" },
+        { "match": "\\b(?i:class)\\b", "name": "storage.type.class.php" },
+        { "match": "\\b(?i:interface)\\b", "name": "storage.type.interface.php" },
+        { "match": "\\b(?i:trait)\\b", "name": "storage.type.trait.php" },
+        { "match": "\\b(?i:enum)\\b", "name": "storage.type.enum.php" },
+        { "match": "\\b(?i:namespace)\\b", "name": "keyword.other.namespace.php" },
+        { "match": "\\b(?i:use)\\b", "name": "keyword.other.use.php" },
+        { "match": "\\b(?i:const)\\b", "name": "storage.type.const.php" },
+        { "match": "\\b(?i:var)\\b", "name": "storage.type.var.php" }
+      ]
+    },
+    "keyword-modifier": {
+      "patterns": [
+        {
+          "match": "\\b(?i:public|protected|private)\\s*\\(\\s*(?i:set)\\s*\\)",
+          "name": "storage.modifier.php"
+        },
+        {
+          "match": "\\b(?i:public|protected|private|static|abstract|final|readonly)\\b(?!\\s*:(?!:))",
+          "name": "storage.modifier.php"
+        }
+      ]
+    },
+    "keyword-other": {
+      "patterns": [
+        { "match": "\\b(?i:new|clone)\\b", "name": "keyword.other.new.php" },
+        { "match": "\\b(?i:instanceof)\\b", "name": "keyword.operator.type.php" },
+        { "match": "\\b(?i:as)\\b", "name": "keyword.other.as.php" },
+        { "match": "\\b(?i:extends)\\b", "name": "storage.modifier.extends.php" },
+        { "match": "\\b(?i:implements)\\b", "name": "storage.modifier.implements.php" },
+        { "match": "\\b(?i:insteadof)\\b", "name": "keyword.other.insteadof.php" },
+        { "match": "\\b(?i:int|float|string|bool|void|never|mixed|object|iterable|array|callable)\\b", "name": "keyword.other.type.php" },
+        { "match": "\\b(?i:list)\\b", "name": "keyword.other.list.php" },
+        { "match": "\\b(?i:include_once|include|require_once|require)\\b", "name": "keyword.control.import.php" },
+        { "match": "\\b(?i:isset|empty|unset)\\b", "name": "keyword.other.php" },
+        { "match": "\\b(?i:eval)\\b", "name": "keyword.other.eval.php" },
+        { "match": "\\b(?i:exit|die)\\b", "name": "keyword.other.exit.php" },
+        { "match": "\\b(?i:__halt_compiler)\\b", "name": "keyword.other.php" },
+        { "match": "\\b(?i:__construct)\\b", "name": "support.function.constructor.php" },
+        { "match": "\\b(?i:__destruct|__call|__callStatic|__get|__set|__isset|__unset|__sleep|__wakeup|__serialize|__unserialize|__toString|__invoke|__set_state|__clone|__debugInfo)\\b", "name": "support.function.magic.php" },
+        { "match": "\\b(?i:true|false|null)\\b", "name": "constant.language.php" },
+        { "match": "\\b(?i:self|static|parent)\\b", "name": "storage.type.php" }
+      ]
+    },
+    "operator": {
+      "patterns": [
+        { "match": "===|!==", "name": "keyword.operator.comparison.php" },
+        { "match": "<=>", "name": "keyword.operator.comparison.php" },
+        { "match": "\\*\\*=", "name": "keyword.operator.assignment.php" },
+        { "match": "\\+=|-=|\\*=|/=|\\.=|%=|<<=|>>=|&=|\\|=|\\^=|\\?\\?=", "name": "keyword.operator.assignment.php" },
+        { "match": "==|!=|<>", "name": "keyword.operator.comparison.php" },
+        { "match": "<<|>>", "name": "keyword.operator.bitwise.php" },
+        { "match": "<=|>=", "name": "keyword.operator.comparison.php" },
+        { "match": "&&|\\|\\|", "name": "keyword.operator.logical.php" },
+        { "match": "\\b(?i:and|or|xor)\\b", "name": "keyword.operator.logical.php" },
+        { "match": "\\*\\*", "name": "keyword.operator.arithmetic.php" },
+        { "match": "\\+\\+|--", "name": "keyword.operator.increment-decrement.php" },
+        { "match": "\\?\\?", "name": "keyword.operator.null-coalescing.php" },
+        { "match": "\\?->", "name": "keyword.operator.class.php" },
+        { "match": "->", "name": "keyword.operator.class.php" },
+        { "match": "::", "name": "keyword.operator.class.php" },
+        { "match": "=>", "name": "keyword.operator.key.php" },
+        { "match": "\\.\\.\\.", "name": "keyword.operator.spread.php" },
+        { "match": "=", "name": "keyword.operator.assignment.php" },
+        { "match": "<|>", "name": "keyword.operator.comparison.php" },
+        { "match": "!", "name": "keyword.operator.logical.php" },
+        { "match": "~", "name": "keyword.operator.bitwise.php" },
+        { "match": "&", "name": "keyword.operator.bitwise.php" },
+        { "match": "\\|", "name": "keyword.operator.bitwise.php" },
+        { "match": "\\^", "name": "keyword.operator.bitwise.php" },
+        { "match": "[+\\-*/%]", "name": "keyword.operator.arithmetic.php" },
+        { "match": "\\.", "name": "keyword.operator.string.php" },
+        { "match": "@", "name": "keyword.operator.error-control.php" }
+      ]
+    },
+    "cast": {
+      "match": "(\\()\\s*(?i:(int|integer|float|double|real|string|binary|array|object|bool|boolean|unset|decimal))\\s*(\\))",
+      "captures": {
+        "1": { "name": "punctuation.definition.storage-type.begin.bracket.round.php" },
+        "2": { "name": "storage.type.php" },
+        "3": { "name": "punctuation.definition.storage-type.end.bracket.round.php" }
+      }
+    },
+    "magic-constant": {
+      "match": "\\b(?:__CLASS__|__DIR__|__FILE__|__FUNCTION__|__LINE__|__METHOD__|__NAMESPACE__|__TRAIT__|__PROPERTY__)\\b",
+      "name": "constant.language.php"
+    },
+    "attribute": {
+      "begin": "(#\\[)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.attribute.begin.php" }
+      },
+      "end": "(\\])",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.attribute.end.php" }
+      },
+      "name": "meta.attribute.php",
+      "patterns": [
+        { "include": "#code-body" }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        { "match": ";", "name": "punctuation.terminator.statement.php" },
+        { "match": ",", "name": "punctuation.separator.delimiter.php" }
+      ]
+    },
+    "named-argument": {
+      "match": "\\b([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)\\s*(:)(?!:)",
+      "captures": {
+        "1": { "name": "entity.name.variable.parameter.php" },
+        "2": { "name": "punctuation.separator.colon.php" }
+      }
+    },
+    "identifier": {
+      "match": "\\b[A-Z_][A-Z0-9_]{2,}\\b",
+      "name": "constant.other.php"
+    },
+    "class-name-reference": {
+      "match": "\\b[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*\\b",
+      "name": "entity.other.inherited-class.php"
+    },
+    "php-type-expression": {
+      "patterns": [
+        {
+          "match": "\\b(?i:int|float|string|bool|void|never|mixed|object|callable|array|iterable|null|true|false)\\b",
+          "name": "keyword.other.type.php"
+        },
+        { "match": "\\b(?i:self|static|parent)\\b", "name": "storage.type.php" },
+        { "match": "\\?", "name": "keyword.operator.nullable-type.php" },
+        { "match": "\\|", "name": "punctuation.separator.delimiter.php" },
+        { "match": "&(?!\\s*\\$)", "name": "punctuation.separator.delimiter.php" },
+        {
+          "match": "(\\\\)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*(?:\\\\[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)*)",
+          "captures": {
+            "1": { "name": "punctuation.separator.inheritance.php" },
+            "2": { "name": "support.class.php" }
+          }
+        },
+        {
+          "match": "\\b[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*\\b",
+          "name": "support.class.php"
+        }
+      ]
+    },
+    "php-return-type": {
+      "begin": "(\\:)",
+      "beginCaptures": {
+        "1": { "name": "keyword.operator.return-value.php" }
+      },
+      "end": "(?=[{;,)>]|\\b(?i:extends|implements|use)\\b)",
+      "patterns": [
+        { "include": "#php-type-expression" },
+        { "include": "#comment" }
+      ]
+    },
+    "php-parameter-list": {
+      "begin": "\\(",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.parameters.begin.php" }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.parameters.end.php" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#attribute" },
+        { "include": "#keyword-modifier" },
+        { "include": "#php-type-expression" },
+        { "include": "#variable" },
+        { "include": "#operator" },
+        { "include": "#string-single-quoted" },
+        { "include": "#string-double-quoted" },
+        { "include": "#number" },
+        { "include": "#constant-language" },
+        { "include": "#square-brackets" },
+        { "include": "#round-brackets" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "constant-language": {
+      "match": "\\b(?i:true|false|null)\\b",
+      "name": "constant.language.php"
+    },
+    "php-constructor-declaration": {
+      "begin": "(?i:\\b(function)\\s+(__construct)\\s*)",
+      "beginCaptures": {
+        "1": { "name": "storage.type.function.php" },
+        "2": { "name": "support.function.constructor.php" }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "name": "meta.function.php",
+      "patterns": [
+        { "include": "#php-parameter-list" },
+        { "include": "#php-return-type" },
+        { "include": "#code-block" },
+        { "include": "#comment" }
+      ]
+    },
+    "php-magic-method-declaration": {
+      "begin": "(?i:\\b(function)\\s+(&\\s*)?((?:__(?:destruct|call|callStatic|get|set|isset|unset|sleep|wakeup|serialize|unserialize|toString|invoke|set_state|clone|debugInfo)))\\s*)",
+      "beginCaptures": {
+        "1": { "name": "storage.type.function.php" },
+        "2": { "name": "storage.modifier.reference.php" },
+        "3": { "name": "support.function.magic.php" }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "name": "meta.function.php",
+      "patterns": [
+        { "include": "#php-parameter-list" },
+        { "include": "#php-return-type" },
+        { "include": "#code-block" },
+        { "include": "#comment" }
+      ]
+    },
+    "php-function-declaration": {
+      "begin": "(?i:\\b(function)\\s+(&\\s*)?([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)\\s*)",
+      "beginCaptures": {
+        "1": { "name": "storage.type.function.php" },
+        "2": { "name": "storage.modifier.reference.php" },
+        "3": { "name": "entity.name.function.php" }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "name": "meta.function.php",
+      "patterns": [
+        { "include": "#php-parameter-list" },
+        { "include": "#php-return-type" },
+        { "include": "#code-block" },
+        { "include": "#comment" }
+      ]
+    },
+    "php-closure": {
+      "begin": "(?i)\\b(function)\\s*(?=\\s*&?\\s*\\()",
+      "beginCaptures": {
+        "1": { "name": "storage.type.function.php" }
+      },
+      "end": "(?<=\\})|(?=;|,|\\))",
+      "name": "meta.function.closure.php",
+      "patterns": [
+        { "include": "#php-parameter-list" },
+        { "include": "#php-closure-use" },
+        { "include": "#php-return-type" },
+        { "include": "#code-block" },
+        { "include": "#comment" }
+      ]
+    },
+    "php-closure-use": {
+      "begin": "(?i)\\b(use)\\s*(\\()",
+      "beginCaptures": {
+        "1": { "name": "keyword.other.function.use.php" },
+        "2": { "name": "punctuation.definition.parameters.begin.php" }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.parameters.end.php" }
+      },
+      "patterns": [
+        { "match": "&(?=\\s*\\$)", "name": "storage.modifier.reference.php" },
+        { "include": "#variable" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "php-catch-block": {
+      "begin": "(?i)\\b(catch)\\s*(\\()",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.exception.catch.php" },
+        "2": { "name": "punctuation.definition.parameters.begin.php" }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.parameters.end.php" }
+      },
+      "name": "meta.catch.php",
+      "patterns": [
+        {
+          "match": "(\\\\)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*(?:\\\\[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)*)",
+          "captures": {
+            "1": { "name": "punctuation.separator.inheritance.php" },
+            "2": { "name": "support.class.exception.php" }
+          }
+        },
+        {
+          "match": "\\b[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*\\b",
+          "name": "support.class.exception.php"
+        },
+        { "match": "\\|", "name": "punctuation.separator.delimiter.php" },
+        { "include": "#variable" }
+      ]
+    },
+    "php-namespace-declaration": {
+      "match": "(?i)\\b(namespace)\\s+((?:[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*\\\\)*[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+      "captures": {
+        "1": { "name": "keyword.other.namespace.php" },
+        "2": { "name": "entity.name.type.namespace.php" }
+      }
+    },
+    "php-class-declaration": {
+      "begin": "\\b((?i:class))\\s+([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+      "beginCaptures": {
+        "1": { "name": "storage.type.class.php" },
+        "2": { "name": "entity.name.type.class.php" }
+      },
+      "end": "(?<=\\})",
+      "name": "meta.class.php",
+      "patterns": [
+        { "include": "#keyword-other" },
+        { "include": "#namespace-name" },
+        { "include": "#class-name-reference" },
+        { "include": "#punctuation" },
+        { "include": "#class-body" },
+        { "include": "#comment" }
+      ]
+    },
+    "php-interface-declaration": {
+      "begin": "\\b((?i:interface))\\s+([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+      "beginCaptures": {
+        "1": { "name": "storage.type.interface.php" },
+        "2": { "name": "entity.name.type.interface.php" }
+      },
+      "end": "(?<=\\})",
+      "name": "meta.interface.php",
+      "patterns": [
+        { "include": "#keyword-other" },
+        { "include": "#namespace-name" },
+        { "include": "#class-name-reference" },
+        { "include": "#punctuation" },
+        { "include": "#class-body" },
+        { "include": "#comment" }
+      ]
+    },
+    "php-trait-declaration": {
+      "begin": "\\b((?i:trait))\\s+([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+      "beginCaptures": {
+        "1": { "name": "storage.type.trait.php" },
+        "2": { "name": "entity.name.type.trait.php" }
+      },
+      "end": "(?<=\\})",
+      "name": "meta.trait.php",
+      "patterns": [
+        { "include": "#keyword-other" },
+        { "include": "#namespace-name" },
+        { "include": "#class-name-reference" },
+        { "include": "#punctuation" },
+        { "include": "#class-body" },
+        { "include": "#comment" }
+      ]
+    },
+    "php-enum-declaration": {
+      "begin": "\\b((?i:enum))\\s+([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+      "beginCaptures": {
+        "1": { "name": "storage.type.enum.php" },
+        "2": { "name": "entity.name.type.enum.php" }
+      },
+      "end": "(?<=\\})",
+      "name": "meta.enum.php",
+      "patterns": [
+        { "include": "#keyword-other" },
+        { "include": "#namespace-name" },
+        { "include": "#php-return-type" },
+        { "include": "#class-name-reference" },
+        { "include": "#punctuation" },
+        { "include": "#class-body" },
+        { "include": "#comment" }
+      ]
+    },
+    "class-body": {
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.class.body.begin.php" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.class.body.end.php" }
+      },
+      "patterns": [
+        { "include": "#php-class-member" }
+      ]
+    },
+    "php-class-member": {
+      "patterns": [
+        { "include": "#code-body" }
+      ]
+    },
+    "member-access": {
+      "patterns": [
+        {
+          "match": "(->|\\?->)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "keyword.operator.class.php" },
+            "2": { "name": "entity.name.function.php" }
+          }
+        },
+        {
+          "match": "(->|\\?->)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+          "captures": {
+            "1": { "name": "keyword.operator.class.php" },
+            "2": { "name": "variable.other.property.php" }
+          }
+        }
+      ]
+    },
+    "static-access": {
+      "patterns": [
+        {
+          "match": "(::)(\\$)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+          "captures": {
+            "1": { "name": "keyword.operator.class.php" },
+            "2": { "name": "punctuation.definition.variable.php" },
+            "3": { "name": "variable.other.class.php" }
+          }
+        },
+        {
+          "match": "(::)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "keyword.operator.class.php" },
+            "2": { "name": "entity.name.function.php" }
+          }
+        },
+        {
+          "match": "(::)(class)\\b",
+          "captures": {
+            "1": { "name": "keyword.operator.class.php" },
+            "2": { "name": "keyword.other.class.php" }
+          }
+        },
+        {
+          "match": "(::)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+          "captures": {
+            "1": { "name": "keyword.operator.class.php" },
+            "2": { "name": "constant.other.class.php" }
+          }
+        }
+      ]
+    },
+    "class-reference-static": {
+      "match": "\\b([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)(?=\\s*::)",
+      "captures": {
+        "1": { "name": "support.class.php" }
+      }
+    },
+    "function-call": {
+      "match": "\\b([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)\\s*(?=\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.php" }
+      }
+    },
+    "php-anonymous-class": {
+      "begin": "(\\b(?i:new)\\b)\\s+(\\b(?i:class)\\b)",
+      "beginCaptures": {
+        "1": { "name": "keyword.other.new.php" },
+        "2": { "name": "storage.type.class.php" }
+      },
+      "end": "(?<=\\})",
+      "name": "meta.class.anonymous.php",
+      "patterns": [
+        { "include": "#round-brackets" },
+        { "include": "#keyword-other" },
+        { "include": "#namespace-name" },
+        { "include": "#class-name-reference" },
+        { "include": "#punctuation" },
+        { "include": "#class-body" },
+        { "include": "#comment" }
+      ]
+    },
+    "new-expression": {
+      "match": "(\\b(?i:new)\\b)\\s+(?!(?i:self|static|parent|class)\\b)(\\\\?(?:[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*\\\\)*[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)",
+      "captures": {
+        "1": { "name": "keyword.other.new.php" },
+        "2": {
+          "patterns": [
+            { "match": "\\\\", "name": "punctuation.separator.inheritance.php" },
+            { "match": "[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*", "name": "support.class.php" }
+          ]
+        }
+      }
+    },
+    "declare-directive": {
+      "match": "\\b(strict_types|ticks|encoding)\\b",
+      "name": "support.constant.core.php"
+    },
+    "namespace-function-call": {
+      "match": "(\\\\)((?:[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*\\\\)*)([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)\\s*(?=\\()",
+      "captures": {
+        "1": { "name": "punctuation.separator.inheritance.php" },
+        "2": {
+          "patterns": [
+            { "match": "\\\\", "name": "punctuation.separator.inheritance.php" },
+            { "match": "[a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*", "name": "support.other.namespace.php" }
+          ]
+        },
+        "3": { "name": "entity.name.function.php" }
+      }
+    },
+    "this-variable": {
+      "match": "(\\$)(this)\\b",
+      "captures": {
+        "1": { "name": "punctuation.definition.variable.php" },
+        "2": { "name": "variable.language.this.php" }
+      }
+    },
+    "nullable-type": {
+      "match": "\\?(?=\\\\?[A-Za-z_\\x80-\\xff])",
+      "name": "keyword.operator.nullable-type.php"
+    },
+    "type-hint-class": {
+      "match": "\\b([a-zA-Z_\\x80-\\xff][a-zA-Z0-9_\\x80-\\xff]*)\\s+(?=\\??\\$)",
+      "captures": {
+        "1": { "name": "support.class.php" }
+      }
+    }
+  }
+}

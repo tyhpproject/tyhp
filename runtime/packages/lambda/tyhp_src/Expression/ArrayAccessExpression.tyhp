@@ -1,0 +1,17 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+final class ArrayAccessExpression extends ExpressionNode {
+    public function __construct(
+        public readonly ExpressionNode $array,
+        public readonly ExpressionNode $index,
+        string $type = 'mixed',
+    ) {
+        parent::__construct($type, 'arrayAccess');
+    }
+
+    public function accept(ExpressionVisitor $visitor): mixed {
+        return $visitor->visitArrayAccess($this);
+    }
+}

@@ -1,0 +1,13 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+interface HasName
+{
+    public string $name { get; set; }
+}
+
+abstract class Named
+{
+    abstract public string $title { get; set; }
+}

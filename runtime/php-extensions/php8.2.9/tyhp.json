@@ -1,0 +1,12 @@
+{
+    "quiet": false,
+    "locale": "en-US",
+    "include": [
+        "./*.tyhpdef"
+    ],
+    "exclude": [],
+    "output": {
+        "path": "./build",
+        "buildType": "C# AST"
+    }
+}

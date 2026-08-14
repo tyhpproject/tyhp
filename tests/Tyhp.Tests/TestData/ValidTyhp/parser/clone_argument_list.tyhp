@@ -1,0 +1,24 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+class CloneSample
+{
+}
+
+function sampleCloneForms(CloneSample $obj, array $props, array $objs): void
+{
+    // Unary (including parenthesized single expr — not clone_argument_list)
+    $a = clone $obj;
+    $b = clone($obj);
+    $c = clone ($obj);
+
+    // Call forms (php-src clone_argument_list)
+    $d = clone();
+    $e = clone($obj,);
+    $f = clone($obj, $props);
+    $g = clone($obj, $props,);
+    $h = clone(...);
+    $i = clone(object: $obj);
+    $j = clone(...$objs);
+}

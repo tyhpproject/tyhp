@@ -1,0 +1,168 @@
+{
+    "type": "toc",
+    "content": [
+        {
+            "icon": "fa-chalkboard-user",
+            "description": "",
+            "lastUpdated": "", // leave empty to auto-calculate based on file modification timestamps
+            "section": "Introduction",
+            "items": [
+                "_template.md",
+                "intro.md",
+                "intro_installation.md",
+                "intro_gettingStarted.md",
+                "intro_upgradeGuides.md",
+                "intro_newSyntaxCreation.md"
+            ]
+        },
+        {
+            "icon": "fa-bolt",
+            "description": "A condensed overview of every Tyhp feature and syntax in one page.",
+            "lastUpdated": "", // leave empty to auto-calculate based on file modification timestamps
+            "section": "Quick Reference",
+            "items": [
+                "quickref.md",
+                "quickref_tyhpdef.md"
+            ]
+        },
+        {
+            "icon": "fa-code-compare",
+            "description": "Explore alternative and similar projects that do similar things as Tyhp.",
+            "lastUpdated": "", // leave empty to auto-calculate based on file modification timestamps
+            "section": "Alternative and Similar Projects",
+            "items": [
+                "other_hack.md",
+                "other_pxp.md",
+                "other_reactphp.md",
+                "other_bref.md",
+                "other_typescript.md"
+            ]
+        },
+        {
+            "icon": "fa-code",
+            "description": "Explore the Tyhp language features and syntax.",
+            "lastUpdated": "", // leave empty to auto-calculate based on file modification timestamps
+            "section": "Tyhp",
+            "items": [
+                "tyhp_0000_openTag.md",
+                "tyhp_0100_stronglyTyped.md",
+                "tyhp_0150_newTypes.md", // the decimal type, nd other new types
+                "tyhp_0151_newFunctions.md", // new functions
+                "tyhp_0200_typeNarrowingAndGuards.md", // typeguard functions/methods and the type guard return type
+                "tyhp_0300_includingFiles.md", // declare(output_file=,tag=), include(_once)/require(_once)
+                "tyhp_0310_declarationGating.md", // if (!function_exists/class_exists) declaration gates + FQN checks
+                "tyhp_0350_useStatements.md", // use statements, use extension, generic import aliases
+                "tyhp_0400_structs.md", // structs
+                "tyhp_0500_generics.md", // generics
+                "tyhp_0600_theMixedType.md", // about using the mixed type
+                "tyhp_0700_typeAliases.md", // type aliases on root and on class, encaps string with * or +
+                "tyhp_0800_staticValueTypes.md", // static value types
+                "tyhp_1000_scalarPseudoObjects.md", // scalar types as objects
+                "tyhp_1100_shortFunctionSyntax.md", // short function/method syntax
+                "tyhp_1200_functionOverloads.md", // function/method signature overlaods
+                "tyhp_1300_newObjectDeclSyntax.md", // new/changed class/interface/enum/trait syntax
+                "tyhp_1600_operatorOverloads.md", // operator overloads
+                "tyhp_2000_traitRequirements.md", // trait requirements (extends and implements)
+                "tyhp_2100_extensions.md", // extensions
+                "tyhp_2200_withKeyword.md", // `with` keyword
+                "tyhp_2300_disposables.md", // disposables and the := (using-equal) operator
+                "tyhp_2400_dynamicLanguageFeatures.md", // dynamic language features
+                "tyhp_2500_phpMagicMethods.md", // PHP magic methods (__get, __set, __call, etc.) and type safety
+                "tyhp_2600_asyncAndAwait.md", // async/await
+                "tyhp_2700_compileTimeConstructs.md", // `nameof()`, `default()`, and `typeof()`
+                "tyhp_2800_importPHPVar.md", // import raw PHP variable
+                "tyhp_2900_lostFunctionality.md", // lost/changed functionality from PHP
+                "tyhp_3000_parsableLambdas.md", // parsable lambdas and expression trees
+                "tyhp_3100_internalModifier.md", // the internal visibility modifier
+                "tyhp_3200_initPropertyModifier.md", // the init property modifier
+                "tyhp_3300_nullConditionalAssignment.md", // null-conditional assignment ($obj?->prop = val)
+                "tyhp_3400_newTypeConstraint.md", // new<TArgs...> constructable object type
+                "tyhp_3500_genericDefaults.md" // generic type parameter defaults
+            ]
+        },
+        {
+            "icon": "fa-triangle-exclamation",
+            "description": "Understand compiler errors, warnings, and how to fix them.",
+            "lastUpdated": "", // leave empty to auto-calculate based on file modification timestamps
+            "section": "Compiler Diagnostics",
+            "items": [
+                "diagnostics_overview.md", // diagnostic system overview
+                "diagnostics_reference.md" // complete error code reference
+            ]
+        },
+        {
+            "icon": "fa-book-atlas",
+            "description": "Learn about the Tyhpdef syntax and how it is used.",
+            "lastUpdated": "", // leave empty to auto-calculate based on file modification timestamps
+            "section": "Tyhpdef",
+            "items": [
+                "tyhpdef_about.md", // intro
+                "tyhpdef_openTag.md", // open tag
+                "tyhpdef_interfaces.md", // interfaces
+                "tyhpdef_classes.md", // classes
+                "tyhpdef_enums.md", // enums
+                "tyhpdef_traits.md", // traits
+                "tyhpdef_structs.md", // structs
+                "tyhpdef_variablesAndConstants.md", // vars and constants
+                "tyhpdef_functions.md", // functions
+                "tyhpdef_typeAliases.md", // type aliases
+                "tyhpdef_namespaces.md", // namespaces
+                "tyhpdef_importAliases.md", // import aliases
+                "tyhpdef_overloadedFunctions.md", // overload function/method signatures
+                "tyhpdef_deprecatedKeyword.md", // deprecated keyword
+                "tyhpdef_runTimeErrorsAndExceptions.md" // run time errors and exceptions
+            ]
+        },
+        {
+            "icon": "fa-code-branch",
+            "description": "How and when Tyhp releases updates.",
+            "lastUpdated": "", // leave empty to auto-calculate based on file modification timestamps
+            "section": "Tyhp Releases",
+            "items": [
+                "release_planning.md", // Tyhp release planning
+                "release_roadmap.md", // out current road map
+                "release_prevList.md" // previous releases
+            ]
+        },
+        {
+            "icon": "fa-terminal",
+            "description": "Learn about using Tyhp from the command line.",
+            "lastUpdated": "", // leave empty to auto-calculate based on file modification timestamps
+            "section": "Tyhp CLI",
+            "items": [
+                "cli_intro.md",
+                "cli_build.md", // build
+                "cli_interopContract.md", // interop contract
+                "cli_lint.md", // lint
+                "cli_languageServer.md", // language server
+                "cli_xdebugProxy.md", // xdebug proxy
+                "cli_sourcemapGeneration.md", // sourcemap generation
+                "cli_tyhpdefGeneration.md" // tyhpdef generation from PHP extensions
+            ]
+        },
+        {
+            "icon": "fa-screwdriver-wrench",
+            "description": "Everything about configuring Tyhp and setting up a Tyhp project.",
+            "lastUpdated": "", // leave empty to auto-calculate based on file modification timestamps
+            "section": "Tyhp Project File and Configuration",
+            "items": [
+                "project_intro.md",
+                "project_optionsList.md" // all config options
+            ]
+        },
+        {
+            "icon": "fa-lightbulb",
+            "description": "",
+            "lastUpdated": "", // leave empty to auto-calculate based on file modification timestamps
+            "section": "FAQs",
+            "items": [
+                "faq_general.md",
+                "faq_tyhpSyntax.md",
+                "faq_tyhpdefSyntax.md",
+                "faq_cli.md",
+                "faq_project.md",
+                "faq_other.md"
+            ]
+        }
+    ]
+}

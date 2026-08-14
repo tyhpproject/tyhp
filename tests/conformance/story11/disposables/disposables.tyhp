@@ -1,0 +1,12 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+class DbConnection implements \Tyhp\Contracts\IsDisposable {
+    public function dispose(): void {
+    }
+}
+
+function demo(): void {
+    $db := new DbConnection();
+}

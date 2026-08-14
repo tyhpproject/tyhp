@@ -1,0 +1,77 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\Exceptions\OperationCancelledException;
+
+final class CancellationToken {
+    private bool $cancelled = false;
+    private array<int, callable> $callbacks = [];
+    private static ?CancellationToken $none = null;
+
+    public function __construct() {}
+
+    public function isCancellationRequested(): bool {
+        return $this->cancelled;
+    }
+
+    public function throwIfCancellationRequested(): void {
+        if ($this->cancelled) {
+            throw new OperationCancelledException($this);
+        }
+    }
+
+    /**
+     * Registers a callback to be invoked when cancellation is requested.
+     * If already cancelled, the callback fires immediately.
+     * Returns a closure that deregisters the callback when called.
+     */
+    public function register(callable $callback): \Closure {
+        if ($this->cancelled) {
+            $callback();
+            return static fn() => null;
+        }
+
+        $this->callbacks[] = $callback;
+        int $index = \array_key_last($this->callbacks) ?? 0;
+
+        return function () use ($index): void {
+            unset($this->callbacks[$index]);
+        };
+    }
+
+    /**
+     * Returns a singleton token that is never cancelled.
+     */
+    public static function none(): CancellationToken {
+        return self::$none ??= new CancellationToken();
+    }
+
+    /**
+     * Transitions the token to the cancelled state and fires all registered callbacks.
+     *
+     * @internal Only CancellationTokenSource should call this method.
+     */
+    public function cancel(): void {
+        if ($this === self::$none) {
+            return;
+        }
+        if ($this->cancelled) {
+            return;
+        }
+        $this->cancelled = true;
+        array<int, callable> $callbacks = $this->callbacks;
+        $this->callbacks = [];
+        ?\Throwable $firstException = null;
+        foreach ($callbacks as $callback) {
+            try {
+                $callback();
+            } catch (\Throwable $e) {
+                $firstException ??= $e;
+            }
+        }
+        if ($firstException !== null) {
+            throw $firstException;
+        }
+    }
+}

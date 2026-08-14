@@ -1,0 +1,9 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+use App\Models\User;
+
+function demo(): void {
+    $u = new User();
+}

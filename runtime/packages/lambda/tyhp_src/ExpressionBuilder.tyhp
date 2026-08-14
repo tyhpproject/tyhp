@@ -1,0 +1,380 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\Expression\BinaryExpression;
+use Tyhp\Expression\ConstantExpression;
+use Tyhp\Expression\ExpressionNode;
+use Tyhp\Expression\FluentSupport;
+use Tyhp\Expression\ParameterExpression;
+
+/**
+ * Fluent PHP-interop builder for boolean / compound {@see Expression} trees.
+ *
+ * Created by promoting a {@see PropertyPathBuilder} through a comparison (`gt`, `eq`, …).
+ * Once promoted, the chain cannot return to {@see PropertyPathBuilder}.
+ *
+ * Continuation after `and()` / `or()` uses the same `->prop()` / `->__get()` property sugar
+ * to build the right-hand side, then another comparison to finish the compound expression.
+ *
+ * Static analysis / IDE property autocomplete for `T` uses both intersection returns
+ * (`ExpressionBuilder<T>&T`) and mixin tags below (PhpStorm, PHPStan, Psalm, Phan).
+ *
+ * @template T of object
+ * @mixin T
+ * @extends Expression<T, bool>
+ *
+ * @phpstan-template T of object
+ * @phpstan-mixin T
+ * @phpstan-extends Expression<T, bool>
+ *
+ * @psalm-template T of object
+ * @psalm-mixin T
+ * @psalm-extends Expression<T, bool>
+ */
+class ExpressionBuilder<T> extends Expression<T, bool> {
+    /**
+     * @param class-string<T>|string $sourceType
+     * @param array<ParameterExpression> $parameters
+     * @param array<string> $path RHS property segments while continuing after and()/or().
+     * @param array<bool> $nullSafeFlags
+     */
+    public function __construct(
+        /** @var class-string<T>|string */
+        private string $sourceType,
+        ExpressionNode $body,
+        array<ParameterExpression> $parameters,
+        \Closure $callable,
+        string $returnType = 'bool',
+        private array<string> $path = [],
+        private array<bool> $nullSafeFlags = [],
+        private ?Expression<T, mixed> $pendingLeft = null,
+        private ?string $pendingCombinator = null,
+    ): parent($body, $parameters, $callable, $returnType) {}
+
+    /**
+     * @param class-string<TSource>|string $sourceType
+     * @param array<ParameterExpression> $parameters
+     * @return ExpressionBuilder<TSource>
+     *
+     * @phpstan-return ExpressionBuilder<TSource>
+     * @psalm-return ExpressionBuilder<TSource>
+     */
+    public static function fromComparison<TSource>(
+        string $sourceType,
+        ExpressionNode $body,
+        array<ParameterExpression> $parameters,
+        \Closure $callable,
+    ): ExpressionBuilder<TSource> {
+        return new ExpressionBuilder<TSource>($sourceType, $body, $parameters, $callable, 'bool');
+    }
+
+    /**
+     * Continue a fluent chain from an existing expression (`and()` / `or()` with no RHS yet).
+     *
+     * Mixes in `TOf` via class-level `@mixin` / `@phpstan-mixin` / `@psalm-mixin` so the
+     * RHS property chain has IDE autocomplete.
+     *
+     * @template TOf of object
+     * @param class-string<TOf>|string $sourceType
+     * @return ExpressionBuilder<TOf>&TOf
+     *
+     * @phpstan-template TOf of object
+     * @phpstan-return ExpressionBuilder<TOf>&TOf
+     * @psalm-template TOf of object
+     * @psalm-return ExpressionBuilder<TOf>&TOf
+     */
+    public static function continueFrom<TOf>(
+        Expression<TOf, mixed> $left,
+        string $combinator,
+        string $sourceType,
+    ): ExpressionBuilder<TOf> {
+        if ($combinator !== '&&' && $combinator !== '||') {
+            throw new \InvalidArgumentException("Unsupported combinator: {$combinator}");
+        }
+
+        return new ExpressionBuilder<TOf>(
+            $sourceType,
+            $left->body,
+            $left->parameters,
+            $left->callable,
+            $left->returnType,
+            path: [],
+            nullSafeFlags: [],
+            pendingLeft: $left,
+            pendingCombinator: $combinator,
+        );
+    }
+
+    /**
+     * Append a property segment on the RHS after `and()` / `or()`.
+     *
+     * @return ExpressionBuilder<T>&T
+     *
+     * @phpstan-return ExpressionBuilder<T>&T
+     * @psalm-return ExpressionBuilder<T>&T
+     */
+    public function prop(string $name, bool $nullSafe = false): ExpressionBuilder<T> {
+        $this->assertCanAccessProperty();
+
+        array<string> $path = $this->path;
+        $path[] = $name;
+
+        array<bool> $flags = $this->nullSafeFlags;
+        $flags[] = $nullSafe;
+
+        return new ExpressionBuilder<T>(
+            $this->sourceType,
+            $this->body,
+            $this->parameters,
+            $this->callable,
+            $this->returnType,
+            $path,
+            $flags,
+            $this->pendingLeft,
+            $this->pendingCombinator,
+        );
+    }
+
+    /**
+     * Relies on `@mixin T` (PhpStorm / Phan), `@phpstan-mixin T`, and `@psalm-mixin T`
+     * on this class so `$builder->age` resolves as a property of `T`.
+     *
+     * @return ExpressionBuilder<T>&T
+     *
+     * @phpstan-return ExpressionBuilder<T>&T
+     * @psalm-return ExpressionBuilder<T>&T
+     */
+    public function __get(string $name): ExpressionBuilder<T> {
+        return $this->prop($name);
+    }
+
+    /**
+     * @throws \BadMethodCallException
+     */
+    public function __set(string $name, mixed $value): void {
+        throw new \BadMethodCallException(
+            nameof(ExpressionBuilder) . ' does not support setting properties.'
+            . " Attempted to set: {$name}",
+        );
+    }
+
+    /**
+     * Method calls on the source type are not supported on the fluent builder.
+     *
+     * @param array<int|string, mixed> $arguments
+     * @return never
+     * @throws \BadMethodCallException
+     *
+     * @phpstan-return never
+     * @psalm-return never
+     */
+    public function __call(string $name, array $arguments): mixed {
+        throw new \BadMethodCallException(
+            nameof(ExpressionBuilder) . ' only supports property access via ->name or ->prop(),'
+            . " not method calls. Attempted: {$name}()",
+        );
+    }
+
+    /**
+     * Combine with another expression (`&&`), or begin an RHS property chain when `$other` is omitted.
+     *
+     * @return ExpressionBuilder<T>&T
+     * @phpstan-return ExpressionBuilder<T>&T
+     * @psalm-return ExpressionBuilder<T>&T
+     */
+    public function and(?Expression<T, mixed> $other = null): ExpressionBuilder<T> {
+        return $this->combineOrContinue('&&', $other);
+    }
+
+    /**
+     * Combine with another expression (`||`), or begin an RHS property chain when `$other` is omitted.
+     *
+     * @return ExpressionBuilder<T>&T
+     * @phpstan-return ExpressionBuilder<T>&T
+     * @psalm-return ExpressionBuilder<T>&T
+     */
+    public function or(?Expression<T, mixed> $other = null): ExpressionBuilder<T> {
+        return $this->combineOrContinue('||', $other);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function gt(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('>', $value);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function gte(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('>=', $value);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function lt(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('<', $value);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function lte(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('<=', $value);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function eq(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('==', $value);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function neq(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('!=', $value);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function same(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('===', $value);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function notSame(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('!==', $value);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function isNull(): ExpressionBuilder<T> {
+        return $this->compare('===', null);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function isNotNull(): ExpressionBuilder<T> {
+        return $this->compare('!==', null);
+    }
+
+    private function assertCanAccessProperty(): void {
+        if ($this->pendingLeft === null) {
+            throw new \LogicException(
+                'Cannot access properties on a completed expression.'
+                . ' Call and()/or() to continue, or start from ' . nameof(Expression) . '::of().',
+            );
+        }
+    }
+
+    private function assertComplete(): void {
+        if ($this->path !== []) {
+            throw new \LogicException(
+                'Finish the property comparison before calling and()/or().',
+            );
+        }
+        if ($this->pendingLeft !== null) {
+            throw new \LogicException(
+                'Finish the right-hand side after and()/or() before combining further.',
+            );
+        }
+    }
+
+    private function combineOrContinue(
+        string $combinator,
+        ?Expression<T, mixed> $other,
+    ): ExpressionBuilder<T> {
+        $this->assertComplete();
+
+        if ($other !== null) {
+            Expression<mixed, bool> $combined = FluentSupport::combine($this, $other, $combinator);
+            return new ExpressionBuilder<T>(
+                $this->sourceType,
+                $combined->body,
+                $combined->parameters,
+                $combined->callable,
+                'bool',
+            );
+        }
+
+        return self::continueFrom<T>($this, $combinator, $this->sourceType);
+    }
+
+    private function compare(string $operator, mixed $value): ExpressionBuilder<T> {
+        if ($this->pendingLeft === null) {
+            throw new \LogicException(
+                'Comparisons on ' . nameof(ExpressionBuilder) . ' require and()/or() followed by a property path,'
+                . ' or start from ' . nameof(Expression) . '::of().',
+            );
+        }
+        if ($this->path === []) {
+            throw new \LogicException(
+                'Continue the property path after and()/or() before comparing.',
+            );
+        }
+
+        \Tyhp\Expression\Structs\PathNode $pathNodes = FluentSupport::buildPathNodes(
+            $this->sourceType,
+            $this->path,
+            $this->nullSafeFlags,
+        );
+        ParameterExpression $paramExpr = $pathNodes->parameterExpression;
+        ExpressionNode $leftBody = $pathNodes->body;
+
+        BinaryExpression $rhsBody = new BinaryExpression(
+            $leftBody,
+            $operator,
+            new ConstantExpression($value),
+            'bool',
+        );
+        \Closure $pathCallable = FluentSupport::synthesizePathCallable($this->path, $this->nullSafeFlags);
+        \Closure $rhsCallable = static function (mixed $source) use ($pathCallable, $operator, $value): bool {
+            return FluentSupport::evaluateBinary($pathCallable($source), $operator, $value);
+        };
+
+        Expression<T, bool> $rhs = new Expression<T, bool>($rhsBody, [$paramExpr], $rhsCallable, 'bool');
+        Expression<mixed, bool> $combined = FluentSupport::combine(
+            $this->pendingLeft,
+            $rhs,
+            $this->pendingCombinator ?? '&&',
+        );
+
+        return new ExpressionBuilder<T>(
+            $this->sourceType,
+            $combined->body,
+            $combined->parameters,
+            $combined->callable,
+            'bool',
+        );
+    }
+}

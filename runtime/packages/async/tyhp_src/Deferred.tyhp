@@ -1,0 +1,41 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\Exceptions\InvalidPromiseStateException;
+
+final class Deferred<T extends void|mixed = void> {
+    private Promise<T> $promise;
+    private bool $settled = false;
+
+    /**
+     * Creates a new Deferred with a pending Promise.
+     * The Promise's executor suspends immediately via Fiber::suspend(),
+     * waiting for external resolution through resolve() or reject().
+     */
+    public function __construct() {
+        $this->promise = new Promise<T>(function (): mixed {
+            return \Fiber::suspend();
+        });
+    }
+
+    public function getPromise(): Promise<T> {
+        return $this->promise;
+    }
+
+    public function resolve(?T $value = null): void {
+        if ($this->settled) {
+            throw new InvalidPromiseStateException('Deferred has already been settled');
+        }
+        $this->settled = true;
+        $this->promise->doResolve($value);
+    }
+
+    public function reject(\Throwable $reason): void {
+        if ($this->settled) {
+            throw new InvalidPromiseStateException('Deferred has already been settled');
+        }
+        $this->settled = true;
+        $this->promise->doReject($reason);
+    }
+}

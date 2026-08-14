@@ -1,0 +1,27 @@
+<?tyhp
+
+namespace Tyhp;
+
+final class NamedType extends Type
+{
+    public function __construct(
+        private readonly string $parameterName,
+        private readonly Type $underlyingType,
+        bool $readOnly = false,
+    ): parent (
+        'named',
+        $parameterName,
+        [],
+        $readOnly,
+        $underlyingType->isNullable(),
+    ) {}
+
+    public fn getParameterName(): string => $this->parameterName;
+
+    public fn getUnderlyingType(): Type => $this->underlyingType;
+
+    public fn asReadOnly(): self
+        => $this->isReadOnly() ? $this : new self($this->parameterName, $this->underlyingType, readOnly: true);
+
+    public fn __toString(): string => (string) $this->underlyingType;
+}

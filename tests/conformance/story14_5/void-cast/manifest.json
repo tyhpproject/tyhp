@@ -1,0 +1,28 @@
+{
+  "suite": "story14_5/void-cast",
+  "description": "Story 14.5 — (void) cast (native PHP 8.5; lower PHP 8.2 omit cast / discarded operand)",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "native_void_cast",
+      "file": "void_cast.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    },
+    {
+      "id": "lower_void_cast_php82",
+      "file": "void_cast_lower.tyhp",
+      "config": {
+        "output:phpVersion": "8.2"
+      },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Lower/_functions.php"
+      }
+    }
+  ]
+}

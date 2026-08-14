@@ -1,0 +1,48 @@
+# macOS
+.DS_Store
+._*
+
+# .NET
+bin/
+obj/
+TestResults/
+
+# Compiler / publish output
+build/
+dist/
+out/
+
+# ANTLR IDE artifacts (C# emit is compile_grammar.sh → Parser/)
+.antlr/
+
+# Python
+__pycache__/
+
+# Docs site generator
+docs/output/
+
+# Runtime package emit + Composer installs
+runtime/packages/dist/
+runtime/packages/*/vendor/
+
+# Written by a running tyhp process in any nested tyhp.json project
+tyhp.pid
+.tyhp-cache/
+
+# lint --fix backups
+*.bak
+*.bak.*
+
+# scripts/release.sh temp files
+.release-in-progress
+.tyhp.csproj.release.*
+
+# Local-only (keep on disk, do not ship)
+.cursor/
+dev-docs/RESOLVED_BUGS.md
+DebugProject/
+Examples/
+backup/
+scratch.md
+tools/*
+!tools/genTyhpdef.php

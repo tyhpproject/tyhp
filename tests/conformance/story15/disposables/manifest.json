@@ -1,0 +1,25 @@
+{
+  "suite": "story15/disposables",
+  "description": "Story 15 — interop: := disposable → DisposableScope",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "disposable_class",
+      "file": "disposables.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Handle.php"
+      }
+    },
+    {
+      "id": "disposable_assignment",
+      "file": "disposables.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

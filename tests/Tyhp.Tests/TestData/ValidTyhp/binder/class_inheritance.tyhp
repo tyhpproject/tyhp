@@ -1,0 +1,13 @@
+<?tyhp
+
+namespace TestData\Binder;
+
+class Animal
+{
+    public string $name = 'unknown';
+}
+
+class Dog extends Animal
+{
+    public string $breed = 'mixed';
+}

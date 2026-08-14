@@ -1,0 +1,286 @@
+<?tyhpdef
+
+namespace Tyhp {
+
+    class Expression<TSource, TReturn>
+    {
+        public readonly Expression\ExpressionNode $body;
+        public readonly array<Expression\ParameterExpression> $parameters;
+        public readonly \Closure $callable;
+        public readonly string $returnType;
+
+        public function __construct(
+            Expression\ExpressionNode $body,
+            array<Expression\ParameterExpression> $parameters,
+            \Closure $callable,
+            string $returnType
+        ): void;
+
+        public function __invoke(mixed ...$args): TReturn;
+        public function compile(): \Closure;
+        public function equals(Expression $other): bool;
+    }
+
+    class PropertyPath<TSource, TReturn> extends Expression<TSource, TReturn>
+    {
+        public readonly array<string> $path;
+
+        public function __construct(
+            string $sourceType,
+            string $resultType,
+            array<string> $path,
+            \Closure $callable,
+            bool $allowEmpty = false,
+            array<bool> $nullSafeFlags = []
+        ): void;
+
+        public function getPropertyName(): string;
+        public function getPath(): string;
+        public function getSegments(): array<string>;
+        public function getValue(TSource $source): TReturn;
+    }
+}
+
+namespace Tyhp\Expression {
+
+    abstract class ExpressionNode
+    {
+        public readonly string $type;
+        public readonly string $nodeType;
+
+        public function __construct(
+            string $type,
+            string $nodeType
+        ): void;
+
+        abstract public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    abstract class ExpressionVisitor
+    {
+        public function visit(ExpressionNode $node): mixed;
+        public function visitParameter(ParameterExpression $node): mixed;
+        public function visitPropertyAccess(PropertyAccessExpression $node): mixed;
+        public function visitNullSafeAccess(NullSafeAccessExpression $node): mixed;
+        public function visitMethodCall(MethodCallExpression $node): mixed;
+        public function visitStaticMethodCall(StaticMethodCallExpression $node): mixed;
+        public function visitBinary(BinaryExpression $node): mixed;
+        public function visitUnary(UnaryExpression $node): mixed;
+        public function visitConstant(ConstantExpression $node): mixed;
+        public function visitTernary(TernaryExpression $node): mixed;
+        public function visitCoalesce(CoalesceExpression $node): mixed;
+        public function visitArrayAccess(ArrayAccessExpression $node): mixed;
+        public function visitCast(CastExpression $node): mixed;
+        public function visitNew(NewExpression $node): mixed;
+        public function visitInstanceof(InstanceofExpression $node): mixed;
+    }
+
+    final class ExpressionSerializer
+    {
+        public static function toJson(\Tyhp\Expression $expression): string;
+        public static function equals(\Tyhp\Expression $a, \Tyhp\Expression $b): bool;
+    }
+
+    final class ParameterExpression extends ExpressionNode
+    {
+        public readonly string $name;
+        public readonly string $paramType;
+        public readonly int $index;
+
+        public function __construct(
+            string $name,
+            string $paramType,
+            int $index
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class PropertyAccessExpression extends ExpressionNode
+    {
+        public readonly ExpressionNode $object;
+        public readonly string $property;
+
+        public function __construct(
+            ExpressionNode $object,
+            string $property,
+            string $type
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class BinaryExpression extends ExpressionNode
+    {
+        public readonly ExpressionNode $left;
+        public readonly string $operator;
+        public readonly ExpressionNode $right;
+
+        public function __construct(
+            ExpressionNode $left,
+            string $operator,
+            ExpressionNode $right,
+            string $type
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class UnaryExpression extends ExpressionNode
+    {
+        public readonly string $operator;
+        public readonly ExpressionNode $operand;
+        public readonly bool $isPrefix;
+
+        public function __construct(
+            string $operator,
+            ExpressionNode $operand,
+            bool $isPrefix,
+            string $type
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class TernaryExpression extends ExpressionNode
+    {
+        public readonly ExpressionNode $condition;
+        public readonly ?ExpressionNode $ifTrue;
+        public readonly ExpressionNode $ifFalse;
+
+        public function __construct(
+            ExpressionNode $condition,
+            ?ExpressionNode $ifTrue,
+            ExpressionNode $ifFalse,
+            string $type
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class ConstantExpression extends ExpressionNode
+    {
+        public readonly mixed $value;
+
+        public function __construct(
+            mixed $value,
+            string $type
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class ArrayAccessExpression extends ExpressionNode
+    {
+        public readonly ExpressionNode $array;
+        public readonly ExpressionNode $index;
+
+        public function __construct(
+            ExpressionNode $array,
+            ExpressionNode $index,
+            string $type
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class CoalesceExpression extends ExpressionNode
+    {
+        public readonly ExpressionNode $left;
+        public readonly ExpressionNode $right;
+
+        public function __construct(
+            ExpressionNode $left,
+            ExpressionNode $right,
+            string $type
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class NullSafeAccessExpression extends ExpressionNode
+    {
+        public readonly ExpressionNode $object;
+        public readonly string $property;
+
+        public function __construct(
+            ExpressionNode $object,
+            string $property,
+            string $type
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class MethodCallExpression extends ExpressionNode
+    {
+        public readonly ExpressionNode $object;
+        public readonly string $method;
+        public readonly array<ExpressionNode> $arguments;
+
+        public function __construct(
+            ExpressionNode $object,
+            string $method,
+            array<ExpressionNode> $arguments,
+            string $type
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class StaticMethodCallExpression extends ExpressionNode
+    {
+        public readonly string $class;
+        public readonly string $method;
+        public readonly array<ExpressionNode> $arguments;
+
+        public function __construct(
+            string $class,
+            string $method,
+            array<ExpressionNode> $arguments,
+            string $type
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class NewExpression extends ExpressionNode
+    {
+        public readonly string $class;
+        public readonly array<ExpressionNode> $arguments;
+
+        public function __construct(
+            string $class,
+            array<ExpressionNode> $arguments
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class CastExpression extends ExpressionNode
+    {
+        public readonly string $targetType;
+        public readonly ExpressionNode $operand;
+
+        public function __construct(
+            string $targetType,
+            ExpressionNode $operand
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+
+    final class InstanceofExpression extends ExpressionNode
+    {
+        public readonly ExpressionNode $operand;
+        public readonly string $targetType;
+
+        public function __construct(
+            ExpressionNode $operand,
+            string $targetType,
+            string $type = 'bool'
+        ): void;
+
+        public function accept(ExpressionVisitor $visitor): mixed;
+    }
+}

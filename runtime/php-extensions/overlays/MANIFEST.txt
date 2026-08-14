@@ -1,0 +1,29 @@
+# Overlay snapshot manifest
+
+Captured from live hand-enriched trees for Layer 3 preservation.
+
+## php8.2.9
+     89 ExtBcMath.tyhpdef
+    130 ExtGmp.tyhpdef
+    144 ExtLibxml.tyhpdef
+    145 ExtFilter.tyhpdef
+    167 ExtJson.tyhpdef
+    193 ExtPcre.tyhpdef
+    337 ExtHash.tyhpdef
+    357 ExtPcntl.tyhpdef
+    426 ExtSession.tyhpdef
+    453 ExtZlib.tyhpdef
+    599 ExtRandom.tyhpdef
+   1051 ExtOpenssl.tyhpdef
+   1286 ExtDate.tyhpdef
+   1555 ExtSodium.tyhpdef
+   2439 ExtCore.tyhpdef
+   3022 ExtReflection.tyhpdef
+   6618 ExtSPL.tyhpdef
+   8087 ExtStandard.tyhpdef
+  27098 total
+
+## Decimal
+286 ExtDecimal.tyhpdef
+
+Snapshot date: 2026-08-07T20:07Z

@@ -1,0 +1,34 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+#[\Attribute]
+class HookMarker
+{
+}
+
+class AttributedHooks
+{
+    private string $_name = '';
+
+    public string $name {
+        #[HookMarker]
+        get => $this->_name;
+
+        #[HookMarker]
+        set(string $value) {
+            $this->_name = $value;
+        }
+    }
+}
+
+interface AttributedHookInterface
+{
+    public string $title {
+        #[HookMarker]
+        get;
+
+        #[HookMarker]
+        set;
+    }
+}

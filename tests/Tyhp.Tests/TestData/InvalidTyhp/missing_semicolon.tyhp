@@ -1,0 +1,8 @@
+<?tyhp
+
+namespace TestData\Invalid;
+
+function missingSemicolon(): void
+{
+    int $value = 1
+}

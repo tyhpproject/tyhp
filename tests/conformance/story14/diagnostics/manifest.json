@@ -1,0 +1,36 @@
+{
+  "suite": "story14/diagnostics",
+  "description": "Story 14 — representative diagnostic golden fixtures (error-message quality)",
+  "defaults": {
+    "action": "lint",
+    "config": {
+      "phpVersion": "8.2"
+    }
+  },
+  "cases": [
+    {
+      "id": "unexpected_token",
+      "file": "unexpected_token.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [1002]
+      }
+    },
+    {
+      "id": "unresolved_parameter_type",
+      "file": "symbol_not_found.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [3020]
+      }
+    },
+    {
+      "id": "type_mismatch",
+      "file": "type_mismatch.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4008]
+      }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+function add(int $left, int $right): int
+{
+    return $left + $right;
+}
+
+function greet(string $name, string $prefix = 'Hello'): string
+{
+    return $prefix . ', ' . $name;
+}

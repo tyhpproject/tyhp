@@ -1,0 +1,13 @@
+<?tyhp
+
+namespace TestData\Binder;
+
+struct SerializedExpression {
+    string $nodeType = '';
+    string $type = '';
+}
+
+struct SerializedParameterExpression extends SerializedExpression {
+    string $name = '';
+    int $index = 0;
+}

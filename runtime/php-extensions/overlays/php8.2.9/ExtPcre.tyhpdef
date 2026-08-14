@@ -1,0 +1,194 @@
+<?tyhpdef
+const int PREG_PATTERN_ORDER;
+const int PREG_SET_ORDER;
+const int PREG_OFFSET_CAPTURE;
+const int PREG_UNMATCHED_AS_NULL;
+const int PREG_SPLIT_NO_EMPTY;
+const int PREG_SPLIT_DELIM_CAPTURE;
+const int PREG_SPLIT_OFFSET_CAPTURE;
+const int PREG_GREP_INVERT;
+const int PREG_NO_ERROR;
+const int PREG_INTERNAL_ERROR;
+const int PREG_BACKTRACK_LIMIT_ERROR;
+const int PREG_RECURSION_LIMIT_ERROR;
+const int PREG_BAD_UTF8_ERROR;
+const int PREG_BAD_UTF8_OFFSET_ERROR;
+const int PREG_JIT_STACKLIMIT_ERROR;
+const string PCRE_VERSION;
+const int PCRE_VERSION_MAJOR;
+const int PCRE_VERSION_MINOR;
+const bool PCRE_JIT_SUPPORT;
+/**
+ * Perform a regular expression match
+ * 
+ * Searches `$subject` for a match to the regular expression given in `$pattern`.
+ * 
+ * @param string $pattern The pattern to search for, as a string.
+ * @param string $subject The input string.
+ * @param mixed $matches If `$matches` is provided, then it is filled with the results of search.$matches[0]will contain the text that matched the full pattern,$matches[1]will have the text that matched the first captured parenthesized subpattern, and so on.
+ * @param int $flags `$flags` can be a combination of the following flags: ** `PREG_OFFSET_CAPTURE` ** If this flag is passed, for every occurring match the appendant string offset (in bytes) will also be returned. Note that this changes the value of `$matches` into an array where every element is an array consisting of the matched string at offset `0` and its string offset into `$subject` at offset `1`. ```php <?php preg_match('/(foo)(bar)(baz)/', 'foobarbaz', $matches, PREG_OFFSET_CAPTURE); print_r($matches);?> ``` The above example will output: ```plaintext Array ([0] => Array ([0] => foobarbaz [1] => 0) [1] => Array ([0] => foo [1] => 0) [2] => Array ([0] => bar [1] => 3) [3] => Array ([0] => baz [1] => 6)) ``` ** `PREG_UNMATCHED_AS_NULL` ** If this flag is passed, unmatched subpatterns are reported as ** `null` ** ; otherwise they are reported as an emptystring. ```php <?php preg_match('/(a)(b)*(c)/', 'ac', $matches); var_dump($matches); preg_match('/(a)(b)*(c)/', 'ac', $matches, PREG_UNMATCHED_AS_NULL); var_dump($matches);?> ``` The above example will output: ```plaintext array(4) {[0]=> string(2) "ac" [1]=> string(1) "a" [2]=> string(0) "" [3]=> string(1) "c"} array(4) {[0]=> string(2) "ac" [1]=> string(1) "a" [2]=> NULL [3]=> string(1) "c"} ```
+ * @param int $offset Normally, the search starts from the beginning of the subject string. The optional parameter `$offset` can be used to specify the alternate place from which to start the search (in bytes). **Note** :Using `$offset` is not equivalent to passing `substr($subject, $offset)` to `preg_match()` in place of the subject string, because `$pattern` can contain assertions such as *^* , *$* or *(?<=x)*. Compare: ```php <?php $subject = "abcdef"; $pattern = '/^def/'; preg_match($pattern, $subject, $matches, PREG_OFFSET_CAPTURE, 3); print_r($matches);?> ``` The above example will output: ```plaintext Array () ``` while this example ```php <?php $subject = "abcdef"; $pattern = '/^def/'; preg_match($pattern, substr($subject,3), $matches, PREG_OFFSET_CAPTURE); print_r($matches);?> ``` will produce ```plaintext Array ([0] => Array ([0] => def [1] => 0)) ``` Alternatively, to avoid using `substr()` , use the `\G` assertion rather than the `^` anchor, or the `A` modifier instead, both of which work with the `$offset` parameter.
+ * @return int|false `preg_match()` returns 1 if the `$pattern` matches given `$subject` , 0 if it does not, or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.preg-match.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcre v8.2.9
+ */
+function preg_match(string $pattern, string $subject, mixed &$matches = null, int $flags = 0, int $offset = 0): int|false;
+/**
+ * Perform a global regular expression match
+ * 
+ * Searches `$subject` for all matches to the regular expression given in `$pattern` and puts them in `$matches` in the order specified by `$flags`.
+ * 
+ * @param string $pattern The pattern to search for, as a string.
+ * @param string $subject The input string.
+ * @param mixed $matches Array of all matches in multi-dimensional array ordered according to `$flags`.
+ * @param int $flags Can be a combination of the following flags (note that it doesn't make sense to use ** `PREG_PATTERN_ORDER` ** together with ** `PREG_SET_ORDER` **): ** `PREG_PATTERN_ORDER` ** Orders results so that$matches[0]is an array of full pattern matches,$matches[1]is an array of strings matched by the first parenthesized subpattern, and so on. ```php <?php preg_match_all("|<[^>]+>(.*)</[^>]+>|U", "<b>example: </b><div align=left>this is a test</div>", $out, PREG_PATTERN_ORDER); echo $out[0][0]. ", ". $out[0][1]. "\n"; echo $out[1][0]. ", ". $out[1][1]. "\n";?> ``` The above example will output: ```plaintext <b>example: </b>, <div align=left>this is a test</div> example: , this is a test ``` So,$out[0]contains array of strings that matched full pattern, and$out[1]contains array of strings enclosed by tags.If the pattern contains named subpatterns,$matchesadditionally contains entries for keys with the subpattern name.If the pattern contains duplicate named subpatterns, only the rightmost subpattern is stored in$matches[NAME]. ```php <?php preg_match_all('/(?J)(?<match>foo)|(?<match>bar)/', 'foo bar', $matches, PREG_PATTERN_ORDER); print_r($matches['match']);?> ``` The above example will output: ```plaintext Array ([0] => [1] => bar) ``` ** `PREG_SET_ORDER` ** Orders results so that$matches[0]is an array of first set of matches,$matches[1]is an array of second set of matches, and so on. ```php <?php preg_match_all("|<[^>]+>(.*)</[^>]+>|U", "<b>example: </b><div align=\"left\">this is a test</div>", $out, PREG_SET_ORDER); echo $out[0][0]. ", ". $out[0][1]. "\n"; echo $out[1][0]. ", ". $out[1][1]. "\n";?> ``` The above example will output: ```plaintext <b>example: </b>, example: <div align="left">this is a test</div>, this is a test ``` ** `PREG_OFFSET_CAPTURE` ** If this flag is passed, for every occurring match the appendant string offset (in bytes) will also be returned. Note that this changes the value of `$matches` into an array of arrays where every element is an array consisting of the matched string at offset `0` and its string offset into `$subject` at offset `1`. ```php <?php preg_match_all('/(foo)(bar)(baz)/', 'foobarbaz', $matches, PREG_OFFSET_CAPTURE); print_r($matches);?> ``` The above example will output: ```plaintext Array ([0] => Array ([0] => Array ([0] => foobarbaz [1] => 0)) [1] => Array ([0] => Array ([0] => foo [1] => 0)) [2] => Array ([0] => Array ([0] => bar [1] => 3)) [3] => Array ([0] => Array ([0] => baz [1] => 6))) ``` ** `PREG_UNMATCHED_AS_NULL` ** If this flag is passed, unmatched subpatterns are reported as ** `null` ** ; otherwise they are reported as an emptystring.If no order flag is given, ** `PREG_PATTERN_ORDER` ** is assumed.
+ * @param int $offset Normally, the search starts from the beginning of the subject string. The optional parameter `$offset` can be used to specify the alternate place from which to start the search (in bytes). **Note** :Using `$offset` is not equivalent to passing `substr($subject, $offset)` to `preg_match_all()` in place of the subject string, because `$pattern` can contain assertions such as *^* , *$* or *(?<=x)*. See `preg_match()` for examples.
+ * @return int|false Returns the number of full pattern matches (which might be zero), or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.preg-match-all.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcre v8.2.9
+ */
+function preg_match_all(string $pattern, string $subject, mixed &$matches = null, int $flags = 0, int $offset = 0): int|false;
+/**
+ * Perform a regular expression search and replace
+ * 
+ * Searches `$subject` for matches to `$pattern` and replaces them with `$replacement`.
+ * 
+ * @param array|string $pattern The pattern to search for. It can be either a string or an array with strings.SeveralPCRE modifiersare also available.
+ * @param array|string $replacement The string or an array with strings to replace. If this parameter is a string and the `$pattern` parameter is an array, all patterns will be replaced by that string. If both `$pattern` and `$replacement` parameters are arrays, each `$pattern` will be replaced by the `$replacement` counterpart. If there are fewer elements in the `$replacement` array than in the `$pattern` array, any extra `$pattern` s will be replaced by an empty string. `$replacement` may contain references of the form `\n` or `$n` , with the latter form being the preferred one. Every such reference will be replaced by the text captured by then'th parenthesized pattern.ncan be from 0 to 99, and `\0` or `$0` refers to the text matched by the whole pattern. Opening parentheses are counted from left to right (starting from 1) to obtain the number of the capturing subpattern. Note that backslashes instringliterals may require to be escaped.When working with a replacement pattern where a backreference is immediately followed by another number (i.e.: placing a literal number immediately after a matched pattern), you cannot use the familiar `\1` notation for your backreference. `\11` , for example, would confuse `preg_replace()` since it does not know whether you want the `\1` backreference followed by a literal `1` , or the `\11` backreference followed by nothing. In this case the solution is to use `${1}1`. This creates an isolated `$1` backreference, leaving the `1` as a literal.When using the deprecated `e` modifier, this function escapes some characters (namely `'` , `"` , `\` and NULL) in the strings that replace the backreferences. This is done to ensure that no syntax errors arise from backreference usage with either single or double quotes (e.g. `'strlen(\'$1\')+strlen("$2")'`). Make sure you are aware of PHP'sstring syntaxto know exactly how the interpreted string will look.
+ * @param array|string $subject The string or an array with strings to search and replace.If `$subject` is an array, then the search and replace is performed on every entry of `$subject` , and the return value is an array as well.If the `$subject` array is associative, keys will be preserved in the returned value.
+ * @param int $limit The maximum possible replacements for each pattern in each `$subject` string. Defaults to `-1` (no limit).
+ * @param mixed $count If specified, this variable will be filled with the number of replacements done.
+ * @return array|string|null `preg_replace()` returns an array if the `$subject` parameter is an array, or a string otherwise.
+ * 
+ * @link https://www.php.net/manual/function.preg-replace.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcre v8.2.9
+ */
+function preg_replace(array|string $pattern, array|string $replacement, array|string $subject, int $limit = -1, mixed &$count = null): array|string|null;
+/**
+ * Perform a regular expression search and replace
+ * 
+ * `preg_filter()` is identical to `preg_replace()` except it only returns the (possibly transformed) subjects where there was a match. For details about how this function works, read the `preg_replace()` documentation.
+ * 
+ * @param array|string $pattern
+ * @param array|string $replacement
+ * @param array|string $subject
+ * @param int $limit
+ * @param mixed $count
+ * @return array|string|null Returns an array if the `$subject` parameter is an array , or a string otherwise.
+ * 
+ * @link https://www.php.net/manual/function.preg-filter.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcre v8.2.9
+ */
+function preg_filter(array|string $pattern, array|string $replacement, array|string $subject, int $limit = -1, mixed &$count = null): array|string|null;
+/**
+ * Perform a regular expression search and replace using a callback
+ * 
+ * The behavior of this function is almost identical to `preg_replace()` , except for the fact that instead of `$replacement` parameter, one should specify a `$callback`.
+ * 
+ * @param array|string $pattern The pattern to search for. It can be either a string or an array with strings.
+ * @param callable $callback A callback that will be called and passed an array of matched elements in the `$subject` string. The callback should return the replacement string. This is the callback signature:handler(array `$$matches`):stringYou'll often need the `$callback` function for a `preg_replace_callback()` in just one place. In this case you can use ananonymous functionto declare the callback within the call to `preg_replace_callback()`. By doing it this way you have all information for the call in one place and do not clutter the function namespace with a callback function's name not used anywhere else. **Example #1 `preg_replace_callback()` and anonymous function** ```php <?php /* a unix-style command line filter to convert uppercase * letters at the beginning of paragraphs to lowercase * / $fp = fopen("php://stdin", "r") or die("can't read stdin"); while (!feof($fp)) {$line = fgets($fp); $line = preg_replace_callback('|<p>\s*\w|', function ($matches) {return strtolower($matches[0]);}, $line); echo $line;} fclose($fp);?> ```
+ * @param array|string $subject The string or an array with strings to search and replace.
+ * @param int $limit The maximum possible replacements for each pattern in each `$subject` string. Defaults to `-1` (no limit).
+ * @param mixed $count If specified, this variable will be filled with the number of replacements done.
+ * @param int $flags `$flags` can be a combination of the ** `PREG_OFFSET_CAPTURE` ** and ** `PREG_UNMATCHED_AS_NULL` ** flags, which influence the format of the matches array. See the description in `preg_match()` for more details.
+ * @return array|string|null `preg_replace_callback()` returns an array if the `$subject` parameter is an array, or a string otherwise. On errors the return value is ** `null` **
+ * 
+ * @link https://www.php.net/manual/function.preg-replace-callback.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcre v8.2.9
+ */
+function preg_replace_callback(array|string $pattern, callable $callback, array|string $subject, int $limit = -1, mixed &$count = null, int $flags = 0): array|string|null;
+/**
+ * Perform a regular expression search and replace using callbacks
+ * 
+ * The behavior of this function is similar to `preg_replace_callback()` , except that callbacks are executed on a per-pattern basis.
+ * 
+ * @param array $pattern An associative array mapping patterns (keys) tocallables (values).
+ * @param array|string $subject The string or an array with strings to search and replace.
+ * @param int $limit The maximum possible replacements for each pattern in each `$subject` string. Defaults to `-1` (no limit).
+ * @param mixed $count If specified, this variable will be filled with the number of replacements done.
+ * @param int $flags `$flags` can be a combination of the ** `PREG_OFFSET_CAPTURE` ** and ** `PREG_UNMATCHED_AS_NULL` ** flags, which influence the format of the matches array. See the description in `preg_match()` for more details.
+ * @return array|string|null `preg_replace_callback_array()` returns an array if the `$subject` parameter is an array, or a string otherwise. On errors the return value is ** `null` **
+ * 
+ * @link https://www.php.net/manual/function.preg-replace-callback-array.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcre v8.2.9
+ */
+function preg_replace_callback_array(array $pattern, array|string $subject, int $limit = -1, mixed &$count = null, int $flags = 0): array|string|null;
+/**
+ * Split string by a regular expression
+ * 
+ * Split the given string by a regular expression.
+ * 
+ * @param string $pattern The pattern to search for, as a string.
+ * @param string $subject The input string.
+ * @param int $limit If specified, then only substrings up to `$limit` are returned with the rest of the string being placed in the last substring. A `$limit` of -1 or 0 means "no limit".
+ * @param int $flags `$flags` can be any combination of the following flags (combined with the `|` bitwise operator): ** `PREG_SPLIT_NO_EMPTY` ** If this flag is set, only non-empty pieces will be returned by `preg_split()`. ** `PREG_SPLIT_DELIM_CAPTURE` ** If this flag is set, parenthesized expression in the delimiter pattern will be captured and returned as well. ** `PREG_SPLIT_OFFSET_CAPTURE` ** If this flag is set, for every occurring match the appendant string offset will also be returned. Note that this changes the return value in an array where every element is an array consisting of the matched string at offset `0` and its string offset into `$subject` at offset `1`.
+ * @return array|false Returns an array containing substrings of `$subject` split along boundaries matched by `$pattern` , or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.preg-split.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcre v8.2.9
+ */
+function preg_split(string $pattern, string $subject, int $limit = -1, int $flags = 0): array|false;
+/**
+ * Quote regular expression characters
+ * 
+ * `preg_quote()` takes `$str` and puts a backslash in front of every character that is part of the regular expression syntax. This is useful if you have a run-time string that you need to match in some text and the string may contain special regex characters.
+ * 
+ * **Note** :Note that `preg_quote()` is not meant to be applied to the $replacement string(s) of `preg_replace()` etc.
+ * 
+ * @param string $str The input string.
+ * @param ?string $delimiter If the optional `$delimiter` is specified, it will also be escaped. This is useful for escaping the delimiter that is required by the PCRE functions. The `/` is the most commonly used delimiter.
+ * @return string Returns the quoted (escaped) string.
+ * 
+ * @link https://www.php.net/manual/function.preg-quote.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcre v8.2.9
+ */
+function preg_quote(string $str, ?string $delimiter = null): string;
+/**
+ * Return array entries that match the pattern
+ * 
+ * Returns the array consisting of the elements of the `$array` array that match the given `$pattern`.
+ * 
+ * @param string $pattern The pattern to search for, as a string.
+ * @param array $array The input array.
+ * @param int $flags If set to ** `PREG_GREP_INVERT` ** , this function returns the elements of the input array that do *not* match the given `$pattern`.
+ * @return array|false Returns an array indexed using the keys from the `$array` array, or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.preg-grep.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcre v8.2.9
+ */
+function preg_grep(string $pattern, array $array, int $flags = 0): array|false;
+/**
+ * Returns the error code of the last PCRE regex execution
+ * 
+ * Returns the error code of the last PCRE regex execution.
+ * 
+ * @return int Returns one of the following constants (explained on their own page):
+ * 
+ * @link https://www.php.net/manual/function.preg-last-error.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcre v8.2.9
+ */
+function preg_last_error(): int;
+/**
+ * Returns the error message of the last PCRE regex execution
+ * 
+ * Returns the error message of the last PCRE regex execution.
+ * 
+ * @return string Returns the error message on success, or `"No error"` if no error has occurred.
+ * 
+ * @link https://www.php.net/manual/function.preg-last-error-msg.php
+ * 
+ * @generated from PHP v8.2.9, EXT: pcre v8.2.9
+ */
+function preg_last_error_msg(): string;

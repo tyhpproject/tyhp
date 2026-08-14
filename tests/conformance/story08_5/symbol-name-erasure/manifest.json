@@ -1,0 +1,41 @@
+{
+  "suite": "story08_5/symbol-name-erasure",
+  "description": "Story 08.5 — symbol-name types erase to plain string in emitted PHP",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "symbol_names_functions",
+      "file": "symbol_names.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    },
+    {
+      "id": "symbol_names_user_class",
+      "file": "symbol_names.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/User.php"
+      }
+    },
+    {
+      "id": "symbol_names_has_id_trait",
+      "file": "symbol_names.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/HasId.php"
+      }
+    },
+    {
+      "id": "symbol_names_status_enum",
+      "file": "symbol_names.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Status.php"
+      }
+    }
+  ]
+}

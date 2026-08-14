@@ -1,0 +1,40 @@
+{
+    "name": "Tyhp Dev Container",
+    "image": "mcr.microsoft.com/devcontainers/dotnet:9.0-bookworm",
+    "features": {
+        "ghcr.io/devcontainers/features/php:1": {
+            "version": "8.4",
+            "installComposer": true
+        },
+        "ghcr.io/devcontainers/features/node:1": {
+            "version": "22.14.0"
+        },
+        "ghcr.io/devcontainers/features/java:1": {},
+        "ghcr.io/NikiforovAll/devcontainer-features/antlr4:1": {
+            "version": "4.13.2"
+        }
+    },
+    "postCreateCommand": {
+        "install antlr-ng": "npm install -g antlr-ng",
+        "install sass": "npm install -g sass"
+    },
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "terminal.integrated.profiles.linux": {
+                    "bash": {
+                        "path": "/bin/bash",
+                        "icon": "terminal-bash"
+                    }
+                }
+            },
+            "extensions": [
+                "ms-dotnettools.csharp",
+                "ms-dotnettools.csdevkit",
+                "bmewburn.vscode-intelephense-client",
+                "mike-lischke.vscode-antlr4"
+            ]
+        }
+    }
+}

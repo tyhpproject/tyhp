@@ -1,0 +1,14 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+interface Describable
+{
+    public function describe(): string;
+    public function format(string $prefix): string;
+}
+
+interface Serializable
+{
+    public function serialize(): array;
+}

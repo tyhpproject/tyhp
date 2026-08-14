@@ -1,0 +1,145 @@
+<?tyhpdef
+const int LIBXML_VERSION;
+const string LIBXML_DOTTED_VERSION;
+const string LIBXML_LOADED_VERSION;
+const int LIBXML_NOENT;
+const int LIBXML_DTDLOAD;
+const int LIBXML_DTDATTR;
+const int LIBXML_DTDVALID;
+const int LIBXML_NOERROR;
+const int LIBXML_NOWARNING;
+const int LIBXML_NOBLANKS;
+const int LIBXML_XINCLUDE;
+const int LIBXML_NSCLEAN;
+const int LIBXML_NOCDATA;
+const int LIBXML_NONET;
+const int LIBXML_PEDANTIC;
+const int LIBXML_COMPACT;
+const int LIBXML_NOXMLDECL;
+const int LIBXML_PARSEHUGE;
+const int LIBXML_BIGLINES;
+const int LIBXML_NOEMPTYTAG;
+const int LIBXML_SCHEMA_CREATE;
+const int LIBXML_HTML_NOIMPLIED;
+const int LIBXML_HTML_NODEFDTD;
+const int LIBXML_ERR_NONE;
+const int LIBXML_ERR_WARNING;
+const int LIBXML_ERR_ERROR;
+const int LIBXML_ERR_FATAL;
+/**
+ * Set the streams context for the next libxml document load or write
+ * 
+ * Sets the streams context for the next libxml document load or write.
+ * 
+ * @param mixed $context The stream context resource (created with `stream_context_create()`)
+ * @return void No value is returned.
+ * 
+ * @link https://www.php.net/manual/function.libxml-set-streams-context.php
+ * 
+ * @generated from PHP v8.2.9, EXT: libxml v8.2.9
+ */
+function libxml_set_streams_context(mixed $context): void;
+/**
+ * Disable libxml errors and allow user to fetch error information as needed
+ * 
+ * `libxml_use_internal_errors()` allows you to disable standard libxml errors and enable user error handling.
+ * 
+ * @param ?bool $use_errors Enable (** `true` **) user error handling or disable (** `false` **) user error handling. Disabling will also clear any existing libxml errors.
+ * @return bool This function returns the previous value of `$use_errors`.
+ * 
+ * @link https://www.php.net/manual/function.libxml-use-internal-errors.php
+ * 
+ * @generated from PHP v8.2.9, EXT: libxml v8.2.9
+ */
+function libxml_use_internal_errors(?bool $use_errors = null): bool;
+/**
+ * Retrieve last error from libxml
+ * 
+ * Retrieve last error from libxml.
+ * 
+ * @return \LibXMLError|false Returns a LibXMLError object if there is any error in the buffer, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.libxml-get-last-error.php
+ * 
+ * @generated from PHP v8.2.9, EXT: libxml v8.2.9
+ */
+function libxml_get_last_error(): \LibXMLError|false;
+/**
+ * Retrieve array of errors
+ * 
+ * Retrieve array of errors.
+ * 
+ * @return array Returns an array with LibXMLError objects if there are any errors in the buffer, or an empty array otherwise.
+ * 
+ * @link https://www.php.net/manual/function.libxml-get-errors.php
+ * 
+ * @generated from PHP v8.2.9, EXT: libxml v8.2.9
+ */
+function libxml_get_errors(): array;
+/**
+ * Clear libxml error buffer
+ * 
+ * `libxml_clear_errors()` clears the libxml error buffer.
+ * 
+ * @return void No value is returned.
+ * 
+ * @link https://www.php.net/manual/function.libxml-clear-errors.php
+ * 
+ * @generated from PHP v8.2.9, EXT: libxml v8.2.9
+ */
+function libxml_clear_errors(): void;
+/**
+ * Disable the ability to load external entities
+ * 
+ * Disable/enable the ability to load external entities. Note that disabling the loading of external entities may cause general issues with loading XML documents. However, as of libxml 2.9.0 entity substitution is disabled by default, so there is no need to disable the loading of external entities, unless there is the need to resolve internal entity references with ** `LIBXML_NOENT` **. Generally, it is preferable to use `libxml_set_external_entity_loader()` to suppress loading of external entities.
+ * 
+ * @deprecated **Warning** This function has been *DEPRECATED* as of PHP 8.0.0. Relying on this function is highly discouraged.
+ * 
+ * @param bool $disable Disable (** `true` **) or enable (** `false` **) libxml extensions (such asDOM,XMLWriterandXMLReader) to load external entities.
+ * @return bool Returns the previous value.
+ * 
+ * @link https://www.php.net/manual/function.libxml-disable-entity-loader.php
+ * 
+ * @generated from PHP v8.2.9, EXT: libxml v8.2.9
+ */
+function libxml_disable_entity_loader(bool $disable = true): bool;
+/**
+ * Changes the default external entity loader
+ * 
+ * Changes the default external entity loader. This can be used to suppress the expansion of arbitrary external entities to avoid XXE attacks, even when ** `LIBXML_NOENT` ** has been set for the respective operation, and is usually preferable over calling `libxml_disable_entity_loader()`.
+ * 
+ * @param ?callable $resolver_function Acallablewith the following signature:resolver(?string `$$public_id` ,string `$$system_id` ,array `$$context`):resource|string|null `$public_id` The public ID. `$system_id` The system ID. `$context` An array with the four elements `"directory"` , `"intSubName"` , `"extSubURI"` and `"extSubSystem"`.This callable should return aresource, astringfrom which a resource can be opened. If ** `null` ** is returned, the entity reference resolution will fail.
+ * @return bool Returns ** `true` ** on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.libxml-set-external-entity-loader.php
+ * 
+ * @generated from PHP v8.2.9, EXT: libxml v8.2.9
+ */
+function libxml_set_external_entity_loader(?callable $resolver_function): bool;
+/**
+ * Get the current external entity loader
+ * 
+ * Get external entity loader previously installed by `libxml_set_external_entity_loader()`.
+ * 
+ * @return ?callable The external entity loader previously installed by `libxml_set_external_entity_loader()`. If that function was never called, or if it was called with ** `null` ** , ** `null` ** will be returned.
+ * 
+ * @link https://www.php.net/manual/function.libxml-get-external-entity-loader.php
+ * 
+ * @generated from PHP v8.2.9, EXT: libxml v8.2.9
+ */
+function libxml_get_external_entity_loader(): ?callable;
+class LibXMLError
+{
+    /** @var int */
+    public int $level;
+    /** @var int */
+    public int $code;
+    /** @var int */
+    public int $column;
+    /** @var string */
+    public string $message;
+    /** @var string */
+    public string $file;
+    /** @var int */
+    public int $line;
+}

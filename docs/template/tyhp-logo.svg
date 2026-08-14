@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"
+ fill="#fff" fill-rule="evenodd" stroke="#000" stroke-linecap="round" stroke-linejoin="round" font-family="Roboto" font-size="14" text-anchor="middle">
+    <g transform="translate(-12 , 6)">
+      <polygon points="50, 0.397 100, 87 0, 87" fill="#34A4F4" stroke="none" transform="rotate(15) translate(30, -26.55)"/>
+      <path stroke="none" fill="#FFFFFF" d="M56.7 70.2v-13.7h-18.6v-56.5h-17.1v56.5h-18.6v13.7h54.3z"
+        transform="scale(0.45,-0.45) translate(100, -149)"
+      />
+      <path stroke="none" fill="#FFFFFF" d="M63.2 55.8l-35.0 -82.3h-18.4l12.8 28.4l-22.7 53.9h19.1l12.9 -34.9l12.8 34.9h18.5z"
+      transform="scale(0.45,-0.45) translate(149, -153)"
+      />
+    </g>
+</svg>

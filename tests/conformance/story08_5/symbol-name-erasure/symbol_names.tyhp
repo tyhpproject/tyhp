@@ -1,0 +1,61 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+trait HasId {}
+
+class User {
+    use HasId;
+    public string $name;
+    public const FLAG = 1;
+    public function greet(): string {
+        return 'hi';
+    }
+}
+
+enum Status {
+    case Active;
+}
+
+const APP_FLAG = 1;
+
+function greet(): string {
+    return 'hi';
+}
+
+function demo(): void {
+    __ClassName $cls = 'User';
+    __FunctionName $fn = 'greet';
+    __MethodName<User> $method = 'greet';
+    __PropertyName<User> $prop = 'name';
+    __EnumCaseName<Status> $case = 'Active';
+    __ConstName $constName = 'APP_FLAG';
+    __ObjectConstName<User> $objConst = 'FLAG';
+    __UsedTraitName<User> $trait = 'HasId';
+    string $plain = $cls;
+    $result = $fn();
+}
+
+function takeMethod(__MethodName<User> $m): string {
+    return $m;
+}
+
+function takeProp(__PropertyName<User> $p): string {
+    return $p;
+}
+
+function takeCase(__EnumCaseName<Status> $c): string {
+    return $c;
+}
+
+function takeConst(__ConstName $c): string {
+    return $c;
+}
+
+function takeObjConst(__ObjectConstName<User> $c): string {
+    return $c;
+}
+
+function takeTrait(__UsedTraitName<User> $t): string {
+    return $t;
+}

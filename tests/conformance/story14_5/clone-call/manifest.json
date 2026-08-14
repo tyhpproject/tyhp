@@ -1,0 +1,47 @@
+{
+  "suite": "story14_5/clone-call",
+  "description": "Story 14.5 — clone($o, […]) call / clone-with (native PHP 8.5; lower PHP 8.2 ObjectHelper / unary rewrite)",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "native_clone_call_widget",
+      "file": "clone_call.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Widget.php"
+      }
+    },
+    {
+      "id": "native_clone_call_forms",
+      "file": "clone_call.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    },
+    {
+      "id": "lower_clone_call_widget_php82",
+      "file": "clone_call_lower.tyhp",
+      "config": {
+        "output:phpVersion": "8.2"
+      },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Lower/Widget.php"
+      }
+    },
+    {
+      "id": "lower_clone_call_forms_php82",
+      "file": "clone_call_lower.tyhp",
+      "config": {
+        "output:phpVersion": "8.2"
+      },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Lower/_functions.php"
+      }
+    }
+  ]
+}

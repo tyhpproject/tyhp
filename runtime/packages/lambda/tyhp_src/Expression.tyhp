@@ -1,0 +1,162 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\Expression\FluentSupport;
+use Tyhp\Expression\ExpressionSerializer;
+
+/**
+ * Runtime expression tree produced by the Tyhp compiler or by {@see Expression::of()} fluent builders.
+ *
+ * @template TSource
+ * @template TReturn
+ *
+ * Type-system spellings follow the callable return-last convention even though this class
+ * declares two parameters: `Expression<R>` (zero args), `Expression<T, R>` (one arg),
+ * `Expression<T1, T2, R>` (two args). `TReturn` is always the last type argument;
+ * `TSource` is the first parameter type (or mixed when there are none).
+ */
+class Expression<TSource, TReturn> {
+    public readonly array<Expression\ParameterExpression> $parameters;
+    public mixed $lastResult = null;
+
+    public function __construct(
+        public readonly Expression\ExpressionNode $body,
+        array<Expression\ParameterExpression> $parameters,
+        public readonly \Closure $callable,
+        public readonly string $returnType,
+    ) {
+        $this->parameters = $parameters;
+    }
+
+    public function __invoke(mixed ...$args): TReturn {
+        mixed $result = ($this->callable)(...$args);
+        // Always stash first so callers who catch can inspect the mismatched value.
+        $this->lastResult = $result;
+        if ($result is TReturn) {
+            return $result;
+        }
+
+        throw new Exceptions\IncompatibleTypeException(
+            typeof(TReturn),
+            Type::of($result),
+            nameof($this->lastResult),
+        );
+    }
+
+    public function compile(): \Closure {
+        return $this->callable;
+    }
+
+    /**
+     * Structural equality of two expression trees (parameters, return type, and body).
+     * Closures are ignored — two independently compiled fns with the same shape compare equal.
+     */
+    public function equals(Expression $other): bool {
+        return ExpressionSerializer::equals($this, $other);
+    }
+
+    /**
+     * Start a fluent property-path / expression builder for PHP interop.
+     *
+     * Property-only chains stay a {@see PropertyPathBuilder} (which is a {@see PropertyPath}).
+     * The first comparison (`gt`, `eq`, …) promotes one-way to {@see ExpressionBuilder}.
+     *
+     * The result mixes in `T` for IDE autocomplete via {@see PropertyPathBuilder}'s `@mixin T`
+     * (and `@phpstan-mixin` / `@psalm-mixin`) plus the intersection return type below.
+     *
+     * @template T of object
+     * @param class-string<T> $sourceType Source object class (e.g. `User::class`).
+     * @param string|array<string> ...$segments Optional path segments (`'a', 'b'` or `['a', 'b']`).
+     * @return PropertyPathBuilder<T>&T
+     *
+     * @phpstan-template T of object
+     * @phpstan-param class-string<T> $sourceType
+     * @phpstan-param string|array<string> ...$segments
+     * @phpstan-return PropertyPathBuilder<T>&T
+     *
+     * @psalm-template T of object
+     * @psalm-param class-string<T> $sourceType
+     * @psalm-param string|list<string> ...$segments
+     * @psalm-return PropertyPathBuilder<T>&T
+     */
+    public static function of<T extends object>(\__ClassName<T> $sourceType, string|array ...$segments): PropertyPathBuilder<T> {
+        return PropertyPathBuilder::of($sourceType, ...$segments);
+    }
+
+    /**
+     * Combine with another expression (`&&`), or begin a fluent RHS after `and()`.
+     *
+     * When `$other` is omitted, the returned builder mixes in the source type `T` (via
+     * {@see ExpressionBuilder} `@mixin T`) so RHS property access has IDE autocomplete.
+     *
+     * @return ExpressionBuilder<TSource>&TSource
+     *
+     * @phpstan-return ExpressionBuilder<TSource>&TSource
+     * @psalm-return ExpressionBuilder<TSource>&TSource
+     */
+    public function and(?Expression<TSource, mixed> $other = null): ExpressionBuilder<TSource> {
+        return $this->combineOrContinue('&&', $other);
+    }
+
+    /**
+     * Combine with another expression (`||`), or begin a fluent RHS after `or()`.
+     *
+     * When `$other` is omitted, the returned builder mixes in the source type `T` (via
+     * {@see ExpressionBuilder} `@mixin T`) so RHS property access has IDE autocomplete.
+     *
+     * @return ExpressionBuilder<TSource>&TSource
+     *
+     * @phpstan-return ExpressionBuilder<TSource>&TSource
+     * @psalm-return ExpressionBuilder<TSource>&TSource
+     */
+    public function or(?Expression<TSource, mixed> $other = null): ExpressionBuilder<TSource> {
+        return $this->combineOrContinue('||', $other);
+    }
+
+    /**
+     * Explicit multi-expression `&&` combinator (left-associative).
+     *
+     * Named `andAll` because PHP cannot declare both instance and static methods as `and`.
+     */
+    public static function andAll(
+        Expression<mixed, bool> $first,
+        Expression<mixed, bool> $second,
+        Expression<mixed, bool> ...$rest,
+    ): Expression<mixed, bool> {
+        return FluentSupport::combineAll([$first, $second, ...$rest], '&&');
+    }
+
+    /**
+     * Explicit multi-expression `||` combinator (left-associative).
+     *
+     * Named `orAll` because PHP cannot declare both instance and static methods as `or`.
+     */
+    public static function orAll(
+        Expression<mixed, bool> $first,
+        Expression<mixed, bool> $second,
+        Expression<mixed, bool> ...$rest,
+    ): Expression<mixed, bool> {
+        return FluentSupport::combineAll([$first, $second, ...$rest], '||');
+    }
+
+    private function combineOrContinue(
+        string $combinator,
+        ?Expression<TSource, mixed> $other,
+    ): ExpressionBuilder<TSource> {
+        string $sourceType = $this->parameters[0]->paramType ?? 'mixed';
+
+        if ($other !== null) {
+            Expression<mixed, bool> $combined = FluentSupport::combine($this, $other, $combinator);
+            return new ExpressionBuilder<TSource>(
+                $sourceType,
+                $combined->body,
+                $combined->parameters,
+                $combined->callable,
+                'bool',
+            );
+        }
+
+        return ExpressionBuilder::continueFrom<TSource>($this, $combinator, $sourceType);
+    }
+}

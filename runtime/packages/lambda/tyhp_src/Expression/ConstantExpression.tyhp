@@ -1,0 +1,16 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+final class ConstantExpression extends ExpressionNode {
+    public function __construct(
+        public readonly mixed $value,
+        string $type = 'mixed',
+    ) {
+        parent::__construct($type, 'constant');
+    }
+
+    public function accept(ExpressionVisitor $visitor): mixed {
+        return $visitor->visitConstant($this);
+    }
+}

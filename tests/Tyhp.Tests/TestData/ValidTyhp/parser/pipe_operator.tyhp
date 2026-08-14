@@ -1,0 +1,15 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+function samplePipeForms(): void
+{
+    $a = $x |> $f;
+    $b = $x |> $f |> $g;
+    $c = 5 + 2 |> $f;
+    $d = $x . $y |> $f;
+    $e = $x |> $f < 4;
+    $eq = $x |> $f == 4;
+    $coalesce = $x |> $f ?? $fallback;
+    $ternary = $x |> $f ? $t : $u;
+}

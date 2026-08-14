@@ -1,0 +1,522 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\PropertyAccessor;
+
+/**
+ * Runtime bag of {@see PropertyAccessor} instances for one object (PHP &lt; 8.4 hook polyfill).
+ *
+ * Hosted by {@see \Tyhp\Concerns\HasPropertyAccessors} as `$__tyhpPropertyHook`. Emitter call sites:
+ * `$this->__tyhpPropertyHook->register&lt;string&gt;('name', $this, get: …)` (Mechanism D at emit time).
+ *
+ * Accessors are keyed by **declaring class** then property name so a parent→child init chain can
+ * keep both levels' hooks for the same property (Mechanism C–style, matching {@see GenericObject}).
+ * Live `__get`/`__set` resolve get and set **independently** along the override chain (most-derived
+ * hook for that operation wins; omitted hooks fall through to an ancestor or default backed
+ * read/write) — matching PHP 8.4 partial overrides. {@see parentGet}/{@see parentSet} look up the
+ * parent level's accessor and invoke its get/set hooks when present.
+ *
+ * Backing storage is **one {@see PropertyBackingCell} per property name** shared by every
+ * non-private declaring level (PHP: one physical slot per property per object). `declaringClass`
+ * on getBacking/setBacking still selects which accessor type-checks / labels the access; it does
+ * not select a separate storage cell.
+ *
+ * `finalGet` / `finalSet` on {@see register} mirror PHP 8.4 `final` hooks: a descendant that
+ * supplies the same hook is rejected with PHP's
+ * `Cannot override final property hook Class::$prop::get()` wording (init runs child-first, so
+ * the check covers both already-registered ancestors and a live descendant when a final parent
+ * registers later).
+ *
+ * {@see register} builds the {@see PropertyAccessor} with a real type argument so `typeof(TType)` /
+ * runtime checks stay precise. Pass `declaringClass: self::class` from the declaring type's
+ * init hook — do not rely on `$host::class`, which is the runtime instance class (wrong under
+ * inheritance).
+ */
+final class PropertyAccessorObject
+{
+    /// Accessors keyed by declaring-class FQN, then property name.
+    private array<string, array<string, PropertyAccessor<mixed>>> $accessors = [];
+
+    /// Most-derived accessor per property. First write wins (init chain registers child before parent).
+    private array<string, PropertyAccessor<mixed>> $live = [];
+
+    /// Shared backing cell per property name (non-private override chain).
+    private array<string, PropertyBackingCell> $sharedBacking = [];
+
+    /// True once an initialization chain has COMPLETED on this object. Gates the injected call at
+    /// the top of every generated constructor, so an ancestor constructor reached through
+    /// `parent::__construct(...)` does not re-walk a chain that is already bound.
+    private bool $bound = false;
+
+    public function needsInit(): bool
+    {
+        return !$this->bound;
+    }
+
+    /// Called at the END of an initialization chain, so a set flag implies a completed chain rather
+    /// than merely a started one.
+    public function markBound(): void
+    {
+        $this->bound = true;
+    }
+
+    public function isInitialized(string $declaringClass): bool
+    {
+        return isset($this->accessors[$declaringClass]);
+    }
+
+    public function register<TType>(
+        string $property,
+        object $host,
+        ?\Closure<TType> $get = null,
+        ?\Closure<mixed, void> $set = null,
+        bool $backed = false,
+        mixed $defaultValue = null,
+        bool $defaultValueIsNull = false,
+        string $visibility = 'public',
+        string $setVisibility = 'public',
+        bool $shadowInherited = true,
+        ?string $declaringClass = null,
+        ?Type $setAcceptType = null,
+        bool $finalGet = false,
+        bool $finalSet = false,
+    ): void {
+        if ($shadowInherited) {
+            // Child override of a plain parent property: capture the inherited instance value
+            // before unset so backing starts with the parent default (PHP 8.4 semantics).
+            // Callers that already pass defaultValue / defaultValueIsNull win.
+            if (!$defaultValueIsNull && $defaultValue === null) {
+                $parentClass = \get_parent_class($host);
+                if (\is_string($parentClass)) {
+                    try {
+                        $rp = new \ReflectionProperty($parentClass, $property);
+                        // A private ancestor property is not inherited storage at all — PHP
+                        // treats a same-named child declaration as a brand-new, unrelated
+                        // property, so it must not be forced backed / seeded from that slot.
+                        if (!$rp->isPrivate()) {
+                            $rp->setAccessible(true);
+                            // Parent storage exists ⇒ backed (omitted get/set = default read/write).
+                            $backed = true;
+                            if ($rp->isInitialized($host)) {
+                                $defaultValue = $rp->getValue($host);
+                                $defaultValueIsNull = $defaultValue === null;
+                            }
+                        }
+                    } catch (\Throwable) {
+                        // No inherited plain property (or inaccessible) — leave defaults alone.
+                    }
+                }
+            } elseif (!$backed && $this->inheritedPropertyExists($host, $property)) {
+                // Explicit default but backed omitted — still force backed when parent storage exists.
+                $backed = true;
+            }
+
+            $this->shadowInheritedProperty($host, $property);
+        }
+
+        string $decl = $declaringClass ?? $host::class;
+
+        // PHP 8.4: `final get` / `final set` cannot be overridden by a child. Init chain
+        // registers most-derived first, so check both already-registered ancestors and a
+        // live descendant that already supplied the same hook.
+        $this->assertFinalHooksAllowRegistration(
+            $property,
+            $decl,
+            $get !== null,
+            $set !== null,
+            $finalGet,
+            $finalSet,
+        );
+
+        // One shared cell per property name for the public/protected override chain. Private
+        // same-named properties are unrelated slots (PHP) and keep a private cell.
+        string $vis = \strtolower($visibility);
+        bool $shareCell = $vis !== 'private';
+        PropertyBackingCell $cell;
+        if ($shareCell && isset($this->sharedBacking[$property])) {
+            $cell = $this->sharedBacking[$property];
+        } else {
+            $cell = new PropertyBackingCell();
+            if ($shareCell) {
+                $this->sharedBacking[$property] = $cell;
+            }
+        }
+
+        PropertyAccessor<TType> $created = new PropertyAccessor<TType>(
+            $get,
+            $set,
+            $backed,
+            $decl,
+            $property,
+            $defaultValue,
+            $defaultValueIsNull,
+            $visibility,
+            $setVisibility,
+            $setAcceptType,
+            $finalGet,
+            $finalSet,
+            $cell,
+        );
+
+        if (!isset($this->accessors[$decl])) {
+            $this->accessors[$decl] = [];
+        }
+
+        $this->accessors[$decl][$property] = $created;
+
+        // Most-derived registers first in the init chain — first write wins for live lookups.
+        if (!isset($this->live[$property])) {
+            $this->live[$property] = $created;
+        }
+    }
+
+    /**
+     * Reject registration that would override a `final` get/set on an ancestor (or that
+     * discovers a descendant already overrode ours when the init chain ran child-first).
+     * Message matches PHP: `Cannot override final property hook Class::$prop::get()`.
+     */
+    private function assertFinalHooksAllowRegistration(
+        string $property,
+        string $declaringClass,
+        bool $hasGet,
+        bool $hasSet,
+        bool $finalGet,
+        bool $finalSet,
+    ): void {
+        string|null $ancestorClass = null;
+        $parent = \get_parent_class($declaringClass);
+        if (\is_string($parent)) {
+            $ancestorClass = $parent;
+        }
+
+        while ($ancestorClass !== null) {
+            if (isset($this->accessors[$ancestorClass][$property])) {
+                PropertyAccessor<mixed> $ancestor = $this->accessors[$ancestorClass][$property];
+                if ($hasGet && $ancestor->isFinalGet()) {
+                    throw new \Error(
+                        'Cannot override final property hook '
+                        . $ancestorClass . '::$' . $property . '::get()',
+                    );
+                }
+
+                if ($hasSet && $ancestor->isFinalSet()) {
+                    throw new \Error(
+                        'Cannot override final property hook '
+                        . $ancestorClass . '::$' . $property . '::set()',
+                    );
+                }
+            }
+
+            $next = \get_parent_class($ancestorClass);
+            if (!\is_string($next)) {
+                break;
+            }
+
+            $ancestorClass = $next;
+        }
+
+        if (!isset($this->live[$property])) {
+            return;
+        }
+
+        PropertyAccessor<mixed> $live = $this->live[$property];
+        string $liveDecl = $live->getDeclaringClass();
+        if ($liveDecl === $declaringClass || !\is_subclass_of($liveDecl, $declaringClass)) {
+            return;
+        }
+
+        // Descendant already registered (child-first init). Our final hooks must not be overridden.
+        if ($finalGet && $live->hasGet()) {
+            throw new \Error(
+                'Cannot override final property hook '
+                . $declaringClass . '::$' . $property . '::get()',
+            );
+        }
+
+        if ($finalSet && $live->hasSet()) {
+            throw new \Error(
+                'Cannot override final property hook '
+                . $declaringClass . '::$' . $property . '::set()',
+            );
+        }
+    }
+
+    public function has(string $property): bool
+    {
+        return isset($this->live[$property]);
+    }
+
+    public function get(string $property): mixed
+    {
+        return $this->resolveEffectiveAccessor($property, wantGet: true)->get();
+    }
+
+    public function set(string $property, mixed $value): void
+    {
+        $this->resolveEffectiveAccessor($property, wantSet: true)->set($value);
+    }
+
+    public function isset(string $property): bool
+    {
+        return $this->resolveEffectiveAccessor($property, wantGet: true)->isset();
+    }
+
+    public function unset(string $property): void
+    {
+        $this->live[$property]->unset();
+    }
+
+    /**
+     * Read backing storage. Pass `$declaringClass` from hook bodies (`self::class`) so type
+     * checks / uninitialized messages use that level's accessor. Storage itself is the shared
+     * per-property cell. When omitted, uses the live (most-derived) accessor.
+     */
+    public function getBacking(string $property, ?string $declaringClass = null): mixed
+    {
+        return $this->resolveAccessor($property, $declaringClass)->getBacking();
+    }
+
+    public function setBacking(string $property, mixed $value, ?string $declaringClass = null): void
+    {
+        $this->resolveAccessor($property, $declaringClass)->setBacking($value);
+    }
+
+    public function issetBacking(string $property, ?string $declaringClass = null): bool
+    {
+        PropertyAccessor<mixed> $accessor = $this->resolveAccessor($property, $declaringClass);
+        return $accessor->isBackingInitialized() && $accessor->getBacking() !== null;
+    }
+
+    public function unsetBacking(string $property, ?string $declaringClass = null): void
+    {
+        $this->resolveAccessor($property, $declaringClass)->unset();
+    }
+
+    /**
+     * Unset a same-named inherited public/protected property on `$host` so reads go through
+     * `__get` instead of the parent field. Called from {@see register} when `$shadowInherited`
+     * is true (the default).
+     */
+    private function shadowInheritedProperty(object $host, string $property): void
+    {
+        try {
+            unset($host->{$property});
+        } catch (\Throwable) {
+            // Property may already be unset, private on parent, or otherwise unsettable.
+        }
+    }
+
+    /**
+     * True when `$property` is declared on an ancestor of `$host` as inherited (non-private)
+     * storage. A private ancestor property is excluded — it is a distinct, unrelated slot, not
+     * storage a same-named child declaration overrides.
+     */
+    private function inheritedPropertyExists(object $host, string $property): bool
+    {
+        $parentClass = \get_parent_class($host);
+        if (!\is_string($parentClass)) {
+            return false;
+        }
+
+        try {
+            $rp = new \ReflectionProperty($parentClass, $property);
+            return !$rp->isPrivate();
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Read parent property storage (polyfill for `parent::$prop::get()`).
+     * When an ancestor registered an accessor for `$property`, invoke that level's get hook.
+     * Otherwise prefer the live accessor's backing (child override of a plain parent) or
+     * Reflection on the parent-declared property of `$host`.
+     *
+     * `$declaringClass` (pass `self::class` from the hook body that contains the
+     * `parent::$prop::get()` call) anchors the ancestor search to *that* level's parent. Without
+     * it the search falls back to `$host`'s own runtime parent, which is wrong whenever a
+     * non-hooked pass-through subclass sits between the calling level and `$host`'s concrete
+     * class — the search would land back on the calling level's own accessor and recurse into
+     * the very hook currently executing.
+     */
+    public function parentGet(object $host, string $property, ?string $declaringClass = null): mixed
+    {
+        $ancestor = $this->findAncestorAccessor($host, $property, $declaringClass);
+        if ($ancestor !== null) {
+            return $ancestor->get();
+        }
+
+        if (isset($this->live[$property])) {
+            return $this->live[$property]->getBacking();
+        }
+
+        $parentClass = \get_parent_class($declaringClass ?? $host::class);
+        if (!\is_string($parentClass)) {
+            throw new \Error(
+                'Cannot access parent property on class without parent: '
+                . $host::class . '::$' . $property,
+            );
+        }
+
+        $rp = new \ReflectionProperty($parentClass, $property);
+        $rp->setAccessible(true);
+        return $rp->getValue($host);
+    }
+
+    /**
+     * Write parent property storage (polyfill for `parent::$prop::set()`). See {@see parentGet}
+     * for why `$declaringClass` (`self::class` at the call site) matters.
+     */
+    public function parentSet(
+        object $host,
+        string $property,
+        mixed $value,
+        ?string $declaringClass = null,
+    ): void {
+        $ancestor = $this->findAncestorAccessor($host, $property, $declaringClass);
+        if ($ancestor !== null) {
+            $ancestor->set($value);
+            return;
+        }
+
+        if (isset($this->live[$property])) {
+            $this->live[$property]->setBacking($value);
+            return;
+        }
+
+        $parentClass = \get_parent_class($declaringClass ?? $host::class);
+        if (!\is_string($parentClass)) {
+            throw new \Error(
+                'Cannot access parent property on class without parent: '
+                . $host::class . '::$' . $property,
+            );
+        }
+
+        $rp = new \ReflectionProperty($parentClass, $property);
+        $rp->setAccessible(true);
+        $rp->setValue($host, $value);
+    }
+
+    private function resolveAccessor(string $property, ?string $declaringClass): PropertyAccessor<mixed>
+    {
+        if ($declaringClass !== null) {
+            return $this->accessors[$declaringClass][$property];
+        }
+
+        return $this->live[$property];
+    }
+
+    /**
+     * Accessor that should handle get or set for `$property` under PHP 8.4 partial-override
+     * rules: most-derived explicit hook for that operation wins; otherwise the most-derived
+     * backed accessor (default read/write). Falls back to {@see $live}.
+     */
+    private function resolveEffectiveAccessor(
+        string $property,
+        bool $wantGet = false,
+        bool $wantSet = false,
+    ): PropertyAccessor<mixed> {
+        array<PropertyAccessor<mixed>> $chain = $this->collectAccessorChain($property);
+
+        foreach ($chain as $accessor) {
+            if ($wantGet && $accessor->hasGet()) {
+                return $accessor;
+            }
+
+            if ($wantSet && $accessor->hasSet()) {
+                return $accessor;
+            }
+        }
+
+        foreach ($chain as $accessor) {
+            if ($accessor->isBacked()) {
+                return $accessor;
+            }
+        }
+
+        return $this->live[$property];
+    }
+
+    /**
+     * All accessors for `$property`, most-derived declaring class first.
+     *
+     * @return array<PropertyAccessor<mixed>>
+     */
+    private function collectAccessorChain(string $property): array
+    {
+        string|null $mostDerived = null;
+        foreach ($this->accessors as $decl => $props) {
+            if (!isset($props[$property])) {
+                continue;
+            }
+
+            if ($mostDerived === null) {
+                $mostDerived = $decl;
+            } elseif (\is_subclass_of($decl, $mostDerived)) {
+                $mostDerived = $decl;
+            }
+        }
+
+        array<PropertyAccessor<mixed>> $chain = [];
+        string|null $class = $mostDerived;
+        while ($class !== null) {
+            if (isset($this->accessors[$class][$property])) {
+                PropertyAccessor<mixed> $acc = $this->accessors[$class][$property];
+                // Private ancestor slots are unrelated to a non-private descendant declaration.
+                if ($acc->isPrivateProperty() && $chain !== []) {
+                    break;
+                }
+
+                $chain[] = $acc;
+                if ($acc->isPrivateProperty()) {
+                    break;
+                }
+            }
+
+            $parent = \get_parent_class($class);
+            if (!\is_string($parent)) {
+                break;
+            }
+
+            $class = $parent;
+        }
+
+        return $chain;
+    }
+
+    /**
+     * Nearest accessor for `$property` declared on an ancestor of `$declaringClass` (or of
+     * `$host`'s own runtime class when `$declaringClass` is omitted) — never on `$declaringClass`
+     * / `$host` itself. Starting from `$declaringClass` (the calling hook body's own level, i.e.
+     * `self::class`) rather than `$host`'s runtime class is what keeps a non-hooked pass-through
+     * subclass between the caller and `$host` from making the search land back on the caller's
+     * own accessor.
+     */
+    private function findAncestorAccessor(
+        object $host,
+        string $property,
+        ?string $declaringClass = null,
+    ): ?PropertyAccessor<mixed> {
+        string|null $class = null;
+        $parentOfHost = \get_parent_class($declaringClass ?? $host::class);
+        if (\is_string($parentOfHost)) {
+            $class = $parentOfHost;
+        }
+
+        while ($class !== null) {
+            if (isset($this->accessors[$class][$property])) {
+                return $this->accessors[$class][$property];
+            }
+
+            $parent = \get_parent_class($class);
+            if (!\is_string($parent)) {
+                break;
+            }
+
+            $class = $parent;
+        }
+
+        return null;
+    }
+}

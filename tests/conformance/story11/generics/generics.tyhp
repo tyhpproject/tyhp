@@ -1,0 +1,19 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+class Container<TValue> {
+    private ?TValue $item = null;
+
+    public function set(TValue $value): void {
+        $this->item = $value;
+    }
+
+    public function get(): ?TValue {
+        return $this->item;
+    }
+}
+
+function identity<T>(T $val): T {
+    return $val;
+}

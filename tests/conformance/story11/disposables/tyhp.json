@@ -1,0 +1,8 @@
+{
+  "include": ["**/*.tyhp"],
+  "tyhpdefInclude": ["contracts.tyhpdef"],
+  "output": {
+    "path": "build/",
+    "phpVersion": "8.4"
+  }
+}

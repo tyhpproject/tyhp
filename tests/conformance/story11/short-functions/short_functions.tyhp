@@ -1,0 +1,9 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+fn add(int $a, int $b): int => $a + $b;
+
+class Calculator {
+    public fn multiply(int $a, int $b): int => $a * $b;
+}

@@ -1,0 +1,25 @@
+{
+  "suite": "story14_5/interface-abstract-hooks",
+  "description": "Story 14.5 — interface/abstract property hooks with semicolon bodies (native PHP ≥ 8.4)",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "interface_has_name",
+      "file": "hooks.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/HasName.php"
+      }
+    },
+    {
+      "id": "abstract_named",
+      "file": "hooks.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Named.php"
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+final class NewExpression extends ExpressionNode {
+    public readonly array<ExpressionNode> $arguments;
+
+    public function __construct(
+        public readonly string $class,
+        array<ExpressionNode> $arguments,
+    ) {
+        $this->arguments = $arguments;
+        parent::__construct($class, 'new');
+    }
+
+    public function accept(ExpressionVisitor $visitor): mixed {
+        return $visitor->visitNew($this);
+    }
+}

@@ -1,0 +1,12 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+class Handle implements \Tyhp\Contracts\IsDisposable {
+    public function dispose(): void {
+    }
+}
+
+function demo(): void {
+    $h := new Handle();
+}

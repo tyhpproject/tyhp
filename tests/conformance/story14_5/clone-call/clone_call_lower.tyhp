@@ -1,0 +1,49 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\Lower;
+
+class Widget
+{
+    public int $x = 0;
+}
+
+function unaryClone(Widget $o): Widget
+{
+    return clone $o;
+}
+
+function parenthesizedUnaryClone(Widget $o): Widget
+{
+    return clone($o);
+}
+
+function cloneCallTrailingComma(Widget $o): Widget
+{
+    return clone($o,);
+}
+
+function cloneCallObjectNamed(Widget $o): Widget
+{
+    return clone(object: $o);
+}
+
+function cloneWithLiteral(Widget $o): Widget
+{
+    return clone($o, ['x' => 1]);
+}
+
+function cloneWithNamed(Widget $o): Widget
+{
+    return clone(object: $o, withProperties: ['x' => 2]);
+}
+
+function cloneWithEmpty(Widget $o): Widget
+{
+    return clone($o, []);
+}
+
+function cloneFcc(): void
+{
+    $fn = clone(...);
+    $fn(new Widget(), ['x' => 3]);
+}

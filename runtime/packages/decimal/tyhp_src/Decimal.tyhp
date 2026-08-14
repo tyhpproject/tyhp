@@ -1,0 +1,706 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\Backend\BcMathBackend;
+use Tyhp\Backend\DecimalBackend;
+use Tyhp\Backend\GmpBackend;
+use Tyhp\Backend\IntegerScaledBackend;
+use Tyhp\Backend\PhpDecimalBackend;
+use Tyhp\Contracts\DecimalConvertible;
+use Tyhp\Contracts\FloatConvertible;
+use Tyhp\Contracts\IntConvertible;
+use Tyhp\Contracts\StringConvertible;
+
+type DecimalCoercible = float|int|string|\Tyhp\Contracts\DecimalConvertible;
+
+final class Decimal implements DecimalConvertible, FloatConvertible, IntConvertible, StringConvertible, \JsonSerializable
+{
+    private static ?DecimalBackend $backend = null;
+
+    public readonly string $value;
+    public readonly int $scale;
+    public readonly int $roundingMode;
+
+    public function __construct(
+        \Tyhp\DecimalCoercible|null $value = null,
+        ?int $scale = null,
+        int $roundingMode = \PHP_ROUND_HALF_UP,
+    ) {
+        $this->roundingMode = $roundingMode;
+
+        if ($value instanceof DecimalConvertible) {
+            Decimal $decimal = $value->__toDecimal();
+            $this->value = $decimal->value;
+            $this->scale = $scale ?? $decimal->scale;
+            return;
+        }
+
+        if ($value === null) {
+            $this->value = '0';
+            $this->scale = $scale ?? 0;
+            return;
+        }
+
+        string $strValue = \is_float($value) ? $this->floatToString($value) : \strval($value);
+
+        string $trimmed = \trim($strValue);
+        if ($trimmed !== '' && !\preg_match('/^-?\d+(\.\d+)?$/', $trimmed)) {
+            throw new \InvalidArgumentException('Cannot create Decimal from non-numeric string: ' . $strValue);
+        }
+        if ($trimmed === '') {
+            $strValue = '0';
+        }
+
+        $strValue = \trim($strValue);
+
+        if ($strValue === '') {
+            $strValue = '0';
+        }
+
+        if ($scale !== null) {
+            $this->scale = $scale;
+            $this->value = $this->normalizeToScale($strValue, $scale);
+        } else {
+            int|false $dotPos = \strpos($strValue, '.');
+            $this->scale = $dotPos !== false ? \strlen($strValue) - $dotPos - 1 : 0;
+            $this->value = $strValue;
+        }
+    }
+
+    // =========================================================================
+    // Operator Overloads
+    // =========================================================================
+
+    // --- Unary ---
+
+    operator +(self $value) {
+        return (float) $value->value;
+    }
+
+    // --- Arithmetic: Addition ---
+
+    operator +(self $left, self $right) {
+        return $left->add($right);
+    }
+
+    operator +(self $left, \Tyhp\DecimalCoercible $right) {
+        return $left->add($right);
+    }
+
+    // --- Arithmetic: Subtraction ---
+
+    operator -(self $left, self $right) {
+        return $left->subtract($right);
+    }
+
+    operator -(self $left, \Tyhp\DecimalCoercible $right) {
+        return $left->subtract($right);
+    }
+
+    // --- Arithmetic: Multiplication ---
+
+    operator *(self $left, self $right) {
+        return $left->multiply($right);
+    }
+
+    operator *(self $left, \Tyhp\DecimalCoercible $right) {
+        return $left->multiply($right);
+    }
+
+    // --- Arithmetic: Division ---
+
+    operator /(self $left, self $right) {
+        return $left->divide($right);
+    }
+
+    operator /(self $left, \Tyhp\DecimalCoercible $right) {
+        return $left->divide($right);
+    }
+
+    // --- Arithmetic: Modulo ---
+
+    operator %(self $left, self $right) {
+        return $left->modulo($right);
+    }
+
+    operator %(self $left, \Tyhp\DecimalCoercible $right) {
+        return $left->modulo($right);
+    }
+
+    // --- Arithmetic: Power ---
+
+    operator **(self $left, int $right) {
+        return $left->power($right);
+    }
+
+    // --- Comparison ---
+
+    operator ==(self $left, self|\Tyhp\DecimalCoercible $right) {
+        return $left->equals($right);
+    }
+
+    operator !=(self $left, self|\Tyhp\DecimalCoercible $right) {
+        return !$left->equals($right);
+    }
+
+    operator <(self $left, self|\Tyhp\DecimalCoercible $right) {
+        return $left->lessThan($right);
+    }
+
+    operator <=(self $left, self|\Tyhp\DecimalCoercible $right) {
+        return $left->lessThanOrEqual($right);
+    }
+
+    operator >=(self $left, self|\Tyhp\DecimalCoercible $right) {
+        return $left->greaterThanOrEqual($right);
+    }
+
+    operator <=>(self $left, self|\Tyhp\DecimalCoercible $right) {
+        return $left->compareTo($right);
+    }
+
+    // --- Conversion: from other types to Decimal ---
+
+    operator convert(int $value) {
+        return new self($value);
+    }
+
+    operator convert(float $value) {
+        return new self($value);
+    }
+
+    operator convert(string $value) {
+        return new self($value);
+    }
+
+    // --- Conversion: from Decimal to other types ---
+
+    operator convert(self $value): int {
+        return (int) $value->value;
+    }
+
+    operator convert(self $value): float {
+        return (float) $value->value;
+    }
+
+    operator convert(self $value): string {
+        return $value->value;
+    }
+
+    // =========================================================================
+    // Private Helpers
+    // =========================================================================
+
+    private function floatToString(float $value): string {
+        if (\is_nan($value) || \is_infinite($value)) {
+            throw new \InvalidArgumentException('Cannot create Decimal from NaN or Inf float value');
+        }
+
+        string $str = \rtrim(\rtrim(\sprintf('%.20F', $value), '0'), '.');
+
+        return $str === '' || $str === '-' ? '0' : $str;
+    }
+
+    private function normalizeToScale(string $value, int $scale): string {
+        bool $negative = \str_starts_with($value, '-');
+
+        if ($negative) {
+            $value = \substr($value, 1);
+        }
+
+        array $parts = \explode('.', $value, 2);
+        string $intPart = (string) ($parts[0] === '' ? '0' : $parts[0]);
+        string $fracPart = (string) ($parts[1] ?? '');
+
+        if ($scale === 0) {
+            string $result = $intPart;
+        } else {
+            if (\strlen($fracPart) > $scale) {
+                int $nextDigit = (int) $fracPart[$scale];
+                $fracPart = \substr($fracPart, 0, $scale);
+                if ($this->roundingMode === \PHP_ROUND_HALF_UP && $nextDigit >= 5) {
+                    array $carried = $this->carryFraction($intPart, $fracPart, $scale);
+                    $intPart = (string) $carried[0];
+                    $fracPart = (string) $carried[1];
+                }
+            } else {
+                $fracPart = \str_pad($fracPart, $scale, '0');
+            }
+            string $result = $intPart . '.' . $fracPart;
+        }
+
+        string $zeroResult = $scale === 0 ? '0' : '0.' . \str_repeat('0', $scale);
+        return ($negative && $result !== $zeroResult) ? '-' . $result : $result;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function carryFraction(string $intPart, string $fracPart, int $scale): array {
+        array $fracDigits = \str_split($fracPart);
+        int $carry = 1;
+
+        for (int $i = $scale - 1; $i >= 0 && $carry > 0; $i--) {
+            int $d = (int) $fracDigits[$i] + $carry;
+            $fracDigits[$i] = (string) ($d % 10);
+            $carry = \intdiv($d, 10);
+        }
+
+        $fracPart = \implode('', $fracDigits);
+
+        if ($carry > 0) {
+            $intPart = $this->addOneToIntString($intPart);
+        }
+
+        return [$intPart, $fracPart];
+    }
+
+    private function addOneToIntString(string $intStr): string {
+        array $digits = \str_split($intStr);
+        int $carry = 1;
+
+        for (int $i = \count($digits) - 1; $i >= 0 && $carry > 0; $i--) {
+            int $d = (int) $digits[$i] + $carry;
+            $digits[$i] = (string) ($d % 10);
+            $carry = \intdiv($d, 10);
+        }
+
+        string $result = \implode('', $digits);
+
+        return $carry > 0 ? '1' . $result : $result;
+    }
+
+    private static function resolveBackend(): DecimalBackend {
+        ?DecimalBackend $backend = self::$backend;
+        if ($backend !== null) {
+            return $backend;
+        }
+
+        if (\extension_loaded('decimal')) {
+            $backend = new PhpDecimalBackend();
+        } elseif (\extension_loaded('bcmath')) {
+            $backend = new BcMathBackend();
+        } elseif (\extension_loaded('gmp')) {
+            $backend = new GmpBackend();
+        } else {
+            $backend = new IntegerScaledBackend();
+        }
+
+        self::$backend = $backend;
+        return $backend;
+    }
+
+    private function convertDecimal(\Tyhp\DecimalCoercible $operand): self {
+        if ($operand instanceof self) {
+            return $operand;
+        }
+
+        if ($operand instanceof DecimalConvertible) {
+            return $operand->__toDecimal();
+        }
+
+        return new self($operand);
+    }
+
+    private function resultScale(self $other): int {
+        return (int) \max($this->scale, $other->scale);
+    }
+
+    // =========================================================================
+    // Arithmetic
+    // =========================================================================
+
+    public function add(\Tyhp\DecimalCoercible $operand): self {
+        self $other = $this->convertDecimal($operand);
+        int $scale = $this->resultScale($other);
+        string $result = self::resolveBackend()->add($this->value, $other->value, $scale);
+
+        return new self($result, $scale, $this->roundingMode);
+    }
+
+    public function subtract(\Tyhp\DecimalCoercible $operand): self {
+        self $other = $this->convertDecimal($operand);
+        int $scale = $this->resultScale($other);
+        string $result = self::resolveBackend()->subtract($this->value, $other->value, $scale);
+
+        return new self($result, $scale, $this->roundingMode);
+    }
+
+    public function multiply(\Tyhp\DecimalCoercible $operand): self {
+        self $other = $this->convertDecimal($operand);
+        int $scale = $this->resultScale($other);
+        string $result = self::resolveBackend()->multiply($this->value, $other->value, $scale);
+
+        return new self($result, $scale, $this->roundingMode);
+    }
+
+    /**
+     * @param int|null $scale Override the result scale.
+     * @throws \DivisionByZeroError When the divisor is zero.
+     */
+    public function divide(\Tyhp\DecimalCoercible $operand, ?int $scale = null): self {
+        self $other = $this->convertDecimal($operand);
+        int $resultScale = $scale ?? $this->resultScale($other);
+
+        try {
+            string $result = self::resolveBackend()->divide($this->value, $other->value, $resultScale);
+        } catch (\DivisionByZeroError $e) {
+            throw new \DivisionByZeroError('Cannot divide ' . $this->value . ' by zero', 0, $e);
+        }
+
+        return new self($result, $resultScale, $this->roundingMode);
+    }
+
+    public function modulo(\Tyhp\DecimalCoercible $operand): self {
+        self $other = $this->convertDecimal($operand);
+        int $scale = $this->resultScale($other);
+        string $result = self::resolveBackend()->modulo($this->value, $other->value, $scale);
+
+        return new self($result, $scale, $this->roundingMode);
+    }
+
+    public function power(int $exponent): self {
+        if ($exponent < 0) {
+            throw new \InvalidArgumentException('Negative exponents are not supported');
+        }
+
+        string $result = self::resolveBackend()->power($this->value, $exponent, $this->scale);
+
+        return new self($result, $this->scale, $this->roundingMode);
+    }
+
+    public function negate(): self {
+        string $result = self::resolveBackend()->negate($this->value);
+
+        return new self($result, $this->scale, $this->roundingMode);
+    }
+
+    public function abs(): self {
+        string $result = self::resolveBackend()->abs($this->value);
+
+        return new self($result, $this->scale, $this->roundingMode);
+    }
+
+    /**
+     * @param int|null $scale Override the result scale.
+     * @throws \InvalidArgumentException When this value is negative.
+     */
+    public function sqrt(?int $scale = null): self {
+        int $resultScale = $scale ?? $this->scale;
+        string $result = self::resolveBackend()->sqrt($this->value, $resultScale);
+
+        return new self($result, $resultScale, $this->roundingMode);
+    }
+
+    // =========================================================================
+    // Comparison
+    // =========================================================================
+
+    /**
+     * @return int -1, 0, or 1.
+     */
+    public function compareTo(\Tyhp\DecimalCoercible $other): int {
+        self $otherDec = $this->convertDecimal($other);
+        int $scale = $this->resultScale($otherDec);
+
+        return self::resolveBackend()->compare($this->value, $otherDec->value, $scale);
+    }
+
+    public function equals(\Tyhp\DecimalCoercible $other): bool {
+        return $this->compareTo($other) === 0;
+    }
+
+    public function greaterThan(\Tyhp\DecimalCoercible $other): bool {
+        return $this->compareTo($other) > 0;
+    }
+
+    public function greaterThanOrEqual(\Tyhp\DecimalCoercible $other): bool {
+        return $this->compareTo($other) >= 0;
+    }
+
+    public function lessThan(\Tyhp\DecimalCoercible $other): bool {
+        return $this->compareTo($other) < 0;
+    }
+
+    public function lessThanOrEqual(\Tyhp\DecimalCoercible $other): bool {
+        return $this->compareTo($other) <= 0;
+    }
+
+    public function isZero(): bool {
+        return \ltrim(\str_replace('.', '', $this->value), '0-') === '';
+    }
+
+    public function isPositive(): bool {
+        return !$this->isNegative() && !$this->isZero();
+    }
+
+    public function isNegative(): bool {
+        return \str_starts_with($this->value, '-') && !$this->isZero();
+    }
+
+    // =========================================================================
+    // Conversion
+    // =========================================================================
+
+    // __toInt / __toFloat / __toString are generated from the `operator convert(self): int|float|string`
+    // declarations above (Story 11 §8 redesign). __toDecimal is the identity conversion satisfying
+    // DecimalConvertible; because self->self `convert` is disallowed, __toDecimal is NOT reserved and is
+    // written by hand here.
+    public function __toDecimal(): self {
+        return $this;
+    }
+
+    public function withScale(int $scale): self {
+        return new self($this->value, $scale, $this->roundingMode);
+    }
+
+    // =========================================================================
+    // Rounding
+    // =========================================================================
+
+    public function round(int $precision = 0, int $mode = \PHP_ROUND_HALF_UP): self {
+        array $parts = \explode('.', $this->value, 2);
+        string $intPart = (string) $parts[0];
+        string $fracPart = (string) ($parts[1] ?? '');
+
+        bool $negative = \str_starts_with($intPart, '-');
+        if ($negative) {
+            $intPart = \substr($intPart, 1);
+        }
+
+        if ($precision >= \strlen($fracPart)) {
+            return new self($this->value, $precision, $this->roundingMode);
+        }
+
+        int $digitAfter = $precision < \strlen($fracPart) ? (int) $fracPart[$precision] : 0;
+        string $truncFrac = $precision > 0 ? \substr($fracPart, 0, $precision) : '';
+
+        bool $shouldRoundUp = false;
+        if ($mode === \PHP_ROUND_HALF_UP) {
+            $shouldRoundUp = $digitAfter >= 5;
+        } elseif ($mode === \PHP_ROUND_HALF_DOWN) {
+            $shouldRoundUp = $digitAfter > 5;
+        } elseif ($mode === \PHP_ROUND_HALF_EVEN) {
+            int $lastKept = $precision > 0 ? (int) $fracPart[$precision - 1] : (int) $intPart[\strlen($intPart) - 1];
+            $shouldRoundUp = $digitAfter > 5 || ($digitAfter === 5 && ($lastKept % 2 !== 0));
+        } elseif ($mode === \PHP_ROUND_HALF_ODD) {
+            int $lastKept = $precision > 0 ? (int) $fracPart[$precision - 1] : (int) $intPart[\strlen($intPart) - 1];
+            $shouldRoundUp = $digitAfter > 5 || ($digitAfter === 5 && ($lastKept % 2 === 0));
+        }
+
+        if ($shouldRoundUp && $precision > 0) {
+            array $fracDigits = \str_split($truncFrac);
+            int $carry = 1;
+            for (int $i = $precision - 1; $i >= 0 && $carry > 0; $i--) {
+                int $d = (int) $fracDigits[$i] + $carry;
+                $fracDigits[$i] = (string) ($d % 10);
+                $carry = \intdiv($d, 10);
+            }
+            $truncFrac = \implode('', $fracDigits);
+            if ($carry > 0) {
+                array $intDigits = \str_split($intPart);
+                for (int $i = \count($intDigits) - 1; $i >= 0 && $carry > 0; $i--) {
+                    int $d = (int) $intDigits[$i] + $carry;
+                    $intDigits[$i] = (string) ($d % 10);
+                    $carry = \intdiv($d, 10);
+                }
+                $intPart = ($carry > 0 ? '1' : '') . \implode('', $intDigits);
+            }
+        } elseif ($shouldRoundUp && $precision === 0) {
+            array $intDigits = \str_split($intPart);
+            int $carry = 1;
+            for (int $i = \count($intDigits) - 1; $i >= 0 && $carry > 0; $i--) {
+                int $d = (int) $intDigits[$i] + $carry;
+                $intDigits[$i] = (string) ($d % 10);
+                $carry = \intdiv($d, 10);
+            }
+            $intPart = ($carry > 0 ? '1' : '') . \implode('', $intDigits);
+        }
+
+        string $result = $precision > 0 ? $intPart . '.' . $truncFrac : $intPart;
+        if ($negative && \ltrim(\str_replace('.', '', $result), '0') !== '') {
+            $result = '-' . $result;
+        }
+
+        return new self($result, $precision, $this->roundingMode);
+    }
+
+    public function floor(): self {
+        array $parts = \explode('.', $this->value, 2);
+        string $intPart = (string) $parts[0];
+        string $fracPart = (string) ($parts[1] ?? '');
+        bool $negative = \str_starts_with($intPart, '-');
+
+        if ($fracPart === '' || \ltrim($fracPart, '0') === '') {
+            return new self($intPart, 0, $this->roundingMode);
+        }
+
+        if ($negative) {
+            string $absInt = \substr($intPart, 1);
+            array $digits = \str_split($absInt);
+            int $carry = 1;
+            for (int $i = \count($digits) - 1; $i >= 0 && $carry > 0; $i--) {
+                int $d = (int) $digits[$i] + $carry;
+                $digits[$i] = (string) ($d % 10);
+                $carry = \intdiv($d, 10);
+            }
+            $absInt = ($carry > 0 ? '1' : '') . \implode('', $digits);
+            return new self('-' . $absInt, 0, $this->roundingMode);
+        }
+
+        return new self($intPart, 0, $this->roundingMode);
+    }
+
+    public function ceil(): self {
+        array $parts = \explode('.', $this->value, 2);
+        string $intPart = (string) $parts[0];
+        string $fracPart = (string) ($parts[1] ?? '');
+        bool $negative = \str_starts_with($intPart, '-');
+
+        if ($fracPart === '' || \ltrim($fracPart, '0') === '') {
+            return new self($intPart, 0, $this->roundingMode);
+        }
+
+        if (!$negative) {
+            array $digits = \str_split($intPart);
+            int $carry = 1;
+            for (int $i = \count($digits) - 1; $i >= 0 && $carry > 0; $i--) {
+                int $d = (int) $digits[$i] + $carry;
+                $digits[$i] = (string) ($d % 10);
+                $carry = \intdiv($d, 10);
+            }
+            $intPart = ($carry > 0 ? '1' : '') . \implode('', $digits);
+            return new self($intPart, 0, $this->roundingMode);
+        }
+
+        string $absInt = \substr($intPart, 1);
+        return new self('-' . $absInt, 0, $this->roundingMode);
+    }
+
+    // =========================================================================
+    // Display
+    // =========================================================================
+
+    public function jsonSerialize(): string {
+        return $this->value;
+    }
+
+    public function format(
+        int $decimals = 2,
+        string $decimalSep = '.',
+        string $thousandsSep = ',',
+    ): string {
+        self $rounded = $this->round($decimals);
+        array $parts = \explode('.', $rounded->value, 2);
+        string $intPart = (string) $parts[0];
+        string $fracPart = (string) ($parts[1] ?? '');
+
+        bool $negative = \str_starts_with($intPart, '-');
+        if ($negative) {
+            $intPart = \substr($intPart, 1);
+        }
+
+        $fracPart = \str_pad($fracPart, $decimals, '0');
+
+        if ($thousandsSep !== '') {
+            string $formatted = '';
+            int $len = \strlen($intPart);
+            for (int $i = 0; $i < $len; $i++) {
+                if ($i > 0 && ($len - $i) % 3 === 0) {
+                    $formatted .= $thousandsSep;
+                }
+                $formatted .= (string) $intPart[$i];
+            }
+            $intPart = $formatted;
+        }
+
+        string $result = ($negative ? '-' : '') . $intPart;
+        if ($decimals > 0) {
+            $result .= $decimalSep . $fracPart;
+        }
+
+        return $result;
+    }
+
+    // =========================================================================
+    // Static Factories
+    // =========================================================================
+
+    public static function zero(int $scale = 2): self {
+        return new self('0', $scale);
+    }
+
+    public static function one(int $scale = 2): self {
+        return new self('1', $scale);
+    }
+
+    public static function min(self ...$values): self {
+        if (\count($values) === 0) {
+            throw new \InvalidArgumentException('At least one value is required');
+        }
+
+        self $min = $values[0];
+
+        for (int $i = 1; $i < \count($values); $i++) {
+            if ($values[$i]->lessThan($min)) {
+                $min = $values[$i];
+            }
+        }
+
+        return $min;
+    }
+
+    public static function max(self ...$values): self {
+        if (\count($values) === 0) {
+            throw new \InvalidArgumentException('At least one value is required');
+        }
+
+        self $max = $values[0];
+
+        for (int $i = 1; $i < \count($values); $i++) {
+            if ($values[$i]->greaterThan($max)) {
+                $max = $values[$i];
+            }
+        }
+
+        return $max;
+    }
+
+    public static function sum(self ...$values): self {
+        if (\count($values) === 0) {
+            throw new \InvalidArgumentException('At least one value is required');
+        }
+
+        self $result = $values[0];
+
+        for (int $i = 1; $i < \count($values); $i++) {
+            $result = $result->add($values[$i]);
+        }
+
+        return $result;
+    }
+
+    public static function avg(self ...$values): self {
+        if (\count($values) === 0) {
+            throw new \InvalidArgumentException('At least one value is required');
+        }
+
+        self $sum = self::sum(...$values);
+        int $guardDigits = 4;
+
+        return $sum->divide((string) \count($values), $sum->scale + $guardDigits)->withScale($sum->scale);
+    }
+
+    // =========================================================================
+    // Backend Management
+    // =========================================================================
+
+    public static function getBackendName(): string {
+        return self::resolveBackend()->getName();
+    }
+
+    public static function setBackend(DecimalBackend $backend): void {
+        self::$backend = $backend;
+    }
+}

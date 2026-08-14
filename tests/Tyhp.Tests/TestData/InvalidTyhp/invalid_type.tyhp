@@ -1,0 +1,8 @@
+<?tyhp
+
+namespace TestData\Invalid;
+
+function badType(NotARealType $value): void
+{
+    // invalid type annotation
+}

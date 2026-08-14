@@ -1,0 +1,163 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+use Tyhp\Expression;
+
+/**
+ * Shared helpers for {@see \Tyhp\PropertyPathBuilder} and {@see \Tyhp\ExpressionBuilder}.
+ *
+ * @internal
+ */
+final class FluentSupport {
+    /**
+     * Normalize `of()` segment arguments into a flat list of property names.
+     *
+     * Supports `of($class, 'a', 'b')` and `of($class, ['a', 'b'])` — not dotted strings.
+     *
+     * @param string|array<string> ...$segments
+     * @return array<string>
+     */
+    public static function resolveSegments(string|array ...$segments): array<string> {
+        if ($segments === []) {
+            return [];
+        }
+
+        if (\count($segments) === 1 && \is_array($segments[0])) {
+            array<string> $fromArray = [];
+            foreach ($segments[0] as $segment) {
+                if (!($segment is string)) {
+                    throw new \InvalidArgumentException(
+                        'Property path segments array must contain only strings.',
+                    );
+                }
+                $fromArray[] = $segment;
+            }
+            return $fromArray;
+        }
+
+        array<string> $path = [];
+        foreach ($segments as $segment) {
+            if (!($segment is string)) {
+                throw new \InvalidArgumentException(
+                    'Property path segments must be strings, or a single array of strings.',
+                );
+            }
+            $path[] = $segment;
+        }
+        return $path;
+    }
+
+    /**
+     * Build a getter closure for a property chain, honoring per-segment null-safe flags.
+     *
+     * @param array<string> $path
+     * @param array<bool> $nullSafeFlags
+     */
+    public static function synthesizePathCallable(array<string> $path, array<bool> $nullSafeFlags): \Closure {
+        return static function (mixed $source) use ($path, $nullSafeFlags): mixed {
+            mixed $value = $source;
+            int $count = \count($path);
+            for (int $i = 0; $i < $count; $i++) {
+                string $segment = $path[$i];
+                bool $nullSafe = $nullSafeFlags[$i] ?? false;
+                if ($nullSafe) {
+                    $value = $value?->{$segment};
+                } else {
+                    $value = $value->{$segment};
+                }
+            }
+            return $value;
+        };
+    }
+
+    /**
+     * Build the expression-tree body for a property chain (null-safe aware).
+     *
+     * @param array<string> $path
+     * @param array<bool> $nullSafeFlags
+     * @return \Tyhp\Expression\Structs\PathNode
+     */
+    public static function buildPathNodes(
+        string $sourceType,
+        array<string> $path,
+        array<bool> $nullSafeFlags,
+    ): \Tyhp\Expression\Structs\PathNode {
+        ParameterExpression $paramExpr = new ParameterExpression('source', $sourceType, 0);
+        ExpressionNode $body = $paramExpr;
+
+        int $count = \count($path);
+        for (int $i = 0; $i < $count; $i++) {
+            string $segment = $path[$i];
+            bool $nullSafe = $nullSafeFlags[$i] ?? false;
+            if ($nullSafe) {
+                $body = new NullSafeAccessExpression($body, $segment, 'mixed');
+            } else {
+                $body = new PropertyAccessExpression($body, $segment, 'mixed');
+            }
+        }
+
+        return new \Tyhp\Expression\Structs\PathNode() with [
+            parameterExpression => $paramExpr,
+            body => $body
+        ];
+    }
+
+    public static function evaluateBinary(mixed $left, string $operator, mixed $right): bool {
+        return match ($operator) {
+            '>' => $left > $right,
+            '>=' => $left >= $right,
+            '<' => $left < $right,
+            '<=' => $left <= $right,
+            '==' => $left == $right,
+            '!=' => $left != $right,
+            '===' => $left === $right,
+            '!==' => $left !== $right,
+            default => throw new \InvalidArgumentException("Unsupported binary operator: {$operator}"),
+        };
+    }
+
+    /**
+     * Combine two expressions with `&&` or `||` into a boolean expression.
+     */
+    public static function combine(
+        Expression<mixed, mixed> $left,
+        Expression<mixed, mixed> $right,
+        string $operator,
+    ): Expression<mixed, bool> {
+        if ($operator !== '&&' && $operator !== '||') {
+            throw new \InvalidArgumentException("Unsupported combinator: {$operator}");
+        }
+
+        ExpressionNode $body = new BinaryExpression($left->body, $operator, $right->body, 'bool');
+        \Closure $leftCallable = $left->callable;
+        \Closure $rightCallable = $right->callable;
+        \Closure $callable = static function (mixed ...$args) use ($leftCallable, $rightCallable, $operator): bool {
+            if ($operator === '&&') {
+                return (bool) $leftCallable(...$args) && (bool) $rightCallable(...$args);
+            }
+            return (bool) $leftCallable(...$args) || (bool) $rightCallable(...$args);
+        };
+
+        return new Expression<mixed, bool>($body, $left->parameters, $callable, 'bool');
+    }
+
+    /**
+     * @param array<Expression<mixed, mixed>> $expressions
+     */
+    public static function combineAll(
+        array<Expression<mixed, bool>> $expressions,
+        string $operator,
+    ): Expression<mixed, bool> {
+        if ($expressions === []) {
+            throw new \InvalidArgumentException('At least one expression is required.');
+        }
+
+        Expression<mixed, bool> $result = $expressions[0];
+        int $count = \count($expressions);
+        for (int $i = 1; $i < $count; $i++) {
+            $result = self::combine($result, $expressions[$i], $operator);
+        }
+        return $result;
+    }
+}

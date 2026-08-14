@@ -1,0 +1,46 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\Contracts\AsyncIsDisposable;
+use Tyhp\Contracts\IsDisposable;
+use Tyhp\Exceptions\AggregateException;
+
+final class DisposableHelper {
+    private function __construct() {}
+
+    /**
+     * Disposes one or more disposable resources asynchronously.
+     * Resources are disposed in reverse order (LIFO).
+     */
+    public static function dispose(IsDisposable|AsyncIsDisposable ...$disposables): Promise<void> {
+        return Promise::_async<void>(function () use ($disposables): void {
+            array<\Throwable> $errors = [];
+
+            foreach (\array_reverse($disposables) as $disposable) {
+                try {
+                    if ($disposable instanceof AsyncIsDisposable) {
+                        \Tyhp\Promise::_await<void>($disposable->disposeAsync());
+                    } else if ($disposable instanceof IsDisposable) {
+                        $disposable->dispose();
+                    }
+                } catch (\Throwable $e) {
+                    $errors[] = $e;
+                }
+            }
+
+            if (!empty($errors)) {
+                foreach ($errors as $err) {
+                    \trigger_error(
+                        \sprintf('DisposableHelper disposal error [%s]: %s', \get_class($err), $err->getMessage()),
+                        E_USER_WARNING
+                    );
+                }
+                if (\count($errors) === 1) {
+                    throw $errors[0];
+                }
+                throw new AggregateException($errors, 'One or more errors during disposal');
+            }
+        });
+    }
+}

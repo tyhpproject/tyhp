@@ -1,0 +1,11 @@
+<?tyhp
+
+namespace Tyhp\Expression\Structs;
+
+use Tyhp\Expression\ExpressionNode;
+use Tyhp\Expression\ParameterExpression;
+
+struct PathNode {
+    ParameterExpression $parameterExpression;
+    ExpressionNode $body;
+}

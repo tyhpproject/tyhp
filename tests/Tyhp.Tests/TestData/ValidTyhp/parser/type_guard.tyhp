@@ -1,0 +1,15 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+function isString(mixed $value): $value is string
+{
+    return \is_string($value);
+}
+
+function process(mixed $input): void
+{
+    if (isString($input)) {
+        string $text = $input;
+    }
+}

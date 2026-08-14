@@ -1,0 +1,54 @@
+{
+  "scopeName": "markdown.tyhp.codeblock",
+  "injectionSelector": "L:text.html.markdown",
+  "patterns": [
+    { "include": "#tyhp-block" },
+    { "include": "#php-tyhp-block" }
+  ],
+  "repository": {
+    "tyhp-block": {
+      "begin": "(^|\\G)(\\s*)(\\`{3,}|~{3,})\\s*(?i:(tyhp|tyhpdef))(?:\\s+[^`~]*)?$",
+      "beginCaptures": {
+        "3": { "name": "punctuation.definition.markdown" },
+        "4": { "name": "fenced_code.block.language.markdown" }
+      },
+      "end": "(^|\\G)(\\2|\\s{0,3})(\\3)\\s*$",
+      "endCaptures": {
+        "3": { "name": "punctuation.definition.markdown" }
+      },
+      "contentName": "meta.embedded.block.tyhp",
+      "patterns": [
+        {
+          "match": "(<\\?)(tyhpdef|tyhp)\\b",
+          "captures": {
+            "1": { "name": "punctuation.section.embedded.begin.tyhp" },
+            "2": { "name": "entity.name.tag.tyhp" }
+          }
+        },
+        { "include": "source.tyhp#tyhp-code-body" }
+      ]
+    },
+    "php-tyhp-block": {
+      "begin": "(^|\\G)(\\s*)(\\`{3,}|~{3,})\\s*(?i:(php-tyhp))(?:\\s+[^`~]*)?$",
+      "beginCaptures": {
+        "3": { "name": "punctuation.definition.markdown" },
+        "4": { "name": "fenced_code.block.language.markdown" }
+      },
+      "end": "(^|\\G)(\\2|\\s{0,3})(\\3)\\s*$",
+      "endCaptures": {
+        "3": { "name": "punctuation.definition.markdown" }
+      },
+      "contentName": "meta.embedded.block.php-tyhp",
+      "patterns": [
+        {
+          "match": "(<\\?)((?i:php))(?:\\s|$)",
+          "captures": {
+            "1": { "name": "punctuation.section.embedded.begin.php" },
+            "2": { "name": "entity.name.tag.php" }
+          }
+        },
+        { "include": "source.tyhp.php#code-body" }
+      ]
+    }
+  }
+}

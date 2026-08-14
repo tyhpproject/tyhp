@@ -1,0 +1,13 @@
+<?tyhp
+
+namespace TestData\Binder\Alpha;
+
+class AlphaType
+{
+}
+
+namespace TestData\Binder\Beta;
+
+class BetaType
+{
+}

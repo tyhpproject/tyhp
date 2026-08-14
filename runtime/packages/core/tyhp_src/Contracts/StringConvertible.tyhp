@@ -1,0 +1,6 @@
+<?tyhp
+
+namespace Tyhp\Contracts;
+
+interface StringConvertible extends \Stringable, \Tyhp\Contracts\Convertible {
+}

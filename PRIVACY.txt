@@ -1,0 +1,3 @@
+The Tyhp compiler does not collect or store personal data.
+
+The documentation website at https://tyhplang.com is static HTML hosted on GitHub Pages and does not collect or store personal data.

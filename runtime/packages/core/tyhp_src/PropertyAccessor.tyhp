@@ -1,0 +1,355 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\Exceptions\IncompatibleTypeException;
+
+/**
+ * Runtime property-hook polyfill for PHP &lt; 8.4 targets.
+ *
+ * Matches PHP 8.4 get/set hook semantics: optional backing value, default read/write when a
+ * hook is omitted on a backed property, isset via get (or backing), and unset always throws
+ * `\Error`. Property visibility (`public`/`protected`/`private`) is enforced in `get()` /
+ * `isset()` / `set()` via `debug_backtrace`; asymmetric set visibility (`*(set)`) is enforced
+ * in `set()` the same way (defaults to property visibility when no `*(set)` was authored).
+ *
+ * Set hooks may declare a contravariant (wider) parameter type than the property. Pass that
+ * type as `$setAcceptType` so `set()` accepts it; property `TValue` is still enforced when the
+ * hook writes via {@see setBacking}. When `$setAcceptType` is omitted, `set()` checks `TValue`
+ * (PHP's default when the set parameter is untyped).
+ *
+ * `$finalGet` / `$finalSet` mirror PHP 8.4 `final get` / `final set`. {@see PropertyAccessorObject}
+ * rejects a descendant re-registration that supplies the same hook.
+ *
+ * Backing storage lives in a {@see PropertyBackingCell} that
+ * {@see PropertyAccessorObject} may share across every declaring level of the same property
+ * so a partial get-only / set-only override observes the inherited hook's writes/reads.
+ */
+final class PropertyAccessor<TValue>
+{
+    private PropertyBackingCell $cell;
+
+    public function __construct(
+        private readonly ?\Closure<TValue> $get = null,
+        private readonly ?\Closure<mixed, void> $set = null,
+        private readonly bool $backed = false,
+        private readonly string $declaringClass = '',
+        private readonly string $propertyName = '',
+        mixed $defaultValue = null,
+        bool $defaultValueIsNull = false,
+        private readonly string $visibility = 'public',
+        private readonly string $setVisibility = 'public',
+        private readonly ?Type $setAcceptType = null,
+        private readonly bool $finalGet = false,
+        private readonly bool $finalSet = false,
+        ?PropertyBackingCell $sharedBacking = null,
+    ): void {
+        $this->cell = $sharedBacking ?? new PropertyBackingCell();
+
+        // Seed only when the shared (or fresh) cell is still uninitialized. Child-first init
+        // may have already applied a more-derived default onto a shared cell.
+        if (!$this->cell->isInitialized()) {
+            // Non-null defaultValue implies a default. defaultValueIsNull covers `= null`
+            // (defaultValue alone cannot distinguish "no default" from "default null").
+            if ($defaultValueIsNull) {
+                $this->cell->set(null);
+            } elseif ($defaultValue !== null) {
+                $this->cell->set($defaultValue);
+            }
+        }
+    }
+
+    public function isBacked(): bool
+    {
+        return $this->backed;
+    }
+
+    public function isBackingInitialized(): bool
+    {
+        return $this->cell->isInitialized();
+    }
+
+    public function getDeclaringClass(): string
+    {
+        return $this->declaringClass;
+    }
+
+    public function hasGet(): bool
+    {
+        return $this->get !== null;
+    }
+
+    public function hasSet(): bool
+    {
+        return $this->set !== null;
+    }
+
+    public function isFinalGet(): bool
+    {
+        return $this->finalGet;
+    }
+
+    public function isFinalSet(): bool
+    {
+        return $this->finalSet;
+    }
+
+    /**
+     * True when this level's property visibility is private — a same-named descendant
+     * declaration is an unrelated slot in PHP, not an override of this one.
+     */
+    public function isPrivateProperty(): bool
+    {
+        return \strtolower($this->visibility) === 'private';
+    }
+
+    public function getBacking(): TValue
+    {
+        if (!$this->cell->isInitialized()) {
+            throw new \Error($this->uninitializedMessage());
+        }
+
+        mixed $value = $this->cell->get();
+        if (Type::isType<TValue>($value)) {
+            return $value;
+        }
+
+        throw new IncompatibleTypeException(
+            typeof(TValue),
+            Type::of($value),
+        );
+    }
+
+    public function setBacking(TValue $value): void
+    {
+        if (!Type::isType<TValue>($value)) {
+            throw new IncompatibleTypeException(
+                typeof(TValue),
+                Type::of($value),
+            );
+        }
+
+        $this->cell->set($value);
+    }
+
+    public function get(): TValue
+    {
+        $this->assertVisibilityAllowed($this->visibility, 'access');
+
+        if ($this->get !== null) {
+            return $this->get->__invoke();
+        }
+
+        if ($this->backed) {
+            return $this->getBacking();
+        }
+
+        throw new \Error($this->writeOnlyMessage());
+    }
+
+    public function set(mixed $value): void
+    {
+        // Asymmetric *(set) wins when authored; otherwise set matches property visibility.
+        string $effectiveSet = \strtolower($this->setVisibility);
+        if ($effectiveSet === '' || $effectiveSet === 'public') {
+            // Fall back to property visibility when setVisibility was left at the public default
+            // but the property itself is protected/private (no asymmetric *(set) authored).
+            string $propVis = \strtolower($this->visibility);
+            if ($propVis === 'protected' || $propVis === 'private') {
+                $effectiveSet = $propVis;
+            }
+        }
+
+        $this->assertVisibilityAllowed($effectiveSet, 'modify');
+
+        // PHP 8.4: type-check against the set-hook parameter type (may be wider than the
+        // property). Property TValue is enforced later via setBacking when the hook stores.
+        Type $acceptType = $this->setAcceptType ?? typeof(TValue);
+        if (!Type::is($value, $acceptType)) {
+            throw new IncompatibleTypeException(
+                $acceptType,
+                Type::of($value),
+            );
+        }
+
+        if ($this->set !== null) {
+            $this->set->__invoke($value);
+            return;
+        }
+
+        if ($this->backed) {
+            // No set hook: accept type is TValue (above), so this is safe.
+            if (Type::isType<TValue>($value)) {
+                $this->setBacking($value);
+                return;
+            }
+
+            throw new IncompatibleTypeException(
+                typeof(TValue),
+                Type::of($value),
+            );
+        }
+
+        throw new \Error($this->readOnlyMessage());
+    }
+
+    /**
+     * PHP: isset on hooked property with get → get() !== null; without get but backed →
+     * backing initialized and non-null. Inaccessible visibility → false (matches PHP
+     * isset on private/protected properties), without throwing.
+     */
+    public function isset(): bool
+    {
+        if (!$this->isVisibilityAllowed($this->visibility)) {
+            return false;
+        }
+
+        if ($this->get !== null) {
+            // get() re-checks visibility; already allowed above.
+            return $this->get() !== null;
+        }
+
+        if ($this->backed) {
+            return $this->cell->isInitialized() && $this->cell->get() !== null;
+        }
+
+        return false;
+    }
+
+    public function unset(): void
+    {
+        throw new \Error($this->cannotUnsetMessage());
+    }
+
+    fn getType(): \Tyhp\Type => typeof(TValue);
+
+    /**
+     * @param 'access'|'modify' $operation
+     */
+    private function assertVisibilityAllowed(string $visibility, string $operation): void
+    {
+        if ($this->isVisibilityAllowed($visibility)) {
+            return;
+        }
+
+        string|null $callerClass = $this->resolveCallerClass();
+        string $from = $callerClass ?? 'global scope';
+        string $vis = \strtolower($visibility);
+        if ($vis === '') {
+            $vis = 'public';
+        }
+
+        if ($operation === 'modify') {
+            // Match PHP asymmetric-set wording when set visibility is restricted.
+            string $setLabel = $vis . '(set)';
+            throw new \Error(
+                'Cannot modify ' . $setLabel . ' property ' . $this->propertyLabel() . ' from ' . $from,
+            );
+        }
+
+        throw new \Error(
+            'Cannot access ' . $vis . ' property ' . $this->propertyLabel() . ' from ' . $from,
+        );
+    }
+
+    private function isVisibilityAllowed(string $visibility): bool
+    {
+        string $vis = \strtolower($visibility);
+        if ($vis === '' || $vis === 'public') {
+            return true;
+        }
+
+        string|null $callerClass = $this->resolveCallerClass();
+        string $declaring = $this->declaringClass;
+
+        if ($vis === 'private') {
+            return $callerClass !== null && $callerClass === $declaring;
+        }
+
+        if ($vis === 'protected') {
+            // PHP's protected check is bidirectional: the calling scope may be a subclass of the
+            // declaring class (normal case), OR the declaring class may be a subclass of the
+            // calling scope (e.g. an ancestor method typed to accept a more-derived object that
+            // declares the protected property) — matches Zend's instanceof_function() check in
+            // both directions. Only unrelated (sibling) classes are denied.
+            return $callerClass !== null
+                && ($callerClass === $declaring
+                    || \is_subclass_of($callerClass, $declaring)
+                    || \is_subclass_of($declaring, $callerClass));
+        }
+
+        return true;
+    }
+
+    /**
+     * Walk debug_backtrace past polyfill dispatch frames to the real caller class (or null
+     * for global / non-method scope).
+     */
+    private function resolveCallerClass(): string|null
+    {
+        array $trace = \debug_backtrace(\DEBUG_BACKTRACE_IGNORE_ARGS, 20);
+        // [0] = resolveCallerClass / isVisibilityAllowed / assert…, [1] = get|set|isset, [2+] =
+        // callers through magic/dispatch.
+        for (int $i = 2; $i < \count($trace); $i++) {
+            mixed $frameClass = $trace[$i]['class'] ?? null;
+            mixed $frameFn = $trace[$i]['function'] ?? '';
+            string $fn = \is_string($frameFn) ? $frameFn : '';
+
+            // Skip polyfill dispatcher / bag / closure frames.
+            if ($fn === '__get'
+                || $fn === '__set'
+                || $fn === '__isset'
+                || $fn === 'tyhpTryGet'
+                || $fn === 'tyhpTrySet'
+                || $fn === 'tyhpTryIsset'
+                || \str_starts_with($fn, '{closure')
+            ) {
+                continue;
+            }
+
+            if (\is_string($frameClass)) {
+                if ($frameClass === self::class
+                    || $frameClass === PropertyAccessorObject::class
+                    || \str_starts_with($frameClass, 'Tyhp\\Concerns\\')
+                ) {
+                    continue;
+                }
+
+                return $frameClass;
+            }
+
+            // Global / non-method frame after skipping internals.
+            return null;
+        }
+
+        return null;
+    }
+
+    private function propertyLabel(): string
+    {
+        string $class = $this->declaringClass !== '' ? $this->declaringClass : 'unknown';
+        string $prop = $this->propertyName !== '' ? $this->propertyName : 'unknown';
+
+        return $class . '::$' . $prop;
+    }
+
+    private function uninitializedMessage(): string
+    {
+        return 'Typed property ' . $this->propertyLabel() . ' must not be accessed before initialization';
+    }
+
+    private function cannotUnsetMessage(): string
+    {
+        return 'Cannot unset hooked property ' . $this->propertyLabel();
+    }
+
+    private function readOnlyMessage(): string
+    {
+        return 'Property ' . $this->propertyLabel() . ' is read-only';
+    }
+
+    private function writeOnlyMessage(): string
+    {
+        return 'Property ' . $this->propertyLabel() . ' is write-only';
+    }
+}

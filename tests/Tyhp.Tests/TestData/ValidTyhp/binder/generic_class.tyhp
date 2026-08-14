@@ -1,0 +1,15 @@
+<?tyhp
+
+namespace TestData\Binder;
+
+class Pair<TLeft, TRight>
+{
+    public TLeft $left;
+    public TRight $right;
+
+    public function __construct(TLeft $left, TRight $right): void
+    {
+        $this->left = $left;
+        $this->right = $right;
+    }
+}

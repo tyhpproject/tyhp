@@ -1,0 +1,10 @@
+<?tyhp
+
+namespace Tyhp\Contracts;
+
+use Tyhp\Promise;
+
+interface AsyncKeyValueIterator<TKey, TValue> extends AsyncIterator<TValue> {
+    public function currentKey(): Promise<TKey>;
+    public function currentValue(): Promise<TValue>;
+}

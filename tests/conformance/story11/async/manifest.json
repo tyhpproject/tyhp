@@ -1,0 +1,17 @@
+{
+  "suite": "story11/async",
+  "description": "Story 11 — top-level async function → Promise wrapping + await",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "async_function",
+      "file": "async.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

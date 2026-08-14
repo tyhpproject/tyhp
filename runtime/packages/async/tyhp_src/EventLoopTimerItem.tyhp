@@ -1,0 +1,17 @@
+<?tyhp
+
+namespace Tyhp;
+
+/**
+ * Typed timer queue entry for {@see EventLoop}.
+ * Keeps SplPriorityQueue's mixed top/extract values out of type-specific operations.
+ */
+final class EventLoopTimerItem
+{
+    public function __construct(
+        public string $id,
+        public callable $callback,
+        public int $interval,
+        public int $fireAt,
+    ): void {}
+}

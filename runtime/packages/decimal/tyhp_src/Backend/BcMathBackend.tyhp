@@ -1,0 +1,75 @@
+<?tyhp
+
+namespace Tyhp\Backend;
+
+final class BcMathBackend implements DecimalBackend
+{
+    public function add(string $a, string $b, int $scale): string {
+        return \bcadd($a, $b, $scale);
+    }
+
+    public function subtract(string $a, string $b, int $scale): string {
+        return \bcsub($a, $b, $scale);
+    }
+
+    public function multiply(string $a, string $b, int $scale): string {
+        return \bcmul($a, $b, $scale);
+    }
+
+    public function divide(string $a, string $b, int $scale): string {
+        if (\bccomp($b, '0', $scale) === 0) {
+            throw new \DivisionByZeroError('Division by zero');
+        }
+
+        return \bcdiv($a, $b, $scale);
+    }
+
+    public function modulo(string $a, string $b, int $scale): string {
+        if (\bccomp($b, '0', $scale) === 0) {
+            throw new \DivisionByZeroError('Modulo by zero');
+        }
+
+        return \bcmod($a, $b, $scale);
+    }
+
+    public function power(string $base, int $exponent, int $scale): string {
+        return \bcpow($base, (string) $exponent, $scale);
+    }
+
+    public function sqrt(string $value, int $scale): string {
+        if (\bccomp($value, '0', $scale) < 0) {
+            throw new \InvalidArgumentException('Square root of a negative number is not supported');
+        }
+
+        return \bcsqrt($value, $scale);
+    }
+
+    public function compare(string $a, string $b, int $scale): int {
+        return \bccomp($a, $b, $scale);
+    }
+
+    public function negate(string $value): string {
+        string $stripped = \ltrim(\str_replace(['-', '.'], '', $value), '0');
+        if ($stripped === '') {
+            return $value;
+        }
+
+        if (\str_starts_with($value, '-')) {
+            return \substr($value, 1);
+        }
+
+        return '-' . $value;
+    }
+
+    public function abs(string $value): string {
+        if (\str_starts_with($value, '-')) {
+            return \substr($value, 1);
+        }
+
+        return $value;
+    }
+
+    public function getName(): string {
+        return 'bcmath';
+    }
+}

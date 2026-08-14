@@ -1,0 +1,1287 @@
+<?tyhpdef
+const string DATE_ATOM;
+const string DATE_COOKIE;
+const string DATE_ISO8601;
+const string DATE_ISO8601_EXPANDED;
+const string DATE_RFC822;
+const string DATE_RFC850;
+const string DATE_RFC1036;
+const string DATE_RFC1123;
+const string DATE_RFC7231;
+const string DATE_RFC2822;
+const string DATE_RFC3339;
+const string DATE_RFC3339_EXTENDED;
+const string DATE_RSS;
+const string DATE_W3C;
+const int SUNFUNCS_RET_TIMESTAMP;
+const int SUNFUNCS_RET_STRING;
+const int SUNFUNCS_RET_DOUBLE;
+/**
+ * Parse about any English textual datetime description into a Unix timestamp
+ * 
+ * @param string $datetime A date/time string. Valid formats are explained inDate and Time Formats.
+ * @param ?int $baseTimestamp The timestamp which is used as a base for the calculation of relative dates.
+ * @return int|false Returns a timestamp on success, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.strtotime.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function strtotime(string $datetime, ?int $baseTimestamp = null): int|false;
+/**
+ * Format a Unix timestamp
+ * 
+ * Returns a string formatted according to the given format string using the given integer `$timestamp` (Unix timestamp) or the current time if no timestamp is given. In other words, `$timestamp` is optional and defaults to the value of `time()`.
+ * 
+ * @param string $format Format accepted byDateTimeInterface::format(). **Note** : `date()` will always generate `000000` as microseconds since it takes anintparameter, whereasDateTime::format()does support microseconds ifDateTimewas created with microseconds.
+ * @param ?int $timestamp The optional `$timestamp` parameter is anintUnix timestamp that defaults to the current local time if `$timestamp` is omitted or ** `null` **. In other words, it defaults to the value of `time()`.
+ * @return string Returns a formatted date string.
+ * 
+ * @link https://www.php.net/manual/function.date.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date(string $format, ?int $timestamp = null): string;
+/**
+ * Format a local time/date part as integer
+ * 
+ * Returns a number formatted according to the given format string using the given integer `$timestamp` or the current local time if no timestamp is given. In other words, `$timestamp` is optional and defaults to the value of `time()`.
+ * 
+ * @param string $format **The following characters are recognized in the `$format` parameter string** `$format` characterDescription `B` Swatch Beat/Internet Time `d` Day of the month `h` Hour (12 hour format) `H` Hour (24 hour format) `i` Minutes `I` (uppercase i)returns `1` if DST is activated, `0` otherwise `L` (uppercase l)returns `1` for leap year, `0` otherwise `m` Month number `N` ISO-8601 day of the week (`1` for Monday through `7` for Sunday) `o` ISO-8601 year (4 digits) `s` Seconds `t` Days in current month `U` Seconds since the Unix Epoch - January 1 1970 00:00:00 UTC - this is the same as `time()` `w` Day of the week (`0` on Sunday) `W` ISO-8601 week number of year, weeks starting on Monday `y` Year (1 or 2 digits - check note below) `Y` Year (4 digits) `z` Day of the year `Z` Timezone offset in seconds
+ * @param ?int $timestamp The optional `$timestamp` parameter is anintUnix timestamp that defaults to the current local time if `$timestamp` is omitted or ** `null` **. In other words, it defaults to the value of `time()`.
+ * @return int|false Returns an int on success, or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.idate.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function idate(string $format, ?int $timestamp = null): int|false;
+/**
+ * Format a GMT/UTC date/time
+ * 
+ * Identical to the `date()` function except that the time returned is Greenwich Mean Time (GMT).
+ * 
+ * @param string $format The format of the outputted datestring. See the formatting options for the `date()` function.
+ * @param ?int $timestamp The optional `$timestamp` parameter is anintUnix timestamp that defaults to the current local time if `$timestamp` is omitted or ** `null` **. In other words, it defaults to the value of `time()`.
+ * @return string Returns a formatted date string.
+ * 
+ * @link https://www.php.net/manual/function.gmdate.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function gmdate(string $format, ?int $timestamp = null): string;
+/**
+ * Get Unix timestamp for a date
+ * 
+ * Returns the Unix timestamp corresponding to the arguments given. This timestamp is a long integer containing the number of seconds between the Unix Epoch (January 1 1970 00:00:00 GMT) and the time specified.
+ * 
+ * @param int $hour The number of the hour relative to the start of the day determined by `$month` , `$day` and `$year`. Negative values reference the hour before midnight of the day in question. Values greater than 23 reference the appropriate hour in the following day(s).
+ * @param ?int $minute The number of the minute relative to the start of the `$hour`. Negative values reference the minute in the previous hour. Values greater than 59 reference the appropriate minute in the following hour(s).
+ * @param ?int $second The number of seconds relative to the start of the `$minute`. Negative values reference the second in the previous minute. Values greater than 59 reference the appropriate second in the following minute(s).
+ * @param ?int $month The number of the month relative to the end of the previous year. Values 1 to 12 reference the normal calendar months of the year in question. Values less than 1 (including negative values) reference the months in the previous year in reverse order, so 0 is December, -1 is November, etc. Values greater than 12 reference the appropriate month in the following year(s).
+ * @param ?int $day The number of the day relative to the end of the previous month. Values 1 to 28, 29, 30 or 31 (depending upon the month) reference the normal days in the relevant month. Values less than 1 (including negative values) reference the days in the previous month, so 0 is the last day of the previous month, -1 is the day before that, etc. Values greater than the number of days in the relevant month reference the appropriate day in the following month(s).
+ * @param ?int $year The number of the year, may be a two or four digit value, with values between 0-69 mapping to 2000-2069 and 70-100 to 1970-2000. On systems where time_t is a 32bit signed integer, as most common today, the valid range for `$year` is somewhere between 1901 and 2038.
+ * @return int|false `mktime()` returns the Unix timestamp of the arguments given, or ** `false` ** if the timestamp doesn't fit in a PHP integer.
+ * 
+ * @link https://www.php.net/manual/function.mktime.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function mktime(int $hour, ?int $minute = null, ?int $second = null, ?int $month = null, ?int $day = null, ?int $year = null): int|false;
+/**
+ * Get Unix timestamp for a GMT date
+ * 
+ * Identical to `mktime()` except the passed parameters represents a GMT date. `gmmktime()` internally uses `mktime()` so only times valid in derived local time can be used.
+ * 
+ * @param int $hour The number of the hour relative to the start of the day determined by `$month` , `$day` and `$year`. Negative values reference the hour before midnight of the day in question. Values greater than 23 reference the appropriate hour in the following day(s).
+ * @param ?int $minute The number of the minute relative to the start of the `$hour`. Negative values reference the minute in the previous hour. Values greater than 59 reference the appropriate minute in the following hour(s).
+ * @param ?int $second The number of seconds relative to the start of the `$minute`. Negative values reference the second in the previous minute. Values greater than 59 reference the appropriate second in the following minute(s).
+ * @param ?int $month The number of the month relative to the end of the previous year. Values 1 to 12 reference the normal calendar months of the year in question. Values less than 1 (including negative values) reference the months in the previous year in reverse order, so 0 is December, -1 is November, etc. Values greater than 12 reference the appropriate month in the following year(s).
+ * @param ?int $day The number of the day relative to the end of the previous month. Values 1 to 28, 29, 30 or 31 (depending upon the month) reference the normal days in the relevant month. Values less than 1 (including negative values) reference the days in the previous month, so 0 is the last day of the previous month, -1 is the day before that, etc. Values greater than the number of days in the relevant month reference the appropriate day in the following month(s).
+ * @param ?int $year The year
+ * @return int|false Returns a int Unix timestamp on success, or ** `false` ** if the timestamp doesn't fit in a PHP integer.
+ * 
+ * @link https://www.php.net/manual/function.gmmktime.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function gmmktime(int $hour, ?int $minute = null, ?int $second = null, ?int $month = null, ?int $day = null, ?int $year = null): int|false;
+/**
+ * Validate a Gregorian date
+ * 
+ * Checks the validity of the date formed by the arguments. A date is considered valid if each parameter is properly defined.
+ * 
+ * @param int $month The month is between 1 and 12 inclusive.
+ * @param int $day The day is within the allowed number of days for the given `$month`. Leap `$year` s are taken into consideration.
+ * @param int $year The year is between 1 and 32767 inclusive.
+ * @return bool Returns ** `true` ** if the date given is valid; otherwise returns ** `false` **.
+ * 
+ * @link https://www.php.net/manual/function.checkdate.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function checkdate(int $month, int $day, int $year): bool;
+/**
+ * Format a local time/date according to locale settings
+ * 
+ * Format the time and/or date according to locale settings. Month and weekday names and other language-dependent strings respect the current locale set with `setlocale()`.
+ * 
+ * @deprecated **Warning** This function has been *DEPRECATED* as of PHP 8.1.0. Relying on this function is highly discouraged.
+ * 
+ * @param string $format **The following characters are recognized in the `$format` parameter string** `$format` DescriptionExample returned values *Day* ------ `%a` An abbreviated textual representation of the day `Sun` through `Sat` `%A` A full textual representation of the day `Sunday` through `Saturday` `%d` Two-digit day of the month (with leading zeros) `01` to `31` `%e` Day of the month, with a space preceding single digits. Not implemented as described on Windows. See below for more information. `1` to `31` `%j` Day of the year, 3 digits with leading zeros `001` to `366` `%u` ISO-8601 numeric representation of the day of the week `1` (for Monday) through `7` (for Sunday) `%w` Numeric representation of the day of the week `0` (for Sunday) through `6` (for Saturday) *Week* ------ `%U` Week number of the given year, starting with the first Sunday as the first week `13` (for the 13th full week of the year) `%V` ISO-8601:1988 week number of the given year, starting with the first week of the year with at least 4 weekdays, with Monday being the start of the week `01` through `53` (where 53 accounts for an overlapping week) `%W` A numeric representation of the week of the year, starting with the first Monday as the first week `46` (for the 46th week of the year beginning with a Monday) *Month* ------ `%b` Abbreviated month name, based on the locale `Jan` through `Dec` `%B` Full month name, based on the locale `January` through `December` `%h` Abbreviated month name, based on the locale (an alias of %b) `Jan` through `Dec` `%m` Two digit representation of the month `01` (for January) through `12` (for December) *Year* ------ `%C` Two digit representation of the century (year divided by 100, truncated to an integer) `19` for the 20th Century `%g` Two digit representation of the year going by ISO-8601:1988 standards (see %V)Example: `09` for the week of January 6, 2009 `%G` The full four-digit version of %gExample: `2008` for the week of January 3, 2009 `%y` Two digit representation of the yearExample: `09` for 2009, `79` for 1979 `%Y` Four digit representation for the yearExample: `2038` *Time* ------ `%H` Two digit representation of the hour in 24-hour format `00` through `23` `%k` Hour in 24-hour format, with a space preceding single digits `0` through `23` `%I` Two digit representation of the hour in 12-hour format `01` through `12` `%l (lower-case 'L')` Hour in 12-hour format, with a space preceding single digits `1` through `12` `%M` Two digit representation of the minute `00` through `59` `%p` UPPER-CASE 'AM' or 'PM' based on the given timeExample: `AM` for 00:31, `PM` for 22:23. The exact result depends on the Operating System, and they can also return lower-case variants, or variants with dots (such as `a.m.`). `%P` lower-case 'am' or 'pm' based on the given timeExample: `am` for 00:31, `pm` for 22:23. Not supported by all Operating Systems. `%r` Same as "%I:%M:%S %p"Example: `09:34:17 PM` for 21:34:17 `%R` Same as "%H:%M"Example: `00:35` for 12:35 AM, `16:44` for 4:44 PM `%S` Two digit representation of the second `00` through `59` `%T` Same as "%H:%M:%S"Example: `21:34:17` for 09:34:17 PM `%X` Preferred time representation based on locale, without the dateExample: `03:59:16` or `15:59:16` `%z` The time zone offset. Not implemented as described on Windows. See below for more information.Example: `-0500` for US Eastern Time `%Z` The time zone abbreviation. Not implemented as described on Windows. See below for more information.Example: `EST` for Eastern Time *Time and Date Stamps* ------ `%c` Preferred date and time stamp based on localeExample: `Tue Feb 5 00:45:10 2009` for February 5, 2009 at 12:45:10 AM `%D` Same as "%m/%d/%y"Example: `02/05/09` for February 5, 2009 `%F` Same as "%Y-%m-%d" (commonly used in database datestamps)Example: `2009-02-05` for February 5, 2009 `%s` Unix Epoch Time timestamp (same as the `time()` function)Example: `305815200` for September 10, 1979 08:40:00 AM `%x` Preferred date representation based on locale, without the timeExample: `02/05/09` for February 5, 2009 *Miscellaneous* ------ `%n` A newline character ("\n")--- `%t` A Tab character ("\t")--- `%%` A literal percentage character ("%")--- **Warning** Contrary to ISO-9899:1999, Sun Solaris starts with Sunday as 1. As a result, `%u` may not function as described in this manual. **Warning** *Windows only:* The `%e` modifier is not supported in the Windows implementation of this function. To achieve this value, the `%#d` modifier can be used instead. The example below illustrates how to write a cross platform compatible function.The `%z` and `%Z` modifiers both return the time zone name instead of the offset or abbreviation. **Warning** *macOS and musl only:* The `%P` modifier is not supported in the macOS implementation of this function.
+ * @param ?int $timestamp The optional `$timestamp` parameter is anintUnix timestamp that defaults to the current local time if `$timestamp` is omitted or ** `null` **. In other words, it defaults to the value of `time()`.
+ * @return string|false Returns a string formatted according `$format` using the given `$timestamp` or the current local time if no timestamp is given. Month and weekday names and other language-dependent strings respect the current locale set with `setlocale()`. The function returns ** `false` ** if `$format` is empty, contains unsupported conversion specifiers, or if the length of the returned string would be greater than `4095`.
+ * 
+ * @link https://www.php.net/manual/function.strftime.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function strftime(string $format, ?int $timestamp = null): string|false;
+/**
+ * Format a GMT/UTC time/date according to locale settings
+ * 
+ * Behaves the same as `strftime()` except that the time returned is Greenwich Mean Time (GMT). For example, when run in Eastern Standard Time (GMT -0500), the first line below prints "Dec 31 1998 20:00:00", while the second prints "Jan 01 1999 01:00:00".
+ * 
+ * @deprecated **Warning** This function has been *DEPRECATED* as of PHP 8.1.0. Relying on this function is highly discouraged.
+ * 
+ * @param string $format See description in `strftime()`.
+ * @param ?int $timestamp The optional `$timestamp` parameter is anintUnix timestamp that defaults to the current local time if `$timestamp` is omitted or ** `null` **. In other words, it defaults to the value of `time()`.
+ * @return string|false Returns a string formatted according to the given format string using the given `$timestamp` or the current local time if no timestamp is given. Month and weekday names and other language dependent strings respect the current locale set with `setlocale()`. On failure, ** `false` ** is returned.
+ * 
+ * @link https://www.php.net/manual/function.gmstrftime.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function gmstrftime(string $format, ?int $timestamp = null): string|false;
+/**
+ * Return current Unix timestamp
+ * 
+ * Returns the current time measured in the number of seconds since the Unix Epoch (January 1 1970 00:00:00 GMT).
+ * 
+ * **Note** :Unix timestamps do not contain any information with regards to any local timezone. It is recommended to use theDateTimeImmutableclass for handling date and time information in order to avoid the pitfalls that come with just Unix timestamps.
+ * 
+ * @return int Returns the current timestamp.
+ * 
+ * @link https://www.php.net/manual/function.time.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function time(): int;
+/**
+ * Get the local time
+ * 
+ * The `localtime()` function returns an array identical to that of the structure returned by the C function call.
+ * 
+ * @param ?int $timestamp The optional `$timestamp` parameter is anintUnix timestamp that defaults to the current local time if `$timestamp` is omitted or ** `null` **. In other words, it defaults to the value of `time()`.
+ * @param bool $associative Determines whether the function should return a regular, numerically indexed array, or an associative one.
+ * @return array If `$associative` is set to ** `false` ** or not supplied then the array is returned as a regular, numerically indexed array. If `$associative` is set to ** `true` ** then `localtime()` returns an associative array containing the elements of the structure returned by the C function call to localtime. The keys of the associative array are as follows:
+ * 
+ * @link https://www.php.net/manual/function.localtime.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function localtime(?int $timestamp = null, bool $associative = false): array;
+/**
+ * Get date/time information
+ * 
+ * Returns an associativearraycontaining the date information of the `$timestamp` , or the current local time if `$timestamp` is omitted or ** `null` **.
+ * 
+ * @param ?int $timestamp The optional `$timestamp` parameter is anintUnix timestamp that defaults to the current local time if `$timestamp` is omitted or ** `null` **. In other words, it defaults to the value of `time()`.
+ * @return array Returns an associative array of information related to the `$timestamp`. Elements from the returned associative array are as follows:
+ * 
+ * @link https://www.php.net/manual/function.getdate.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function getdate(?int $timestamp = null): array;
+/**
+ * create a newDateTimeobject
+ * 
+ * This is the procedural version ofDateTime::__construct().
+ * 
+ * @param string $datetime
+ * @param ?\DateTimeZone $timezone
+ * @return \DateTime|false Returns a new DateTime instance. Procedural style returns ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.date-create.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_create(string $datetime = "now", ?\DateTimeZone $timezone = null): \DateTime|false;
+/**
+ * create a newDateTimeImmutableobject
+ * 
+ * This is the procedural version ofDateTimeImmutable::__construct().
+ * 
+ * @param string $datetime
+ * @param ?\DateTimeZone $timezone
+ * @return \DateTimeImmutable|false Returns a new DateTimeImmutable instance. Procedural style returns ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.date-create-immutable.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_create_immutable(string $datetime = "now", ?\DateTimeZone $timezone = null): \DateTimeImmutable|false;
+/**
+ * Alias ofDateTime::createFromFormat()
+ * 
+ * @param string $format
+ * @param string $datetime
+ * @param ?\DateTimeZone $timezone
+ * @return \DateTime|false
+ * 
+ * @link https://www.php.net/manual/function.date-create-from-format.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_create_from_format(string $format, string $datetime, ?\DateTimeZone $timezone = null): \DateTime|false;
+/**
+ * Alias ofDateTimeImmutable::createFromFormat()
+ * 
+ * @param string $format
+ * @param string $datetime
+ * @param ?\DateTimeZone $timezone
+ * @return \DateTimeImmutable|false
+ * 
+ * @link https://www.php.net/manual/function.date-create-immutable-from-format.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_create_immutable_from_format(string $format, string $datetime, ?\DateTimeZone $timezone = null): \DateTimeImmutable|false;
+/**
+ * Returns associative array with detailed info about given date/time
+ * 
+ * `date_parse()` parses the given `$datetime` string according to the same rules as `strtotime()` and `DateTimeImmutable::__construct()`. Instead of returning a Unix timestamp (with `strtotime()`) or aDateTimeImmutableobject (with `DateTimeImmutable::__construct()`), it returns an associative array with the information that it could detect in the given `$datetime` string.
+ * 
+ * @param string $datetime Date/time in format accepted by `DateTimeImmutable::__construct()`.
+ * @return array Returns array with information about the parsed date/time.
+ * 
+ * @link https://www.php.net/manual/function.date-parse.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_parse(string $datetime): array;
+/**
+ * Get info about given date formatted according to the specified format
+ * 
+ * Returns associative array with detailed info about given date/time.
+ * 
+ * @param string $format Documentation on how the `$format` is used, please refer to the documentation of `DateTimeImmutable::createFromFormat()`. The same rules apply.
+ * @param string $datetime String representing the date/time.
+ * @return array Returns associative array with detailed info about given date/time.
+ * 
+ * @link https://www.php.net/manual/function.date-parse-from-format.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_parse_from_format(string $format, string $datetime): array;
+/**
+ * Alias ofDateTimeImmutable::getLastErrors()
+ * 
+ * @return array|false
+ * 
+ * @link https://www.php.net/manual/function.date-get-last-errors.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_get_last_errors(): array|false;
+/**
+ * Alias ofDateTime::format()
+ * 
+ * @param \DateTimeInterface $object
+ * @param string $format
+ * @return string
+ * 
+ * @link https://www.php.net/manual/function.date-format.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_format(\DateTimeInterface $object, string $format): string;
+/**
+ * Alias ofDateTime::modify()
+ * 
+ * @param \DateTime $object
+ * @param string $modifier
+ * @return \DateTime|false
+ * 
+ * @link https://www.php.net/manual/function.date-modify.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_modify(\DateTime $object, string $modifier): \DateTime|false;
+/**
+ * Alias ofDateTime::add()
+ * 
+ * @param \DateTime $object
+ * @param \DateInterval $interval
+ * @return \DateTime
+ * 
+ * @link https://www.php.net/manual/function.date-add.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_add(\DateTime $object, \DateInterval $interval): \DateTime;
+/**
+ * Alias ofDateTime::sub()
+ * 
+ * @param \DateTime $object
+ * @param \DateInterval $interval
+ * @return \DateTime
+ * 
+ * @link https://www.php.net/manual/function.date-sub.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_sub(\DateTime $object, \DateInterval $interval): \DateTime;
+/**
+ * Alias ofDateTime::getTimezone()
+ * 
+ * @param \DateTimeInterface $object
+ * @return \DateTimeZone|false
+ * 
+ * @link https://www.php.net/manual/function.date-timezone-get.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_timezone_get(\DateTimeInterface $object): \DateTimeZone|false;
+/**
+ * Alias ofDateTime::setTimezone()
+ * 
+ * @param \DateTime $object
+ * @param \DateTimeZone $timezone
+ * @return \DateTime
+ * 
+ * @link https://www.php.net/manual/function.date-timezone-set.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_timezone_set(\DateTime $object, \DateTimeZone $timezone): \DateTime;
+/**
+ * Alias ofDateTime::getOffset()
+ * 
+ * @param \DateTimeInterface $object
+ * @return int
+ * 
+ * @link https://www.php.net/manual/function.date-offset-get.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_offset_get(\DateTimeInterface $object): int;
+/**
+ * Alias ofDateTime::diff()
+ * 
+ * @param \DateTimeInterface $baseObject
+ * @param \DateTimeInterface $targetObject
+ * @param bool $absolute
+ * @return \DateInterval
+ * 
+ * @link https://www.php.net/manual/function.date-diff.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_diff(\DateTimeInterface $baseObject, \DateTimeInterface $targetObject, bool $absolute = false): \DateInterval;
+/**
+ * Alias ofDateTime::setTime()
+ * 
+ * @param \DateTime $object
+ * @param int $hour
+ * @param int $minute
+ * @param int $second
+ * @param int $microsecond
+ * @return \DateTime
+ * 
+ * @link https://www.php.net/manual/function.date-time-set.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_time_set(\DateTime $object, int $hour, int $minute, int $second = 0, int $microsecond = 0): \DateTime;
+/**
+ * Alias ofDateTime::setDate()
+ * 
+ * @param \DateTime $object
+ * @param int $year
+ * @param int $month
+ * @param int $day
+ * @return \DateTime
+ * 
+ * @link https://www.php.net/manual/function.date-date-set.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_date_set(\DateTime $object, int $year, int $month, int $day): \DateTime;
+/**
+ * Alias ofDateTime::setISODate()
+ * 
+ * @param \DateTime $object
+ * @param int $year
+ * @param int $week
+ * @param int $dayOfWeek
+ * @return \DateTime
+ * 
+ * @link https://www.php.net/manual/function.date-isodate-set.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_isodate_set(\DateTime $object, int $year, int $week, int $dayOfWeek = 1): \DateTime;
+/**
+ * Alias ofDateTime::setTimestamp()
+ * 
+ * @param \DateTime $object
+ * @param int $timestamp
+ * @return \DateTime
+ * 
+ * @link https://www.php.net/manual/function.date-timestamp-set.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_timestamp_set(\DateTime $object, int $timestamp): \DateTime;
+/**
+ * Alias ofDateTime::getTimestamp()
+ * 
+ * @param \DateTimeInterface $object
+ * @return int
+ * 
+ * @link https://www.php.net/manual/function.date-timestamp-get.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_timestamp_get(\DateTimeInterface $object): int;
+/**
+ * Alias ofDateTimeZone::__construct()
+ * 
+ * @param string $timezone
+ * @return \DateTimeZone|false
+ * 
+ * @link https://www.php.net/manual/function.timezone-open.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function timezone_open(string $timezone): \DateTimeZone|false;
+/**
+ * Alias ofDateTimeZone::getName()
+ * 
+ * @param \DateTimeZone $object
+ * @return string
+ * 
+ * @link https://www.php.net/manual/function.timezone-name-get.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function timezone_name_get(\DateTimeZone $object): string;
+/**
+ * Returns a timezone name by guessing from abbreviation and UTC offset
+ * 
+ * @param string $abbr Time zone abbreviation.
+ * @param int $utcOffset Offset from GMT in seconds. Defaults to -1 which means that first found time zone corresponding to `$abbr` is returned. Otherwise exact offset is searched and only if not found then the first time zone with any offset is returned.
+ * @param int $isDST Daylight saving time indicator. Defaults to -1, which means that whether the time zone has daylight saving or not is not taken into consideration when searching. If this is set to 1, then the `$utcOffset` is assumed to be an offset with daylight saving in effect; if 0, then `$utcOffset` is assumed to be an offset without daylight saving in effect. If `$abbr` doesn't exist then the time zone is searched solely by the `$utcOffset` and `$isDST`.
+ * @return string|false Returns time zone name on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.timezone-name-from-abbr.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function timezone_name_from_abbr(string $abbr, int $utcOffset = -1, int $isDST = -1): string|false;
+/**
+ * Alias ofDateTimeZone::getOffset()
+ * 
+ * @param \DateTimeZone $object
+ * @param \DateTimeInterface $datetime
+ * @return int
+ * 
+ * @link https://www.php.net/manual/function.timezone-offset-get.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function timezone_offset_get(\DateTimeZone $object, \DateTimeInterface $datetime): int;
+/**
+ * Alias ofDateTimeZone::getTransitions()
+ * 
+ * @param \DateTimeZone $object
+ * @param int $timestampBegin
+ * @param int $timestampEnd
+ * @return array|false
+ * 
+ * @link https://www.php.net/manual/function.timezone-transitions-get.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function timezone_transitions_get(\DateTimeZone $object, int $timestampBegin = \PHP_INT_MIN, int $timestampEnd = \PHP_INT_MAX): array|false;
+/**
+ * Alias ofDateTimeZone::getLocation()
+ * 
+ * @param \DateTimeZone $object
+ * @return array|false
+ * 
+ * @link https://www.php.net/manual/function.timezone-location-get.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function timezone_location_get(\DateTimeZone $object): array|false;
+/**
+ * Alias ofDateTimeZone::listIdentifiers()
+ * 
+ * @param int $timezoneGroup
+ * @param ?string $countryCode
+ * @return array
+ * 
+ * @link https://www.php.net/manual/function.timezone-identifiers-list.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function timezone_identifiers_list(int $timezoneGroup = \DateTimeZone::ALL, ?string $countryCode = null): array;
+/**
+ * Alias ofDateTimeZone::listAbbreviations()
+ * 
+ * @return array
+ * 
+ * @link https://www.php.net/manual/function.timezone-abbreviations-list.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function timezone_abbreviations_list(): array;
+/**
+ * Gets the version of the timezonedb
+ * 
+ * Returns the current version of the timezonedb.
+ * 
+ * @return string Returns a string in the format `YYYY.increment` , such as `2022.2`.
+ * 
+ * @link https://www.php.net/manual/function.timezone-version-get.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function timezone_version_get(): string;
+/**
+ * Alias ofDateInterval::createFromDateString()
+ * 
+ * @param string $datetime
+ * @return \DateInterval|false
+ * 
+ * @link https://www.php.net/manual/function.date-interval-create-from-date-string.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_interval_create_from_date_string(string $datetime): \DateInterval|false;
+/**
+ * Alias ofDateInterval::format()
+ * 
+ * @param \DateInterval $object
+ * @param string $format
+ * @return string
+ * 
+ * @link https://www.php.net/manual/function.date-interval-format.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_interval_format(\DateInterval $object, string $format): string;
+/**
+ * Sets the default timezone used by all date/time functions in a script
+ * 
+ * `date_default_timezone_set()` sets the default timezone used by all date/time functions.
+ * 
+ * @param string $timezoneId The timezone identifier, like `UTC` , `Africa/Lagos` , `Asia/Hong_Kong` , or `Europe/Lisbon`. The list of valid identifiers is available in theList of Supported Timezones.
+ * @return bool This function returns ** `false` ** if the `$timezoneId` isn't valid, or ** `true` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.date-default-timezone-set.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_default_timezone_set(string $timezoneId): bool;
+/**
+ * Gets the default timezone used by all date/time functions in a script
+ * 
+ * In order of preference, this function returns the default timezone by:
+ * 
+ * @return string Returns a string.
+ * 
+ * @link https://www.php.net/manual/function.date-default-timezone-get.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_default_timezone_get(): string;
+/**
+ * Returns time of sunrise for a given day and location
+ * 
+ * `date_sunrise()` returns the sunrise time for a given day (specified as a `$timestamp`) and location.
+ * 
+ * @deprecated **Warning** This function has been *DEPRECATED* as of PHP 8.1.0. Relying on this function is highly discouraged. Use `date_sun_info()` instead.
+ * 
+ * @param int $timestamp The `$timestamp` of the day from which the sunrise time is taken.
+ * @param int $returnFormat ** `$returnFormat` constants** constantdescriptionexampleSUNFUNCS_RET_STRINGreturns the result asstring16:46SUNFUNCS_RET_DOUBLEreturns the result asfloat16.78243132SUNFUNCS_RET_TIMESTAMPreturns the result asint(timestamp)1095034606
+ * @param ?float $latitude Defaults to North, pass in a negative value for South. See also:date.default_latitude
+ * @param ?float $longitude Defaults to East, pass in a negative value for West. See also:date.default_longitude
+ * @param ?float $zenith `$zenith` is the angle between the center of the sun and a line perpendicular to earth's surface. It defaults todate.sunrise_zenith **Common `$zenith` angles** AngleDescription90°50'Sunrise: the point where the sun becomes visible.96°Civil twilight: conventionally used to signify the start of dawn.102°Nautical twilight: the point at which the horizon starts being visible at sea.108°Astronomical twilight: the point at which the sun starts being the source of any illumination.
+ * @param ?float $utcOffset Specified in hours. The `$utcOffset` is ignored, if `$returnFormat` is ** `SUNFUNCS_RET_TIMESTAMP` **.
+ * @return string|int|float|false Returns the sunrise time in a specified `$returnFormat` on success or ** `false` ** on failure. One potential reason for failure is that the sun does not rise at all, which happens inside the polar circles for part of the year.
+ * 
+ * @link https://www.php.net/manual/function.date-sunrise.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_sunrise(int $timestamp, int $returnFormat = \SUNFUNCS_RET_STRING, ?float $latitude = null, ?float $longitude = null, ?float $zenith = null, ?float $utcOffset = null): string|int|float|false;
+/**
+ * Returns time of sunset for a given day and location
+ * 
+ * `date_sunset()` returns the sunset time for a given day (specified as a `$timestamp`) and location.
+ * 
+ * @deprecated **Warning** This function has been *DEPRECATED* as of PHP 8.1.0. Relying on this function is highly discouraged. Use `date_sun_info()` instead.
+ * 
+ * @param int $timestamp The `$timestamp` of the day from which the sunset time is taken.
+ * @param int $returnFormat ** `$returnFormat` constants** constantdescriptionexampleSUNFUNCS_RET_STRINGreturns the result asstring16:46SUNFUNCS_RET_DOUBLEreturns the result asfloat16.78243132SUNFUNCS_RET_TIMESTAMPreturns the result asint(timestamp)1095034606
+ * @param ?float $latitude Defaults to North, pass in a negative value for South. See also:date.default_latitude
+ * @param ?float $longitude Defaults to East, pass in a negative value for West. See also:date.default_longitude
+ * @param ?float $zenith `$zenith` is the angle between the center of the sun and a line perpendicular to earth's surface. It defaults todate.sunset_zenith **Common `$zenith` angles** AngleDescription90°50'Sunset: the point where the sun becomes invisible.96°Civil twilight: conventionally used to signify the end of dusk.102°Nautical twilight: the point at which the horizon ends being visible at sea.108°Astronomical twilight: the point at which the sun ends being the source of any illumination.
+ * @param ?float $utcOffset Specified in hours. The `$utcOffset` is ignored, if `$returnFormat` is ** `SUNFUNCS_RET_TIMESTAMP` **.
+ * @return string|int|float|false Returns the sunset time in a specified `$returnFormat` on success or ** `false` ** on failure. One potential reason for failure is that the sun does not set at all, which happens inside the polar circles for part of the year.
+ * 
+ * @link https://www.php.net/manual/function.date-sunset.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_sunset(int $timestamp, int $returnFormat = \SUNFUNCS_RET_STRING, ?float $latitude = null, ?float $longitude = null, ?float $zenith = null, ?float $utcOffset = null): string|int|float|false;
+/**
+ * Returns an array with information about sunset/sunrise and twilight begin/end
+ * 
+ * @param int $timestamp Unix timestamp.
+ * @param float $latitude Latitude in degrees.
+ * @param float $longitude Longitude in degrees.
+ * @return array Returns array on success or ** `false` ** on failure. The structure of the array is detailed in the following list:
+ * 
+ * @link https://www.php.net/manual/function.date-sun-info.php
+ * 
+ * @generated from PHP v8.2.9, EXT: date v8.2.9
+ */
+function date_sun_info(int $timestamp, float $latitude, float $longitude): array;
+interface DateTimeInterface
+{
+    /**
+     * `\DateTimeInterface` method `format`
+     *
+     * @param string $format
+     * @return string
+     */
+    public function format(string $format): string;
+    /**
+     * `\DateTimeInterface` method `getTimezone`
+     *
+     * @return \DateTimeZone|false
+     */
+    public function getTimezone(): \DateTimeZone|false;
+    /**
+     * `\DateTimeInterface` method `getOffset`
+     *
+     * @return int
+     */
+    public function getOffset(): int;
+    /**
+     * `\DateTimeInterface` method `getTimestamp`
+     *
+     * @return int
+     */
+    public function getTimestamp(): int;
+    /**
+     * `\DateTimeInterface` method `diff`
+     *
+     * @param \DateTimeInterface $targetObject
+     * @param bool $absolute
+     * @return \DateInterval
+     */
+    public function diff(\DateTimeInterface $targetObject, bool $absolute = false): \DateInterval;
+    /**
+     * `\DateTimeInterface` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\DateTimeInterface` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\DateTimeInterface` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+}
+class DateTime implements \DateTimeInterface
+{
+    public const string ATOM;
+    public const string COOKIE;
+    public const string ISO8601;
+    public const string ISO8601_EXPANDED;
+    public const string RFC822;
+    public const string RFC850;
+    public const string RFC1036;
+    public const string RFC1123;
+    public const string RFC7231;
+    public const string RFC2822;
+    public const string RFC3339;
+    public const string RFC3339_EXTENDED;
+    public const string RSS;
+    public const string W3C;
+    /**
+     * `\DateTime` method `__construct`
+     *
+     * @param string $datetime
+     * @param ?\DateTimeZone $timezone
+     * @return void
+     */
+    public function __construct(string $datetime = "now", ?\DateTimeZone $timezone = null): void;
+    /**
+     * `\DateTime` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\DateTime` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+    /**
+     * `\DateTime` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\DateTime` method `__set_state`
+     *
+     * @param array $array
+     * @return \DateTime
+     */
+    public function __set_state(array $array): \DateTime;
+    /**
+     * `\DateTime` method `createFromImmutable`
+     *
+     * @param \DateTimeImmutable $object
+     * @return static
+     */
+    public function createFromImmutable(\DateTimeImmutable $object): static;
+    /**
+     * `\DateTime` method `createFromInterface`
+     *
+     * @param \DateTimeInterface $object
+     * @return \DateTime
+     */
+    public function createFromInterface(\DateTimeInterface $object): \DateTime;
+    /**
+     * `\DateTime` method `createFromFormat`
+     *
+     * @param string $format
+     * @param string $datetime
+     * @param ?\DateTimeZone $timezone
+     * @return \DateTime|false
+     */
+    public function createFromFormat(string $format, string $datetime, ?\DateTimeZone $timezone = null): \DateTime|false;
+    /**
+     * `\DateTime` method `getLastErrors`
+     *
+     * @return array|false
+     */
+    public function getLastErrors(): array|false;
+    /**
+     * `\DateTime` method `format`
+     *
+     * @param string $format
+     * @return string
+     */
+    public function format(string $format): string;
+    /**
+     * `\DateTime` method `modify`
+     *
+     * @param string $modifier
+     * @return \DateTime|false
+     */
+    public function modify(string $modifier): \DateTime|false;
+    /**
+     * `\DateTime` method `add`
+     *
+     * @param \DateInterval $interval
+     * @return \DateTime
+     */
+    public function add(\DateInterval $interval): \DateTime;
+    /**
+     * `\DateTime` method `sub`
+     *
+     * @param \DateInterval $interval
+     * @return \DateTime
+     */
+    public function sub(\DateInterval $interval): \DateTime;
+    /**
+     * `\DateTime` method `getTimezone`
+     *
+     * @return \DateTimeZone|false
+     */
+    public function getTimezone(): \DateTimeZone|false;
+    /**
+     * `\DateTime` method `setTimezone`
+     *
+     * @param \DateTimeZone $timezone
+     * @return \DateTime
+     */
+    public function setTimezone(\DateTimeZone $timezone): \DateTime;
+    /**
+     * `\DateTime` method `getOffset`
+     *
+     * @return int
+     */
+    public function getOffset(): int;
+    /**
+     * `\DateTime` method `setTime`
+     *
+     * @param int $hour
+     * @param int $minute
+     * @param int $second
+     * @param int $microsecond
+     * @return \DateTime
+     */
+    public function setTime(int $hour, int $minute, int $second = 0, int $microsecond = 0): \DateTime;
+    /**
+     * `\DateTime` method `setDate`
+     *
+     * @param int $year
+     * @param int $month
+     * @param int $day
+     * @return \DateTime
+     */
+    public function setDate(int $year, int $month, int $day): \DateTime;
+    /**
+     * `\DateTime` method `setISODate`
+     *
+     * @param int $year
+     * @param int $week
+     * @param int $dayOfWeek
+     * @return \DateTime
+     */
+    public function setISODate(int $year, int $week, int $dayOfWeek = 1): \DateTime;
+    /**
+     * `\DateTime` method `setTimestamp`
+     *
+     * @param int $timestamp
+     * @return \DateTime
+     */
+    public function setTimestamp(int $timestamp): \DateTime;
+    /**
+     * `\DateTime` method `getTimestamp`
+     *
+     * @return int
+     */
+    public function getTimestamp(): int;
+    /**
+     * `\DateTime` method `diff`
+     *
+     * @param \DateTimeInterface $targetObject
+     * @param bool $absolute
+     * @return \DateInterval
+     */
+    public function diff(\DateTimeInterface $targetObject, bool $absolute = false): \DateInterval;
+}
+class DateTimeImmutable implements \DateTimeInterface
+{
+    public const string ATOM;
+    public const string COOKIE;
+    public const string ISO8601;
+    public const string ISO8601_EXPANDED;
+    public const string RFC822;
+    public const string RFC850;
+    public const string RFC1036;
+    public const string RFC1123;
+    public const string RFC7231;
+    public const string RFC2822;
+    public const string RFC3339;
+    public const string RFC3339_EXTENDED;
+    public const string RSS;
+    public const string W3C;
+    /**
+     * `\DateTimeImmutable` method `__construct`
+     *
+     * @param string $datetime
+     * @param ?\DateTimeZone $timezone
+     * @return void
+     */
+    public function __construct(string $datetime = "now", ?\DateTimeZone $timezone = null): void;
+    /**
+     * `\DateTimeImmutable` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\DateTimeImmutable` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+    /**
+     * `\DateTimeImmutable` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\DateTimeImmutable` method `__set_state`
+     *
+     * @param array $array
+     * @return \DateTimeImmutable
+     */
+    public function __set_state(array $array): \DateTimeImmutable;
+    /**
+     * `\DateTimeImmutable` method `createFromFormat`
+     *
+     * @param string $format
+     * @param string $datetime
+     * @param ?\DateTimeZone $timezone
+     * @return \DateTimeImmutable|false
+     */
+    public function createFromFormat(string $format, string $datetime, ?\DateTimeZone $timezone = null): \DateTimeImmutable|false;
+    /**
+     * `\DateTimeImmutable` method `getLastErrors`
+     *
+     * @return array|false
+     */
+    public function getLastErrors(): array|false;
+    /**
+     * `\DateTimeImmutable` method `format`
+     *
+     * @param string $format
+     * @return string
+     */
+    public function format(string $format): string;
+    /**
+     * `\DateTimeImmutable` method `getTimezone`
+     *
+     * @return \DateTimeZone|false
+     */
+    public function getTimezone(): \DateTimeZone|false;
+    /**
+     * `\DateTimeImmutable` method `getOffset`
+     *
+     * @return int
+     */
+    public function getOffset(): int;
+    /**
+     * `\DateTimeImmutable` method `getTimestamp`
+     *
+     * @return int
+     */
+    public function getTimestamp(): int;
+    /**
+     * `\DateTimeImmutable` method `diff`
+     *
+     * @param \DateTimeInterface $targetObject
+     * @param bool $absolute
+     * @return \DateInterval
+     */
+    public function diff(\DateTimeInterface $targetObject, bool $absolute = false): \DateInterval;
+    /**
+     * `\DateTimeImmutable` method `modify`
+     *
+     * @param string $modifier
+     * @return \DateTimeImmutable|false
+     */
+    public function modify(string $modifier): \DateTimeImmutable|false;
+    /**
+     * `\DateTimeImmutable` method `add`
+     *
+     * @param \DateInterval $interval
+     * @return \DateTimeImmutable
+     */
+    public function add(\DateInterval $interval): \DateTimeImmutable;
+    /**
+     * `\DateTimeImmutable` method `sub`
+     *
+     * @param \DateInterval $interval
+     * @return \DateTimeImmutable
+     */
+    public function sub(\DateInterval $interval): \DateTimeImmutable;
+    /**
+     * `\DateTimeImmutable` method `setTimezone`
+     *
+     * @param \DateTimeZone $timezone
+     * @return \DateTimeImmutable
+     */
+    public function setTimezone(\DateTimeZone $timezone): \DateTimeImmutable;
+    /**
+     * `\DateTimeImmutable` method `setTime`
+     *
+     * @param int $hour
+     * @param int $minute
+     * @param int $second
+     * @param int $microsecond
+     * @return \DateTimeImmutable
+     */
+    public function setTime(int $hour, int $minute, int $second = 0, int $microsecond = 0): \DateTimeImmutable;
+    /**
+     * `\DateTimeImmutable` method `setDate`
+     *
+     * @param int $year
+     * @param int $month
+     * @param int $day
+     * @return \DateTimeImmutable
+     */
+    public function setDate(int $year, int $month, int $day): \DateTimeImmutable;
+    /**
+     * `\DateTimeImmutable` method `setISODate`
+     *
+     * @param int $year
+     * @param int $week
+     * @param int $dayOfWeek
+     * @return \DateTimeImmutable
+     */
+    public function setISODate(int $year, int $week, int $dayOfWeek = 1): \DateTimeImmutable;
+    /**
+     * `\DateTimeImmutable` method `setTimestamp`
+     *
+     * @param int $timestamp
+     * @return \DateTimeImmutable
+     */
+    public function setTimestamp(int $timestamp): \DateTimeImmutable;
+    /**
+     * `\DateTimeImmutable` method `createFromMutable`
+     *
+     * @param \DateTime $object
+     * @return static
+     */
+    public function createFromMutable(\DateTime $object): static;
+    /**
+     * `\DateTimeImmutable` method `createFromInterface`
+     *
+     * @param \DateTimeInterface $object
+     * @return \DateTimeImmutable
+     */
+    public function createFromInterface(\DateTimeInterface $object): \DateTimeImmutable;
+}
+class DateTimeZone
+{
+    public const int AFRICA;
+    public const int AMERICA;
+    public const int ANTARCTICA;
+    public const int ARCTIC;
+    public const int ASIA;
+    public const int ATLANTIC;
+    public const int AUSTRALIA;
+    public const int EUROPE;
+    public const int INDIAN;
+    public const int PACIFIC;
+    public const int UTC;
+    public const int ALL;
+    public const int ALL_WITH_BC;
+    public const int PER_COUNTRY;
+    /**
+     * `\DateTimeZone` method `__construct`
+     *
+     * @param string $timezone
+     * @return void
+     */
+    public function __construct(string $timezone): void;
+    /**
+     * `\DateTimeZone` method `getName`
+     *
+     * @return string
+     */
+    public function getName(): string;
+    /**
+     * `\DateTimeZone` method `getOffset`
+     *
+     * @param \DateTimeInterface $datetime
+     * @return int
+     */
+    public function getOffset(\DateTimeInterface $datetime): int;
+    /**
+     * `\DateTimeZone` method `getTransitions`
+     *
+     * @param int $timestampBegin
+     * @param int $timestampEnd
+     * @return array|false
+     */
+    public function getTransitions(int $timestampBegin = \PHP_INT_MIN, int $timestampEnd = \PHP_INT_MAX): array|false;
+    /**
+     * `\DateTimeZone` method `getLocation`
+     *
+     * @return array|false
+     */
+    public function getLocation(): array|false;
+    /**
+     * `\DateTimeZone` method `listAbbreviations`
+     *
+     * @return array
+     */
+    public function listAbbreviations(): array;
+    /**
+     * `\DateTimeZone` method `listIdentifiers`
+     *
+     * @param int $timezoneGroup
+     * @param ?string $countryCode
+     * @return array
+     */
+    public function listIdentifiers(int $timezoneGroup = \DateTimeZone::ALL, ?string $countryCode = null): array;
+    /**
+     * `\DateTimeZone` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\DateTimeZone` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+    /**
+     * `\DateTimeZone` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\DateTimeZone` method `__set_state`
+     *
+     * @param array $array
+     * @return \DateTimeZone
+     */
+    public function __set_state(array $array): \DateTimeZone;
+}
+class DateInterval
+{
+    /**
+     * `\DateInterval` method `__construct`
+     *
+     * @param string $duration
+     * @return void
+     */
+    public function __construct(string $duration): void;
+    /**
+     * `\DateInterval` method `createFromDateString`
+     *
+     * @param string $datetime
+     * @return \DateInterval|false
+     */
+    public function createFromDateString(string $datetime): \DateInterval|false;
+    /**
+     * `\DateInterval` method `format`
+     *
+     * @param string $format
+     * @return string
+     */
+    public function format(string $format): string;
+    /**
+     * `\DateInterval` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\DateInterval` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+    /**
+     * `\DateInterval` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\DateInterval` method `__set_state`
+     *
+     * @param array $array
+     * @return \DateInterval
+     */
+    public function __set_state(array $array): \DateInterval;
+}
+class DatePeriod implements \IteratorAggregate, \Traversable
+{
+    public const int EXCLUDE_START_DATE;
+    public const int INCLUDE_END_DATE;
+    /** @var ?\DateTimeInterface */
+    public ?\DateTimeInterface $start;
+    /** @var ?\DateTimeInterface */
+    public ?\DateTimeInterface $current;
+    /** @var ?\DateTimeInterface */
+    public ?\DateTimeInterface $end;
+    /** @var ?\DateInterval */
+    public ?\DateInterval $interval;
+    /** @var int */
+    public int $recurrences;
+    /** @var bool */
+    public bool $include_start_date;
+    /** @var bool */
+    public bool $include_end_date;
+    /**
+     * `\DatePeriod` method `__construct`
+     *
+     * @param mixed $start
+     * @param mixed $interval
+     * @param mixed $end
+     * @param mixed $options
+     * @return void
+     */
+    public function __construct(mixed $start, mixed $interval = null, mixed $end = null, mixed $options = null): void;
+    /**
+     * `\DatePeriod` method `getStartDate`
+     *
+     * @return \DateTimeInterface
+     */
+    public function getStartDate(): \DateTimeInterface;
+    /**
+     * `\DatePeriod` method `getEndDate`
+     *
+     * @return ?\DateTimeInterface
+     */
+    public function getEndDate(): ?\DateTimeInterface;
+    /**
+     * `\DatePeriod` method `getDateInterval`
+     *
+     * @return \DateInterval
+     */
+    public function getDateInterval(): \DateInterval;
+    /**
+     * `\DatePeriod` method `getRecurrences`
+     *
+     * @return ?int
+     */
+    public function getRecurrences(): ?int;
+    /**
+     * `\DatePeriod` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\DatePeriod` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+    /**
+     * `\DatePeriod` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\DatePeriod` method `__set_state`
+     *
+     * @param array $array
+     * @return \DatePeriod
+     */
+    public function __set_state(array $array): \DatePeriod;
+    /**
+     * `\DatePeriod` method `getIterator`
+     *
+     * @return \Iterator
+     */
+    public function getIterator(): \Iterator;
+}

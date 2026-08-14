@@ -1,0 +1,7 @@
+<?tyhp
+
+namespace Tyhp\Contracts;
+
+interface DecimalConvertible extends \Tyhp\Contracts\Convertible {
+    public function __toDecimal(): \Tyhp\Decimal;
+}

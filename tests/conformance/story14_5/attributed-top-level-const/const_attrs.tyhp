@@ -1,0 +1,19 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+#[\Attribute]
+class ConstMarker
+{
+    public function __construct(public string $label = '')
+    {
+    }
+}
+
+#[ConstMarker]
+const FLAG = 1;
+
+#[ConstMarker('legacy')]
+const LABELED = 'x';
+
+const PLAIN = 0;

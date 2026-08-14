@@ -1,0 +1,18 @@
+{
+    "quiet": false,
+    "locale": "en-US",
+    "phpVersion": "8.2",
+    "include": [],
+    "exclude": [],
+    "tyhpdefInclude": [
+        "./runtime/packages/php/package.tyhp.json",
+        "./runtime/packages/core/package.tyhp.json",
+        "./runtime/packages/decimal/package.tyhp.json",
+        "./runtime/packages/async/package.tyhp.json",
+        "./runtime/packages/lambda/package.tyhp.json"
+    ],
+    "output": {
+        "path": "./build",
+        "phpVersion": "8.2"
+    }
+}

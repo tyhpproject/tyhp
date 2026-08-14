@@ -1,0 +1,17 @@
+{
+    "quiet": false,
+    "locale": "en-US",
+    "type": "library",
+    "include": [
+        "./tyhp_src/**/*.tyhp",
+        "../../php-extensions/php8.2.9/**/*.tyhpdef",
+        "../../php-extensions/GMP/GMP.tyhpdef",
+        "../../php-extensions/Decimal/ExtDecimal.tyhpdef",
+        "../core/package.tyhpdef"
+    ],
+    "exclude": [],
+    "output": {
+        "path": "../dist/tyhp-decimal/805.0.0/src",
+        "phpVersion": "8.5"
+    }
+}

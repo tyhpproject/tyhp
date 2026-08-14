@@ -1,0 +1,60 @@
+<?tyhp
+
+namespace Tyhp\Concerns;
+
+/**
+ * Default `__get` dispatcher. Feature traits register handlers via `tyhpRegisterGetHandler`
+ * from their `__bootTrait_*` methods.
+ *
+ * `__get` is final so subclasses cannot bypass the dispatcher; extend via
+ * `tyhpRegisterGetHandler` instead. If the class already defines `__get`, this trait's
+ * `__get` is unused (class wins) — the emitter injects `tyhpTryGet` at the top of the
+ * author's method. Native PHP 8.4 hooks do not freeze `__get`; final is polyfill integrity.
+ */
+trait HandlesGet
+{
+    use BootsTraits;
+
+    /** @var list<callable<string, mixed, bool>> handlers: function (string $name, mixed &$out): bool */
+    private array<callable<string, mixed, bool>> $__tyhpGetHandlers = [];
+
+    /**
+     * Subclass extension point: register an additional get handler (safe after boot).
+     */
+    protected function tyhpRegisterGetHandler(callable<string, mixed, bool> $handler): void
+    {
+        $this->__tyhpGetHandlers[] = $handler;
+    }
+
+    /**
+     * Try registered get handlers. Returns true and writes `$out` when a handler claims `$name`.
+     */
+    public function tyhpTryGet(string $name, mixed &$out): bool
+    {
+        $this->tyhpBootTraits();
+
+        foreach ($this->__tyhpGetHandlers as $handler) {
+            // Direct invoke (not call_user_func) so &$out is passed by reference.
+            if ($handler($name, $out) === true) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    final public function __get(string $name): mixed
+    {
+        mixed $value = null;
+        if ($this->tyhpTryGet($name, $value)) {
+            return $value;
+        }
+
+        \trigger_error(
+            \sprintf('Undefined property: %s::$%s', static::class, $name),
+            \E_USER_WARNING,
+        );
+
+        return null;
+    }
+}

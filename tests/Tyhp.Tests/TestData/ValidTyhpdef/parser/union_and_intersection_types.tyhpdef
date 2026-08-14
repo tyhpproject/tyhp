@@ -1,0 +1,13 @@
+<?tyhpdef
+
+namespace TestData\Tyhpdef;
+
+function combine(int|float|string $value): string;
+
+function merge(object&\Countable $target, object&\IteratorAggregate $source): void;
+
+function maybe(?int $value): int|null;
+
+function nullableString(?string $input): ?string;
+
+function intersect(object&\Stringable&\JsonSerializable $value): string;

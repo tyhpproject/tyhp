@@ -1,0 +1,286 @@
+<?tyhpdef
+
+/**
+ * Type definitions for the PECL `decimal` extension (php-decimal / mpdecimal).
+ *
+ * Derived from the official stubs' phpstan annotations:
+ * https://raw.githubusercontent.com/php-decimal/stubs/refs/heads/master/Decimal.php
+ *
+ * @see https://php-decimal.github.io/
+ */
+
+namespace Decimal {
+
+    /**
+     * Numeric string accepted by Decimal (fixed or scientific form, e.g. `"1.23"`, `"1.23E-1000"`).
+     * Maps the stubs' `@phpstan-param numeric-string`.
+     */
+    type NumericString = string;
+
+    /**
+     * Value accepted by Decimal arithmetic / construction (stubs: `Decimal|numeric-string|int`).
+     * Non-special `float` is intentionally excluded — cast to string first if required.
+     */
+    type DecimalValue = Decimal|NumericString|int;
+
+    /**
+     * Result of {@see Decimal::compareTo()} / `<=>`.
+     * Stubs: `-1` before, `0` equal, `1` after. (Negative int literals are not valid in type position.)
+     */
+    type CompareResult = int;
+
+    /**
+     * Result of {@see Decimal::signum()}.
+     * Stubs: `-1` negative, `0` zero, `1` positive.
+     */
+    type Signum = int;
+
+    /** Result of {@see Decimal::parity()} (stubs: `0` even, `1` odd / special). */
+    type Parity = 0|1;
+
+    /**
+     * Rounding mode constants on {@see Decimal} (stubs: `ROUND_*` = 101…109).
+     * Kept as `int` in signatures so class-const references remain assignable.
+     */
+    type RoundingMode = int;
+
+    /**
+     * Arbitrary-precision decimal floating point value backed by libmpdec.
+     *
+     * Precision is significant figures (not scale). Prefer {@see toFixed()} when
+     * a fixed number of decimal places is required.
+     *
+     * Operators (`+`, `-`, `*`, `/`, `%`, `**`, comparisons, casts) are provided by
+     * the extension at runtime; declared here so Tyhp can type-check them.
+     */
+    final class Decimal implements \JsonSerializable, \Stringable
+    {
+        /** Round away from zero. */
+        const int ROUND_UP ?? 101;
+        /** Round towards zero. */
+        const int ROUND_DOWN ?? 102;
+        /** Round towards positive infinity. */
+        const int ROUND_CEILING ?? 103;
+        /** Round towards negative infinity. */
+        const int ROUND_FLOOR ?? 104;
+        /** Round to nearest, ties away from zero. */
+        const int ROUND_HALF_UP ?? 105;
+        /** Round to nearest, ties towards zero. */
+        const int ROUND_HALF_DOWN ?? 106;
+        /** Round to nearest, ties towards even. */
+        const int ROUND_HALF_EVEN ?? 107;
+        /** Round to nearest, ties towards odd. */
+        const int ROUND_HALF_ODD ?? 108;
+        /** Truncate, keeping infinity. */
+        const int ROUND_TRUNCATE ?? 109;
+
+        /** Default rounding mode (`ROUND_HALF_EVEN`). */
+        const int DEFAULT_ROUNDING ?? 107;
+        /** Default precision (significant figures). */
+        const int DEFAULT_PRECISION ?? 28;
+        const int MIN_PRECISION ?? 1;
+        /** Platform-dependent maximum; stub value is `0`. */
+        const int MAX_PRECISION ?? 0;
+
+        /**
+         * @throws \BadMethodCallException If already constructed.
+         * @throws \TypeError If `$value` is not a decimal, string, or integer.
+         * @throws \DomainException If the type is supported but the value could not be converted.
+         */
+        public function __construct(
+            DecimalValue $value = 0,
+            int $precision = self::DEFAULT_PRECISION,
+        ): void;
+
+        /**
+         * Sum of all given values. Result precision is at least `$precision`
+         * (and the max of any Decimal operand precisions encountered).
+         *
+         * @throws \TypeError If an unsupported type is encountered.
+         * @throws \ArithmeticError If addition is undefined (e.g. INF + -INF).
+         */
+        public static function sum(
+            iterable<DecimalValue> $values,
+            int $precision = self::DEFAULT_PRECISION,
+        ): Decimal;
+
+        /**
+         * Average of all given values. Result precision is at least `$precision`.
+         *
+         * @throws \TypeError If an unsupported type is encountered.
+         * @throws \ArithmeticError If addition is undefined (e.g. INF + -INF).
+         */
+        public static function avg(
+            iterable<DecimalValue> $values,
+            int $precision = self::DEFAULT_PRECISION,
+        ): Decimal;
+
+        /**
+         * Copy of this decimal. Omitting `$precision` keeps this instance's precision.
+         */
+        public function copy(?int $precision = null): Decimal;
+
+        /**
+         * @throws \TypeError If `$value` is not a decimal, string, or integer.
+         */
+        public function add(DecimalValue $value): Decimal;
+
+        /**
+         * @throws \TypeError If `$value` is not a decimal, string, or integer.
+         */
+        public function sub(DecimalValue $value): Decimal;
+
+        /**
+         * @throws \TypeError If `$value` is not a decimal, string, or integer.
+         */
+        public function mul(DecimalValue $value): Decimal;
+
+        /**
+         * @throws \TypeError If `$value` is not a decimal, string, or integer.
+         * @throws \DivisionByZeroError If dividing by zero.
+         * @throws \ArithmeticError If division is undefined (e.g. INF / -INF).
+         */
+        public function div(DecimalValue $value): Decimal;
+
+        /**
+         * Integer modulo (`%`). Prefer {@see rem()} for decimal remainder.
+         *
+         * @throws \TypeError If `$value` is not a decimal, string, or integer.
+         * @throws \DivisionByZeroError If the integer value of `$value` is zero.
+         * @throws \ArithmeticError If the operation is undefined (e.g. INF % -INF).
+         */
+        public function mod(DecimalValue $value): Decimal;
+
+        /**
+         * Decimal remainder after dividing this by `$value`.
+         *
+         * @throws \TypeError If `$value` is not a decimal, string, or integer.
+         * @throws \DivisionByZeroError If `$value` is zero.
+         * @throws \ArithmeticError If the operation is undefined (e.g. INF).
+         */
+        public function rem(DecimalValue $value): Decimal;
+
+        /**
+         * @throws \TypeError If `$exponent` is not a decimal, string, or integer.
+         */
+        public function pow(DecimalValue $exponent): Decimal;
+
+        /** Natural logarithm (log base e). */
+        public function ln(): Decimal;
+
+        /** e raised to the power of this decimal. */
+        public function exp(): Decimal;
+
+        /** Base-10 logarithm. */
+        public function log10(): Decimal;
+
+        public function sqrt(): Decimal;
+
+        /** Closest integer towards negative infinity. */
+        public function floor(): Decimal;
+
+        /** Closest integer towards positive infinity. */
+        public function ceil(): Decimal;
+
+        /** Integer value of this decimal (discard fractional digits). */
+        public function truncate(): Decimal;
+
+        /**
+         * @param int $places Decimal places to round to.
+         * @param RoundingMode $mode One of the `ROUND_*` constants.
+         * @throws \InvalidArgumentException If `$mode` is not supported.
+         */
+        public function round(int $places = 0, RoundingMode $mode = self::DEFAULT_ROUNDING): Decimal;
+
+        /**
+         * Shift the decimal point by `$places` (positive = right, negative = left).
+         */
+        public function shift(int $places): Decimal;
+
+        /** Copy without trailing zeroes. */
+        public function trim(): Decimal;
+
+        public function precision(): int;
+
+        public function signum(): Signum;
+
+        public function parity(): Parity;
+
+        public function abs(): Decimal;
+
+        public function negate(): Decimal;
+
+        public function isEven(): bool;
+        public function isOdd(): bool;
+        public function isPositive(): bool;
+        public function isNegative(): bool;
+        public function isNaN(): bool;
+        public function isInf(): bool;
+        public function isInteger(): bool;
+        public function isZero(): bool;
+
+        /**
+         * Fixed-place string representation (no scientific notation).
+         *
+         * @param RoundingMode $rounding One of the `ROUND_*` constants.
+         */
+        public function toFixed(
+            int $places = 0,
+            bool $commas = false,
+            RoundingMode $rounding = self::DEFAULT_ROUNDING,
+        ): string;
+
+        /**
+         * Exact string form (fixed or scientific). Not a canonical store format —
+         * reconstructing with the same precision is guaranteed equal.
+         */
+        public function toString(): string;
+
+        /**
+         * @throws \OverflowException If the value is greater than `\PHP_INT_MAX`.
+         */
+        public function toInt(): int;
+
+        /**
+         * @throws \OverflowException If the value is greater than `\PHP_FLOAT_MAX`.
+         * @throws \UnderflowException If the value is smaller than `\PHP_FLOAT_MIN`.
+         */
+        public function toFloat(): float;
+
+        /**
+         * Equality including precision as a tie-break. `NAN` equals nothing (including itself).
+         */
+        public function equals(mixed $other): bool;
+
+        public function compareTo(mixed $other): CompareResult;
+
+        public function __toString(): string;
+
+        /** JSON encodes as string (same form as {@see toString()}). */
+        public function jsonSerialize(): string;
+
+        // --- Native PHP operators (PECL decimal). Bodyless `operator` = passthrough, no rewrite. ---
+
+        operator +(self $left, DecimalValue $right): self;
+        operator -(self $left, DecimalValue $right): self;
+        operator *(self $left, DecimalValue $right): self;
+        operator /(self $left, DecimalValue $right): self;
+        operator %(self $left, DecimalValue $right): self;
+        operator **(self $left, DecimalValue $right): self;
+
+        operator ==(self $left, mixed $right): bool;
+        operator !=(self $left, mixed $right): bool;
+        operator <(self $left, mixed $right): bool;
+        operator <=(self $left, mixed $right): bool;
+        operator >(self $left, mixed $right): bool;
+        operator >=(self $left, mixed $right): bool;
+        operator <=>(self $left, mixed $right): CompareResult;
+
+        operator convert(int $value): self;
+        operator convert(NumericString $value): self;
+        operator convert(self $value): int;
+        operator convert(self $value): float;
+        operator convert(self $value): string;
+        operator convert(self $value): bool;
+    }
+}

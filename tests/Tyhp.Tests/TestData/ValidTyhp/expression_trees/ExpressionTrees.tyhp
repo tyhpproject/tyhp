@@ -1,0 +1,60 @@
+<?tyhp
+
+namespace App;
+
+use \Tyhp\Expression;
+use \Tyhp\Expression\ExpressionSerializer;
+use \Tyhp\PropertyPath;
+
+class User {
+    public string $firstName;
+    public string $lastName;
+    public int $age;
+    public bool $isActive;
+    public mixed $value;
+    public Address $address;
+}
+
+class Address {
+    public string $city;
+}
+
+function takePath(PropertyPath<User, string> $path): string {
+    return $path->getPath();
+}
+
+function takePredicate(Expression<User, bool> $pred): string {
+    return $pred->body->nodeType;
+}
+
+function takeComparator(Expression<User, User, int> $cmp): int {
+    return \count($cmp->parameters);
+}
+
+function takeZeroArg(Expression<int> $expr): int {
+    return 0;
+}
+
+function demo(): void {
+    takePath(fn (User $u) => $u->firstName);
+    takePath(fn (User $u) => $u->address->city);
+
+    int $minAge = 18;
+    takePredicate(fn (User $u) => $u->age > $minAge && $u->isActive);
+    takePredicate(fn (User $u) => $u->value is int);
+    takePredicate(fn (User $u) => $u->value instanceof Address);
+
+    takeComparator(fn (User $a, User $b) => $a->lastName <=> $b->lastName);
+    takeZeroArg(fn () => 42);
+
+    string $col = nameof(fn (User $u) => $u->firstName);
+    string $nested = nameof(fn (User $u) => $u->address->city);
+}
+
+function serializePred(Expression<User, bool> $expr): string {
+    return (string) ExpressionSerializer::toJson($expr);
+}
+
+function sameShape(Expression<User, bool> $a, Expression<User, bool> $b): bool {
+    return $a->equals($b) && ExpressionSerializer::equals($a, $b);
+}

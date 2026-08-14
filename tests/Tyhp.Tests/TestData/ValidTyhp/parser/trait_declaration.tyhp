@@ -1,0 +1,20 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+trait Timestamped
+{
+    public int $createdAt = 0;
+
+    public function touch(): void
+    {
+        $this->createdAt = \time();
+    }
+}
+
+class Record
+{
+    use Timestamped {
+        touch as public refresh;
+    }
+}

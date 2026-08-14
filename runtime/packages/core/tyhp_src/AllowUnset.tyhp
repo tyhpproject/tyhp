@@ -1,0 +1,17 @@
+<?tyhp
+
+namespace Tyhp;
+
+/**
+ * Opt-in: allow `unset($this->prop)` on a typed instance property (Prop-init #8).
+ *
+ * Without this attribute, unsetting a typed property is an error — PHP returns the slot to the
+ * uninitialized state and would invalidate property-initialization guarantees. Prefer
+ * `?T $prop = null` when "no value" and null are the same. With the attribute, `unset` clears
+ * definite-initialization within the method, and instance methods treat the property as
+ * possibly uninitialized at entry (guard reads with `??` / `isset`, or reassign first).
+ */
+#[\Attribute(\Attribute::TARGET_PROPERTY | \Attribute::TARGET_PARAMETER)]
+final class AllowUnset
+{
+}

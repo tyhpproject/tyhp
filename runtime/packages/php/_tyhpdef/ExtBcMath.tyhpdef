@@ -1,0 +1,89 @@
+<?tyhpdef
+/**
+ * `bcadd`
+ *
+ * @param string $num1
+ * @param string $num2
+ * @param int $scale
+ * @return string
+ */
+function bcadd(string $num1, string $num2, ?int $scale = null): string;
+/**
+ * `bcsub`
+ *
+ * @param string $num1
+ * @param string $num2
+ * @param int $scale
+ * @return string
+ */
+function bcsub(string $num1, string $num2, ?int $scale = null): string;
+/**
+ * `bcmul`
+ *
+ * @param string $num1
+ * @param string $num2
+ * @param int $scale
+ * @return string
+ */
+function bcmul(string $num1, string $num2, ?int $scale = null): string;
+/**
+ * `bcdiv`
+ *
+ * @param string $num1
+ * @param string $num2
+ * @param int $scale
+ * @return string
+ */
+function bcdiv(string $num1, string $num2, ?int $scale = null): string;
+/**
+ * `bcmod`
+ *
+ * @param string $num1
+ * @param string $num2
+ * @param int $scale
+ * @return string
+ */
+function bcmod(string $num1, string $num2, ?int $scale = null): string;
+/**
+ * `bcpow`
+ *
+ * @param string $num
+ * @param string $exponent
+ * @param int $scale
+ * @return string
+ */
+function bcpow(string $num, string $exponent, ?int $scale = null): string;
+/**
+ * `bcpowmod`
+ *
+ * @param string $num
+ * @param string $exponent
+ * @param string $modulus
+ * @param int $scale
+ * @return string
+ */
+function bcpowmod(string $num, string $exponent, string $modulus, ?int $scale = null): string;
+/**
+ * `bcsqrt`
+ *
+ * @param string $num
+ * @param int $scale
+ * @return string
+ */
+function bcsqrt(string $num, ?int $scale = null): string;
+/**
+ * `bccomp`
+ *
+ * @param string $num1
+ * @param string $num2
+ * @param int $scale
+ * @return int
+ */
+function bccomp(string $num1, string $num2, ?int $scale = null): int;
+/**
+ * `bcscale`
+ *
+ * @param int $scale
+ * @return int
+ */
+function bcscale(?int $scale = null): int;

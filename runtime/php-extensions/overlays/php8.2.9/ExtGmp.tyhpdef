@@ -1,0 +1,130 @@
+<?tyhpdef
+const int GMP_ROUND_ZERO;
+const int GMP_ROUND_PLUSINF;
+const int GMP_ROUND_MINUSINF;
+const int GMP_MSW_FIRST;
+const int GMP_LSW_FIRST;
+const int GMP_LITTLE_ENDIAN;
+const int GMP_BIG_ENDIAN;
+const int GMP_NATIVE_ENDIAN;
+const string GMP_VERSION;
+
+/**
+ * The `\GMP` class represents an arbitrary-precision integer handle produced by
+ * the GMP extension functions. Instances are created via `gmp_init` and the
+ * arithmetic helpers rather than directly.
+ */
+final class GMP
+{
+}
+
+/**
+ * `gmp_init`
+ *
+ * @param int|string $num
+ * @param int $base
+ * @return \GMP
+ */
+function gmp_init(int|string $num, int $base = 0): \GMP;
+/**
+ * `gmp_strval`
+ *
+ * @param \GMP|int|string $num
+ * @param int $base
+ * @return string
+ */
+function gmp_strval(\GMP|int|string $num, int $base = 10): string;
+/**
+ * `gmp_add`
+ *
+ * @param \GMP|int|string $num1
+ * @param \GMP|int|string $num2
+ * @return \GMP
+ */
+function gmp_add(\GMP|int|string $num1, \GMP|int|string $num2): \GMP;
+/**
+ * `gmp_sub`
+ *
+ * @param \GMP|int|string $num1
+ * @param \GMP|int|string $num2
+ * @return \GMP
+ */
+function gmp_sub(\GMP|int|string $num1, \GMP|int|string $num2): \GMP;
+/**
+ * `gmp_mul`
+ *
+ * @param \GMP|int|string $num1
+ * @param \GMP|int|string $num2
+ * @return \GMP
+ */
+function gmp_mul(\GMP|int|string $num1, \GMP|int|string $num2): \GMP;
+/**
+ * `gmp_div_q`
+ *
+ * @param \GMP|int|string $num1
+ * @param \GMP|int|string $num2
+ * @param int $rounding_mode
+ * @return \GMP
+ */
+function gmp_div_q(\GMP|int|string $num1, \GMP|int|string $num2, int $rounding_mode = GMP_ROUND_ZERO): \GMP;
+/**
+ * `gmp_div_r`
+ *
+ * @param \GMP|int|string $num1
+ * @param \GMP|int|string $num2
+ * @param int $rounding_mode
+ * @return \GMP
+ */
+function gmp_div_r(\GMP|int|string $num1, \GMP|int|string $num2, int $rounding_mode = GMP_ROUND_ZERO): \GMP;
+/**
+ * `gmp_mod`
+ *
+ * @param \GMP|int|string $num1
+ * @param \GMP|int|string $num2
+ * @return \GMP
+ */
+function gmp_mod(\GMP|int|string $num1, \GMP|int|string $num2): \GMP;
+/**
+ * `gmp_pow`
+ *
+ * @param \GMP|int|string $num
+ * @param int $exponent
+ * @return \GMP
+ */
+function gmp_pow(\GMP|int|string $num, int $exponent): \GMP;
+/**
+ * `gmp_sqrt`
+ *
+ * @param \GMP|int|string $num
+ * @return \GMP
+ */
+function gmp_sqrt(\GMP|int|string $num): \GMP;
+/**
+ * `gmp_neg`
+ *
+ * @param \GMP|int|string $num
+ * @return \GMP
+ */
+function gmp_neg(\GMP|int|string $num): \GMP;
+/**
+ * `gmp_abs`
+ *
+ * @param \GMP|int|string $num
+ * @return \GMP
+ */
+function gmp_abs(\GMP|int|string $num): \GMP;
+/**
+ * `gmp_cmp`
+ *
+ * @param \GMP|int|string $num1
+ * @param \GMP|int|string $num2
+ * @return int
+ */
+function gmp_cmp(\GMP|int|string $num1, \GMP|int|string $num2): int;
+/**
+ * `gmp_sign`
+ *
+ * @param \GMP|int|string $num
+ * @return int
+ */
+function gmp_sign(\GMP|int|string $num): int;

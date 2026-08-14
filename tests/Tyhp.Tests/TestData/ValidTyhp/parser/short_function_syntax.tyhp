@@ -1,0 +1,18 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+function double(int $value): int
+{
+    return $value * 2;
+}
+
+class Calculator
+{
+    public function add(int $left, int $right): int
+    {
+        return $left + $right;
+    }
+}
+
+int $result = double(5);

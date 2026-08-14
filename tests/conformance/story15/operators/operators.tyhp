@@ -1,0 +1,15 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+class Money {
+    public function __construct(public readonly int $amount) {}
+
+    operator +(self $left, self $right): self {
+        return new self($left->amount + $right->amount);
+    }
+}
+
+function add(Money $a, Money $b): Money {
+    return $a + $b;
+}

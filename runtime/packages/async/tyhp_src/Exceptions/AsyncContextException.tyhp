@@ -1,0 +1,5 @@
+<?tyhp
+
+namespace Tyhp\Exceptions;
+
+final class AsyncContextException extends \RuntimeException {}

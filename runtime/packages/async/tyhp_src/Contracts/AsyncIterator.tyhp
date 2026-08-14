@@ -1,0 +1,10 @@
+<?tyhp
+
+namespace Tyhp\Contracts;
+
+use Tyhp\Promise;
+
+interface AsyncIterator<T> {
+    public function next(): Promise<bool>;
+    public function current(): Promise<T>;
+}

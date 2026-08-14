@@ -1,0 +1,13 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+#[\Attribute]
+class ConstMarker
+{
+}
+
+#[ConstMarker]
+const ATTRIBUTED_TOP_LEVEL = 1;
+
+const BARE_A = 1, BARE_B = 2;

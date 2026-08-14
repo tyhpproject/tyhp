@@ -1,0 +1,33 @@
+<?tyhp
+
+namespace Tyhp;
+
+/**
+ * Single physical storage cell for one hooked property on one object.
+ *
+ * PHP 8.4 keeps exactly one backing slot per property name per object across the whole
+ * get/set override chain. {@see PropertyAccessorObject} shares one cell among every
+ * declaring-level {@see PropertyAccessor} for that property (except private same-named
+ * properties, which are unrelated slots).
+ */
+final class PropertyBackingCell
+{
+    private mixed $value = null;
+    private bool $initialized = false;
+
+    public function isInitialized(): bool
+    {
+        return $this->initialized;
+    }
+
+    public function get(): mixed
+    {
+        return $this->value;
+    }
+
+    public function set(mixed $value): void
+    {
+        $this->value = $value;
+        $this->initialized = true;
+    }
+}

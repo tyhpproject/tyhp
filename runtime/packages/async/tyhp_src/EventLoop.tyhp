@@ -1,0 +1,542 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\Exceptions\TimeoutException;
+
+/**
+ * Singleton event loop that drives all async operations.
+ *
+ * Provides cooperative Fiber scheduling, timer management, and real I/O
+ * via stream_select(). Follows a tick-based model inspired by Node.js's
+ * libuv and ReactPHP's event loop.
+ *
+ * Tick order:
+ *  1. Process microtask queue (Fiber resumes, deferred callbacks)
+ *  2. Process timer queue (expired delay/interval callbacks)
+ *  3. Poll I/O via stream_select (non-blocking read/write on streams)
+ *  4. Process I/O callbacks (handlers for ready streams)
+ *  5. Check for completion (all queues empty + root settled?)
+ */
+final class EventLoop {
+    private static ?EventLoop $instance = null;
+
+    private \SplQueue $microtaskQueue;
+    private \SplPriorityQueue $timerQueue;
+
+    private array<int, mixed> $readStreams = [];
+    private array<int, mixed> $writeStreams = [];
+    private array<int, callable> $readCallbacks = [];
+    private array<int, callable> $writeCallbacks = [];
+
+    private \SplQueue $fiberResumeQueue;
+
+    private bool $running = false;
+    private int $nextTimerId = 0;
+    private array<string, bool> $activeTimers = [];
+
+    private bool $streamsDirty = true;
+    private array<mixed> $cachedReadStreams = [];
+    private array<mixed> $cachedWriteStreams = [];
+
+    private function __construct() {
+        $this->microtaskQueue = new \SplQueue();
+        $this->fiberResumeQueue = new \SplQueue();
+        $this->timerQueue = new \SplPriorityQueue();
+        $this->timerQueue->setExtractFlags(\SplPriorityQueue::EXTR_DATA);
+    }
+
+    public static function getInstance(): EventLoop {
+        return self::$instance ??= new EventLoop();
+    }
+
+    /** @internal For testing only. */
+    public static function resetInstance(): void {
+        self::$instance = null;
+    }
+
+    // ── Fiber Scheduling ─────────────────────────────────────────────
+
+    /**
+     * Schedules a Fiber to be started on the next microtask drain.
+     */
+    public function scheduleFiber(\Fiber $fiber): void {
+        $this->fiberResumeQueue->enqueue(new EventLoopFiberItem($fiber, 'start'));
+    }
+
+    /**
+     * Schedules a suspended Fiber to be resumed with a value.
+     */
+    public function scheduleFiberResume(\Fiber $fiber, mixed $value = null): void {
+        $this->fiberResumeQueue->enqueue(new EventLoopFiberItem($fiber, 'resume', value: $value));
+    }
+
+    /**
+     * Schedules a suspended Fiber to be resumed with a thrown exception.
+     */
+    public function scheduleFiberThrow(\Fiber $fiber, \Throwable $error): void {
+        $this->fiberResumeQueue->enqueue(new EventLoopFiberItem($fiber, 'throw', error: $error));
+    }
+
+    // ── Timers ───────────────────────────────────────────────────────
+
+    /**
+     * Schedules a one-shot callback to fire after the given delay.
+     * Uses hrtime(true) (nanosecond monotonic clock) for timing precision.
+     */
+    public function delay(int $ms, callable $callback): string {
+        string $id = 'timer_' . $this->nextTimerId++;
+        $this->activeTimers[$id] = true;
+
+        int $fireAt = \hrtime(true) + ($ms * 1_000_000);
+
+        $this->timerQueue->insert(
+            new EventLoopTimerItem($id, $callback, 0, $fireAt),
+            -$fireAt
+        );
+
+        return $id;
+    }
+
+    /**
+     * Cancels a previously scheduled timer.
+     * Cancelled timers are lazily removed from the priority queue on extraction.
+     */
+    public function cancelTimer(string $id): void {
+        unset($this->activeTimers[$id]);
+    }
+
+    /**
+     * Schedules a recurring callback to fire at the given interval.
+     */
+    public function interval(int $ms, callable $callback): string {
+        string $id = 'timer_' . $this->nextTimerId++;
+        $this->activeTimers[$id] = true;
+
+        int $fireAt = \hrtime(true) + ($ms * 1_000_000);
+
+        $this->timerQueue->insert(
+            new EventLoopTimerItem($id, $callback, $ms, $fireAt),
+            -$fireAt
+        );
+
+        return $id;
+    }
+
+    // ── I/O Watchers ─────────────────────────────────────────────────
+
+    public function addReadStream(mixed $stream, callable $callback): void {
+        if (!\is_resource($stream) || \get_resource_type($stream) !== 'stream') {
+            throw new \InvalidArgumentException('Expected a valid stream resource');
+        }
+        int $id = (int) $stream;
+        $this->readStreams[$id] = $stream;
+        $this->readCallbacks[$id] = $callback;
+        $this->streamsDirty = true;
+    }
+
+    public function addWriteStream(mixed $stream, callable $callback): void {
+        if (!\is_resource($stream) || \get_resource_type($stream) !== 'stream') {
+            throw new \InvalidArgumentException('Expected a valid stream resource');
+        }
+        int $id = (int) $stream;
+        $this->writeStreams[$id] = $stream;
+        $this->writeCallbacks[$id] = $callback;
+        $this->streamsDirty = true;
+    }
+
+    public function removeReadStream(mixed $stream): void {
+        int $id = (int) $stream;
+        unset($this->readStreams[$id], $this->readCallbacks[$id]);
+        $this->streamsDirty = true;
+    }
+
+    public function removeWriteStream(mixed $stream): void {
+        int $id = (int) $stream;
+        unset($this->writeStreams[$id], $this->writeCallbacks[$id]);
+        $this->streamsDirty = true;
+    }
+
+    // ── Deferred / Microtasks ────────────────────────────────────────
+
+    /**
+     * Defers a callback to run at the start of the next microtask drain.
+     */
+    public function defer(callable $callback): void {
+        $this->microtaskQueue->enqueue($callback);
+    }
+
+    /**
+     * Queues a microtask to run before timers and I/O.
+     * Microtasks are drained completely before moving to the next phase.
+     */
+    public function queueMicrotask(callable $callback): void {
+        $this->microtaskQueue->enqueue($callback);
+    }
+
+    // ── Lifecycle ────────────────────────────────────────────────────
+
+    /**
+     * Runs the event loop until the root Promise settles and all work is done.
+     * Blocks until the Promise resolves (returning the value) or rejects (throwing).
+     */
+    public function run<T extends mixed|void = mixed>(Promise<T> $rootPromise): T {
+        if ($this->running) {
+            throw new \LogicException('EventLoop::run() called re-entrantly — use await instead of run() inside an async context');
+        }
+
+        $this->running = true;
+
+        try {
+            while ($this->running) {
+                $this->processMicrotasks();
+                $this->processTimers();
+                $this->pollIO();
+
+                if ($rootPromise->isCompleted() && $this->isEmpty()) {
+                    break;
+                }
+
+                if (!$this->hasImmediateWork()) {
+                    if ($rootPromise->isCompleted()) {
+                        break;
+                    }
+                    $this->waitForIO();
+                }
+            }
+        } finally {
+            $this->running = false;
+        }
+
+        if ($rootPromise->isFaulted()) {
+            throw $rootPromise->getError() ?? new \RuntimeException('Promise faulted without an error.');
+        }
+
+        return $rootPromise->getResult();
+    }
+
+    /**
+     * Runs the event loop until the given Promise settles or timeout expires.
+     * Used by Promise::wait() to block synchronous callers.
+     */
+    public function runUntilSettled(Promise $promise, int $timeoutMs = -1): mixed {
+        if ($this->running) {
+            throw new \LogicException('EventLoop::runUntilSettled() called re-entrantly — use await instead of run() inside an async context');
+        }
+
+        $this->running = true;
+        int $deadline = $timeoutMs > 0
+            ? \hrtime(true) + ($timeoutMs * 1_000_000)
+            : -1;
+
+        try {
+            while ($this->running) {
+                $this->processMicrotasks();
+                $this->processTimers();
+                $this->pollIO();
+
+                if ($promise->isCompleted()) {
+                    break;
+                }
+
+                if ($deadline > 0 && \hrtime(true) >= $deadline) {
+                    throw new TimeoutException(
+                        'Promise did not settle within ' . $timeoutMs . 'ms timeout',
+                        $timeoutMs
+                    );
+                }
+
+                if (!$this->hasImmediateWork()) {
+                    $this->waitForIO($deadline);
+                }
+            }
+        } finally {
+            $this->running = false;
+        }
+
+        if ($promise->isFaulted()) {
+            throw $promise->getError() ?? new \RuntimeException('Promise faulted without an error.');
+        }
+
+        return $promise->getResult();
+    }
+
+    /**
+     * Performs a single tick of the event loop.
+     * Returns true if there is still pending work to do.
+     */
+    public function tick(): bool {
+        $this->processMicrotasks();
+        $this->processTimers();
+        $this->pollIO();
+
+        return $this->hasPendingWork();
+    }
+
+    public function stop(): void {
+        $this->running = false;
+    }
+
+    public function isRunning(): bool {
+        return $this->running;
+    }
+
+    // ── Internal ─────────────────────────────────────────────────────
+
+    /**
+     * Drains the entire microtask queue, including any microtasks enqueued
+     * during processing. Also drains the fiber resume queue between items.
+     */
+    private function processMicrotasks(): void {
+        $this->drainFiberQueue();
+
+        while (!$this->microtaskQueue->isEmpty()) {
+            mixed $callback = $this->microtaskQueue->dequeue();
+            if (\is_callable($callback)) {
+                $callback();
+            }
+            $this->drainFiberQueue();
+        }
+    }
+
+    /**
+     * Processes queued Fiber start/resume/throw operations.
+     * When a Fiber throws an unhandled exception, the associated Promise
+     * is rejected via the Fiber-to-Promise WeakMap.
+     */
+    private function drainFiberQueue(): void {
+        while (!$this->fiberResumeQueue->isEmpty()) {
+            mixed $raw = $this->fiberResumeQueue->dequeue();
+            if (!($raw instanceof EventLoopFiberItem)) {
+                continue;
+            }
+            EventLoopFiberItem $item = $raw;
+
+            try {
+                if ($item->action === 'start') {
+                    $item->fiber->start();
+                } else if ($item->action === 'resume') {
+                    $item->fiber->resume($item->value);
+                } else if ($item->action === 'throw') {
+                    if (!($item->error instanceof \Throwable)) {
+                        throw new \InvalidArgumentException('Fiber throw scheduled without a Throwable');
+                    }
+                    $item->fiber->throw($item->error);
+                }
+            } catch (\Throwable $e) {
+                \WeakMap $fiberMap = Promise::getFiberMap();
+                if (isset($fiberMap[$item->fiber])) {
+                    mixed $owner = $fiberMap[$item->fiber];
+                    if ($owner instanceof Promise) {
+                        $owner->doReject($e);
+                    } else {
+                        throw $e;
+                    }
+                } else {
+                    throw $e;
+                }
+            }
+        }
+    }
+
+    /**
+     * Fires callbacks for all expired timers.
+     * Uses hrtime(true) for nanosecond precision.
+     * Cancelled timers are skipped on extraction.
+     * Interval timers are re-inserted for their next fire time.
+     */
+    private function processTimers(): void {
+        int $now = (int) \hrtime(true);
+
+        while (!$this->timerQueue->isEmpty()) {
+            mixed $raw = $this->timerQueue->top();
+            if (!($raw instanceof EventLoopTimerItem)) {
+                $this->timerQueue->extract();
+                continue;
+            }
+            EventLoopTimerItem $timer = $raw;
+
+            if ($timer->fireAt > $now) {
+                break;
+            }
+
+            $this->timerQueue->extract();
+
+            if (!isset($this->activeTimers[$timer->id])) {
+                continue;
+            }
+
+            try {
+                ($timer->callback)();
+            } catch (\Throwable $e) {
+                throw $e;
+            }
+
+            if ($timer->interval > 0 && isset($this->activeTimers[$timer->id])) {
+                int $nextFireAt = \hrtime(true) + ($timer->interval * 1_000_000);
+                $this->timerQueue->insert(
+                    new EventLoopTimerItem($timer->id, $timer->callback, $timer->interval, $nextFireAt),
+                    -$nextFireAt
+                );
+            } else {
+                unset($this->activeTimers[$timer->id]);
+            }
+        }
+    }
+
+    /**
+     * Non-blocking I/O poll via stream_select() with zero timeout.
+     */
+    private function pollIO(): void {
+        if (empty($this->readStreams) && empty($this->writeStreams)) {
+            return;
+        }
+
+        if ($this->streamsDirty) {
+            $this->cachedReadStreams = \array_values($this->readStreams);
+            $this->cachedWriteStreams = \array_values($this->writeStreams);
+            $this->streamsDirty = false;
+        }
+
+        ?array $read = $this->cachedReadStreams;
+        ?array $write = $this->cachedWriteStreams;
+        ?array $except = null;
+
+        mixed $changed = @\stream_select($read, $write, $except, 0, 0);
+
+        if ($changed === false || $changed === 0) {
+            return;
+        }
+
+        foreach ($read as $stream) {
+            int $id = (int) $stream;
+            if (isset($this->readCallbacks[$id])) {
+                try {
+                    ($this->readCallbacks[$id])($stream);
+                } catch (\Throwable $e) {
+                    $this->removeReadStream($stream);
+                    throw $e;
+                }
+            }
+        }
+
+        foreach ($write as $stream) {
+            int $id = (int) $stream;
+            if (isset($this->writeCallbacks[$id])) {
+                try {
+                    ($this->writeCallbacks[$id])($stream);
+                } catch (\Throwable $e) {
+                    $this->removeWriteStream($stream);
+                    throw $e;
+                }
+            }
+        }
+    }
+
+    /**
+     * Blocking wait when there is no immediate work.
+     * Blocks on stream_select() or usleep() with a calculated timeout.
+     */
+    private function waitForIO(int $deadline = -1): void {
+        int $timeoutUs = 1_000_000;
+
+        if (!$this->timerQueue->isEmpty()) {
+            mixed $rawNext = $this->timerQueue->top();
+            if ($rawNext instanceof EventLoopTimerItem) {
+                int $untilNs = $rawNext->fireAt - \hrtime(true);
+                if ($untilNs <= 0) {
+                    return;
+                }
+                $timeoutUs = (int) \min($timeoutUs, \max(1, (int) ($untilNs / 1_000)));
+            }
+        }
+
+        if ($deadline > 0) {
+            int $untilDeadlineNs = $deadline - \hrtime(true);
+            if ($untilDeadlineNs <= 0) {
+                return;
+            }
+            $timeoutUs = (int) \min($timeoutUs, \max(1, (int) ($untilDeadlineNs / 1_000)));
+        }
+
+        if (empty($this->readStreams) && empty($this->writeStreams)) {
+            \usleep(\max(1, $timeoutUs));
+            return;
+        }
+
+        if ($this->streamsDirty) {
+            $this->cachedReadStreams = \array_values($this->readStreams);
+            $this->cachedWriteStreams = \array_values($this->writeStreams);
+            $this->streamsDirty = false;
+        }
+
+        ?array $read = $this->cachedReadStreams;
+        ?array $write = $this->cachedWriteStreams;
+        ?array $except = null;
+
+        int $seconds = (int) \floor($timeoutUs / 1_000_000);
+        int $microseconds = $timeoutUs % 1_000_000;
+
+        mixed $changed = @\stream_select($read, $write, $except, $seconds, $microseconds);
+
+        if ($changed === false || $changed === 0) {
+            return;
+        }
+
+        foreach ($read as $stream) {
+            int $id = (int) $stream;
+            if (isset($this->readCallbacks[$id])) {
+                try {
+                    ($this->readCallbacks[$id])($stream);
+                } catch (\Throwable $e) {
+                    $this->removeReadStream($stream);
+                    throw $e;
+                }
+            }
+        }
+
+        foreach ($write as $stream) {
+            int $id = (int) $stream;
+            if (isset($this->writeCallbacks[$id])) {
+                try {
+                    ($this->writeCallbacks[$id])($stream);
+                } catch (\Throwable $e) {
+                    $this->removeWriteStream($stream);
+                    throw $e;
+                }
+            }
+        }
+    }
+
+    private function isEmpty(): bool {
+        return $this->fiberResumeQueue->isEmpty()
+            && $this->microtaskQueue->isEmpty()
+            && empty($this->activeTimers)
+            && empty($this->readStreams)
+            && empty($this->writeStreams);
+    }
+
+    private function hasImmediateWork(): bool {
+        if (!$this->fiberResumeQueue->isEmpty() || !$this->microtaskQueue->isEmpty()) {
+            return true;
+        }
+
+        if (!$this->timerQueue->isEmpty()) {
+            mixed $rawNext = $this->timerQueue->top();
+            if ($rawNext instanceof EventLoopTimerItem
+                && $rawNext->fireAt <= \hrtime(true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasPendingWork(): bool {
+        return !$this->fiberResumeQueue->isEmpty()
+            || !$this->microtaskQueue->isEmpty()
+            || !empty($this->activeTimers)
+            || !empty($this->readStreams)
+            || !empty($this->writeStreams);
+    }
+}

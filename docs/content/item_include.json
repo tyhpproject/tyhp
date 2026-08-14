@@ -1,0 +1,10 @@
+{
+    "title": "Title is ignored when included in another json file",
+    "content": [
+        {
+            "type": "header",
+            "allowHtml": false,
+            "content": "INCLUDED FROM ANOTHER JSON FILE"
+        }
+    ]
+}

@@ -1,0 +1,17 @@
+{
+  "suite": "story15/structs",
+  "description": "Story 15 — interop: struct → associative array shape",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "struct_usage_functions",
+      "file": "structs.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

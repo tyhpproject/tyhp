@@ -1,0 +1,42 @@
+{
+  "suite": "story06/tagless",
+  "description": "Story 06 Phase 7 — tagless source mode",
+  "defaults": {
+    "action": "lint",
+    "config": {
+      "source.tagless": true,
+      "phpVersion": "8.2"
+    }
+  },
+  "cases": [
+    {
+      "id": "tagless_function",
+      "file": "tagless_function.tyhp",
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "tagless_with_open_tag",
+      "file": "tagless_with_open_tag.tyhp",
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "tagless_tyhpdef",
+      "file": "tagless_tyhpdef.tyhpdef",
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "tagless_close_tag_error",
+      "file": "tagless_close_tag_error.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [1004]
+      }
+    },
+    {
+      "id": "tagless_function_classic_mode",
+      "file": "tagless_function.tyhp",
+      "config": { "source.tagless": false },
+      "expect": { "errorCount": 0 }
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+<?tyhp
+
+namespace Tyhp\Exceptions;
+
+use Tyhp\Type;
+
+final class IncompatibleTypeException extends \RuntimeException
+{
+    public function __construct(
+        private readonly Type $expected,
+        private readonly Type $actual,
+        private readonly ?string $variableOrParameterName = null,
+        ?\Throwable $previous = null,
+    ): void {
+        string $target = $this->variableOrParameterName !== null
+            ? " for \${$this->variableOrParameterName}"
+            : '';
+
+        parent::__construct(
+            \sprintf(
+                'Incompatible type%s: expected %s, got %s.',
+                $target,
+                (string) $this->expected,
+                (string) $this->actual,
+            ),
+            0,
+            $previous,
+        );
+    }
+
+    fn getExpectedType(): Type => $this->expected;
+
+    fn getActualType(): Type => $this->actual;
+
+    fn getVariableOrParameterName(): ?string => $this->variableOrParameterName;
+}

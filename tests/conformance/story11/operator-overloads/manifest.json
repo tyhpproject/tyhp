@@ -1,0 +1,25 @@
+{
+  "suite": "story11/operator-overloads",
+  "description": "Story 11 — static operator overload methods + call-site rewrite",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "money_operator_class",
+      "file": "operators.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Money.php"
+      }
+    },
+    {
+      "id": "money_operator_callsites",
+      "file": "operators.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

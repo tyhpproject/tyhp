@@ -1,0 +1,17 @@
+{
+  "suite": "story16_5/callable-builtins",
+  "description": "Story 16.5 Phase 7 — call_user_func Rest unpack and call_user_func_array Struct/Tuple bags erase to PHP builtins",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "callable_builtins_functions",
+      "file": "callable_builtins.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

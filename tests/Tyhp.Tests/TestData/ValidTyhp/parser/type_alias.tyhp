@@ -1,0 +1,19 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+type ScalarValue = int|float|string|bool|null;
+
+function asString(ScalarValue $value): string
+{
+    return \strval($value);
+}
+
+class Container
+{
+    public type NullableSelf = self|null;
+
+    public function __construct(self\NullableSelf $from = null): void
+    {
+    }
+}

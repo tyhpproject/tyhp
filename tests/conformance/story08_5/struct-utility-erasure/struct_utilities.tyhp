@@ -1,0 +1,38 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+struct Point {
+    int $x = 0;
+    string $y = '';
+}
+
+function takeStructKey(__StructKey<Point> $k): string {
+    return $k;
+}
+
+function takeProps(__Properties<Point> $p): string {
+    return $p;
+}
+
+function takeReturn(\Tyhp\ReturnType<callable<string, int>> $r): int {
+    return $r;
+}
+
+function takeParams(\Tyhp\Parameters<callable<string, int>> $p): array {
+    return $p;
+}
+
+function takeStructDef(__StructDef<__StructRecord<Point, '$x'|'$y', int|string>> $s): array {
+    return $s;
+}
+
+function demo(): void {
+    __StructKey<Point> $key = '$x';
+    __Properties<Point> $props = '$x';
+    \Tyhp\ReturnType<callable<string, int>> $ret = 1;
+    string $plain = $key;
+    takeStructKey('$x');
+    takeProps('$x');
+    takeReturn(1);
+}

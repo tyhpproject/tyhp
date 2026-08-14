@@ -1,0 +1,268 @@
+<?tyhpdef
+
+namespace Tyhp {
+
+    use Tyhp\Backend\DecimalBackend;
+    use Tyhp\Contracts\DecimalConvertible;
+
+    final class Decimal implements DecimalConvertible, \Stringable, \JsonSerializable
+    {
+        public readonly string $value;
+        public readonly int $scale;
+        public readonly int $roundingMode;
+
+        public function __construct(
+            float|int|string|DecimalConvertible|null $value = null,
+            ?int $scale = null,
+            int $roundingMode = \PHP_ROUND_HALF_UP
+        ): void;
+
+        // Mapped overloads: `extension operator` requires a body and rewrites to `\Tyhp\Decimal::__*`.
+        // (Bodyless `operator …;` without `extension` means native PHP passthrough — wrong for this type.)
+        extension operator +(self $value): int|float {
+            return \Tyhp\Decimal::__asNumeric($value);
+        }
+        extension operator +(self $left, self $right): self {
+            return \Tyhp\Decimal::__add($left, $right);
+        }
+        extension operator +(self $left, float|int|string|DecimalConvertible $right): self {
+            return \Tyhp\Decimal::__add($left, $right);
+        }
+        extension operator -(self $left, self $right): self {
+            return \Tyhp\Decimal::__subtract($left, $right);
+        }
+        extension operator -(self $left, float|int|string|DecimalConvertible $right): self {
+            return \Tyhp\Decimal::__subtract($left, $right);
+        }
+        extension operator *(self $left, self $right): self {
+            return \Tyhp\Decimal::__multiply($left, $right);
+        }
+        extension operator *(self $left, float|int|string|DecimalConvertible $right): self {
+            return \Tyhp\Decimal::__multiply($left, $right);
+        }
+        extension operator /(self $left, self $right): self {
+            return \Tyhp\Decimal::__divide($left, $right);
+        }
+        extension operator /(self $left, float|int|string|DecimalConvertible $right): self {
+            return \Tyhp\Decimal::__divide($left, $right);
+        }
+        extension operator %(self $left, self $right): self {
+            return \Tyhp\Decimal::__mod($left, $right);
+        }
+        extension operator %(self $left, float|int|string|DecimalConvertible $right): self {
+            return \Tyhp\Decimal::__mod($left, $right);
+        }
+        extension operator **(self $left, int $right): self {
+            return \Tyhp\Decimal::__pow($left, $right);
+        }
+        extension operator ==(self $left, self|float|int|string|DecimalConvertible $right): bool {
+            return \Tyhp\Decimal::__isEqual($left, $right);
+        }
+        extension operator !=(self $left, self|float|int|string|DecimalConvertible $right): bool {
+            return \Tyhp\Decimal::__isNotEqual($left, $right);
+        }
+        extension operator <(self $left, self|float|int|string|DecimalConvertible $right): bool {
+            return \Tyhp\Decimal::__isLessThan($left, $right);
+        }
+        extension operator <=(self $left, self|float|int|string|DecimalConvertible $right): bool {
+            return \Tyhp\Decimal::__isLessThanOrEqual($left, $right);
+        }
+        extension operator >=(self $left, self|float|int|string|DecimalConvertible $right): bool {
+            return \Tyhp\Decimal::__isGreaterThanOrEqual($left, $right);
+        }
+        extension operator <=>(self $left, self|float|int|string|DecimalConvertible $right): int {
+            return \Tyhp\Decimal::__compare($left, $right);
+        }
+        extension operator convert(int $value): self {
+            return \Tyhp\Decimal::__from($value);
+        }
+        extension operator convert(float $value): self {
+            return \Tyhp\Decimal::__from($value);
+        }
+        extension operator convert(string $value): self {
+            return \Tyhp\Decimal::__from($value);
+        }
+        extension operator convert(self $value): int {
+            return $value->__toInt();
+        }
+        extension operator convert(self $value): float {
+            return $value->__toFloat();
+        }
+        extension operator convert(self $value): string {
+            return $value->__toString();
+        }
+
+        public function add(float|int|string|DecimalConvertible $operand): self;
+        public function subtract(float|int|string|DecimalConvertible $operand): self;
+        public function multiply(float|int|string|DecimalConvertible $operand): self;
+
+        /**
+         * @param int|null $scale Override the result scale.
+         * @throws \DivisionByZeroError When the divisor is zero.
+         */
+        public function divide(float|int|string|DecimalConvertible $operand, ?int $scale = null): self;
+
+        public function modulo(float|int|string|DecimalConvertible $operand): self;
+        public function power(int $exponent): self;
+        public function negate(): self;
+        public function abs(): self;
+
+        /**
+         * @param int|null $scale Override the result scale.
+         * @throws \InvalidArgumentException When this value is negative.
+         */
+        public function sqrt(?int $scale = null): self;
+
+        /**
+         * @return int -1, 0, or 1.
+         */
+        public function compareTo(float|int|string|DecimalConvertible $other): int;
+
+        public function equals(float|int|string|DecimalConvertible $other): bool;
+        public function greaterThan(float|int|string|DecimalConvertible $other): bool;
+        public function greaterThanOrEqual(float|int|string|DecimalConvertible $other): bool;
+        public function lessThan(float|int|string|DecimalConvertible $other): bool;
+        public function lessThanOrEqual(float|int|string|DecimalConvertible $other): bool;
+        public function isZero(): bool;
+        public function isPositive(): bool;
+        public function isNegative(): bool;
+
+        public function __toInt(): int;
+        public function __toFloat(): float;
+        public function __toDecimal(): self;
+        public function withScale(int $scale): self;
+
+        public function round(int $precision = 0, int $mode = \PHP_ROUND_HALF_UP): self;
+        public function floor(): self;
+        public function ceil(): self;
+
+        public function __toString(): string;
+        public function jsonSerialize(): string;
+        public function format(
+            int $decimals = 2,
+            string $decimalSep = '.',
+            string $thousandsSep = ','
+        ): string;
+
+        public static function zero(int $scale = 2): self;
+        public static function one(int $scale = 2): self;
+        public static function min(self ...$values): self;
+        public static function max(self ...$values): self;
+        public static function sum(self ...$values): self;
+        public static function avg(self ...$values): self;
+
+        public static function getBackendName(): string;
+        public static function setBackend(DecimalBackend $backend): void;
+    }
+
+    function decimal(float|int|string|DecimalConvertible|null $value = null): Decimal;
+}
+
+namespace Tyhp\Backend {
+
+    interface DecimalBackend
+    {
+        public function add(string $a, string $b, int $scale): string;
+        public function subtract(string $a, string $b, int $scale): string;
+        public function multiply(string $a, string $b, int $scale): string;
+
+        /**
+         * @throws \DivisionByZeroError When $b is zero.
+         */
+        public function divide(string $a, string $b, int $scale): string;
+
+        public function modulo(string $a, string $b, int $scale): string;
+        public function power(string $base, int $exponent, int $scale): string;
+
+        /**
+         * @throws \InvalidArgumentException When $value is negative.
+         */
+        public function sqrt(string $value, int $scale): string;
+
+        /**
+         * @return int -1, 0, or 1.
+         */
+        public function compare(string $a, string $b, int $scale): int;
+
+        public function negate(string $value): string;
+        public function abs(string $value): string;
+        public function getName(): string;
+    }
+
+    final class BcMathBackend implements DecimalBackend
+    {
+        public function add(string $a, string $b, int $scale): string;
+        public function subtract(string $a, string $b, int $scale): string;
+        public function multiply(string $a, string $b, int $scale): string;
+        public function divide(string $a, string $b, int $scale): string;
+        public function modulo(string $a, string $b, int $scale): string;
+        public function power(string $base, int $exponent, int $scale): string;
+        public function sqrt(string $value, int $scale): string;
+        public function compare(string $a, string $b, int $scale): int;
+        public function negate(string $value): string;
+        public function abs(string $value): string;
+        public function getName(): string;
+    }
+
+    final class PhpDecimalBackend implements DecimalBackend
+    {
+        public function add(string $a, string $b, int $scale): string;
+        public function subtract(string $a, string $b, int $scale): string;
+        public function multiply(string $a, string $b, int $scale): string;
+        public function divide(string $a, string $b, int $scale): string;
+        public function modulo(string $a, string $b, int $scale): string;
+        public function power(string $base, int $exponent, int $scale): string;
+        public function sqrt(string $value, int $scale): string;
+        public function compare(string $a, string $b, int $scale): int;
+        public function negate(string $value): string;
+        public function abs(string $value): string;
+        public function getName(): string;
+    }
+
+    final class GmpBackend implements DecimalBackend
+    {
+        public function add(string $a, string $b, int $scale): string;
+        public function subtract(string $a, string $b, int $scale): string;
+        public function multiply(string $a, string $b, int $scale): string;
+        public function divide(string $a, string $b, int $scale): string;
+        public function modulo(string $a, string $b, int $scale): string;
+        public function power(string $base, int $exponent, int $scale): string;
+        public function sqrt(string $value, int $scale): string;
+        public function compare(string $a, string $b, int $scale): int;
+        public function negate(string $value): string;
+        public function abs(string $value): string;
+        public function getName(): string;
+    }
+
+    final class IntegerScaledBackend implements DecimalBackend
+    {
+        public function __construct(): void;
+
+        /**
+         * @internal
+         */
+        public static function resetWarningState(): void;
+
+        public function add(string $a, string $b, int $scale): string;
+        public function subtract(string $a, string $b, int $scale): string;
+        public function multiply(string $a, string $b, int $scale): string;
+        public function divide(string $a, string $b, int $scale): string;
+        public function modulo(string $a, string $b, int $scale): string;
+        public function power(string $base, int $exponent, int $scale): string;
+        public function sqrt(string $value, int $scale): string;
+        public function compare(string $a, string $b, int $scale): int;
+        public function negate(string $value): string;
+        public function abs(string $value): string;
+        public function getName(): string;
+    }
+}
+
+namespace Tyhp\Contracts {
+
+    use Tyhp\Decimal;
+
+    interface DecimalConvertible
+    {
+        public function __toDecimal(): Decimal;
+    }
+}

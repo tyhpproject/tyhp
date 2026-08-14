@@ -1,0 +1,78 @@
+<?tyhp
+
+namespace Tyhp\Concerns;
+
+use Tyhp\PropertyAccessorObject;
+
+/**
+ * Feature trait: hosts a {@see PropertyAccessorObject} bag and registers handlers into
+ * HandlesGet/Set/Isset/Unset.
+ *
+ * Does not define magic methods. Requires BootsTraits + the Handles* dispatcher traits on the
+ * class (or use UsesPropertyAccessors). Boot registers handlers via `__bootTrait_*`.
+ *
+ * The bag starts null: PHP forbids `new` in trait property defaults. `__bootTrait_*` creates
+ * it (and registers handlers). The emitter injects `$this->tyhpBootTraits()` in constructors
+ * before registrations — it does not emit a separate `??=` for the bag. Call sites use
+ * `$this->__tyhpPropertyHook->getBacking(...)`, etc.
+ *
+ * Emitter contract: inject `$this->tyhpBootTraits()` in constructors; if the class
+ * already defines `__get`/`__set`/…, keep Handles* for `tyhpTry*`/`tyhpRegister*` (class method
+ * overrides the trait magic) and inject `tyhpTry*` at the top of the author's magic method;
+ * if an ancestor already provides a Handles* magic, skip re-using that trait. Rewrite
+ * `$this->prop` inside hook bodies to `$this->__tyhpPropertyHook->getBacking` /
+ * `setBacking` (see TyhpEmitter.PropertyAccessors).
+ */
+trait HasPropertyAccessors
+{
+    use BootsTraits;
+
+    protected ?PropertyAccessorObject $__tyhpPropertyHook = null;
+
+    // Provided by HandlesGet / HandlesSet / HandlesIsset / HandlesUnset.
+    abstract protected function tyhpRegisterGetHandler(callable<string, mixed, bool> $handler): void;
+    abstract protected function tyhpRegisterSetHandler(callable<string, mixed, bool> $handler): void;
+    abstract protected function tyhpRegisterIssetHandler(callable<string, bool, bool> $handler): void;
+    abstract protected function tyhpRegisterUnsetHandler(callable<string, bool> $handler): void;
+
+    public function __bootTrait_Tyhp_Concerns_HasPropertyAccessors(): void
+    {
+        $this->__tyhpPropertyHook ??= new PropertyAccessorObject();
+
+        $this->tyhpRegisterGetHandler(function (string $name, mixed &$out): bool {
+            if (!$this->__tyhpPropertyHook->has($name)) {
+                return false;
+            }
+
+            $out = $this->__tyhpPropertyHook->get($name);
+            return true;
+        });
+
+        $this->tyhpRegisterSetHandler(function (string $name, mixed $value): bool {
+            if (!$this->__tyhpPropertyHook->has($name)) {
+                return false;
+            }
+
+            $this->__tyhpPropertyHook->set($name, $value);
+            return true;
+        });
+
+        $this->tyhpRegisterIssetHandler(function (string $name, bool &$out): bool {
+            if (!$this->__tyhpPropertyHook->has($name)) {
+                return false;
+            }
+
+            $out = $this->__tyhpPropertyHook->isset($name);
+            return true;
+        });
+
+        $this->tyhpRegisterUnsetHandler(function (string $name): bool {
+            if (!$this->__tyhpPropertyHook->has($name)) {
+                return false;
+            }
+
+            $this->__tyhpPropertyHook->unset($name);
+            return true;
+        });
+    }
+}

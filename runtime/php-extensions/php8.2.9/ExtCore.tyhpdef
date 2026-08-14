@@ -1,0 +1,2440 @@
+<?tyhpdef
+const int E_ERROR;
+const int E_WARNING;
+const int E_PARSE;
+const int E_NOTICE;
+const int E_CORE_ERROR;
+const int E_CORE_WARNING;
+const int E_COMPILE_ERROR;
+const int E_COMPILE_WARNING;
+const int E_USER_ERROR;
+const int E_USER_WARNING;
+const int E_USER_NOTICE;
+const int E_STRICT;
+const int E_RECOVERABLE_ERROR;
+const int E_DEPRECATED;
+const int E_USER_DEPRECATED;
+const int E_ALL;
+const int DEBUG_BACKTRACE_PROVIDE_OBJECT;
+const int DEBUG_BACKTRACE_IGNORE_ARGS;
+const bool ZEND_THREAD_SAFE;
+const bool ZEND_DEBUG_BUILD;
+const bool TRUE;
+const bool FALSE;
+const null NULL;
+const string PHP_VERSION;
+const int PHP_MAJOR_VERSION;
+const int PHP_MINOR_VERSION;
+const int PHP_RELEASE_VERSION;
+const string PHP_EXTRA_VERSION;
+const int PHP_VERSION_ID;
+const int PHP_ZTS;
+const int PHP_DEBUG;
+const string PHP_OS;
+const string PHP_OS_FAMILY;
+const string PHP_SAPI;
+const string DEFAULT_INCLUDE_PATH;
+const string PEAR_INSTALL_DIR;
+const string PEAR_EXTENSION_DIR;
+const string PHP_EXTENSION_DIR;
+const string PHP_PREFIX;
+const string PHP_BINDIR;
+const string PHP_MANDIR;
+const string PHP_LIBDIR;
+const string PHP_DATADIR;
+const string PHP_SYSCONFDIR;
+const string PHP_LOCALSTATEDIR;
+const string PHP_CONFIG_FILE_PATH;
+const string PHP_CONFIG_FILE_SCAN_DIR;
+const string PHP_SHLIB_SUFFIX;
+const string PHP_EOL;
+const int PHP_MAXPATHLEN;
+const int PHP_INT_MAX;
+const int PHP_INT_MIN;
+const int PHP_INT_SIZE;
+const int PHP_FD_SETSIZE;
+const int PHP_FLOAT_DIG;
+const float PHP_FLOAT_EPSILON;
+const float PHP_FLOAT_MAX;
+const float PHP_FLOAT_MIN;
+const string PHP_BINARY;
+const int PHP_OUTPUT_HANDLER_START;
+const int PHP_OUTPUT_HANDLER_WRITE;
+const int PHP_OUTPUT_HANDLER_FLUSH;
+const int PHP_OUTPUT_HANDLER_CLEAN;
+const int PHP_OUTPUT_HANDLER_FINAL;
+const int PHP_OUTPUT_HANDLER_CONT;
+const int PHP_OUTPUT_HANDLER_END;
+const int PHP_OUTPUT_HANDLER_CLEANABLE;
+const int PHP_OUTPUT_HANDLER_FLUSHABLE;
+const int PHP_OUTPUT_HANDLER_REMOVABLE;
+const int PHP_OUTPUT_HANDLER_STDFLAGS;
+const int PHP_OUTPUT_HANDLER_STARTED;
+const int PHP_OUTPUT_HANDLER_DISABLED;
+const int UPLOAD_ERR_OK;
+const int UPLOAD_ERR_INI_SIZE;
+const int UPLOAD_ERR_FORM_SIZE;
+const int UPLOAD_ERR_PARTIAL;
+const int UPLOAD_ERR_NO_FILE;
+const int UPLOAD_ERR_NO_TMP_DIR;
+const int UPLOAD_ERR_CANT_WRITE;
+const int UPLOAD_ERR_EXTENSION;
+const bool PHP_CLI_PROCESS_TITLE;
+const resource STDIN;
+const resource STDOUT;
+const resource STDERR;
+
+// ---------------------------------------------------------------------------
+// Language constructs — Story 14.5 Phase 3 (hand-curated; not from reflection)
+//
+// `exit` / `die` / `clone` are PHP reserved keywords (lexer T_EXIT / T_CLONE).
+// Grammar keeps keyword call forms; these stubs supply signatures for binder /
+// checker (arity, named args, FCC / callable identity). Userland
+// `function exit` / `function die` / `function clone` cannot parse because
+// `functionName` accepts only T_STRING | T_READONLY — matching PHP reserved
+// behavior without a separate redeclaration rule.
+//
+// Gating: Story 20.5 (`declare(php=…)` / `#[\Tyhp\Php]`) is not available yet.
+// Stubs are always present. Emit rewrites for clone-with / FCC on older
+// `output.phpVersion` land in Story 14.5 Phase 5 (not gated here).
+// ---------------------------------------------------------------------------
+
+/**
+ * Output a message and terminate the current script
+ *
+ * @param string|int $status If `$status` is a string, this is the message to print.
+ *     If `$status` is an int, that value will be used as the exit status code.
+ * @return never
+ *
+ * @link https://www.php.net/manual/function.exit.php
+ */
+function exit(string|int $status = 0): never;
+
+/**
+ * Equivalent to `exit`
+ *
+ * @param string|int $status If `$status` is a string, this is the message to print.
+ *     If `$status` is an int, that value will be used as the exit status code.
+ * @return never
+ *
+ * @link https://www.php.net/manual/function.die.php
+ */
+function die(string|int $status = 0): never;
+
+/**
+ * Create a copy of an object, optionally overriding properties (PHP 8.5 clone-with)
+ *
+ * Unary `clone $object` remains a grammar expression; this signature covers
+ * call forms `clone($object)` / `clone($object, $withProperties)` and FCC
+ * `clone(...)`.
+ *
+ * @param object $object The object to clone.
+ * @param array $withProperties Property name => value overrides (clone-with).
+ * @return object A clone of `$object` with overrides applied when provided.
+ *
+ * @link https://www.php.net/manual/function.clone.php
+ */
+function clone(object $object, array $withProperties = []): object;
+
+/**
+ * Gets the version of the current Zend engine
+ * 
+ * Returns a string containing the version of the currently running Zend Engine.
+ * 
+ * @return string Returns the Zend Engine version number, as a string.
+ * 
+ * @link https://www.php.net/manual/function.zend-version.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function zend_version(): string;
+/**
+ * Returns the number of arguments passed to the function
+ * 
+ * Gets the number of arguments passed to the function.
+ * 
+ * @return int Returns the number of arguments passed into the current user-defined function.
+ * 
+ * @link https://www.php.net/manual/function.func-num-args.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function func_num_args(): int;
+/**
+ * Return an item from the argument list
+ * 
+ * Gets the specified argument from a user-defined function's argument list.
+ * 
+ * @param int $position The argument offset. Function arguments are counted starting from zero.
+ * @return mixed Returns the specified argument, or ** `false` ** on error.
+ * 
+ * @link https://www.php.net/manual/function.func-get-arg.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function func_get_arg(int $position): mixed;
+/**
+ * Returns an array comprising a function's argument list
+ * 
+ * Gets an array of the function's argument list.
+ * 
+ * @return array Returns an array in which each element is a copy of the corresponding member of the current user-defined function's argument list.
+ * 
+ * @link https://www.php.net/manual/function.func-get-args.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function func_get_args(): array;
+/**
+ * Get string length
+ * 
+ * Returns the length of the given `$string`.
+ * 
+ * @param string $string Thestringbeing measured for length.
+ * @return int The length of the `$string` in bytes.
+ * 
+ * @link https://www.php.net/manual/function.strlen.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function strlen(string $string): int;
+/**
+ * Binary safe string comparison
+ * 
+ * @param string $string1 The first string.
+ * @param string $string2 The second string.
+ * @return int Returns `-1` if `$string1` is less than `$string2` ; `1` if `$string1` is greater than `$string2` , and `0` if they are equal.
+ * 
+ * @link https://www.php.net/manual/function.strcmp.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function strcmp(string $string1, string $string2): int;
+/**
+ * Binary safe string comparison of the first n characters
+ * 
+ * This function is similar to `strcmp()` , with the difference that you can specify the (upper limit of the) number of characters from each string to be used in the comparison.
+ * 
+ * @param string $string1 The first string.
+ * @param string $string2 The second string.
+ * @param int $length Number of characters to use in the comparison.
+ * @return int Returns `-1` if `$string1` is less than `$string2` ; `1` if `$string1` is greater than `$string2` , and `0` if they are equal.
+ * 
+ * @link https://www.php.net/manual/function.strncmp.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function strncmp(string $string1, string $string2, int $length): int;
+/**
+ * Binary safe case-insensitive string comparison
+ * 
+ * Binary safe case-insensitive string comparison. The comparison is not locale aware; only ASCII letters are compared in a case-insensitive way.
+ * 
+ * @param string $string1 The first string
+ * @param string $string2 The second string
+ * @return int Returns `-1` if `$string1` is less than `$string2` ; `1` if `$string1` is greater than `$string2` , and `0` if they are equal.
+ * 
+ * @link https://www.php.net/manual/function.strcasecmp.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function strcasecmp(string $string1, string $string2): int;
+/**
+ * Binary safe case-insensitive string comparison of the first n characters
+ * 
+ * This function is similar to `strcasecmp()` , with the difference that you can specify the (upper limit of the) number of characters from each string to be used in the comparison.
+ * 
+ * @param string $string1 The first string.
+ * @param string $string2 The second string.
+ * @param int $length The length of strings to be used in the comparison.
+ * @return int Returns `-1` if `$string1` is less than `$string2` ; `1` if `$string1` is greater than `$string2` , and `0` if they are equal.
+ * 
+ * @link https://www.php.net/manual/function.strncasecmp.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function strncasecmp(string $string1, string $string2, int $length): int;
+/**
+ * Sets which PHP errors are reported
+ * 
+ * The `error_reporting()` function sets theerror_reportingdirective at runtime. PHP has many levels of errors, using this function sets that level for the duration (runtime) of your script. If the optional `$error_level` is not set, `error_reporting()` will just return the current error reporting level.
+ * 
+ * @param ?int $error_level The newerror_reportinglevel. It takes on either a bitmask, or named constants. Using named constants is strongly encouraged to ensure compatibility for future versions. As error levels are added, the range of integers increases, so older integer-based error levels will not always behave as expected.The available error level constants and the actual meanings of these error levels are described in thepredefined constants.
+ * @return int Returns the old error_reporting level or the current level if no `$error_level` parameter is given.
+ * 
+ * @link https://www.php.net/manual/function.error-reporting.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function error_reporting(?int $error_level = null): int;
+/**
+ * Defines a named constant
+ * 
+ * Defines a named constant at runtime.
+ * 
+ * @param string $constant_name The name of the constant. **Note** :It is possible to `define()` constants with reserved or even invalid names, whose value can (only) be retrieved with `constant()`. However, doing so is not recommended.
+ * @param mixed $value The value of the constant. In PHP 5, `$value` must be ascalarvalue (int,float,string,bool, or ** `null` **). In PHP 7,arrayvalues are also accepted. **Warning** While it is possible to defineresourceconstants, it is not recommended and may cause unpredictable behavior.
+ * @param bool $case_insensitive If set to ** `true` ** , the constant will be defined case-insensitive. The default behavior is case-sensitive; i.e. `CONSTANT` and `Constant` represent different values. **Warning** Defining case-insensitive constants is deprecated as of PHP 7.3.0. As of PHP 8.0.0, only ** `false` ** is an acceptable value, passing ** `true` ** will produce a warning. **Note** :Case-insensitive constants are stored as lower-case.
+ * @return bool Returns ** `true` ** on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.define.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function define(string $constant_name, mixed $value, bool $case_insensitive = false): bool;
+/**
+ * Checks whether a given named constant exists
+ * 
+ * Checks whether the given constant exists and is defined.
+ * 
+ * **Note** :If you want to see if a variable exists, use `isset()` as `defined()` only applies toconstants. If you want to see if a function exists, use `function_exists()`.
+ * 
+ * @param string $constant_name The constant name.
+ * @return bool Returns ** `true` ** if the named constant given by `$constant_name` has been defined, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.defined.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function defined(string $constant_name): bool;
+/**
+ * Returns the name of the class of an object
+ * 
+ * Gets the name of the class of the given `$object`.
+ * 
+ * @param object $object The tested object. This parameter may be omitted when inside a class. **Note** :Explicitly passing ** `null` ** as the `$object` is no longer allowed as of PHP 7.2.0 and emits an ** `E_WARNING` **. As of PHP 8.0.0, aTypeErroris emitted when ** `null` ** is used.
+ * @return string Returns the name of the class of which `$object` is an instance.
+ * 
+ * @link https://www.php.net/manual/function.get-class.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_class(object $object = null): string;
+/**
+ * The "Late Static Binding" class name
+ * 
+ * Gets the name of the class the static method is called in.
+ * 
+ * @return string Returns the class name.
+ * 
+ * @link https://www.php.net/manual/function.get-called-class.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_called_class(): string;
+/**
+ * Retrieves the parent class name for object or class
+ * 
+ * Retrieves the parent class name for object or class.
+ * 
+ * @param object|string $object_or_class The tested object or class name. This parameter is optional if called from the object's method.
+ * @return string|false Returns the name of the parent class of the class of which `$object_or_class` is an instance or the name.
+ * 
+ * @link https://www.php.net/manual/function.get-parent-class.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_parent_class(object|string $object_or_class = null): string|false;
+/**
+ * Checks if the object has this class as one of its parents or implements it
+ * 
+ * Checks if the given `$object_or_class` has the class `$class` as one of its parents or implements it.
+ * 
+ * @param mixed $object_or_class A class name or an object instance. No error is generated if the class does not exist.
+ * @param string $class The class name
+ * @param bool $allow_string If this parameter set to false, string class name as `$object_or_class` is not allowed. This also prevents from calling autoloader if the class doesn't exist.
+ * @return bool This function returns ** `true` ** if the object `$object_or_class` , belongs to a class which is a subclass of `$class` , ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.is-subclass-of.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function is_subclass_of(mixed $object_or_class, string $class, bool $allow_string = true): bool;
+/**
+ * Checks whether the object is of a given type or subtype
+ * 
+ * Checks if the given `$object_or_class` is of this object type or has this object type as one of its supertypes.
+ * 
+ * @param mixed $object_or_class A class name or an object instance.
+ * @param string $class The class or interface name
+ * @param bool $allow_string If this parameter set to ** `false` ** , string class name as `$object_or_class` is not allowed. This also prevents from calling autoloader if the class doesn't exist.
+ * @return bool Returns ** `true` ** if the object is of this object type or has this object type as one of its supertypes, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.is-a.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function is_a(mixed $object_or_class, string $class, bool $allow_string = false): bool;
+/**
+ * Get the default properties of the class
+ * 
+ * Get the default properties of the given class.
+ * 
+ * @param string $class The class name
+ * @return array Returns an associative array of declared properties visible from the current scope, with their default value. The resulting array elements are in the form of `varname => value`. In case of an error, it returns ** `false` **.
+ * 
+ * @link https://www.php.net/manual/function.get-class-vars.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_class_vars(string $class): array;
+/**
+ * Gets the properties of the given object
+ * 
+ * Gets the accessible non-static properties of the given `$object` according to scope.
+ * 
+ * @param object $object An object instance.
+ * @return array Returns an associative array of defined object accessible non-static properties for the specified `$object` in scope.
+ * 
+ * @link https://www.php.net/manual/function.get-object-vars.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_object_vars(object $object): array;
+/**
+ * Returns an array of mangled object properties
+ * 
+ * Returns anarraywhose elements are the `$object` 's properties. The keys are the member variable names, with a few notable exceptions: private variables have the class name prepended to the variable name, and protected variables have a `*` prepended to the variable name. These prepended values have `NUL` bytes on either side. Uninitializedtyped propertiesare silently discarded.
+ * 
+ * @param object $object An object instance.
+ * @return array Returns an array containing all properties, regardless of visibility, of `$object`.
+ * 
+ * @link https://www.php.net/manual/function.get-mangled-object-vars.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_mangled_object_vars(object $object): array;
+/**
+ * Gets the class methods' names
+ * 
+ * Gets the class methods names.
+ * 
+ * @param object|string $object_or_class The class name or an object instance
+ * @return array Returns an array of method names defined for the class specified by `$object_or_class`.
+ * 
+ * @link https://www.php.net/manual/function.get-class-methods.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_class_methods(object|string $object_or_class): array;
+/**
+ * Checks if the class method exists
+ * 
+ * Checks if the class method exists in the given `$object_or_class`.
+ * 
+ * @param mixed $object_or_class An object instance or a class name
+ * @param string $method The method name
+ * @return bool Returns ** `true` ** if the method given by `$method` has been defined for the given `$object_or_class` , ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.method-exists.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function method_exists(mixed $object_or_class, string $method): bool;
+/**
+ * Checks if the object or class has a property
+ * 
+ * This function checks if the given `$property` exists in the specified class.
+ * 
+ * **Note** :As opposed with `isset()` , `property_exists()` returns ** `true` ** even if the property has the value ** `null` **.
+ * 
+ * @param mixed $object_or_class The class name or an object of the class to test for
+ * @param string $property The name of the property
+ * @return bool Returns ** `true` ** if the property exists, ** `false` ** if it doesn't exist or ** `null` ** in case of an error.
+ * 
+ * @link https://www.php.net/manual/function.property-exists.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function property_exists(mixed $object_or_class, string $property): bool;
+/**
+ * Checks if the class has been defined
+ * 
+ * This function checks whether or not the given class has been defined.
+ * 
+ * @param string $class The class name. The name is matched in a case-insensitive manner.
+ * @param bool $autoload Whether toautoloadif not already loaded.
+ * @return bool Returns ** `true` ** if `$class` is a defined class, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.class-exists.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+// Tyhp type-guard return: positive branch narrows `$class` to `__ClassName<T>` (default T = object).
+// Runtime PHP still returns bool; the guard is checker-only.
+function class_exists<T extends object = object>(string|__ClassName<T>|__ClassName $class, bool $autoload = true): $class is __ClassName<T>;
+// Alias kept for tests / explicit Tyhp call sites; emits as class_exists.
+function class_exists<T extends object = object> as class_exists_alt(string|__ClassName<T>|__ClassName $class, bool $autoload = true): $class is __ClassName<T>;
+/**
+ * Checks if the interface has been defined
+ * 
+ * Checks if the given interface has been defined.
+ * 
+ * @param string $interface The interface name
+ * @param bool $autoload Whether toautoloadif not already loaded.
+ * @return bool Returns ** `true` ** if the interface given by `$interface` has been defined, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.interface-exists.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function interface_exists<T extends object = object>(string|__InterfaceName<T>|__InterfaceName $interface, bool $autoload = true): $interface is __InterfaceName<T>;
+/**
+ * Checks if the trait exists
+ * 
+ * @param string $trait Name of the trait to check
+ * @param bool $autoload Whether toautoloadif not already loaded.
+ * @return bool Returns ** `true` ** if trait exists, and ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.trait-exists.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function trait_exists<T extends object = object>(string|__TraitName<T>|__TraitName $trait, bool $autoload = true): $trait is __TraitName<T>;
+/**
+ * Checks if the enum has been defined
+ * 
+ * This function checks whether or not the givenenumhas been defined.
+ * 
+ * @param string $enum The enum name. The name is matched in a case-insensitive manner.
+ * @param bool $autoload Whether toautoloadif not already loaded.
+ * @return bool Returns ** `true` ** if `$enum` is a defined enum, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.enum-exists.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function enum_exists<T extends object = object>(string|__EnumName<T>|__EnumName $enum, bool $autoload = true): $enum is __EnumName<T>;
+/**
+ * Return ** `true` ** if the given function has been defined
+ * 
+ * Checks the list of defined functions, both built-in (internal) and user-defined, for `$function`.
+ * 
+ * @param string $function The function name, as a string.
+ * @return bool Returns ** `true` ** if `$function` exists and is a function, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.function-exists.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function function_exists(string|__FunctionName $function): $function is __FunctionName;
+/**
+ * Creates an alias for a class
+ * 
+ * Creates an alias named `$alias` based on the user defined class `$class`. The aliased class is exactly the same as the original class.
+ * 
+ * @param string $class The original class.
+ * @param string $alias The alias name for the class.
+ * @param bool $autoload Whether toautoloadif the original class is not found.
+ * @return bool Returns ** `true` ** on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.class-alias.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function class_alias(string $class, string $alias, bool $autoload = true): bool;
+/**
+ * Returns an array with the names of included or required files
+ * 
+ * Gets the names of all files that have been included using `include` , `include_once` , `require` or `require_once`.
+ * 
+ * @return array Returns an array of the names of all files.
+ * 
+ * @link https://www.php.net/manual/function.get-included-files.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_included_files(): array;
+/**
+ * Alias of `get_included_files()`
+ * 
+ * @return array
+ * 
+ * @link https://www.php.net/manual/function.get-required-files.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_required_files(): array;
+/**
+ * Generates a user-level error/warning/notice message
+ * 
+ * Used to trigger a user error condition, it can be used in conjunction with the built-in error handler, or with a user defined function that has been set as the new error handler (`set_error_handler()`).
+ * 
+ * @param string $message The designated error message for this error. It's limited to 1024 bytes in length. Any additional characters beyond 1024 bytes will be truncated.
+ * @param int $error_level The designated error type for this error. It only works with the E_USER family of constants, and will default to ** `E_USER_NOTICE` **.
+ * @return bool This function returns ** `false` ** if wrong `$error_level` is specified, ** `true` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.trigger-error.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function trigger_error(string $message, int $error_level = \E_USER_NOTICE): bool;
+/**
+ * Alias of `trigger_error()`
+ * 
+ * @param string $message
+ * @param int $error_level
+ * @return bool
+ * 
+ * @link https://www.php.net/manual/function.user-error.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function user_error(string $message, int $error_level = \E_USER_NOTICE): bool;
+/**
+ * Sets a user-defined error handler function
+ * 
+ * Sets a user function (`$callback`) to handle errors in a script.
+ * 
+ * @param ?callable $callback If ** `null` ** is passed, the handler is reset to its default state. Otherwise, the handler is a callback with the following signature:handler(    int `$$errno` ,     string `$$errstr` ,     string `$$errfile` =?,     int `$$errline` =?,     array `$$errcontext` =?):bool `$errno` The first parameter, `$errno` , will be passed the level of the error raised, as an integer. `$errstr` The second parameter, `$errstr` , will be passed the error message, as a string. `$errfile` If the callback accepts a third parameter, `$errfile` , it will be passed the filename that the error was raised in, as a string. `$errline` If the callback accepts a fourth parameter, `$errline` , it will be passed the line number where the error was raised, as an integer. `$errcontext` If the callback accepts a fifth parameter, `$errcontext` , it will be passed an array that points to the active symbol table at the point the error occurred. In other words, `$errcontext` will contain an array of every variable that existed in the scope the error was triggered in. User error handlers must not modify the error context. **Warning** This parameter has been *DEPRECATED* as of PHP 7.2.0, and *REMOVED* as of PHP 8.0.0. If the function defines this parameter without a default, an error of "too few arguments" will be raised when it is called.If the function returns ** `false` ** then the normal error handler continues.
+ * @param int $error_levels Can be used to mask the triggering of the `$callback` function just like theerror_reportingini setting controls which errors are shown. Without this mask set the `$callback` will be called for every error regardless to the setting of theerror_reportingsetting.
+ * @return void Returns the previously defined error handler (if any). If the built-in error handler is used ** `null` ** is returned. If the previous error handler was a class method, this function will return an indexed array with the class and the method name.
+ * 
+ * @link https://www.php.net/manual/function.set-error-handler.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function set_error_handler(?callable $callback, int $error_levels = \E_ALL): void;
+/**
+ * Restores the previous error handler function
+ * 
+ * Used after changing the error handler function using `set_error_handler()` , to revert to the previous error handler (which could be the built-in or a user defined function).
+ * 
+ * @return true Always returns ** `true` **.
+ * 
+ * @link https://www.php.net/manual/function.restore-error-handler.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function restore_error_handler(): true;
+/**
+ * Sets a user-defined exception handler function
+ * 
+ * Sets the default exception handler if an exception is not caught within a try/catch block. Execution will stop after the `$callback` is called.
+ * 
+ * @param ?callable $callback The function to be called when an uncaught exception occurs. This handler function needs to accept one parameter, which will be theThrowableobject that was thrown. BothErrorandExceptionimplement theThrowableinterface. This is the handler signature:handler(Throwable `$$ex`):void ** `null` ** may be passed instead, to reset this handler to its default state.
+ * @return void Returns the previously defined exception handler, or ** `null` ** on error. If no previous handler was defined, ** `null` ** is also returned.
+ * 
+ * @link https://www.php.net/manual/function.set-exception-handler.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function set_exception_handler(?callable $callback): void;
+/**
+ * Restores the previously defined exception handler function
+ * 
+ * Used after changing the exception handler function using `set_exception_handler()` , to revert to the previous exception handler (which could be the built-in or a user defined function).
+ * 
+ * @return true Always returns ** `true` **.
+ * 
+ * @link https://www.php.net/manual/function.restore-exception-handler.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function restore_exception_handler(): true;
+/**
+ * Returns an array with the name of the defined classes
+ * 
+ * Gets the declared classes.
+ * 
+ * @return array Returns an array of the names of the declared classes in the current script.
+ * 
+ * @link https://www.php.net/manual/function.get-declared-classes.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_declared_classes(): array;
+/**
+ * Returns an array of all declared traits
+ * 
+ * @return array Returns an array with names of all declared traits in values.
+ * 
+ * @link https://www.php.net/manual/function.get-declared-traits.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_declared_traits(): array;
+/**
+ * Returns an array of all declared interfaces
+ * 
+ * Gets the declared interfaces.
+ * 
+ * @return array Returns an array of the names of the declared interfaces in the current script.
+ * 
+ * @link https://www.php.net/manual/function.get-declared-interfaces.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_declared_interfaces(): array;
+/**
+ * Returns an array of all defined functions
+ * 
+ * Gets an array of all defined functions.
+ * 
+ * @param bool $exclude_disabled Whether disabled functions should be excluded from the return value.
+ * @return array Returns a multidimensional array containing a list of all defined functions, both built-in (internal) and user-defined. The internal functions will be accessible via $arr["internal"] , and the user defined ones using $arr["user"] (see example below).
+ * 
+ * @link https://www.php.net/manual/function.get-defined-functions.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_defined_functions(bool $exclude_disabled = true): array;
+/**
+ * Returns an array of all defined variables
+ * 
+ * This function returns a multidimensional array containing a list of all defined variables, be them environment, server or user-defined variables, within the scope that `get_defined_vars()` is called.
+ * 
+ * @return array A multidimensional array with all the variables.
+ * 
+ * @link https://www.php.net/manual/function.get-defined-vars.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_defined_vars(): array;
+/**
+ * Returns the resource type
+ * 
+ * This function gets the type of the given resource.
+ * 
+ * @param mixed $resource The evaluated resource handle.
+ * @return string If the given `$resource` is a resource, this function will return a string representing its type. If the type is not identified by this function, the return value will be the string `Unknown`.
+ * 
+ * @link https://www.php.net/manual/function.get-resource-type.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_resource_type(mixed $resource): string;
+/**
+ * Returns an integer identifier for the given resource
+ * 
+ * This function provides a type-safe way for generating the integer identifier for a resource.
+ * 
+ * @param mixed $resource The evaluated resource handle.
+ * @return int The int identifier for the given `$resource`.
+ * 
+ * @link https://www.php.net/manual/function.get-resource-id.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_resource_id(mixed $resource): int;
+/**
+ * Returns active resources
+ * 
+ * Returns an array of all currently activeresources, optionally filtered by resource type.
+ * 
+ * **Note** :This function is meant for debugging and testing purposes. It is not supposed to be used in production environments, especially not to access or even manipulate resources which are normally not accessible (e.g. the underlying stream resource ofSplFileObjectinstances).
+ * 
+ * @param ?string $type If defined, this will cause `get_resources()` to only return resources of the given type.A list of resource types is available.If thestring `Unknown` is provided as the type, then only resources that are of an unknown type will be returned.If omitted, all resources will be returned.
+ * @return array Returns an array of currently active resources, indexed by resource number.
+ * 
+ * @link https://www.php.net/manual/function.get-resources.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_resources(?string $type = null): array;
+/**
+ * Returns an array with the names of all modules compiled and loaded
+ * 
+ * This function returns the names of all the modules compiled and loaded in the PHP interpreter.
+ * 
+ * @param bool $zend_extensions Only return Zend extensions, if not then regular extensions, like mysqli are listed. Defaults to ** `false` ** (return regular extensions).
+ * @return array Returns an indexed array of all the modules names.
+ * 
+ * @link https://www.php.net/manual/function.get-loaded-extensions.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_loaded_extensions(bool $zend_extensions = false): array;
+/**
+ * Returns an associative array with the names of all the constants and their values
+ * 
+ * Returns the names and values of all the constants currently defined. This includes those created by extensions as well as those created with the `define()` function.
+ * 
+ * @param bool $categorize Causing this function to return a multi-dimensional array with categories in the keys of the first dimension and constants and their values in the second dimension. ```php <?php define("MY_CONSTANT", 1); print_r(get_defined_constants(true));?> ``` The above example will output something similar to: ```plaintext Array ([Core] => Array ([E_ERROR] => 1 [E_WARNING] => 2 [E_PARSE] => 4 [E_NOTICE] => 8 [E_CORE_ERROR] => 16 [E_CORE_WARNING] => 32 [E_COMPILE_ERROR] => 64 [E_COMPILE_WARNING] => 128 [E_USER_ERROR] => 256 [E_USER_WARNING] => 512 [E_USER_NOTICE] => 1024 [E_ALL] => 2047 [TRUE] => 1) [pcre] => Array ([PREG_PATTERN_ORDER] => 1 [PREG_SET_ORDER] => 2 [PREG_OFFSET_CAPTURE] => 256 [PREG_SPLIT_NO_EMPTY] => 1 [PREG_SPLIT_DELIM_CAPTURE] => 2 [PREG_SPLIT_OFFSET_CAPTURE] => 4 [PREG_GREP_INVERT] => 1) [user] => Array ([MY_CONSTANT] => 1)) ```
+ * @return array Returns an array of constant name => constant value array, optionally groupped by extension name registering the constant.
+ * 
+ * @link https://www.php.net/manual/function.get-defined-constants.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_defined_constants(bool $categorize = false): array;
+/**
+ * Generates a backtrace
+ * 
+ * `debug_backtrace()` generates a PHP backtrace.
+ * 
+ * @param int $options This parameter is a bitmask for the following options: ** `debug_backtrace()` options** DEBUG_BACKTRACE_PROVIDE_OBJECTWhether or not to populate the "object" index.DEBUG_BACKTRACE_IGNORE_ARGSWhether or not to omit the "args" index, and thus all the function/method arguments, to save memory. **Note** :There are four possible combinations: ** `debug_backtrace()` options** `debug_backtrace()` Populates both indexes `debug_backtrace(DEBUG_BACKTRACE_PROVIDE_OBJECT)` `debug_backtrace(1)` `debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS & DEBUG_BACKTRACE_PROVIDE_OBJECT)` Omits index `"object"`. `debug_backtrace(0)` `debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS)` Omits index `"object"` *and* index `"args"`. `debug_backtrace(2)`
+ * @param int $limit This parameter can be used to limit the number of stack frames returned. By default (`$limit` = `0`) it returns all stack frames.
+ * @return array Returns an array of associative array s. The possible returned elements are as follows:
+ * 
+ * @link https://www.php.net/manual/function.debug-backtrace.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function debug_backtrace(int $options = \DEBUG_BACKTRACE_PROVIDE_OBJECT, int $limit = 0): array;
+/**
+ * Prints a backtrace
+ * 
+ * `debug_print_backtrace()` prints a PHP backtrace. It prints the function calls, included/required files and `eval()` ed stuff.
+ * 
+ * @param int $options This parameter is a bitmask for the following options: ** `debug_print_backtrace()` options** DEBUG_BACKTRACE_IGNORE_ARGSWhether or not to omit the "args" index, and thus all the function/method arguments, to save memory.
+ * @param int $limit This parameter can be used to limit the number of stack frames printed. By default (`$limit` = `0`) it prints all stack frames.
+ * @return void No value is returned.
+ * 
+ * @link https://www.php.net/manual/function.debug-print-backtrace.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function debug_print_backtrace(int $options = 0, int $limit = 0): void;
+/**
+ * Find out whether an extension is loaded
+ * 
+ * Finds out whether the extension is loaded.
+ * 
+ * @param string $extension The extension name. This parameter is case-insensitive.You can see the names of various extensions by using `phpinfo()` or if you're using the `CGI` or `CLI` version of PHP you can use the **-m** switch to list all available extensions: ```plaintext $ php -m [PHP Modules] xml tokenizer standard sockets session posix pcre overload mysql mbstring ctype [Zend Modules] ```
+ * @return bool Returns ** `true` ** if the extension identified by `$extension` is loaded, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.extension-loaded.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function extension_loaded(string $extension): bool;
+/**
+ * Returns an array with the names of the functions of a module
+ * 
+ * This function returns the names of all the functions defined in the module indicated by `$extension`.
+ * 
+ * @param string $extension The module name. **Note** :This parameter must be in *lowercase*.
+ * @return array|false Returns an array with all the functions, or ** `false` ** if `$extension` is not a valid extension.
+ * 
+ * @link https://www.php.net/manual/function.get-extension-funcs.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function get_extension_funcs(string $extension): array|false;
+/**
+ * Reclaims memory used by the Zend Engine memory manager
+ * 
+ * Reclaims memory used by the Zend Engine memory manager.
+ * 
+ * @return int Returns the number of bytes freed.
+ * 
+ * @link https://www.php.net/manual/function.gc-mem-caches.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function gc_mem_caches(): int;
+/**
+ * Forces collection of any existing garbage cycles
+ * 
+ * Forces collection of any existing garbage cycles.
+ * 
+ * @return int Returns number of collected cycles.
+ * 
+ * @link https://www.php.net/manual/function.gc-collect-cycles.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function gc_collect_cycles(): int;
+/**
+ * Returns status of the circular reference collector
+ * 
+ * Returns status of the circular reference collector.
+ * 
+ * @return bool Returns ** `true` ** if the garbage collector is enabled, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.gc-enabled.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function gc_enabled(): bool;
+/**
+ * Activates the circular reference collector
+ * 
+ * Activates the circular reference collector, settingzend.enable_gcto `1`.
+ * 
+ * @return void No value is returned.
+ * 
+ * @link https://www.php.net/manual/function.gc-enable.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function gc_enable(): void;
+/**
+ * Deactivates the circular reference collector
+ * 
+ * Deactivates the circular reference collector, settingzend.enable_gcto `0`.
+ * 
+ * @return void No value is returned.
+ * 
+ * @link https://www.php.net/manual/function.gc-disable.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function gc_disable(): void;
+/**
+ * Gets information about the garbage collector
+ * 
+ * Gets information about the current state of the garbage collector.
+ * 
+ * @return array Returns an associative array with the following elements:
+ * 
+ * @link https://www.php.net/manual/function.gc-status.php
+ * 
+ * @generated from PHP v8.2.9, EXT: Core v8.2.9
+ */
+function gc_status(): array;
+interface Traversable
+{
+}
+interface IteratorAggregate extends \Traversable
+{
+    /**
+     * `\IteratorAggregate` method `getIterator`
+     *
+     * @return \Traversable
+     */
+    public function getIterator(): \Traversable;
+}
+interface Iterator extends \Traversable
+{
+    /**
+     * `\Iterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\Iterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\Iterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\Iterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\Iterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+}
+interface Serializable
+{
+    /**
+     * `\Serializable` method `serialize`
+     *
+     * @return string
+     */
+    public function serialize(): string;
+    /**
+     * `\Serializable` method `unserialize`
+     *
+     * @param string $data
+     * @return void
+     */
+    public function unserialize(string $data): void;
+}
+interface ArrayAccess
+{
+    /**
+     * `\ArrayAccess` method `offsetExists`
+     *
+     * @param mixed $offset
+     * @return bool
+     */
+    public function offsetExists(mixed $offset): bool;
+    /**
+     * `\ArrayAccess` method `offsetGet`
+     *
+     * @param mixed $offset
+     * @return mixed
+     */
+    public function offsetGet(mixed $offset): mixed;
+    /**
+     * `\ArrayAccess` method `offsetSet`
+     *
+     * @param mixed $offset
+     * @param mixed $value
+     * @return void
+     */
+    public function offsetSet(mixed $offset, mixed $value): void;
+    /**
+     * `\ArrayAccess` method `offsetUnset`
+     *
+     * @param mixed $offset
+     * @return void
+     */
+    public function offsetUnset(mixed $offset): void;
+}
+interface Countable
+{
+    /**
+     * `\Countable` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+}
+interface Stringable
+{
+    /**
+     * `\Stringable` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+final class InternalIterator implements \Iterator, \Traversable
+{
+    /**
+     * `\InternalIterator` method `__construct`
+     *
+     * @return void
+     */
+    public function __construct(): void;
+    /**
+     * `\InternalIterator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\InternalIterator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\InternalIterator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\InternalIterator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\InternalIterator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+}
+interface Throwable extends \Stringable
+{
+    /**
+     * `\Throwable` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\Throwable` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\Throwable` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\Throwable` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\Throwable` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\Throwable` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\Throwable` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\Throwable` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class Exception implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var string */
+    private string $string;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /** @var array */
+    private array $trace;
+    /** @var ?\Throwable */
+    private ?\Throwable $previous;
+    /**
+     * `\Exception` method `__clone`
+     *
+     * @return void
+     */
+    public function __clone(): void;
+    /**
+     * `\Exception` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\Exception` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\Exception` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\Exception` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\Exception` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\Exception` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\Exception` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\Exception` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\Exception` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\Exception` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class ErrorException extends \Exception implements \Throwable, \Stringable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /** @var int */
+    protected int $severity;
+    /**
+     * `\ErrorException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param int $severity
+     * @param ?string $filename
+     * @param ?int $line
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, int $severity = \E_ERROR, ?string $filename = null, ?int $line = null, ?\Throwable $previous = null): void;
+    /**
+     * `\ErrorException` method `getSeverity`
+     *
+     * @return int
+     */
+    public function getSeverity(): int;
+    /**
+     * `\ErrorException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\ErrorException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\ErrorException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\ErrorException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\ErrorException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\ErrorException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\ErrorException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\ErrorException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\ErrorException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class Error implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var string */
+    private string $string;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /** @var array */
+    private array $trace;
+    /** @var ?\Throwable */
+    private ?\Throwable $previous;
+    /**
+     * `\Error` method `__clone`
+     *
+     * @return void
+     */
+    public function __clone(): void;
+    /**
+     * `\Error` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\Error` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\Error` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\Error` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\Error` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\Error` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\Error` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\Error` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\Error` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\Error` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class CompileError extends \Error implements \Throwable, \Stringable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\CompileError` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\CompileError` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\CompileError` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\CompileError` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\CompileError` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\CompileError` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\CompileError` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\CompileError` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\CompileError` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\CompileError` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class ParseError extends \CompileError implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\ParseError` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\ParseError` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\ParseError` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\ParseError` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\ParseError` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\ParseError` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\ParseError` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\ParseError` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\ParseError` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\ParseError` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class TypeError extends \Error implements \Throwable, \Stringable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\TypeError` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\TypeError` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\TypeError` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\TypeError` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\TypeError` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\TypeError` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\TypeError` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\TypeError` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\TypeError` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\TypeError` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class ArgumentCountError extends \TypeError implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\ArgumentCountError` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\ArgumentCountError` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\ArgumentCountError` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\ArgumentCountError` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\ArgumentCountError` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\ArgumentCountError` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\ArgumentCountError` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\ArgumentCountError` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\ArgumentCountError` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\ArgumentCountError` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class ValueError extends \Error implements \Throwable, \Stringable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\ValueError` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\ValueError` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\ValueError` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\ValueError` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\ValueError` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\ValueError` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\ValueError` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\ValueError` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\ValueError` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\ValueError` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class ArithmeticError extends \Error implements \Throwable, \Stringable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\ArithmeticError` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\ArithmeticError` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\ArithmeticError` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\ArithmeticError` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\ArithmeticError` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\ArithmeticError` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\ArithmeticError` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\ArithmeticError` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\ArithmeticError` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\ArithmeticError` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class DivisionByZeroError extends \ArithmeticError implements \Stringable, \Throwable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\DivisionByZeroError` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\DivisionByZeroError` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\DivisionByZeroError` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\DivisionByZeroError` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\DivisionByZeroError` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\DivisionByZeroError` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\DivisionByZeroError` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\DivisionByZeroError` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\DivisionByZeroError` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\DivisionByZeroError` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class UnhandledMatchError extends \Error implements \Throwable, \Stringable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\UnhandledMatchError` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\UnhandledMatchError` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\UnhandledMatchError` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\UnhandledMatchError` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\UnhandledMatchError` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\UnhandledMatchError` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\UnhandledMatchError` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\UnhandledMatchError` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\UnhandledMatchError` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\UnhandledMatchError` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+final class Closure
+{
+    /**
+     * `\Closure` method `__construct`
+     *
+     * @return void
+     */
+    public function __construct(): void;
+    /**
+     * `\Closure` method `bind`
+     *
+     * @param \Closure $closure
+     * @param ?object $newThis
+     * @param object|string|null $newScope
+     * @return ?\Closure
+     */
+    public function bind(\Closure $closure, ?object $newThis, object|string|null $newScope = "static"): ?\Closure;
+    /**
+     * `\Closure` method `bindTo`
+     *
+     * @param ?object $newThis
+     * @param object|string|null $newScope
+     * @return ?\Closure
+     */
+    public function bindTo(?object $newThis, object|string|null $newScope = "static"): ?\Closure;
+    /**
+     * `\Closure` method `call`
+     *
+     * @param object $newThis
+     * @param mixed[] $args
+     * @return mixed
+     */
+    public function call(object $newThis, mixed ...$args): mixed;
+
+    // Same rest-unpack pattern as call_user_func (Story 16.5). Activate when this stub is retyped
+    // against this Closure's own callable signature (exact `static` / Closure-generic spelling TBD):
+    /*
+    public function call(
+        object $newThis,
+        ...__CallableParametersRest<static> $args
+    ): __CallableReturnType<static>;
+    */
+
+    /**
+     * `\Closure` method `fromCallable`
+     *
+     * @param callable $callback
+     * @return \Closure
+     */
+    public function fromCallable(callable $callback): \Closure;
+    /**
+     * `\Closure` method `__invoke`
+     *
+     * @return void
+     */
+    public function __invoke(): void;
+}
+final class Generator implements \Iterator, \Traversable
+{
+    /**
+     * `\Generator` method `rewind`
+     *
+     * @return void
+     */
+    public function rewind(): void;
+    /**
+     * `\Generator` method `valid`
+     *
+     * @return bool
+     */
+    public function valid(): bool;
+    /**
+     * `\Generator` method `current`
+     *
+     * @return mixed
+     */
+    public function current(): mixed;
+    /**
+     * `\Generator` method `key`
+     *
+     * @return mixed
+     */
+    public function key(): mixed;
+    /**
+     * `\Generator` method `next`
+     *
+     * @return void
+     */
+    public function next(): void;
+    /**
+     * `\Generator` method `send`
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    public function send(mixed $value): mixed;
+    /**
+     * `\Generator` method `throw`
+     *
+     * @param \Throwable $exception
+     * @return mixed
+     */
+    public function throw(\Throwable $exception): mixed;
+    /**
+     * `\Generator` method `getReturn`
+     *
+     * @return mixed
+     */
+    public function getReturn(): mixed;
+}
+class ClosedGeneratorException extends \Exception implements \Throwable, \Stringable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\ClosedGeneratorException` method `__construct`
+     *
+     * @param string $message
+     * @param int $code
+     * @param ?\Throwable $previous
+     * @return void
+     */
+    public function __construct(string $message = "", int $code = 0, ?\Throwable $previous = null): void;
+    /**
+     * `\ClosedGeneratorException` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\ClosedGeneratorException` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\ClosedGeneratorException` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\ClosedGeneratorException` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\ClosedGeneratorException` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\ClosedGeneratorException` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\ClosedGeneratorException` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\ClosedGeneratorException` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\ClosedGeneratorException` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+final class WeakReference
+{
+    /**
+     * `\WeakReference` method `__construct`
+     *
+     * @return void
+     */
+    public function __construct(): void;
+    /**
+     * `\WeakReference` method `create`
+     *
+     * @param object $object
+     * @return \WeakReference
+     */
+    public function create(object $object): \WeakReference;
+    /**
+     * `\WeakReference` method `get`
+     *
+     * @return ?object
+     */
+    public function get(): ?object;
+}
+final class WeakMap implements \ArrayAccess, \Countable, \IteratorAggregate, \Traversable
+{
+    /**
+     * `\WeakMap` method `offsetGet`
+     *
+     * @param mixed $object
+     * @return mixed
+     */
+    public function offsetGet(mixed $object): mixed;
+    /**
+     * `\WeakMap` method `offsetSet`
+     *
+     * @param mixed $object
+     * @param mixed $value
+     * @return void
+     */
+    public function offsetSet(mixed $object, mixed $value): void;
+    /**
+     * `\WeakMap` method `offsetExists`
+     *
+     * @param mixed $object
+     * @return bool
+     */
+    public function offsetExists(mixed $object): bool;
+    /**
+     * `\WeakMap` method `offsetUnset`
+     *
+     * @param mixed $object
+     * @return void
+     */
+    public function offsetUnset(mixed $object): void;
+    /**
+     * `\WeakMap` method `count`
+     *
+     * @return int
+     */
+    public function count(): int;
+    /**
+     * `\WeakMap` method `getIterator`
+     *
+     * @return \Iterator
+     */
+    public function getIterator(): \Iterator;
+}
+final class Attribute
+{
+    public const int TARGET_CLASS;
+    public const int TARGET_FUNCTION;
+    public const int TARGET_METHOD;
+    public const int TARGET_PROPERTY;
+    public const int TARGET_CLASS_CONSTANT;
+    public const int TARGET_PARAMETER;
+    // PHP 8.5: compile-time non-class `const` (not `define()`). Bit 1<<6; TARGET_ALL and
+    // IS_REPEATABLE shifted accordingly (TARGET_ALL=127, IS_REPEATABLE=128).
+    public const int TARGET_CONSTANT;
+    public const int TARGET_ALL;
+    public const int IS_REPEATABLE;
+    /** @var int */
+    public int $flags;
+    /**
+     * `\Attribute` method `__construct`
+     *
+     * @param int $flags
+     * @return void
+     */
+    public function __construct(int $flags = \Attribute::TARGET_ALL): void;
+}
+final class ReturnTypeWillChange
+{
+    /**
+     * `\ReturnTypeWillChange` method `__construct`
+     *
+     * @return void
+     */
+    public function __construct(): void;
+}
+final class AllowDynamicProperties
+{
+    /**
+     * `\AllowDynamicProperties` method `__construct`
+     *
+     * @return void
+     */
+    public function __construct(): void;
+}
+final class SensitiveParameter
+{
+    /**
+     * `\SensitiveParameter` method `__construct`
+     *
+     * @return void
+     */
+    public function __construct(): void;
+}
+final class SensitiveParameterValue
+{
+    /** @var mixed */
+    private readonly mixed $value;
+    /**
+     * `\SensitiveParameterValue` method `__construct`
+     *
+     * @param mixed $value
+     * @return void
+     */
+    public function __construct(mixed $value): void;
+    /**
+     * `\SensitiveParameterValue` method `getValue`
+     *
+     * @return mixed
+     */
+    public function getValue(): mixed;
+    /**
+     * `\SensitiveParameterValue` method `__debugInfo`
+     *
+     * @return array
+     */
+    public function __debugInfo(): array;
+}
+interface UnitEnum
+{
+    /**
+     * `\UnitEnum` method `cases`
+     *
+     * @return array
+     */
+    public function cases(): array;
+}
+interface BackedEnum extends \UnitEnum
+{
+    /**
+     * `\BackedEnum` method `from`
+     *
+     * @param string|int $value
+     * @return static
+     */
+    public function from(string|int $value): static;
+    /**
+     * `\BackedEnum` method `tryFrom`
+     *
+     * @param string|int $value
+     * @return ?static
+     */
+    public function tryFrom(string|int $value): ?static;
+    /**
+     * `\BackedEnum` method `cases`
+     *
+     * @return array
+     */
+    public function cases(): array;
+}
+final class Fiber<TStart = mixed, TResume = mixed, TReturn = mixed, TSuspend = mixed>
+{
+    /**
+     * `\Fiber` method `__construct`
+     *
+     * @param callable $callback
+     * @return void
+     */
+    public function __construct(callable $callback): void;
+    /**
+     * `\Fiber` method `start`
+     *
+     * @param mixed[] $args
+     * @return mixed
+     */
+    public function start(TStart ...$args): ?TSuspend;
+    /**
+     * `\Fiber` method `resume`
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    public function resume(?TResume $value = null): ?TSuspend;
+    /**
+     * `\Fiber` method `throw`
+     *
+     * @param \Throwable $exception
+     * @return mixed
+     */
+    public function throw(\Throwable $exception): ?TSuspend;
+    /**
+     * `\Fiber` method `isStarted`
+     *
+     * @return bool
+     */
+    public function isStarted(): bool;
+    /**
+     * `\Fiber` method `isSuspended`
+     *
+     * @return bool
+     */
+    public function isSuspended(): bool;
+    /**
+     * `\Fiber` method `isRunning`
+     *
+     * @return bool
+     */
+    public function isRunning(): bool;
+    /**
+     * `\Fiber` method `isTerminated`
+     *
+     * @return bool
+     */
+    public function isTerminated(): bool;
+    /**
+     * `\Fiber` method `getReturn`
+     *
+     * @return mixed
+     */
+    public function getReturn(): TReturn;
+    /**
+     * `\Fiber` method `getCurrent`
+     *
+     * @return ?\Fiber
+     */
+    public static function getCurrent(): ?\Fiber;
+    /**
+     * `\Fiber` method `suspend`
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    public static function suspend<TResume = mixed>(mixed $value = null): ?TResume;
+}
+final class FiberError extends \Error implements \Throwable, \Stringable
+{
+    /** @var mixed */
+    protected mixed $message;
+    /** @var mixed */
+    protected mixed $code;
+    /** @var string */
+    protected string $file;
+    /** @var int */
+    protected int $line;
+    /**
+     * `\FiberError` method `__construct`
+     *
+     * @return void
+     */
+    public function __construct(): void;
+    /**
+     * `\FiberError` method `__wakeup`
+     *
+     * @return void
+     */
+    public function __wakeup(): void;
+    /**
+     * `\FiberError` method `getMessage`
+     *
+     * @return string
+     */
+    public function getMessage(): string;
+    /**
+     * `\FiberError` method `getCode`
+     *
+     * @return void
+     */
+    public function getCode(): void;
+    /**
+     * `\FiberError` method `getFile`
+     *
+     * @return string
+     */
+    public function getFile(): string;
+    /**
+     * `\FiberError` method `getLine`
+     *
+     * @return int
+     */
+    public function getLine(): int;
+    /**
+     * `\FiberError` method `getTrace`
+     *
+     * @return array
+     */
+    public function getTrace(): array;
+    /**
+     * `\FiberError` method `getPrevious`
+     *
+     * @return ?\Throwable
+     */
+    public function getPrevious(): ?\Throwable;
+    /**
+     * `\FiberError` method `getTraceAsString`
+     *
+     * @return string
+     */
+    public function getTraceAsString(): string;
+    /**
+     * `\FiberError` method `__toString`
+     *
+     * @return string
+     */
+    public function __toString(): string;
+}
+class stdClass
+{
+}

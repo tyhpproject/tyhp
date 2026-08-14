@@ -1,0 +1,9 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\Contracts\DecimalConvertible;
+
+function decimal(float|int|string|DecimalConvertible|null $value = null): Decimal {
+    return new Decimal($value);
+}

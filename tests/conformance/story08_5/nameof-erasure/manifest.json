@@ -1,0 +1,25 @@
+{
+  "suite": "story08_5/nameof-erasure",
+  "description": "Story 08.5 — nameof() folds to a string literal in emitted PHP",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "nameof_functions",
+      "file": "nameof_emit.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    },
+    {
+      "id": "nameof_user_class",
+      "file": "nameof_emit.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/User.php"
+      }
+    }
+  ]
+}

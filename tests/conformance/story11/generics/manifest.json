@@ -1,0 +1,25 @@
+{
+  "suite": "story11/generics",
+  "description": "Story 11 — generic type-parameter erasure",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "generic_container_class",
+      "file": "generics.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Container.php"
+      }
+    },
+    {
+      "id": "generic_identity_function",
+      "file": "generics.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

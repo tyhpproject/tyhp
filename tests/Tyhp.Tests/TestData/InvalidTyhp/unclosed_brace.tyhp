@@ -1,0 +1,10 @@
+<?tyhp
+
+namespace TestData\Invalid;
+
+class Unclosed
+{
+    public function run(): void
+    {
+        int $value = 1;
+    // missing closing brace for class

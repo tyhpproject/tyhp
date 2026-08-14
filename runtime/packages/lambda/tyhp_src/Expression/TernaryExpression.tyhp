@@ -1,0 +1,18 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+final class TernaryExpression extends ExpressionNode {
+    public function __construct(
+        public readonly ExpressionNode $condition,
+        public readonly ?ExpressionNode $ifTrue,
+        public readonly ExpressionNode $ifFalse,
+        string $type = 'mixed',
+    ) {
+        parent::__construct($type, 'ternary');
+    }
+
+    public function accept(ExpressionVisitor $visitor): mixed {
+        return $visitor->visitTernary($this);
+    }
+}

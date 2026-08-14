@@ -1,0 +1,17 @@
+<?tyhp
+
+namespace Tyhp;
+
+/**
+ * Typed fiber start/resume/throw queue entry for {@see EventLoop}.
+ * Keeps SplQueue's mixed dequeue values out of type-specific operations.
+ */
+final class EventLoopFiberItem
+{
+    public function __construct(
+        public \Fiber $fiber,
+        public string $action,
+        public mixed $value = null,
+        public ?\Throwable $error = null,
+    ): void {}
+}

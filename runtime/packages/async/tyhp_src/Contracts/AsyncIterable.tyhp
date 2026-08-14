@@ -1,0 +1,7 @@
+<?tyhp
+
+namespace Tyhp\Contracts;
+
+interface AsyncIterable<T> {
+    public function getAsyncIterator(): AsyncIterator<T>;
+}

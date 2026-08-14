@@ -1,0 +1,8 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+function useDisposable(): void
+{
+    $handle := new stdClass();
+}

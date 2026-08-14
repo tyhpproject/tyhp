@@ -1,0 +1,282 @@
+<?tyhp
+
+namespace Tyhp;
+
+use Tyhp\Expression\BinaryExpression;
+use Tyhp\Expression\ConstantExpression;
+use Tyhp\Expression\FluentSupport;
+
+/**
+ * Fluent PHP-interop builder that starts from {@see Expression::of()} and remains a
+ * {@see PropertyPath} for as long as only property access is used.
+ *
+ * Calling a comparison method (`gt`, `eq`, …) promotes one-way to {@see ExpressionBuilder}.
+ *
+ * Intended call shapes:
+ * - `Expression::of(User::class)->address->city`
+ * - `Expression::of(User::class)->prop('address')->prop('city')`
+ * - `Expression::of(User::class, 'address', 'city')`
+ * - `Expression::of(User::class, ['address', 'city'])`
+ * - `Expression::of(User::class)->age->gt(18)` → {@see ExpressionBuilder}
+ *
+ * Static analysis / IDE property autocomplete for `T` uses both intersection returns
+ * (`PropertyPathBuilder<T>&T`) and mixin tags below (PhpStorm, PHPStan, Psalm, Phan).
+ *
+ * @template T of object
+ * @mixin T
+ * @extends PropertyPath<T, mixed>
+ *
+ * @phpstan-template T of object
+ * @phpstan-mixin T
+ * @phpstan-extends PropertyPath<T, mixed>
+ *
+ * @psalm-template T of object
+ * @psalm-mixin T
+ * @psalm-extends PropertyPath<T, mixed>
+ */
+class PropertyPathBuilder<T> extends PropertyPath<T, mixed> {
+    /**
+     * @param class-string<T>|string $sourceType
+     * @param array<string> $path
+     * @param array<bool> $nullSafeFlags Per-segment null-safe flags aligned with {@see PropertyPath::$path}.
+     */
+    public function __construct(
+        /** @var class-string<T>|string */
+        private string $sourceType,
+        array<string> $path = [],
+        private array<bool> $nullSafeFlags = [],
+    ): parent(
+        $sourceType,
+        'mixed',
+        $path,
+        FluentSupport::synthesizePathCallable($path, $nullSafeFlags),
+        allowEmpty: true,
+        nullSafeFlags: $nullSafeFlags,
+    ) {}
+
+    /**
+     * Start a fluent property path (and optionally seed segments).
+     *
+     * Mixes in `T` via class-level `@mixin` / `@phpstan-mixin` / `@psalm-mixin` on
+     * {@see PropertyPathBuilder}, plus the intersection return type below.
+     *
+     * @template T of object
+     * @param class-string<T> $sourceType Source object class (e.g. `User::class`).
+     * @param string|array<string> ...$segments Property names, either variadic strings or one string array.
+     * @return PropertyPathBuilder<T>&T
+     *
+     * @phpstan-template T of object
+     * @phpstan-param class-string<T> $sourceType
+     * @phpstan-param string|array<string> ...$segments
+     * @phpstan-return PropertyPathBuilder<T>&T
+     *
+     * @psalm-template T of object
+     * @psalm-param class-string<T> $sourceType
+     * @psalm-param string|list<string> ...$segments
+     * @psalm-return PropertyPathBuilder<T>&T
+     */
+    public static function of<T extends object>(__ClassName<T> $sourceType, string|array ...$segments): PropertyPathBuilder<T> {
+        return new PropertyPathBuilder<T>($sourceType, FluentSupport::resolveSegments(...$segments));
+    }
+
+    /**
+     * Append a property segment (explicit form of `->$name`).
+     *
+     * @param string $name Property name.
+     * @param bool $nullSafe When true, emit null-safe access (`?->`) for this segment.
+     * @return PropertyPathBuilder<T>&T
+     *
+     * @phpstan-return PropertyPathBuilder<T>&T
+     * @psalm-return PropertyPathBuilder<T>&T
+     */
+    public function prop(string $name, bool $nullSafe = false): PropertyPathBuilder<T> {
+        array<string> $path = $this->path;
+        $path[] = $name;
+
+        array<bool> $flags = $this->nullSafeFlags;
+        $flags[] = $nullSafe;
+
+        return new PropertyPathBuilder<T>($this->sourceType, $path, $flags);
+    }
+
+    /**
+     * Append a property segment via `->$name` sugar.
+     *
+     * Relies on `@mixin T` (PhpStorm / Phan), `@phpstan-mixin T`, and `@psalm-mixin T`
+     * on this class so `$builder->address` resolves as a property of `T`.
+     *
+     * @param string $name
+     * @return PropertyPathBuilder<T>&T
+     *
+     * @phpstan-return PropertyPathBuilder<T>&T
+     * @psalm-return PropertyPathBuilder<T>&T
+     */
+    public function __get(string $name): PropertyPathBuilder<T> {
+        return $this->prop($name);
+    }
+
+    /**
+     * Property-path builders are read-only; assignment is not supported.
+     *
+     * @param string $name
+     * @param mixed $value
+     * @throws \BadMethodCallException
+     */
+    public function __set(string $name, mixed $value): void {
+        throw new \BadMethodCallException(
+            nameof(PropertyPathBuilder) . ' does not support setting properties.'
+            . " Attempted to set: {$name}",
+        );
+    }
+
+    /**
+     * Method calls on the source type are not part of a property path.
+     *
+     * Runtime guard when static analysis cannot hide `T`'s real methods under `@mixin T`.
+     *
+     * @param string $name
+     * @param array<int|string, mixed> $arguments
+     * @return never
+     * @throws \BadMethodCallException
+     *
+     * @phpstan-return never
+     * @psalm-return never
+     */
+    public function __call(string $name, array $arguments): mixed {
+        throw new \BadMethodCallException(
+            nameof(PropertyPathBuilder) . ' only supports property access via ->name or ->prop(),'
+            . " not method calls. Attempted: {$name}()",
+        );
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function gt(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('>', $value);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function gte(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('>=', $value);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function lt(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('<', $value);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function lte(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('<=', $value);
+    }
+
+    /**
+     * Loose equality (`==`).
+     *
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function eq(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('==', $value);
+    }
+
+    /**
+     * Loose inequality (`!=`).
+     *
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function neq(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('!=', $value);
+    }
+
+    /**
+     * Strict equality (`===`).
+     *
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function same(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('===', $value);
+    }
+
+    /**
+     * Strict inequality (`!==`).
+     *
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function notSame(mixed $value): ExpressionBuilder<T> {
+        return $this->compare('!==', $value);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function isNull(): ExpressionBuilder<T> {
+        return $this->compare('===', null);
+    }
+
+    /**
+     * @return ExpressionBuilder<T>
+     * @phpstan-return ExpressionBuilder<T>
+     * @psalm-return ExpressionBuilder<T>
+     */
+    public function isNotNull(): ExpressionBuilder<T> {
+        return $this->compare('!==', null);
+    }
+
+    /**
+     * Promote this property path to a boolean {@see ExpressionBuilder}.
+     *
+     * @return ExpressionBuilder<T>
+     */
+    private function compare(string $operator, mixed $value): ExpressionBuilder<T> {
+        if ($this->path === []) {
+            throw new \LogicException(
+                nameof(Expression) . '::of() requires at least one property before a comparison.',
+            );
+        }
+
+        \Tyhp\Expression\Structs\PathNode $pathNodes = FluentSupport::buildPathNodes(
+            $this->sourceType,
+            $this->path,
+            $this->nullSafeFlags,
+        );
+        Expression\ExpressionNode $leftBody = $pathNodes->body;
+
+        BinaryExpression $body = new BinaryExpression($leftBody, $operator, new ConstantExpression($value), 'bool');
+        \Closure $pathCallable = $this->callable;
+        \Closure $callable = static function (mixed $source) use ($pathCallable, $operator, $value): bool {
+            return FluentSupport::evaluateBinary($pathCallable($source), $operator, $value);
+        };
+
+        return ExpressionBuilder::fromComparison<T>(
+            $this->sourceType,
+            $body,
+            $this->parameters,
+            $callable,
+        );
+    }
+}

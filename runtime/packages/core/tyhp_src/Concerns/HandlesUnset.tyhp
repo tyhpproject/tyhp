@@ -1,0 +1,51 @@
+<?tyhp
+
+namespace Tyhp\Concerns;
+
+/**
+ * Default `__unset` dispatcher. Feature traits register handlers via `tyhpRegisterUnsetHandler`
+ * from their `__bootTrait_*` methods.
+ *
+ * `__unset` is final (polyfill integrity). Extend via `tyhpRegisterUnsetHandler`. If the class
+ * already defines `__unset`, call `tyhpTryUnset` at the top of that implementation.
+ */
+trait HandlesUnset
+{
+    use BootsTraits;
+
+    /** @var list<callable<string, bool>> handlers: function (string $name): bool */
+    private array<callable<string, bool>> $__tyhpUnsetHandlers = [];
+
+    /**
+     * Subclass extension point: register an additional unset handler (safe after boot).
+     */
+    protected function tyhpRegisterUnsetHandler(callable<string, bool> $handler): void
+    {
+        $this->__tyhpUnsetHandlers[] = $handler;
+    }
+
+    /**
+     * Returns true when a handler claimed `$name` (handler may throw, e.g. hooked properties).
+     */
+    public function tyhpTryUnset(string $name): bool
+    {
+        $this->tyhpBootTraits();
+
+        foreach ($this->__tyhpUnsetHandlers as $handler) {
+            if ($handler($name) === true) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    final public function __unset(string $name): void
+    {
+        if ($this->tyhpTryUnset($name)) {
+            return;
+        }
+
+        unset($this->{$name});
+    }
+}

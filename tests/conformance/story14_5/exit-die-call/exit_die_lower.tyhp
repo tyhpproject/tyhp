@@ -1,0 +1,35 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\Lower;
+
+function exitEmpty(): void
+{
+    exit();
+}
+
+function dieEmpty(): void
+{
+    die();
+}
+
+function exitNamed(): void
+{
+    exit(status: 0);
+}
+
+function dieNamed(): void
+{
+    die(status: 1);
+}
+
+function exitFcc(): void
+{
+    $fn = exit(...);
+    $fn(0);
+}
+
+function dieFcc(): void
+{
+    $fn = die(...);
+    $fn(1);
+}

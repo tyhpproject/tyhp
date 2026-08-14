@@ -1,0 +1,12 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+type ApiMethod = "${'GET'|'POST'}";
+
+function demo(): void {
+    ApiMethod $method = 'GET';
+    __TypeName $typeName = 'int';
+    __UnionTypeName $union = 'int|string';
+    string $plain = $method;
+}

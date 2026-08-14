@@ -1,0 +1,19 @@
+<?tyhp
+
+namespace Tyhp\Concerns;
+
+/**
+ * Convenience aggregate for the common case: no class-owned magic methods.
+ *
+ * Equivalent to using BootsTraits + HandlesGet/Set/Isset/Unset + HasPropertyAccessors.
+ * Prefer composing the pieces separately when the class already defines `__get` / `__set` / etc.
+ */
+trait UsesPropertyAccessors
+{
+    use BootsTraits;
+    use HandlesGet;
+    use HandlesSet;
+    use HandlesIsset;
+    use HandlesUnset;
+    use HasPropertyAccessors;
+}

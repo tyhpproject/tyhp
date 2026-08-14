@@ -1,0 +1,14 @@
+{
+    "quiet": false,
+    "locale": "en-US",
+    "type": "library",
+    "include": [
+        "./tyhp_src/**/*.tyhp",
+        "../../php-extensions/php8.2.9/**/*.tyhpdef"
+    ],
+    "exclude": [],
+    "output": {
+        "path": "../dist/tyhp-core/803.0.0/src",
+        "phpVersion": "8.3"
+    }
+}

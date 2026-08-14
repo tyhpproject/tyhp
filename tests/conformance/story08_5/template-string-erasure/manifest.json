@@ -1,0 +1,17 @@
+{
+  "suite": "story08_5/template-string-erasure",
+  "description": "Story 08.5 — template-string and type-name algebra types erase to plain string in emitted PHP",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "template_strings_functions",
+      "file": "template_strings.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+class Money {
+    public function __construct(
+        public readonly int $amount,
+        public readonly string $currency
+    ) {}
+
+    operator +(self $left, self $right): self {
+        return new self($left->amount + $right->amount, $left->currency);
+    }
+}
+
+function add(Money $a, Money $b): Money {
+    return $a + $b;
+}
+
+function demo(): void {
+    $a = new Money(100, "USD");
+    $b = new Money(50, "USD");
+    $c = add($a, $b);
+}

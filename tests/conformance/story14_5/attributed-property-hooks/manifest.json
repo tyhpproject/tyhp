@@ -1,0 +1,33 @@
+{
+  "suite": "story14_5/attributed-property-hooks",
+  "description": "Story 14.5 — attributed property hooks preserved on native PHP ≥ 8.4",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "hook_marker_attribute",
+      "file": "hooks.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/HookMarker.php"
+      }
+    },
+    {
+      "id": "interface_attributed_hooks",
+      "file": "hooks.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/HasTitle.php"
+      }
+    },
+    {
+      "id": "class_attributed_hooks",
+      "file": "hooks.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Widget.php"
+      }
+    }
+  ]
+}

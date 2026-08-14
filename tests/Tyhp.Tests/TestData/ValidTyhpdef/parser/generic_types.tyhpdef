@@ -1,0 +1,17 @@
+<?tyhpdef
+
+namespace TestData\Tyhpdef;
+
+class Box<TValue extends int|float|string>
+{
+    public TValue $value;
+
+    public function __construct(TValue $value): void;
+    public function get(): TValue;
+}
+
+interface Repository<TEntity>
+{
+    public function find(int $id): ?TEntity;
+    public function save(TEntity $entity): void;
+}

@@ -1,0 +1,34 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+#[\Attribute]
+class HookMarker
+{
+}
+
+interface HasTitle
+{
+    public string $title {
+        #[HookMarker]
+        get;
+
+        #[HookMarker]
+        set;
+    }
+}
+
+final class Widget
+{
+    public string $name {
+        #[HookMarker]
+        get {
+            return $this->name;
+        }
+
+        #[HookMarker]
+        set {
+            $this->name = $value;
+        }
+    }
+}

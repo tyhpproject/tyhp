@@ -1,0 +1,21 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+final class MethodCallExpression extends ExpressionNode {
+    public readonly array<ExpressionNode> $arguments;
+
+    public function __construct(
+        public readonly ExpressionNode $object,
+        public readonly string $method,
+        array<ExpressionNode> $arguments,
+        string $type = 'mixed',
+    ) {
+        $this->arguments = $arguments;
+        parent::__construct($type, 'methodCall');
+    }
+
+    public function accept(ExpressionVisitor $visitor): mixed {
+        return $visitor->visitMethodCall($this);
+    }
+}

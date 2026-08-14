@@ -1,0 +1,16 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+class Sample
+{
+    public int $count = 0;
+}
+
+function compileTimeChecks(Sample $sample, int $count): void
+{
+    string $varName = 'sample';
+    string $typeName = 'int';
+    int $defaultInt = 0;
+    bool $exists = true;
+}

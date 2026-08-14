@@ -1,0 +1,18 @@
+<?tyhp
+
+namespace Tyhp;
+
+class ObjectHelper
+{
+    public static function with<TProperties extends struct, T extends object&TProperties>(T $object, TProperties $properties): T
+    {
+        foreach ($properties as $property => $value) {
+            if (\property_exists($object, $property)) {
+                $object->{$property} = $value;
+            } else {
+                throw new \Tyhp\Exceptions\PropertyNotFoundException($property, \get_class($object));
+            }
+        }
+        return $object;
+    }
+}

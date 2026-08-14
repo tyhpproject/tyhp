@@ -1,0 +1,33 @@
+{
+  "suite": "story11/type-guards",
+  "description": "Story 11 — type-guard return type `$a is Dog` → bool",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "type_guard_animal_class",
+      "file": "type_guards.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Animal.php"
+      }
+    },
+    {
+      "id": "type_guard_dog_class",
+      "file": "type_guards.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Dog.php"
+      }
+    },
+    {
+      "id": "type_guard_function",
+      "file": "type_guards.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

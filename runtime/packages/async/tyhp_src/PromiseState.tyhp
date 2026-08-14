@@ -1,0 +1,9 @@
+<?tyhp
+
+namespace Tyhp;
+
+enum PromiseState: string {
+    case Pending = 'pending';
+    case Fulfilled = 'fulfilled';
+    case Rejected = 'rejected';
+}

@@ -1,0 +1,16 @@
+{
+  "include": [
+    "**/*.tyhp"
+  ],
+  "output": {
+    "path": "build/",
+    "phpVersion": "8.4"
+  },
+  "tyhpdefInclude": [
+    "../../../../runtime/php-extensions/php8.2.9/package.tyhp.json",
+    "../../../../runtime/packages/core/package.tyhp.json",
+    "../../../../runtime/packages/decimal/package.tyhp.json",
+    "../../../../runtime/packages/async/package.tyhp.json",
+    "../../../../runtime/packages/lambda/package.tyhp.json"
+  ]
+}

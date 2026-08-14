@@ -1,0 +1,18 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+class User {
+    public string $lastName;
+    public mixed $value;
+}
+
+function sortBy(\Tyhp\Expression<User, User, int> $cmp): void {}
+
+function take(\Tyhp\Expression<User, bool> $pred): void {}
+
+function demo(): void {
+    sortBy(fn ($a, $b) => $a->lastName <=> $b->lastName);
+    take(fn ($u) => $u->value is int);
+    string $col = nameof(fn (User $u) => $u->lastName);
+}

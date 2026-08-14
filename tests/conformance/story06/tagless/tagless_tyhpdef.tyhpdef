@@ -1,0 +1,4 @@
+namespace Test\Tagless {
+
+    function ping(): void;
+}

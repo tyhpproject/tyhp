@@ -1,0 +1,17 @@
+<?tyhp
+
+namespace Tyhp\Expression;
+
+final class PropertyAccessExpression extends ExpressionNode {
+    public function __construct(
+        public readonly ExpressionNode $object,
+        public readonly string $property,
+        string $type = 'mixed',
+    ) {
+        parent::__construct($type, 'propertyAccess');
+    }
+
+    public function accept(ExpressionVisitor $visitor): mixed {
+        return $visitor->visitPropertyAccess($this);
+    }
+}

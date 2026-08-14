@@ -1,0 +1,4 @@
+<?tyhp
+function demo(): void {
+    __UnionTypeName $name = 'not-a-valid-type-name';
+}

@@ -1,0 +1,338 @@
+<?tyhpdef
+const int HASH_HMAC;
+const int MHASH_CRC32;
+const int MHASH_MD5;
+const int MHASH_SHA1;
+const int MHASH_HAVAL256;
+const int MHASH_RIPEMD160;
+const int MHASH_TIGER;
+const int MHASH_GOST;
+const int MHASH_CRC32B;
+const int MHASH_HAVAL224;
+const int MHASH_HAVAL192;
+const int MHASH_HAVAL160;
+const int MHASH_HAVAL128;
+const int MHASH_TIGER128;
+const int MHASH_TIGER160;
+const int MHASH_MD4;
+const int MHASH_SHA256;
+const int MHASH_ADLER32;
+const int MHASH_SHA224;
+const int MHASH_SHA512;
+const int MHASH_SHA384;
+const int MHASH_WHIRLPOOL;
+const int MHASH_RIPEMD128;
+const int MHASH_RIPEMD256;
+const int MHASH_RIPEMD320;
+const int MHASH_SNEFRU256;
+const int MHASH_MD2;
+const int MHASH_FNV132;
+const int MHASH_FNV1A32;
+const int MHASH_FNV164;
+const int MHASH_FNV1A64;
+const int MHASH_JOAAT;
+const int MHASH_CRC32C;
+const int MHASH_MURMUR3A;
+const int MHASH_MURMUR3C;
+const int MHASH_MURMUR3F;
+const int MHASH_XXH32;
+const int MHASH_XXH64;
+const int MHASH_XXH3;
+const int MHASH_XXH128;
+/**
+ * Generate a hash value (message digest)
+ * 
+ * @param string $algo Name of selected hashing algorithm (i.e. "md5", "sha256", "haval160,4", etc..). For a list of supported algorithms see `hash_algos()`.
+ * @param string $data Message to be hashed.
+ * @param bool $binary When set to ** `true` ** , outputs raw binary data. ** `false` ** outputs lowercase hexits.
+ * @param array $options An array of options for the various hashing algorithms. Currently, only the "seed" parameter is supported by the MurmurHash variants.
+ * @return string Returns a string containing the calculated message digest as lowercase hexits unless `$binary` is set to true in which case the raw binary representation of the message digest is returned.
+ * 
+ * @link https://www.php.net/manual/function.hash.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash(string $algo, string $data, bool $binary = false, array $options = []): string;
+/**
+ * Generate a hash value using the contents of a given file
+ * 
+ * @param string $algo Name of selected hashing algorithm (i.e. "md5", "sha256", "haval160,4", etc..). For a list of supported algorithms see `hash_algos()`.
+ * @param string $filename URL describing location of file to be hashed; Supports fopen wrappers.
+ * @param bool $binary When set to ** `true` ** , outputs raw binary data. ** `false` ** outputs lowercase hexits.
+ * @param array $options An array of options for the various hashing algorithms. Currently, only the "seed" parameter is supported by the MurmurHash variants.
+ * @return string|false Returns a string containing the calculated message digest as lowercase hexits unless `$binary` is set to true in which case the raw binary representation of the message digest is returned.
+ * 
+ * @link https://www.php.net/manual/function.hash-file.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_file(string $algo, string $filename, bool $binary = false, array $options = []): string|false;
+/**
+ * Generate a keyed hash value using the HMAC method
+ * 
+ * @param string $algo Name of selected hashing algorithm (i.e. "md5", "sha256", "haval160,4", etc..) See `hash_hmac_algos()` for a list of supported algorithms.
+ * @param string $data Message to be hashed.
+ * @param string $key Shared secret key used for generating the HMAC variant of the message digest.
+ * @param bool $binary When set to ** `true` ** , outputs raw binary data. ** `false` ** outputs lowercase hexits.
+ * @return string Returns a string containing the calculated message digest as lowercase hexits unless `$binary` is set to true in which case the raw binary representation of the message digest is returned.
+ * 
+ * @link https://www.php.net/manual/function.hash-hmac.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_hmac(string $algo, string $data, string $key, bool $binary = false): string;
+/**
+ * Generate a keyed hash value using the HMAC method and the contents of a given file
+ * 
+ * @param string $algo Name of selected hashing algorithm (i.e. "md5", "sha256", "haval160,4", etc..) See `hash_hmac_algos()` for a list of supported algorithms.
+ * @param string $filename URL describing location of file to be hashed; Supports fopen wrappers.
+ * @param string $key Shared secret key used for generating the HMAC variant of the message digest.
+ * @param bool $binary When set to ** `true` ** , outputs raw binary data. ** `false` ** outputs lowercase hexits.
+ * @return string|false Returns a string containing the calculated message digest as lowercase hexits unless `$binary` is set to true in which case the raw binary representation of the message digest is returned. Returns ** `false` ** if the file `$filename` cannot be read.
+ * 
+ * @link https://www.php.net/manual/function.hash-hmac-file.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_hmac_file(string $algo, string $filename, string $key, bool $binary = false): string|false;
+/**
+ * Initialize an incremental hashing context
+ * 
+ * @param string $algo Name of selected hashing algorithm (i.e. "md5", "sha256", "haval160,4", etc..). For a list of supported algorithms see `hash_algos()`.
+ * @param int $flags Optional settings for hash generation, currently supports only one option: ** `HASH_HMAC` **. When specified, the `$key` *must* be specified.
+ * @param string $key When ** `HASH_HMAC` ** is specified for `$flags` , a shared secret key to be used with the HMAC hashing method must be supplied in this parameter.
+ * @param array $options An array of options for the various hashing algorithms. Currently, only the "seed" parameter is supported by the MurmurHash variants.
+ * @return \HashContext Returns a Hashing Context for use with `hash_update()` , `hash_update_stream()` , `hash_update_file()` , and `hash_final()`.
+ * 
+ * @link https://www.php.net/manual/function.hash-init.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_init(string $algo, int $flags = 0, string $key = "", array $options = []): \HashContext;
+/**
+ * Pump data into an active hashing context
+ * 
+ * @param \HashContext $context Hashing context returned by `hash_init()`.
+ * @param string $data Message to be included in the hash digest.
+ * @return bool Returns ** `true` **.
+ * 
+ * @link https://www.php.net/manual/function.hash-update.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_update(\HashContext $context, string $data): bool;
+/**
+ * Pump data into an active hashing context from an open stream
+ * 
+ * @param \HashContext $context Hashing context returned by `hash_init()`.
+ * @param mixed $stream Open file handle as returned by any stream creation function.
+ * @param int $length Maximum number of characters to copy from `$stream` into the hashing context.
+ * @return int Actual number of bytes added to the hashing context from `$stream`.
+ * 
+ * @link https://www.php.net/manual/function.hash-update-stream.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_update_stream(\HashContext $context, mixed $stream, int $length = -1): int;
+/**
+ * Pump data into an active hashing context from a file
+ * 
+ * @param \HashContext $context Hashing context returned by `hash_init()`.
+ * @param string $filename URL describing location of file to be hashed; Supports fopen wrappers.
+ * @param mixed $stream_context Stream context as returned by `stream_context_create()`.
+ * @return bool Returns ** `true` ** on success or ** `false` ** on failure.
+ * 
+ * @link https://www.php.net/manual/function.hash-update-file.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_update_file(\HashContext $context, string $filename, mixed $stream_context = null): bool;
+/**
+ * Finalize an incremental hash and return resulting digest
+ * 
+ * @param \HashContext $context Hashing context returned by `hash_init()`.
+ * @param bool $binary When set to ** `true` ** , outputs raw binary data. ** `false` ** outputs lowercase hexits.
+ * @return string Returns a string containing the calculated message digest as lowercase hexits unless `$binary` is set to true in which case the raw binary representation of the message digest is returned.
+ * 
+ * @link https://www.php.net/manual/function.hash-final.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_final(\HashContext $context, bool $binary = false): string;
+/**
+ * Copy hashing context
+ * 
+ * @param \HashContext $context Hashing context returned by `hash_init()`.
+ * @return \HashContext Returns a copy of Hashing Context.
+ * 
+ * @link https://www.php.net/manual/function.hash-copy.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_copy(\HashContext $context): \HashContext;
+/**
+ * Return a list of registered hashing algorithms
+ * 
+ * @return array Returns a numerically indexed array containing the list of supported hashing algorithms.
+ * 
+ * @link https://www.php.net/manual/function.hash-algos.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_algos(): array;
+/**
+ * Return a list of registered hashing algorithms suitable for hash_hmac
+ * 
+ * @return array Returns a numerically indexed array containing the list of supported hashing algorithms suitable for `hash_hmac()`.
+ * 
+ * @link https://www.php.net/manual/function.hash-hmac-algos.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_hmac_algos(): array;
+/**
+ * Generate a PBKDF2 key derivation of a supplied password
+ * 
+ * @param string $algo Name of selected hashing algorithm (i.e. `md5` , `sha256` , `haval160,4` , etc..) See `hash_algos()` for a list of supported algorithms.
+ * @param string $password The password to use for the derivation.
+ * @param string $salt The salt to use for the derivation. This value should be generated randomly.
+ * @param int $iterations The number of internal iterations to perform for the derivation.
+ * @param int $length The length of the output string. If `$binary` is ** `true` ** this corresponds to the byte-length of the derived key, if `$binary` is ** `false` ** this corresponds to twice the byte-length of the derived key (as every byte of the key is returned as two hexits).If `0` is passed, the entire output of the supplied algorithm is used.
+ * @param bool $binary When set to ** `true` ** , outputs raw binary data. ** `false` ** outputs lowercase hexits.
+ * @return string Returns a string containing the derived key as lowercase hexits unless `$binary` is set to ** `true` ** in which case the raw binary representation of the derived key is returned.
+ * 
+ * @link https://www.php.net/manual/function.hash-pbkdf2.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_pbkdf2(string $algo, string $password, string $salt, int $iterations, int $length = 0, bool $binary = false): string;
+/**
+ * Timing attack safe string comparison
+ * 
+ * Compares two strings using the same time whether they're equal or not.
+ * 
+ * @param string $known_string Thestringof known length to compare against
+ * @param string $user_string The user-supplied string
+ * @return bool Returns ** `true` ** when the two strings are equal, ** `false` ** otherwise.
+ * 
+ * @link https://www.php.net/manual/function.hash-equals.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_equals(string $known_string, string $user_string): bool;
+/**
+ * Generate a HKDF key derivation of a supplied key input
+ * 
+ * @param string $algo Name of selected hashing algorithm (i.e. "sha256", "sha512", "haval160,4", etc..) See `hash_algos()` for a list of supported algorithms. **Note** :Non-cryptographic hash functions are not allowed.
+ * @param string $key Input keying material (raw binary). Cannot be empty.
+ * @param int $length Desired output length in bytes. Cannot be greater than 255 times the chosen hash function size.If `$length` is `0` , the output length will default to the chosen hash function size.
+ * @param string $info Application/context-specific info string.
+ * @param string $salt Salt to use during derivation.While optional, adding random salt significantly improves the strength of HKDF.
+ * @return string Returns a string containing a raw binary representation of the derived key (also known as output keying material - OKM).
+ * 
+ * @link https://www.php.net/manual/function.hash-hkdf.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function hash_hkdf(string $algo, string $key, int $length = 0, string $info = "", string $salt = ""): string;
+/**
+ * Gets the block size of the specified hash
+ * 
+ * Gets the size of a block of the specified `$algo`.
+ * 
+ * @deprecated **Warning** This function has been *DEPRECATED* as of PHP 8.1.0. Relying on this function is highly discouraged.
+ * 
+ * @param int $algo The hash ID. One of the ** `MHASH_hashname` ** constants.
+ * @return int|false Returns the size in bytes or ** `false` ** , if the `$algo` does not exist.
+ * 
+ * @link https://www.php.net/manual/function.mhash-get-block-size.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function mhash_get_block_size(int $algo): int|false;
+/**
+ * Gets the name of the specified hash
+ * 
+ * Gets the name of the specified `$algo`.
+ * 
+ * @deprecated **Warning** This function has been *DEPRECATED* as of PHP 8.1.0. Relying on this function is highly discouraged.
+ * 
+ * @param int $algo The hash ID. One of the ** `MHASH_hashname` ** constants.
+ * @return string|false Returns the name of the hash or ** `false` ** , if the hash does not exist.
+ * 
+ * @link https://www.php.net/manual/function.mhash-get-hash-name.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function mhash_get_hash_name(int $algo): string|false;
+/**
+ * Generates a key
+ * 
+ * Generates a key according to the given `$algo` , using an user provided `$password`.
+ * 
+ * @deprecated **Warning** This function has been *DEPRECATED* as of PHP 8.1.0. Relying on this function is highly discouraged.
+ * 
+ * @param int $algo The hash ID used to create the key. One of the ** `MHASH_hashname` ** constants.
+ * @param string $password An user supplied password.
+ * @param string $salt Must be different and random enough for every key you generate in order to create different keys. Because `$salt` must be known when you check the keys, it is a good idea to append the key to it. Salt has a fixed length of 8 bytes and will be padded with zeros if you supply less bytes.
+ * @param int $length The key length, in bytes.
+ * @return string|false Returns the generated key as a string, or ** `false` ** on error.
+ * 
+ * @link https://www.php.net/manual/function.mhash-keygen-s2k.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function mhash_keygen_s2k(int $algo, string $password, string $salt, int $length): string|false;
+/**
+ * Gets the highest available hash ID
+ * 
+ * Gets the highest available hash ID.
+ * 
+ * @deprecated **Warning** This function has been *DEPRECATED* as of PHP 8.1.0. Relying on this function is highly discouraged.
+ * 
+ * @return int Returns the highest available hash ID. Hashes are numbered from 0 to this hash ID.
+ * 
+ * @link https://www.php.net/manual/function.mhash-count.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function mhash_count(): int;
+/**
+ * Computes hash
+ * 
+ * `mhash()` applies a hash function specified by `$algo` to the `$data`.
+ * 
+ * @deprecated **Warning** This function has been *DEPRECATED* as of PHP 8.1.0. Relying on this function is highly discouraged.
+ * 
+ * @param int $algo The hash ID. One of the ** `MHASH_hashname` ** constants.
+ * @param string $data The user input, as a string.
+ * @param ?string $key If specified, the function will return the resulting HMAC instead. HMAC is keyed hashing for message authentication, or simply a message digest that depends on the specified key. Not all algorithms supported in mhash can be used in HMAC mode.
+ * @return string|false Returns the resulting hash (also called digest) or HMAC as a string, or ** `false` ** on error.
+ * 
+ * @link https://www.php.net/manual/function.mhash.php
+ * 
+ * @generated from PHP v8.2.9, EXT: hash v8.2.9
+ */
+function mhash(int $algo, string $data, ?string $key = null): string|false;
+final class HashContext
+{
+    /**
+     * `\HashContext` method `__construct`
+     *
+     * @return void
+     */
+    public function __construct(): void;
+    /**
+     * `\HashContext` method `__serialize`
+     *
+     * @return array
+     */
+    public function __serialize(): array;
+    /**
+     * `\HashContext` method `__unserialize`
+     *
+     * @param array $data
+     * @return void
+     */
+    public function __unserialize(array $data): void;
+}

@@ -1,0 +1,14 @@
+<?tyhp
+
+namespace TestData\Parser;
+
+enum Status: string
+{
+    case Active = 'active';
+    case Inactive = 'inactive';
+
+    public function label(): string
+    {
+        return $this->value;
+    }
+}

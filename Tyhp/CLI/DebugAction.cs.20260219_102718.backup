@@ -1,0 +1,550 @@
+global using Tyhp.TyhpLang.Parser;
+
+using System;
+using System.Text;
+using Antlr4.Runtime;
+using System.Security.Cryptography;
+using System.Collections.Concurrent;
+using Antlr4.Runtime.Atn;
+using Antlr4.Runtime.Tree;
+using Konsole;
+using Antlr4.Runtime.Misc;
+using Tyhp.TyhpLang.Visitor;
+using Tyhp.TyhpLang.Ast;
+using Tyhp.Domain.Services;
+using Tyhp.Domain.Diagnostics;
+using Tyhp.Domain.Exceptions;
+
+namespace Tyhp.CLI
+{
+    public class DebugAction : ActionRunnerBase
+    {
+        protected CancellationToken? CancelToken { get; set; }
+
+        /// <summary>
+        /// Hw many files to process before forcing garbage collection
+        /// </summary>
+        protected int garbageCollectAmount = 1000;
+
+        /// <summary>
+        /// How many bytes of files to pre-read into memory before parsing
+        /// </summary>
+        protected int preReadAmount = 1024 * 1024 * 1024; // 1GB
+
+        /// <summary>
+        /// Whether the operation has been cancelled
+        /// </summary>
+        protected bool IsCancelled { get; set; } = false;
+
+        /// <summary>
+        /// Whether to do thread profiling
+        /// </summary>
+        private bool doThreadProfiling = false;
+
+        /// <summary>
+        /// Whether to report ambiguities
+        /// </summary>
+        private bool reportAmbiguities = false;
+
+        /// <summary>
+        /// Whether to check hashes
+        /// </summary>
+        private bool checkHashes = false;
+
+        private bool doSingleFile => !String.IsNullOrEmpty(this.specialDebugFile);
+        private string specialDebugFile = "";
+        private bool dumpCtxTree => this.doSingleFile;
+        private int totalFilesCount = 0;
+        private DiagnosticBag diagnostics = new DiagnosticBag();
+        private readonly string directoryPath = "./DebugProject/"; // TODO: set this to a path with lots of php files
+        private readonly object totalChildrenCountLock = new object();
+        private long totalBytesRead = 0L;
+        private int filesProcessed = 0;
+        private int threadsRunning = 0;
+        private ConcurrentDictionary<string, string> debugHashes;
+        public int MaxThreads 
+        {
+            get => 1; // this.doSingleFile ? 1 : -1; // Math.Max(1, Environment.ProcessorCount * 2);
+        }
+        private ConcurrentQueue<string> fileQueue = new ConcurrentQueue<string>();
+        private ProgressBar? pb = null;
+        
+        private ThreadLocal<TyhpLexer> threadLexer;
+
+        private ThreadLocal<TyhpParser> threadParser;
+        
+
+        public DebugAction()
+        {
+            Console.TreatControlCAsInput = false;
+            Console.CancelKeyPress += new ConsoleCancelEventHandler(cancelHandler);
+            if (this.checkHashes) {
+                this.debugHashes = LoadHashes();
+            } else {
+                this.debugHashes = new ConcurrentDictionary<string, string>();
+            }
+            this.threadLexer = new ThreadLocal<TyhpLexer>(() => {
+                var lexer = new TyhpLexer(new AntlrInputStream(new StringReader("")));
+                lexer.RemoveErrorListeners();
+                lexer.AddErrorListener(new TyhpAntlrErrorListener<int>(diagnostics));
+                return lexer;
+            }, true);
+            this.threadParser = new ThreadLocal<TyhpParser>(() => {
+                var parser = new TyhpParser(new CommonTokenStream(this.threadLexer.Value), TextWriter.Null, TextWriter.Null);
+                // parser.ErrorHandler = new BailErrorStrategy();
+                parser.RemoveErrorListeners();
+                parser.AddErrorListener(new TyhpAntlrErrorListener<IToken>(diagnostics));
+                return parser;
+            }, true);
+        }
+
+        private void cancelHandler(object? sender, ConsoleCancelEventArgs e)
+        {
+            this.IsCancelled = true;
+            e.Cancel = true;
+        }
+
+        static ConcurrentDictionary<string, string> LoadHashes()
+        {
+            if (File.Exists("debugHashes.txt")) {
+                var lines = File.ReadAllLines("debugHashes.txt");
+                var hashes = new ConcurrentDictionary<string, string>();
+                foreach (var line in lines) {
+                    var parts = line.Split(' ');
+                    if (parts.Length == 2) {
+                        hashes.TryAdd(parts[0].Replace("|||", " "), parts[1]);
+                    }
+                }
+                return hashes;
+            }
+
+            return new ConcurrentDictionary<string, string>();
+        }
+
+        static void SaveHashes(ConcurrentDictionary<string, string> hashes)
+        {
+            File.WriteAllLines("debugHashes.txt", hashes.Select(h => $"{h.Key.Replace(" ", "|||")} {h.Value}"));
+        }
+
+        private void CompareOrUpdateHash(string filePath, string input, string addlText = "")
+        {
+            if (!this.checkHashes) {
+                return;
+            }
+            var hash = Hash(input);
+            if (this.debugHashes.TryGetValue(filePath, out var existingHash)) {
+                if (existingHash != hash) {
+                    this.diagnostics.AddError(MessageCode.ParserCompileAborted, filePath, 0, 0, $"Hash mismatch: {existingHash} != {hash}");
+                    Message.Error(filePath + " :: HASH MISMATCH :: " + input + " :: " + addlText);
+                }
+            } else {
+                this.debugHashes.TryAdd(filePath, hash);
+            }
+        }
+
+        static string Hash(string input)
+            => Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(input))).ToLower();
+
+        public override void Start(CancellationToken cancellationToken)
+        {
+            this.CancelToken = cancellationToken;
+            // this.phpTokenizeHashes = LoadPHPTokenizeHashes();
+
+            var allFiles = WalkSync(directoryPath)
+                .Where(f => (f.EndsWith(".php") || f.EndsWith(".tyhp") || f.EndsWith(".tyhpdef")) && !f.Contains("/stubs/"))
+                .ToList();
+            allFiles.ForEach(f => this.totalBytesRead += new FileInfo(f).Length);
+            this.totalFilesCount = allFiles.Count;
+            
+            this.pb = new(PbStyle.SingleLine, this.totalFilesCount);
+            var filesRead = 0;
+
+            var allFileData = new ConcurrentDictionary<string, char[]?>();
+
+            // this will read all files into memory if they are less than 1GB
+            if (this.totalBytesRead < this.preReadAmount && this.totalFilesCount >= 1000) {
+                Parallel.ForEach(allFiles, new ParallelOptions { MaxDegreeOfParallelism = this.MaxThreads }, (f, state) => {
+                    if (this.IsCancelled) {
+                        state.Stop();
+                        return;
+                    }
+
+                    Interlocked.Increment(ref filesRead);
+
+                    if (filesRead % 1000 == 0) {
+                        this.pb?.Refresh(filesRead, $"Reading file {filesRead}/{this.totalFilesCount}...");
+                    }
+                    
+                    allFileData.TryAdd(f, File.ReadAllText(f).ToCharArray());
+                });
+            } else {
+                Parallel.ForEach(allFiles, new ParallelOptions { MaxDegreeOfParallelism = this.MaxThreads }, (f, state) => {
+                    if (this.IsCancelled) {
+                        state.Stop();
+                        return;
+                    }
+
+                    allFileData.TryAdd(f, null);
+                });
+            }
+
+            this.pb?.Refresh(this.totalFilesCount, $"Done reading files.");
+            Message.Display("");
+
+
+            Message.Success($"Total files: {this.totalFilesCount:N0}");
+            Message.Success($"Max concurrent tasks: {(this.MaxThreads == -1 ? "unlimited" : this.MaxThreads.ToString("N0"))}");
+            Message.Success($"Total file size: {BytesToString(this.totalBytesRead)}");
+
+            // this.fileQueue = new ConcurrentQueue<string>(allFiles);
+            
+            var startTime = DateTime.Now;
+            this.threadsRunning = 0;
+
+            this.pb = new(PbStyle.SingleLine, this.totalFilesCount);
+            this.pb.Refresh(0, "Processing files...");
+            if (this.MaxThreads == 1) {
+                foreach (var file in allFileData) {
+                    if (this.IsCancelled) {
+                        break;
+                    }
+                    ParseFile(file, null, 0, 0);
+                }
+            } else {
+                Parallel.ForEach(
+                    allFileData,
+                    new ParallelOptions { MaxDegreeOfParallelism = this.MaxThreads },
+                    () => {
+                        Interlocked.Increment(ref this.threadsRunning);
+                        return 0;
+                    },
+                    ParseFile,
+                    (data) => {
+                        Interlocked.Decrement(ref this.threadsRunning);
+                    }
+                );
+            }
+
+            if (this.IsCancelled) {
+                this.pb?.Refresh(0, "Cancelled.");
+            } else {
+                this.pb?.Refresh(this.totalFilesCount, "Done!");
+            }
+            Message.Display("");
+
+            var endTime = DateTime.Now;
+            var duration = (endTime - startTime).TotalSeconds;
+
+            if (this.doThreadProfiling) {
+                int i = 0;
+                foreach (var thread in this.threadParser.Values) {
+                    if (thread != null) {
+                        DisplayParserProfile(thread, i);
+                        i++;
+                    }
+                }
+            }
+
+            AstCacheService.FlushMemory();
+
+            if (this.diagnostics.HasErrors) {
+                this.diagnostics.DisplayAll();
+            }
+            Message.Success($"Time taken: {duration} seconds");
+            Message.Success($"Total files processed: {this.filesProcessed}");
+            Message.Success($"Total errors: {this.diagnostics.ErrorCount}");
+            if (this.checkHashes) {
+                SaveHashes(this.debugHashes);
+            }
+            Message.Success($"Peak memory usage: {BytesToString(System.Diagnostics.Process.GetCurrentProcess().PeakWorkingSet64)}");
+        }
+
+        private int ParseFile(KeyValuePair<string, char[]?> fileData, ParallelLoopState? state, long index, int unusedData)
+        {
+            if (this.IsCancelled) {
+                this.pb?.Refresh(this.filesProcessed, "Cancelling...");
+                state?.Stop();
+                return 0;
+            }
+
+            if (this.filesProcessed % 10 == 0) {
+                this.pb?.Refresh(this.filesProcessed, $"Parsing file {this.filesProcessed}/{this.totalFilesCount} (err:{this.diagnostics.ErrorCount}, thd:{this.threadsRunning}, mem:{BytesToString(System.Diagnostics.Process.GetCurrentProcess().WorkingSet64)}) ...");
+            }
+
+            if (this.garbageCollectAmount > 0 && this.filesProcessed % this.garbageCollectAmount == 0) {
+                GC.Collect();
+            }
+
+            var lexer = this.threadLexer.Value;
+            var parser = this.threadParser.Value;
+
+            if (lexer == null || parser == null) {
+                throw new Exception("Lexer or parser is null");
+            }
+
+            if (this.doThreadProfiling) {
+                parser.Profile = true;
+            }
+
+            var inputStream = fileData.Value == null ? 
+                new AntlrInputStream(File.ReadAllText(fileData.Key)) :
+                new AntlrInputStream(fileData.Value, fileData.Value.Length);
+            lexer.SetInputStream(inputStream);
+            lexer.Reset();
+            (parser.TokenStream as CommonTokenStream)?.SetTokenSource(lexer);
+            parser.Reset();
+            if (this.reportAmbiguities) {
+                parser.Interpreter.PredictionMode = PredictionMode.LL_EXACT_AMBIG_DETECTION;
+            }
+
+
+            foreach (var listener in lexer.ErrorListeners) {
+                if (listener is TyhpAntlrErrorListener<int> lexerErrorListener) {
+                    lexerErrorListener.SetFileName(fileData.Key);
+                }
+            }
+            foreach (var listener in parser.ErrorListeners) {
+                if (listener is TyhpAntlrErrorListener<IToken> parserErrorListener) {
+                    parserErrorListener.SetFileName(fileData.Key);
+                }
+            }
+            try {
+                // PARSE!
+                try
+                {
+                    string fileDataHash = new([
+                        .. MD5.HashData([
+                            .. (fileData.Value ?? []).Select(c => (byte)c)
+                        ]).Select(b => (char)b)
+                    ]);
+                    SrcFileAst? ast = AstCacheService.Get(fileData.Key, fileDataHash);
+
+                    if (ast == null) {
+                        ParserRuleContext ctx;
+                        if (fileData.Key.EndsWith(".tyhp"))
+                        {
+                            ctx = parser.tyhpSrcFile();
+                        }
+                        else if (fileData.Key.EndsWith(".tyhpdef"))
+                        {
+                            ctx = parser.tyhpdefSrcFile();
+                        }
+                        else
+                        {
+                            ctx = parser.phpSrcFile();
+                        }
+
+                        if (this.checkHashes)
+                        {
+                            this.CompareOrUpdateHash(fileData.Key, ctx.ToStringTree(parser));
+                        }
+
+                        if (this.dumpCtxTree)
+                        {
+                            string tree = this.buildTree(ctx, parser);
+                            Message.Debug(tree);
+                        }
+
+                        var visitor = new TyhpParserAstVisitor(
+                                parser.TokenStream as CommonTokenStream,
+                                fileData.Key,
+                                fileDataHash,
+                                this.diagnostics
+                            );
+                        ast = visitor.Visit(ctx) as SrcFileAst;
+
+                        AstCacheService.AddOrUpdate(ast);
+                    }
+                }
+                catch (ParseCanceledException) {
+                    // ignore
+                } catch (Exception e) {
+                    Message.Error($"Error ({e.GetType().Name}): {e.Message} {e.StackTrace}");
+                    this.diagnostics.AddError(MessageCode.ParserCompileAborted, fileData.Key, 0, 0, $"Error ({e.GetType().Name}): {e.Message}");
+                }
+
+                return 0;
+            } finally {
+                Interlocked.Increment(ref this.filesProcessed);
+            }
+        }
+
+        private static string BytesToString(long byteCount)
+        {
+            string[] suf = { "B", "KB", "MB", "GB", "TB", "PB", "EB" };
+            if (byteCount == 0)
+                return "0" + suf[0];
+            long bytes = Math.Abs(byteCount);
+            int place = Convert.ToInt32(Math.Floor(Math.Log(bytes, 1024)));
+            double num = Math.Round(bytes / Math.Pow(1024, place), 1);
+            return (Math.Sign(byteCount) * num).ToString() + suf[place];
+        }
+
+        private string buildTree(IParseTree ctx, TyhpParser parser, int depth = 0)
+        {
+            string tree = "";
+            string indent = new string(' ', depth * 4);
+
+            string text = "";
+            string name;
+            if (ctx is ITerminalNode terminalNode) {
+                text = terminalNode.Symbol.Text;
+                name = parser.Vocabulary.GetDisplayName(terminalNode.Symbol.Type);
+            } else {
+                name = ctx.GetType().Name;
+            }
+            tree += $"{indent}{name}";
+            if (!String.IsNullOrEmpty(text)) {
+                tree += $" \"{text.Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t")}\"";
+            }
+            tree += " {";
+            for (int i = 0; i < ctx.ChildCount; i++) {
+                var child = ctx.GetChild(i);
+                tree += "\n" + this.buildTree(child, parser, depth + 1);
+            }
+            if (ctx.ChildCount > 0) {
+                tree += $"\n{indent}";
+            }
+            tree += "}";
+            return tree;
+        }
+
+        protected (TyhpLexer, TyhpParser) GetLexerAndParser(string? fileName = null)
+        {
+            AntlrInputStream inputStream;
+
+            if (fileName == null) {
+                inputStream = new AntlrInputStream(String.Empty);
+            } else {
+                using StreamReader streamReader = new StreamReader(fileName, Encoding.UTF8, true, 4096);
+                inputStream = new AntlrInputStream(streamReader);
+            }
+
+            var lexer = new TyhpLexer(inputStream);
+            lexer.RemoveErrorListeners();
+            var lexerErrorListener = new TyhpAntlrErrorListener<int>(diagnostics);
+            lexer.AddErrorListener(lexerErrorListener);
+
+            var parser = new TyhpParser(new CommonTokenStream(lexer)); // , TextWriter.Null, TextWriter.Null
+            parser.RemoveErrorListeners();
+            var parserErrorListener = new TyhpAntlrErrorListener<IToken>(diagnostics);
+            parser.AddErrorListener(parserErrorListener);
+            if (this.reportAmbiguities) {
+                parser.AddErrorListener(new DiagnosticErrorListener());
+                parser.Interpreter.PredictionMode = PredictionMode.LL_EXACT_AMBIG_DETECTION;
+            }
+            // parser.ErrorHandler = new BailErrorStrategy();
+            
+            parser.Profile = this.doThreadProfiling;
+
+            lexerErrorListener.SetFileName(fileName ?? "");
+            parserErrorListener.SetFileName(fileName ?? "");
+
+            return (lexer, parser);
+        }
+
+        private long countChildren(ITree? ctx)
+        {
+            if (ctx == null) {
+                return 0L;
+            }
+            long count = ctx.ChildCount;
+            if (count > 0) {
+                for (int i = 0; i < ctx.ChildCount; i++) {
+                    var child = ctx.GetChild(i);
+                    if (child is ITree ruleCtx) {
+                        count += this.countChildren(ruleCtx);
+                    } else {
+                        Message.Error($"Child {i} is not a ITree: {child.GetType()}");
+                    }
+                }
+            }
+            return count;
+        }
+
+        private void DisplayParserProfile(TyhpParser parser, int threadId)
+        {
+            string profileOutput = $"Thread {threadId} parser profile:\n";
+            string headerLine = "| rule".PadRight(66) + "| " +
+                "pred. time".PadRight(15) + "| " +
+                "invocat".PadRight(7) + "| " +
+                "SSL LA".PadRight(7) + "| " +
+                "SSL +LA".PadRight(7) + "| " +
+                "LL LA".PadRight(7) + "| " +
+                "LL +LA".PadRight(7) + "| " +
+                "LL FB".PadRight(7) + "| " +
+                "ambig".PadRight(7) + "| " +
+                "errors".PadRight(7) + "| " +
+                "sens.".PadRight(7) + "| " +
+                "prdeval".PadRight(7)+"|";
+            profileOutput += headerLine + "\n";
+            profileOutput += new string('=', headerLine.Length) + "\n";
+
+            long totalTime = parser.ParseInfo?.getTotalTimeInPrediction() ?? 0L;
+
+
+            foreach (var decisionInfo in parser.ParseInfo?.getDecisionInfo() ?? Array.Empty<DecisionInfo>()) {
+                var ds = parser.Atn.GetDecisionState(decisionInfo.decision);
+                var rule = parser.RuleNames[ds.ruleIndex] + "(" + ds.ruleIndex + ":" + ds.decision + ":" + (decisionInfo.SLL_MaxLookEvent?.predictedAlt ?? -1) + ":" + (decisionInfo.LL_MaxLookEvent?.predictedAlt ?? -1) + ")";
+                if (this.doSingleFile || decisionInfo.timeInPrediction >= (10000 * 500) /* 500ms */) {
+                    string line = $"|{rule.PadRight(65)}" + "| " +
+                        $"{DisplayNumber(decisionInfo.timeInPrediction / 10000.0, 13)}ms" + "| " +
+                        $"{DisplayNumber(decisionInfo.invocations, 7)}" + "| " +
+                        $"{DisplayNumber(decisionInfo.SLL_TotalLook, 7)}" + "| " +
+                        $"{DisplayNumber(decisionInfo.SLL_MaxLook, 7)}" + "| " +
+                        $"{DisplayNumber(decisionInfo.LL_TotalLook, 7)}" + "| " +
+                        $"{DisplayNumber(decisionInfo.LL_MaxLook, 7)}" + "| " +
+                        $"{DisplayNumber(decisionInfo.LL_Fallback, 7)}" + "| " +
+                        $"{DisplayNumber(decisionInfo.ambiguities.Count, 7)}" + "| " +
+                        $"{DisplayNumber(decisionInfo.errors.Count, 7)}" + "| " +
+                        $"{DisplayNumber(decisionInfo.contextSensitivities.Count, 7)}" + "| " +
+                        $"{DisplayNumber(decisionInfo.predicateEvals.Count, 7)}" + "|";
+                    profileOutput += line + "\n";
+                }
+            }
+
+            profileOutput += $"Total time: {DisplayNumber(totalTime / 10000.0, 13)}ms\n";
+            Message.Debug(profileOutput);
+        }
+
+        private string DisplayNumber(int number, int padLeft)
+        {
+            var numString = number != 0 ? number.ToString() : "";
+            return numString.PadLeft(padLeft);
+        }
+
+        private string DisplayNumber(long number, int padLeft)
+        {
+            var numString = number != 0L ? number.ToString() : "";
+            return numString.PadLeft(padLeft);
+        }
+
+        private string DisplayNumber(double number, int padLeft)
+        {
+            var numString = number.ToString("F2");
+            return numString.PadLeft(padLeft);
+        }
+
+        private IEnumerable<string> WalkSync(string dir)
+        {
+            if (doSingleFile)
+            {
+                yield return specialDebugFile;
+                yield break;
+            }
+
+            foreach (var file in Directory.GetFiles(dir))
+            {
+                yield return file;
+            }
+
+            foreach (var directory in Directory.GetDirectories(dir))
+            {
+                foreach (var file in WalkSync(directory))
+                {
+                    yield return file;
+                }
+            }
+        }
+    }
+}

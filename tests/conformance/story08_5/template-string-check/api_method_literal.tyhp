@@ -1,0 +1,6 @@
+<?tyhp
+type ApiMethod = "${'GET'|'POST'}";
+
+function demo(): void {
+    ApiMethod $method = 'GET';
+}

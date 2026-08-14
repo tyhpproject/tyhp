@@ -1,0 +1,39 @@
+<?tyhp
+
+// // root namespace
+
+// extension BoolExtensions {
+//     /**
+//      * Convert this boolean to a string.
+//      *
+//      * Performs a string cast of `$b`. In PHP, `true` becomes `"1"` and `false`
+//      * becomes `""` (an empty string).
+//      *
+//      * @param bool $b The boolean this method is called on.
+//      * @return string `$b` as a string.
+//      *
+//      * @see https://www.php.net/manual/language.types.string.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function __toString(extends bool $b): string
+//     {
+//         return (string)$b;
+//     }
+
+//     /**
+//      * Determine whether a variable is empty.
+//      *
+//      * `empty()` is a language construct. For a boolean, `false` is considered empty
+//      * and `true` is not.
+//      *
+//      * @param bool $b The boolean this method is called on.
+//      * @return bool `true` if `$b` is considered empty; otherwise `false`.
+//      *
+//      * @see https://www.php.net/manual/function.empty.php
+//      */
+//     #[\Tyhp\Optimize\Inline]
+//     function empty(extends bool $b): bool
+//     {
+//         return empty($b);
+//     }
+// }

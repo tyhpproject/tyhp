@@ -1,0 +1,125 @@
+<?tyhp
+
+namespace Tyhp\Backend;
+
+/**
+ * DecimalBackend backed by the PECL `decimal` extension (`\Decimal\Decimal` / mpdecimal).
+ *
+ * Tyhp's Decimal API is scale-based (digits after the decimal point). php-decimal is
+ * precision-based (significant figures), so each operation constructs operands with
+ * enough precision, performs the op, then formats the result with {@see \Decimal\Decimal::toFixed()}
+ * using ROUND_DOWN to match bcmath/gmp truncation semantics.
+ *
+ * @see https://php-decimal.github.io/
+ */
+final class PhpDecimalBackend implements DecimalBackend
+{
+    private function precisionFor(string $value, int $scale): int {
+        int $digitCount = \strlen((string) \str_replace(['-', '.'], '', $value));
+
+        return (int) \max(\Decimal\Decimal::DEFAULT_PRECISION, $digitCount + $scale + 8);
+    }
+
+    private function toDecimal(string $value, int $scale): \Decimal\Decimal {
+        return new \Decimal\Decimal($value, $this->precisionFor($value, $scale));
+    }
+
+    private function format(\Decimal\Decimal $value, int $scale): string {
+        return $value->toFixed($scale, false, \Decimal\Decimal::ROUND_DOWN);
+    }
+
+    public function add(string $a, string $b, int $scale): string {
+        \Decimal\Decimal $left = $this->toDecimal($a, $scale);
+        \Decimal\Decimal $right = $this->toDecimal($b, $scale);
+
+        return $this->format($left->add($right), $scale);
+    }
+
+    public function subtract(string $a, string $b, int $scale): string {
+        \Decimal\Decimal $left = $this->toDecimal($a, $scale);
+        \Decimal\Decimal $right = $this->toDecimal($b, $scale);
+
+        return $this->format($left->sub($right), $scale);
+    }
+
+    public function multiply(string $a, string $b, int $scale): string {
+        \Decimal\Decimal $left = $this->toDecimal($a, $scale);
+        \Decimal\Decimal $right = $this->toDecimal($b, $scale);
+
+        return $this->format($left->mul($right), $scale);
+    }
+
+    public function divide(string $a, string $b, int $scale): string {
+        \Decimal\Decimal $right = $this->toDecimal($b, $scale);
+
+        if ($right->isZero()) {
+            throw new \DivisionByZeroError('Division by zero');
+        }
+
+        \Decimal\Decimal $left = $this->toDecimal($a, $scale);
+
+        return $this->format($left->div($right), $scale);
+    }
+
+    public function modulo(string $a, string $b, int $scale): string {
+        \Decimal\Decimal $right = $this->toDecimal($b, $scale);
+
+        if ($right->isZero()) {
+            throw new \DivisionByZeroError('Modulo by zero');
+        }
+
+        \Decimal\Decimal $left = $this->toDecimal($a, $scale);
+
+        // rem matches scale-aware remainder (bcmod); mod is integer-only modulo.
+        return $this->format($left->rem($right), $scale);
+    }
+
+    public function power(string $base, int $exponent, int $scale): string {
+        \Decimal\Decimal $left = $this->toDecimal($base, $scale);
+
+        return $this->format($left->pow($exponent), $scale);
+    }
+
+    public function sqrt(string $value, int $scale): string {
+        \Decimal\Decimal $operand = $this->toDecimal($value, $scale);
+
+        if ($operand->isNegative()) {
+            throw new \InvalidArgumentException('Square root of a negative number is not supported');
+        }
+
+        return $this->format($operand->sqrt(), $scale);
+    }
+
+    public function compare(string $a, string $b, int $scale): int {
+        // Normalize both sides to the requested scale so compare matches bccomp semantics.
+        string $left = $this->format($this->toDecimal($a, $scale), $scale);
+        string $right = $this->format($this->toDecimal($b, $scale), $scale);
+
+        return (new \Decimal\Decimal($left))->compareTo($right);
+    }
+
+    public function negate(string $value): string {
+        string $stripped = \ltrim(\str_replace(['-', '.'], '', $value), '0');
+        if ($stripped === '') {
+            return $value;
+        }
+
+        if (\str_starts_with($value, '-')) {
+            return \substr($value, 1);
+        }
+
+        return '-' . $value;
+    }
+
+    public function abs(string $value): string {
+        if (\str_starts_with($value, '-')) {
+            return \substr($value, 1);
+        }
+
+        return $value;
+    }
+
+    public function getName(): string {
+        return 'decimal';
+    }
+}
