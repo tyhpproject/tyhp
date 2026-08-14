@@ -32,7 +32,10 @@ composer cs-fix
 
 The runtime is organized as a Composer monorepo. During development, packages are symlinked via Composer path repositories. When published to Packagist, consumers install the real packages.
 
-Runtime PHP packages share the `Tyhp\` root namespace and require PHP >= 8.2. `tyhp/php` is tyhpdefs only (no emitted PHP).
+Runtime PHP packages share the `Tyhp\` root namespace. Each package has its own `X.Y`
+(independent of the compiler `805.x` line). Published artifacts are `80N.X.Y` (`802` … `805` = PHP target).
+See `VERSIONING.md` and `docs/content/project_composerPackages.md`. `tyhp/php` is tyhpdefs only (no emitted
+PHP).
 
 ### PSR-4 Namespace Ownership
 

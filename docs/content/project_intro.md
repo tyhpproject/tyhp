@@ -75,7 +75,7 @@ my-project/
 
 Tyhp projects work alongside Composer. Your project can have both a `tyhp.json` (for the Tyhp compiler) and a `composer.json` (for PHP dependency management). When the `build.updateComposer` option is enabled, the Tyhp build process can automatically generate or update a `composer.json` in the output directory with PSR-4 autoload mappings for the compiled PHP code.
 
-Tyhp runtime features (such as generics, decimal types, and async/await) are distributed as Composer packages (`tyhp/core`, `tyhp/decimal`, `tyhp/async`). The build process automatically adds these as dependencies based on which features your code uses.
+Tyhp runtime features (such as generics, decimal types, and async/await) are distributed as Composer packages (`tyhp/core`, `tyhp/decimal`, `tyhp/async`). The build process automatically adds these as dependencies based on which features your code uses. Package MAJOR is the target PHP (`804` for PHP 8.4); `X.Y` is **that package's** version, independent of the compiler. See the Composer Runtime Packages page.
 
 ## No Configuration Required
 

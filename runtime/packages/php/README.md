@@ -6,10 +6,20 @@ This alpha is a **PHP 8.2 baseline** harvested from `runtime/php-extensions/php8
 
 Scalar extension methods (`$str->length()` and friends) are **not** included.
 
-## Install
+## Versions
+
+Package MAJOR is the PHP this artifact is constrained for (`802` = 8.2, `803` = 8.3, `804` = 8.4, `805` = 8.5), not the Tyhp compiler version. This package’s own line is `X.Y` in `composer.json` (currently `0.0`). Packagist versions are `80N.X.Y`. Bump this package without bumping the compiler.
+
+**Application** (one PHP version, match `output.phpVersion` in `tyhp.json`):
 
 ```bash
-composer require tyhp/php:805.0.0-alpha.1
+composer require tyhp/php:804.0.0
+```
+
+**Library** (PHP 8.3+ on this X — Composer picks the artifact for the consumer’s PHP):
+
+```json
+"tyhp/php": "803.0.* || 804.0.* || 805.0.*"
 ```
 
 Until Packagist lists this package, use a path repository that points at this directory inside a Tyhp compiler checkout.

@@ -147,6 +147,7 @@
             "section": "Tyhp Project File and Configuration",
             "items": [
                 "project_intro.md",
+                "project_composerPackages.md",
                 "project_optionsList.md" // all config options
             ]
         },

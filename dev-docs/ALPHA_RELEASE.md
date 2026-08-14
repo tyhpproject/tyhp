@@ -84,7 +84,7 @@ On GitHub:
 3. Then:
 
 ```bash
-git remote add origin git@github.com:tyhpproject/tyhp.git
+git remote add origin https://github.com/tyhpproject/tyhp.git
 git push -u origin main
 ```
 
@@ -102,7 +102,20 @@ dotnet build tyhp.csproj
 scripts/publish-runtime-packages.sh
 ```
 
-That script builds `runtime/packages/build-all.sh`, clones each sibling repo into a temp dir, rsyncs installable files only, commits `main`, tags **`805.0.0-alpha.1`** (no `v` prefix — Packagist version = git tag), and pushes.
+That script runs `runtime/packages/build-all.sh` (PHP 8.2, 8.3, 8.4, and 8.5 dist trees), then for **each**
+sibling repo commits and tags **four** Packagist versions (no `v` prefix — Packagist version = git tag).
+Tags are `80N.{X.Y}` from **that package's** `composer.json`, not the compiler version. With
+source `0.0` that is:
+
+| Git tag | PHP constraint |
+|---------|----------------|
+| `802.0.0` | `~8.2.0` |
+| `803.0.0` | `~8.3.0` |
+| `804.0.0` | `~8.4.0` |
+| `805.0.0` | `~8.5.0` |
+
+`main` is left on the 805 tree. Libraries or PHP majors and keep **that package's** X
+(`803.0.* || 804.0.* || 805.0.*` while it is on `0.y`). Packages can bump `X.Y` without a compiler release.
 
 3. On Packagist, submit each package repo URL:
 

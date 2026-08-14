@@ -53,6 +53,26 @@ because MAJOR may not move for years if PHP does not.
 Internal fixes and minor, backward-compatible changes that are safe to update at any time. Resets to `0` on a
 new MINOR. An emergency compile-time flag whose **default preserves existing Tyhp behavior** is a PATCH.
 
+### Runtime Composer packages (PHP-target MAJOR + independent X.Y)
+
+The **compiler** version `805.0.0-alpha.1` means the compiler can emit for PHP up through 8.5. It still emits
+for 8.2, 8.3, and 8.4 when `output.phpVersion` says so. That number is **not** the runtime package version.
+
+Each of `tyhp/core`, `tyhp/async`, `tyhp/decimal`, `tyhp/lambda`, and `tyhp/php` has its **own**
+`X.Y` in that package's `composer.json`. Bump a package without bumping the compiler. Published
+artifacts are:
+
+`80N.X.Y` where `80N` is the PHP target (`802` … `805`).
+
+Example: `tyhp/core` source `1.4` → Packagist `802.1.4`, `803.1.4`, `804.1.4`, `805.1.4`. Source
+`0.0` → `802.0.0` … `805.0.0`.
+
+A library that supports several PHP versions ORs majors and keeps **that package's** X:
+`803.1.* || 804.1.* || 805.1.*` for core `1.y`. `tyhp/lambda` can be `2.y` at the same time.
+
+In-tree path repositories pin the source `X.Y` (one tree, `php: >=8.2`). Packagist consumers
+use the `80N.X.Y` form. See `docs/content/project_composerPackages.md`.
+
 ### Interop contract version (separate axis)
 
 The Tyhp ↔ PHP **interop contract** version (`extra.tyhp.interopContractVersion` on runtime packages;

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build docs in this repo and publish HTML to tyhpproject/tyhp-docs (GitHub Pages / tyhplang.com).
 # Do not run this until honest-docs content is ready. This script pushes to a public repo.
+# Git remotes use HTTPS (not SSH).
 
 set -euo pipefail
 
@@ -8,6 +9,14 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly DOCS_REPO="tyhpproject/tyhp-docs"
 readonly DOCS_CNAME="tyhplang.com"
+
+PUBLISH_WORKDIR=""
+
+cleanup_publish_workdir() {
+  if [[ -n "${PUBLISH_WORKDIR}" && -d "${PUBLISH_WORKDIR}" ]]; then
+    rm -rf "${PUBLISH_WORKDIR}"
+  fi
+}
 
 require_tool() {
   local tool_name="$1"
@@ -34,12 +43,11 @@ main() {
     exit 1
   fi
 
-  local workdir
-  workdir="$(mktemp -d "${TMPDIR:-/tmp}/tyhp-docs-publish.XXXXXX")"
-  trap 'rm -rf "${workdir}"' EXIT
+  PUBLISH_WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/tyhp-docs-publish.XXXXXX")"
+  trap cleanup_publish_workdir EXIT
 
-  git clone --depth 1 "git@github.com:${DOCS_REPO}.git" "${workdir}/tyhp-docs"
-  cd "${workdir}/tyhp-docs"
+  git clone --depth 1 "https://github.com/${DOCS_REPO}.git" "${PUBLISH_WORKDIR}/tyhp-docs"
+  cd "${PUBLISH_WORKDIR}/tyhp-docs"
 
   local cname_backup=""
   if [[ -f CNAME ]]; then

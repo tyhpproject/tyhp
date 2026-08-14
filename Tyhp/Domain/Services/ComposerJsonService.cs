@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Tyhp.CLI;
@@ -72,7 +71,7 @@ namespace Tyhp.Domain.Services
                 };
             }
 
-            MergeRequireSection(root, requiredPackages.ToList());
+            MergeRequireSection(root, requiredPackages.ToList(), project);
 
             try
             {
@@ -155,7 +154,7 @@ namespace Tyhp.Domain.Services
             var requiredPackages = DetermineRequiredPackages(outputFiles, emitContext);
 
             MergeAutoloadSection(root, psr4Mappings, functionFiles);
-            MergeRequireSection(root, requiredPackages);
+            MergeRequireSection(root, requiredPackages, project);
 
             try
             {
@@ -332,7 +331,7 @@ namespace Tyhp.Domain.Services
             autoload["files"] = filesNode;
         }
 
-        private static void MergeRequireSection(JsonObject root, List<string> requiredPackages)
+        private static void MergeRequireSection(JsonObject root, List<string> requiredPackages, Project project)
         {
             var packages = new List<string>(requiredPackages);
             if (!packages.Contains(PhpStubsPackage, StringComparer.Ordinal))
@@ -347,12 +346,19 @@ namespace Tyhp.Domain.Services
 
             var runtimePackages = BuildRuntimePackagePathMap();
             var require = root["require"] as JsonObject ?? new JsonObject();
-            var versionConstraint = GetCompilerVersionConstraint();
             var anyRuntimeRequired = false;
+            var anyPrerelease = false;
 
             foreach (var package in packages)
             {
-                require[package] = versionConstraint;
+                var sourceVersion = ResolvePackageSourceVersion(package, runtimePackages);
+                // Path repos use the source composer.json version (X.Y).
+                // Packagist artifacts are 80N.X.Y for the project's output.phpVersion.
+                var constraint = runtimePackages.ContainsKey(package)
+                    ? sourceVersion
+                    : EncodeRuntimePackageVersion(project.PhpVersion, sourceVersion);
+                require[package] = constraint;
+                anyPrerelease = anyPrerelease || constraint.Contains('-', StringComparison.Ordinal);
                 if (runtimePackages.ContainsKey(package))
                 {
                     anyRuntimeRequired = true;
@@ -370,11 +376,11 @@ namespace Tyhp.Domain.Services
                     .Select(kvp => (kvp.Key, kvp.Value))
                     .ToList();
                 MergeRepositoriesSection(root, pathRepositories);
-                ApplyPrereleaseStability(root, versionConstraint);
             }
-            else
+
+            if (anyPrerelease)
             {
-                ApplyPrereleaseStability(root, versionConstraint);
+                ApplyPrereleaseStability(root);
             }
         }
 
@@ -382,14 +388,8 @@ namespace Tyhp.Domain.Services
         /// Relaxes Composer stability so prerelease <c>tyhp/*</c> packages resolve. Existing
         /// user-authored values are preserved.
         /// </summary>
-        private static void ApplyPrereleaseStability(JsonObject root, string versionConstraint)
+        private static void ApplyPrereleaseStability(JsonObject root)
         {
-            var needsPrerelease = versionConstraint.Contains('-', StringComparison.Ordinal);
-            if (!needsPrerelease)
-            {
-                return;
-            }
-
             if (!root.ContainsKey("minimum-stability"))
             {
                 root["minimum-stability"] = "alpha";
@@ -399,6 +399,22 @@ namespace Tyhp.Domain.Services
             {
                 root["prefer-stable"] = true;
             }
+        }
+
+        private static string ResolvePackageSourceVersion(
+            string packageName,
+            IReadOnlyDictionary<string, string> runtimePackages)
+        {
+            if (runtimePackages.TryGetValue(packageName, out var directory))
+            {
+                var fromDisk = RuntimePackageVersions.TryReadComposerVersion(directory);
+                if (!string.IsNullOrWhiteSpace(fromDisk))
+                {
+                    return fromDisk;
+                }
+            }
+
+            return RuntimePackageVersions.ForPackage(packageName);
         }
 
         private static void MergeRepositoriesSection(
@@ -622,29 +638,46 @@ namespace Tyhp.Domain.Services
             return $"tyhp/{directoryName}";
         }
 
-        private static string GetCompilerVersionConstraint()
+        /// <summary>
+        /// Maps <c>output.phpVersion</c> plus a package's independent <c>X.Y</c>
+        /// to the Packagist artifact version <c>80N.X.Y</c>.
+        /// </summary>
+        internal static string EncodeRuntimePackageVersion(string phpVersion, string packageSourceVersion)
         {
-            var informational = Assembly.GetExecutingAssembly()
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-                ?.InformationalVersion;
-            var version = StripBuildMetadata(informational);
-            if (string.IsNullOrWhiteSpace(version))
+            var phpMajor = PhpVersionToPackageMajor(phpVersion);
+            var source = packageSourceVersion.Trim();
+            if (string.IsNullOrEmpty(source))
             {
-                return "805.0.0-alpha.1";
+                return $"{phpMajor}.0.0";
             }
 
-            return version;
+            return phpMajor + "." + source;
         }
 
-        internal static string? StripBuildMetadata(string? informationalVersion)
+        internal static string PhpConstraintForPhpVersion(string phpVersion)
         {
-            if (string.IsNullOrWhiteSpace(informationalVersion))
+            var trimmed = phpVersion.Trim();
+            return trimmed switch
             {
-                return informationalVersion;
-            }
+                "8.2" => "~8.2.0",
+                "8.3" => "~8.3.0",
+                "8.4" => "~8.4.0",
+                "8.5" => "~8.5.0",
+                _ => ">=8.2",
+            };
+        }
 
-            var plus = informationalVersion.IndexOf('+');
-            return plus >= 0 ? informationalVersion[..plus] : informationalVersion;
+        internal static string PhpVersionToPackageMajor(string phpVersion)
+        {
+            var trimmed = phpVersion.Trim();
+            return trimmed switch
+            {
+                "8.2" => "802",
+                "8.3" => "803",
+                "8.4" => "804",
+                "8.5" => "805",
+                _ => "804",
+            };
         }
 
         private static string? GetNamespaceName(object? namespaceStatement)

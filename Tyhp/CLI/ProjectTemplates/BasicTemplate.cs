@@ -66,9 +66,9 @@ namespace Tyhp.CLI.ProjectTemplates
                 "description": "Tyhp project",
                 "type": "project",
                 "require": {
-                    "php": ">=8.2",
-                    "tyhp/php": "805.0.0-alpha.1",
-                    "tyhp/core": "805.0.0-alpha.1"
+                    "php": "{{PHP_CONSTRAINT}}",
+                    "tyhp/php": "{{PHP_PACKAGE_VERSION}}",
+                    "tyhp/core": "{{CORE_PACKAGE_VERSION}}"
                 },
                 "minimum-stability": "alpha",
                 "prefer-stable": true

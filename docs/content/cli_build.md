@@ -125,3 +125,6 @@ Some Tyhp features require small runtime PHP packages to function. When build.up
 - tyhp/core — Generic type helpers, property accessors, disposable support, named types.
 - tyhp/decimal — Decimal arithmetic operations (when the decimal type is used).
 - tyhp/async — Promise-based async/await support (when async functions are used).
+- tyhp/lambda — Expression-tree / PropertyPath runtime (when parsable lambdas are used).
+
+Package MAJOR is the target PHP (`804.x` for PHP 8.4), not the compiler ceiling. Each package has its own `X.Y`. Applications pin `80N.X.Y`; libraries or PHP majors with **that package's** X (`803.0.* || 804.0.* || 805.0.*` while it is on `0.y`). See the Composer Runtime Packages page.

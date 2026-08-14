@@ -3,7 +3,7 @@
     "description": "Tyhp runtime decimal \u2014 arbitrary-precision decimal arithmetic",
     "type": "library",
     "license": "Apache-2.0",
-    "version": "805.0.0-alpha.1",
+    "version": "0.0",
     "extra": {
         "tyhp": {
             "interopContractVersion": 1
@@ -11,7 +11,7 @@
     },
     "require": {
         "php": ">=8.2",
-        "tyhp/core": "805.0.0-alpha.1"
+        "tyhp/core": "0.0"
     },
     "suggest": {
         "ext-decimal": "Preferred backend (php-decimal / mpdecimal) for arbitrary-precision decimal arithmetic",

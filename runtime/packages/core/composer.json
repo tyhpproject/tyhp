@@ -3,7 +3,7 @@
     "description": "Tyhp runtime core \u2014 type system, generics, typed variables, property accessors",
     "type": "library",
     "license": "Apache-2.0",
-    "version": "805.0.0-alpha.1",
+    "version": "0.0",
     "extra": {
         "tyhp": {
             "interopContractVersion": 1

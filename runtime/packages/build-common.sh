@@ -3,9 +3,10 @@
 # Sourced by those scripts; not meant to be run directly.
 
 # Dist package semver: MAJOR = PHP (802/803/804/805).
-# MINOR/PATCH/prerelease come from each package's source composer.json:
-#   source "A.B"              → dist "80X.A.B"
-#   source "805.0.0-alpha.1"  → dist "80X.0.0-alpha.1"  (compiler MAJOR is ignored; PHP encoding is dist MAJOR)
+# Each package has its own independent X.Y in composer.json (not the compiler version):
+#   source "0.0"              → dist "80N.0.0"
+#   source "1.4"              → dist "80N.1.4"
+#   source "805.0.0-alpha.1"  → dist "80N.0.0-alpha.1"  (legacy three-part: compiler MAJOR ignored)
 PACKAGE_VERSION_MINOR="${PACKAGE_VERSION_MINOR:-}"
 PACKAGE_VERSION_PATCH="${PACKAGE_VERSION_PATCH:-}"
 PACKAGE_VERSION_SUFFIX="${PACKAGE_VERSION_SUFFIX:-}"
@@ -18,40 +19,42 @@ DIST_BUILDS=(
   "tyhp-php8.5.json:805:PHP 8.5"
 )
 
+# Parse source version into dist X.Y[-prerelease] parts.
+# A.B → X=A Y=B. MAJOR.MINOR.PATCH[-pre] → X=MINOR Y=PATCH (PHP encoding is dist MAJOR).
+_parse_package_source_version() {
+  python3 - "$1" <<'PY'
+import json, re, sys
+path = sys.argv[1]
+raw = str(json.load(open(path)).get("version", ""))
+match = re.fullmatch(r"(\d+)\.(\d+)(?:\.(\d+)(?:-([0-9A-Za-z.-]+))?)?", raw)
+if not match:
+    print(f"Invalid version in {path}: {raw!r} (expected X.Y or MAJOR.MINOR.PATCH[-prerelease])", file=sys.stderr)
+    sys.exit(1)
+if match.group(3) is None:
+    print(f"{match.group(1)}|{match.group(2)}||{raw}")
+else:
+    print(f"{match.group(2)}|{match.group(3)}|{match.group(4) or ''}|{raw}")
+PY
+}
+
 # Read version from runtime/packages/<pkg>/composer.json into
-# PACKAGE_VERSION_MINOR / PACKAGE_VERSION_PATCH / PACKAGE_VERSION_SUFFIX (unless already set via env).
+# PACKAGE_VERSION_MINOR / PACKAGE_VERSION_PATCH / PACKAGE_VERSION_SUFFIX.
+# Always reloads — packages version independently and must not share the first load.
 load_package_release_version() {
   local pkg="$1"
   local composer_json="$SCRIPT_DIR/$pkg/composer.json"
   local parsed
   local suffix
-
-  if [[ -n "${PACKAGE_VERSION_MINOR}" && -n "${PACKAGE_VERSION_PATCH}" ]]; then
-    return 0
-  fi
+  local raw
 
   if [[ ! -f "$composer_json" ]]; then
     echo "composer.json not found: $composer_json" >&2
     return 1
   fi
 
-  parsed="$(python3 - "$composer_json" <<'PY'
-import json, re, sys
-path = sys.argv[1]
-raw = str(json.load(open(path)).get("version", ""))
-match = re.fullmatch(r"(\d+)\.(\d+)(?:\.(\d+)(?:-([0-9A-Za-z.-]+))?)?", raw)
-if not match:
-    print(f"Invalid version in {path}: {raw!r} (expected A.B or MAJOR.MINOR.PATCH[-prerelease])", file=sys.stderr)
-    sys.exit(1)
-if match.group(3) is None:
-    # source major → dist minor; source minor → dist patch
-    print(f"{match.group(1)}\t{match.group(2)}\t")
-else:
-    print(f"{match.group(2)}\t{match.group(3)}\t{match.group(4) or ''}")
-PY
-)" || return 1
+  parsed="$(_parse_package_source_version "$composer_json")" || return 1
 
-  IFS=$'\t' read -r PACKAGE_VERSION_MINOR PACKAGE_VERSION_PATCH suffix <<< "$parsed"
+  IFS='|' read -r PACKAGE_VERSION_MINOR PACKAGE_VERSION_PATCH suffix raw <<< "$parsed"
   if [[ -n "$suffix" ]]; then
     PACKAGE_VERSION_SUFFIX="-${suffix}"
   else
@@ -75,7 +78,7 @@ print(version)
 PY
 }
 
-# Read the raw two-part version string from a package composer.json.
+# Read the raw source version string from a package composer.json.
 read_package_source_version() {
   local composer_json="$1"
   python3 - "$composer_json" <<'PY'
@@ -83,32 +86,44 @@ import json, re, sys
 path = sys.argv[1]
 raw = str(json.load(open(path)).get("version", ""))
 if not re.fullmatch(r"\d+\.\d+(?:\.\d+(?:-[0-9A-Za-z.-]+)?)?", raw):
-    print(f"Invalid version in {path}: {raw!r} (expected A.B or MAJOR.MINOR.PATCH[-prerelease])", file=sys.stderr)
+    print(f"Invalid version in {path}: {raw!r} (expected X.Y or MAJOR.MINOR.PATCH[-prerelease])", file=sys.stderr)
     sys.exit(1)
 print(raw)
 PY
 }
 
-# Ensure every listed package shares the same 2-part source version.
-assert_matching_release_versions() {
+# Matching-X constraint across PHP majors for a dependency package (usually core).
+# Uses that package's own X.Y — not the package currently being built.
+matching_minor_constraint_for() {
+  local dep_pkg="$1"
+  local parsed
+  local x
+  parsed="$(_parse_package_source_version "$SCRIPT_DIR/$dep_pkg/composer.json")" || return 1
+  IFS='|' read -r x _ _ _ <<< "$parsed"
+  echo "802.${x}.* || 803.${x}.* || 804.${x}.* || 805.${x}.*"
+}
+
+core_version_constraint() {
+  matching_minor_constraint_for "core"
+}
+
+assert_valid_package_versions() {
   local pkgs=("$@")
   local pkg
-  local first=""
+  local parsed
+  local x
+  local y
+  local suffix
   local raw
-  local composer_json
 
   for pkg in "${pkgs[@]}"; do
-    composer_json="$SCRIPT_DIR/$pkg/composer.json"
-    raw="$(read_package_source_version "$composer_json")" || return 1
-    if [[ -z "$first" ]]; then
-      first="$raw"
-    elif [[ "$raw" != "$first" ]]; then
-      echo "Package source versions must match: found '$first' and '$raw' (in $pkg)" >&2
-      return 1
+    parsed="$(_parse_package_source_version "$SCRIPT_DIR/$pkg/composer.json")" || return 1
+    IFS='|' read -r x y suffix raw <<< "$parsed"
+    if [[ -n "$suffix" ]]; then
+      suffix="-${suffix}"
     fi
+    echo "  ${pkg}: ${raw} → dist 80N.${x}.${y}${suffix}"
   done
-
-  echo "Using shared source release version: $first"
 }
 
 package_version() {
@@ -124,12 +139,6 @@ dist_package_dir() {
   local pkg="$1"
   local php_major="$2"
   echo "$SCRIPT_DIR/dist/tyhp-${pkg}/$(package_version "$php_major")"
-}
-
-# Matching-minor constraint across all PHP majors (e.g. 802.0.* || 803.0.* || …).
-core_version_constraint() {
-  local m="$PACKAGE_VERSION_MINOR"
-  echo "802.${m}.* || 803.${m}.* || 804.${m}.* || 805.${m}.*"
 }
 
 # Keep tyhp*.json output.path in sync with the current release version.

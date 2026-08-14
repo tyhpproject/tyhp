@@ -19,7 +19,7 @@ A minimal configuration only needs source file patterns and an output path:
 
 ## How do I set the target PHP version?
 
-Set the `output.phpVersion` option in `tyhp.json`. Supported values are `"8.2"`, `"8.3"`, `"8.4"`, and `"8.5"` (default `"8.4"`). This controls which PHP features the compiler uses in the generated output.
+Set the `output.phpVersion` option in `tyhp.json`. Supported values are `"8.2"`, `"8.3"`, `"8.4"`, and `"8.5"` (default `"8.4"`). This controls which PHP features the compiler uses in the generated output **and** which `tyhp/*` Composer MAJOR to install (`"8.3"` → `803.x`). See the Composer Runtime Packages page.
 
 ```json
 {
@@ -28,6 +28,10 @@ Set the `output.phpVersion` option in `tyhp.json`. Supported values are `"8.2"`,
     }
 }
 ```
+
+## How do I set tyhp/* versions in composer.json?
+
+Package MAJOR is the **PHP version the artifact is for**, not the compiler version. Each `tyhp/*` package has its own `X.Y`. An app with `output.phpVersion` `"8.4"` and core `0.0` should require `tyhp/core: 804.0.0`. A library that supports PHP 8.3+ should or the majors using **that package's** X: `803.0.* || 804.0.* || 805.0.*`. See the Composer Runtime Packages page.
 
 ## How do I configure source maps?
 

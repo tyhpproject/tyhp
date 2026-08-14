@@ -52,6 +52,8 @@ Target PHP: 8.5
 
 ## Runtime packages
 
-Compiled projects need Composer packages such as `tyhp/php` (PHP builtin tyhpdefs) and `tyhp/core`. After those packages are on Packagist, `tyhp build` writes `composer.json` requires and you run `composer install`. Until then, a source checkout of this repository can resolve them via Composer path repositories under `runtime/packages/`.
+Compiled projects need Composer packages such as `tyhp/php` (PHP builtin tyhpdefs) and `tyhp/core`. After those packages are on Packagist, `tyhp build` writes `composer.json` requires that match `output.phpVersion` plus **each package's own** `X.Y` (`8.4` + core `0.0` → `tyhp/core: 804.0.0`) and you run `composer install`. Until then, a source checkout of this repository can resolve them via Composer path repositories under `runtime/packages/` (those pins use the source `X.Y`, e.g. `0.0`).
+
+How to pin versions for apps vs libraries is on the Composer Runtime Packages page.
 
 `tyhp/php` in this alpha is a **PHP 8.2 baseline**. APIs that exist only on PHP 8.3–8.5 may be missing from the stubs.

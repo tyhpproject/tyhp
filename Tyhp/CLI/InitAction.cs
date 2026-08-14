@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Tyhp.CLI.ProjectTemplates;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Enums;
+using Tyhp.Domain.Services;
 using Tyhp.Extensions;
 
 namespace Tyhp.CLI
@@ -400,6 +401,27 @@ namespace Tyhp.CLI
                 }
 
                 var rendered = content.Replace("{{NAMESPACE}}", namespaceForFile, StringComparison.Ordinal);
+                if (mapped.EndsWith("composer.json", StringComparison.Ordinal))
+                {
+                    rendered = rendered
+                        .Replace(
+                            "{{PHP_PACKAGE_VERSION}}",
+                            ComposerJsonService.EncodeRuntimePackageVersion(
+                                options.PhpVersion,
+                                RuntimePackageVersions.Php),
+                            StringComparison.Ordinal)
+                        .Replace(
+                            "{{CORE_PACKAGE_VERSION}}",
+                            ComposerJsonService.EncodeRuntimePackageVersion(
+                                options.PhpVersion,
+                                RuntimePackageVersions.Core),
+                            StringComparison.Ordinal)
+                        .Replace(
+                            "{{PHP_CONSTRAINT}}",
+                            ComposerJsonService.PhpConstraintForPhpVersion(options.PhpVersion),
+                            StringComparison.Ordinal);
+                }
+
                 File.WriteAllText(full, rendered);
                 created.Add(mapped);
             }

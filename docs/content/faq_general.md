@@ -34,6 +34,8 @@ PHPStan and Psalm analyze existing PHP code using annotations (PHPDoc comments) 
 
 Yes. Since Tyhp compiles to standard PHP, Composer packages work exactly as they do in PHP. To get type-checking for a Composer package, you provide tyhpdef files that describe the package's types. Automatic generation via `tyhp generate_tyhpdef` is **not** in this alpha — write tyhpdefs by hand. PHP builtins come from the `tyhp/php` package.
 
+Tyhp's own runtime packages (`tyhp/core`, `tyhp/php`, …) version independently of the compiler. Packagist MAJOR is the PHP target (`804.x` means PHP 8.4). See the Composer Runtime Packages page for `composer.json` constraints.
+
 ## What editor or IDE support is available?
 
 This alpha does not include a language server or Xdebug proxy. Use `tyhp lint` and `tyhp build` from the CLI, and debug the emitted PHP. LSP, sourcemaps, and `tyhp xdebug_proxy` are planned for later releases.

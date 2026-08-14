@@ -71,7 +71,7 @@ The variable `$message` has an explicit type annotation. The compiler enforces t
 tyhp build
 ```
 
-The compiler reads `tyhp.json`, runs parse / bind / check / emit, and writes PHP to the output directory. It also updates `composer.json` so the project can require `tyhp/php`, `tyhp/core`, and any other runtime packages the code needs.
+The compiler reads `tyhp.json`, runs parse / bind / check / emit, and writes PHP to the output directory. It also updates `composer.json` so the project can require `tyhp/php`, `tyhp/core`, and any other runtime packages the code needs. Those pins use `output.phpVersion` plus each package’s own `X.Y` (`"8.4"` + `0.0` → `804.0.0`). See the Composer Runtime Packages page.
 
 ```
 composer install

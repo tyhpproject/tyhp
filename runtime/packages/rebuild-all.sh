@@ -51,8 +51,8 @@ build_package() {
 
 PACKAGES=(core decimal async lambda)
 
-assert_matching_release_versions "${PACKAGES[@]}"
-load_package_release_version "core"
+echo "Package source versions (independent of the compiler):"
+assert_valid_package_versions "${PACKAGES[@]}"
 
 for pkg in "${PACKAGES[@]}"; do
   build_package "$pkg"

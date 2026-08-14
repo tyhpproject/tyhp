@@ -2,18 +2,37 @@
 # Build runtime packages in this repo and publish installable trees to the sibling
 # tyhpproject/{core,async,decimal,lambda,php} repositories. Not a submodule workflow.
 #
+# Each compiled package is tagged once per PHP target (802 / 803 / 804 / 805). Package
+# MAJOR is the emit PHP. X.Y comes from that package's own composer.json
+# (independent of the compiler version). Libraries require 80N.X.* across PHP majors for
+# a given package. See VERSIONING.md and runtime/packages/build-common.sh.
+#
 # Do not run this until after the compiler history wipe and the package repos are public.
 # Packagist submit is a separate HUMAN step after this push.
+# Git remotes use HTTPS (not SSH).
 
 set -euo pipefail
 
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly PUBLISH_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly PROJECT_ROOT="$(cd "${PUBLISH_SCRIPT_DIR}/.." && pwd)"
 readonly PACKAGES_DIR="${PROJECT_ROOT}/runtime/packages"
 readonly GITHUB_ORG="tyhpproject"
+readonly COMPILED_PACKAGES=(core async decimal lambda)
 readonly ALL_PACKAGES=(core async decimal lambda php)
-# PHP 8.2 emit is the Packagist artifact (php: >=8.2). Dist MAJOR 802 encodes that target.
-readonly PUBLISH_PHP_MAJOR="802"
+
+# build-common.sh expects SCRIPT_DIR = runtime/packages and REPO_ROOT = compiler repo.
+SCRIPT_DIR="${PACKAGES_DIR}"
+REPO_ROOT="${PROJECT_ROOT}"
+# shellcheck source=../runtime/packages/build-common.sh
+source "${PACKAGES_DIR}/build-common.sh"
+
+PUBLISH_WORKDIR=""
+
+cleanup_publish_workdir() {
+  if [[ -n "${PUBLISH_WORKDIR}" && -d "${PUBLISH_WORKDIR}" ]]; then
+    rm -rf "${PUBLISH_WORKDIR}"
+  fi
+}
 
 require_tool() {
   local tool_name="$1"
@@ -30,65 +49,39 @@ print(json.load(open(sys.argv[1])).get("version", ""))
 PY
 }
 
-dist_version_for_php_major() {
-  local source_version="$1"
-  python3 - "$PUBLISH_PHP_MAJOR" "$source_version" <<'PY'
-import re, sys
-php_major, source = sys.argv[1], sys.argv[2]
-match = re.fullmatch(r"\d+\.(\d+\.\d+(?:-[0-9A-Za-z.-]+)?)", source)
-if not match:
-    raise SystemExit(f"Cannot derive dist version from {source!r}")
-print(f"{php_major}.{match.group(1)}")
-PY
+wipe_published_tree() {
+  local dest="$1"
+  if [[ -d "${dest}/.git" ]]; then
+    find "$dest" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+  fi
 }
 
-sync_compile_package() {
+sync_compile_dist() {
   local pkg="$1"
   local dest="$2"
-  local source_version="$3"
-  local dist_version
-  local src_dir
+  local dist_version="$3"
+  local dist_dir="${PACKAGES_DIR}/dist/tyhp-${pkg}/${dist_version}"
 
-  dist_version="$(dist_version_for_php_major "$source_version")"
-  src_dir="${PACKAGES_DIR}/dist/tyhp-${pkg}/${dist_version}/src"
-  if [[ ! -d "$src_dir" ]]; then
-    echo "Missing emitted PHP at ${src_dir}. Did runtime/packages/build-all.sh succeed?" >&2
+  if [[ ! -d "${dist_dir}/src" ]]; then
+    echo "Missing emitted PHP at ${dist_dir}/src. Did runtime/packages/build-all.sh succeed?" >&2
     exit 1
   fi
 
-  # Wipe the published tree except .git, then copy only installable files.
-  if [[ -d "${dest}/.git" ]]; then
-    find "$dest" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-  fi
-
-  cp "${PACKAGES_DIR}/${pkg}/composer.json" "${dest}/composer.json"
-  if [[ -f "${PACKAGES_DIR}/${pkg}/package.tyhp.json" ]]; then
-    cp "${PACKAGES_DIR}/${pkg}/package.tyhp.json" "${dest}/package.tyhp.json"
-  fi
-  if [[ -f "${PACKAGES_DIR}/${pkg}/package.tyhpdef" ]]; then
-    cp "${PACKAGES_DIR}/${pkg}/package.tyhpdef" "${dest}/package.tyhpdef"
-  fi
-  if [[ -f "${PACKAGES_DIR}/${pkg}/README.md" ]]; then
-    cp "${PACKAGES_DIR}/${pkg}/README.md" "${dest}/README.md"
-  elif [[ -f "${PACKAGES_DIR}/dist/tyhp-${pkg}/${dist_version}/README.md" ]]; then
-    cp "${PACKAGES_DIR}/dist/tyhp-${pkg}/${dist_version}/README.md" "${dest}/README.md"
-  else
-    printf '# tyhp/%s\n\nTyhp runtime package. See https://tyhplang.com.\n' "$pkg" > "${dest}/README.md"
-  fi
-  if [[ -f "${PROJECT_ROOT}/LICENSE.txt" ]]; then
-    cp "${PROJECT_ROOT}/LICENSE.txt" "${dest}/LICENSE"
-  fi
-
-  mkdir -p "${dest}/src"
-  rsync -a "${src_dir}/" "${dest}/src/"
+  wipe_published_tree "$dest"
+  rsync -a --delete \
+    --exclude '.git/' \
+    --exclude 'src/tyhp-build-state.json' \
+    "${dist_dir}/" "${dest}/"
 }
 
-sync_php_package() {
+sync_php_dist() {
   local dest="$1"
+  local dist_version="$2"
+  local php_major="$3"
+  local php_c
+  php_c="$(php_constraint_for_major "$php_major")"
 
-  if [[ -d "${dest}/.git" ]]; then
-    find "$dest" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-  fi
+  wipe_published_tree "$dest"
 
   mkdir -p "${dest}/_tyhpdef"
   rsync -a --delete \
@@ -96,7 +89,6 @@ sync_php_package() {
     --exclude 'support/' \
     "${PACKAGES_DIR}/php/_tyhpdef/" "${dest}/_tyhpdef/"
 
-  cp "${PACKAGES_DIR}/php/composer.json" "${dest}/composer.json"
   cp "${PACKAGES_DIR}/php/package.tyhp.json" "${dest}/package.tyhp.json"
   cp "${PACKAGES_DIR}/php/README.md" "${dest}/README.md"
   if [[ -f "${PACKAGES_DIR}/php/LICENSE" ]]; then
@@ -105,20 +97,23 @@ sync_php_package() {
     cp "${PROJECT_ROOT}/LICENSE.txt" "${dest}/LICENSE"
   fi
 
-  rm -rf "${dest}/tyhp_src" "${dest}/tests" "${dest}/vendor"
-  rm -f "${dest}/tyhp.json" "${dest}"/tyhp-php8.*.json
+  python3 - "${PACKAGES_DIR}/php/composer.json" "${dest}/composer.json" "$dist_version" "$php_c" <<'PY'
+import json, sys
+src, dest, version, php_c = sys.argv[1:5]
+data = json.load(open(src))
+data["version"] = version
+data.setdefault("require", {})["php"] = php_c
+with open(dest, "w") as f:
+    json.dump(data, f, indent=4)
+    f.write("\n")
+PY
 }
 
-publish_package() {
+prepare_clone() {
   local pkg="$1"
-  local source_version="$2"
-  local workdir="$3"
-  local dest="${workdir}/${pkg}"
-  local tag="$source_version"
+  local dest="$2"
 
-  echo "==> Publishing tyhp/${pkg} to ${GITHUB_ORG}/${pkg} (tag ${tag})"
-
-  git clone "git@github.com:${GITHUB_ORG}/${pkg}.git" "$dest"
+  git clone "https://github.com/${GITHUB_ORG}/${pkg}.git" "$dest"
   cd "$dest"
 
   if git rev-parse --verify HEAD >/dev/null 2>&1; then
@@ -126,28 +121,77 @@ publish_package() {
   else
     git checkout -B main
   fi
+}
 
-  if git rev-parse "${tag}" >/dev/null 2>&1; then
-    echo "Tag already exists in ${GITHUB_ORG}/${pkg}: ${tag}" >&2
+commit_and_tag() {
+  local dest="$1"
+  local tag="$2"
+
+  if git -C "$dest" rev-parse "${tag}" >/dev/null 2>&1; then
+    echo "Tag already exists in ${dest}: ${tag}" >&2
     exit 1
   fi
 
-  if [[ "$pkg" == "php" ]]; then
-    sync_php_package "$dest"
+  git -C "$dest" add -A
+  if git -C "$dest" diff --cached --quiet; then
+    echo "No file changes for tag ${tag}; creating tag on current tree."
   else
-    sync_compile_package "$pkg" "$dest" "$source_version"
+    git -C "$dest" commit -m "Release ${tag}"
+  fi
+  git -C "$dest" tag "$tag"
+}
+
+publish_package() {
+  local pkg="$1"
+  local dest="$2"
+  local php_major
+  local dist_version
+  local tags=()
+
+  echo "==> Publishing tyhp/${pkg} to ${GITHUB_ORG}/${pkg} (PHP 8.2–8.5)"
+
+  load_package_release_version "$pkg" || exit 1
+  prepare_clone "$pkg" "$dest"
+
+  local existing=0
+  local needed=0
+  for entry in "${DIST_BUILDS[@]}"; do
+    php_major="${entry#*:}"
+    php_major="${php_major%%:*}"
+    dist_version="$(package_version "$php_major")"
+    needed=$((needed + 1))
+    if git -C "$dest" rev-parse "${dist_version}" >/dev/null 2>&1; then
+      existing=$((existing + 1))
+    fi
+  done
+  if [[ "$existing" -eq "$needed" ]]; then
+    echo "    already tagged ${needed} PHP targets; skipping"
+    cd "$PROJECT_ROOT"
+    return 0
+  fi
+  if [[ "$existing" -gt 0 ]]; then
+    echo "Partial publish in ${GITHUB_ORG}/${pkg}: ${existing}/${needed} tags already exist." >&2
+    echo "Finish or delete the incomplete tags, then re-run." >&2
+    exit 1
   fi
 
-  git add -A
-  if git diff --cached --quiet; then
-    echo "No file changes for ${pkg}; creating tag on current tree if needed."
-  else
-    git commit -m "Release ${tag}"
-  fi
+  for entry in "${DIST_BUILDS[@]}"; do
+    php_major="${entry#*:}"
+    php_major="${php_major%%:*}"
+    dist_version="$(package_version "$php_major")"
+    tags+=("$dist_version")
 
-  git tag "$tag"
-  git push -u origin main
-  git push origin "$tag"
+    echo "    ${pkg} ${dist_version}"
+    if [[ "$pkg" == "php" ]]; then
+      sync_php_dist "$dest" "$dist_version" "$php_major"
+    else
+      sync_compile_dist "$pkg" "$dest" "$dist_version"
+    fi
+    commit_and_tag "$dest" "$dist_version"
+  done
+
+  git -C "$dest" push -u origin main
+  git -C "$dest" push origin "${tags[@]}"
   cd "$PROJECT_ROOT"
 }
 
@@ -160,35 +204,30 @@ main() {
 
   cd "$PROJECT_ROOT"
 
-  local source_version
-  source_version="$(read_source_version "${PACKAGES_DIR}/core/composer.json")"
-  if [[ -z "$source_version" ]]; then
-    echo "Could not read version from runtime/packages/core/composer.json" >&2
-    exit 1
-  fi
-
+  echo "Package source versions (independent of the compiler):"
   local pkg
   for pkg in "${ALL_PACKAGES[@]}"; do
-    local other
-    other="$(read_source_version "${PACKAGES_DIR}/${pkg}/composer.json")"
-    if [[ "$other" != "$source_version" ]]; then
-      echo "Package versions must match: core is ${source_version}, ${pkg} is ${other}" >&2
+    local source_version
+    source_version="$(read_source_version "${PACKAGES_DIR}/${pkg}/composer.json")"
+    if [[ -z "$source_version" ]]; then
+      echo "Could not read version from runtime/packages/${pkg}/composer.json" >&2
       exit 1
     fi
+    echo "  ${pkg}: ${source_version} → dist 80N.${source_version}"
   done
 
-  echo "Building runtime packages (emitted PHP for Packagist)..."
+  echo "Building runtime packages for PHP 8.2–8.5..."
   "${PACKAGES_DIR}/build-all.sh"
 
-  local workdir
-  workdir="$(mktemp -d "${TMPDIR:-/tmp}/tyhp-pkg-publish.XXXXXX")"
-  trap 'rm -rf "${workdir}"' EXIT
+  PUBLISH_WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/tyhp-pkg-publish.XXXXXX")"
+  trap cleanup_publish_workdir EXIT
 
-  for pkg in "${ALL_PACKAGES[@]}"; do
-    publish_package "$pkg" "$source_version" "$workdir"
+  for pkg in "${COMPILED_PACKAGES[@]}"; do
+    publish_package "$pkg" "${PUBLISH_WORKDIR}/${pkg}"
   done
+  publish_package "php" "${PUBLISH_WORKDIR}/php"
 
-  echo "Published ${ALL_PACKAGES[*]} at ${source_version}."
+  echo "Published ${ALL_PACKAGES[*]} (802–805 × each package's own X.Y)."
   echo "Next HUMAN step: submit each https://github.com/${GITHUB_ORG}/{package} URL on Packagist."
 }
 

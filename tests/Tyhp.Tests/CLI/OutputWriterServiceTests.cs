@@ -371,9 +371,9 @@ public class ComposerJsonServiceTests
             var root = document.RootElement;
 
             var require = root.GetProperty("require");
-            require.GetProperty("tyhp/async").GetString().Should().Be("805.0.0-alpha.1");
-            require.GetProperty("tyhp/decimal").GetString().Should().Be("805.0.0-alpha.1");
-            require.GetProperty("tyhp/php").GetString().Should().Be("805.0.0-alpha.1");
+            require.GetProperty("tyhp/async").GetString().Should().Be("0.0");
+            require.GetProperty("tyhp/decimal").GetString().Should().Be("0.0");
+            require.GetProperty("tyhp/php").GetString().Should().Be("0.0");
 
             var repositories = root.GetProperty("repositories");
             repositories.ValueKind.Should().Be(System.Text.Json.JsonValueKind.Array);
@@ -435,6 +435,20 @@ public class ComposerJsonServiceTests
         {
             TryDeleteDirectory(tempDir);
         }
+    }
+
+    [Fact]
+    public void EncodeRuntimePackageVersion_KeepsMinorPatchAndMapsPhpMajor()
+    {
+        ComposerJsonService.EncodeRuntimePackageVersion("8.2", "0.0")
+            .Should().Be("802.0.0");
+        ComposerJsonService.EncodeRuntimePackageVersion("8.3", "0.0")
+            .Should().Be("803.0.0");
+        ComposerJsonService.EncodeRuntimePackageVersion("8.4", "1.2")
+            .Should().Be("804.1.2");
+        ComposerJsonService.EncodeRuntimePackageVersion("8.5", "0.0")
+            .Should().Be("805.0.0");
+        ComposerJsonService.PhpConstraintForPhpVersion("8.3").Should().Be("~8.3.0");
     }
 
     private static Project CreateUpdateComposerProject(string tempDir)

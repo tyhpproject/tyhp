@@ -221,6 +221,11 @@ public class InitActionTests : IDisposable
         root.GetProperty("output").GetProperty("phpVersion").GetString().Should().Be("8.2");
         File.Exists(Path.Combine(target, "lib", "index.tyhp")).Should().BeTrue();
         Directory.Exists(Path.Combine(target, "out")).Should().BeTrue();
+
+        var composer = JsonDocument.Parse(File.ReadAllText(Path.Combine(target, "composer.json"))).RootElement;
+        composer.GetProperty("require").GetProperty("php").GetString().Should().Be("~8.2.0");
+        composer.GetProperty("require").GetProperty("tyhp/core").GetString().Should().Be("802.0.0");
+        composer.GetProperty("require").GetProperty("tyhp/php").GetString().Should().Be("802.0.0");
     }
 
     private static void RunInit(string targetDirectory, Dictionary<string, string?>? options = null)
