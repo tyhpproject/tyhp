@@ -6,7 +6,7 @@ status:
   state: complete
 ---
 
-Tyhp is a transpiler that compiles to PHP. When your Tyhp code needs to interact with existing PHP libraries, extensions, or Composer packages, the Tyhp compiler must understand their types and signatures. Tyhpdef is a declaration-only syntax that describes existing PHP code to Tyhp's type system, enabling full type checking, autocompletion, and compile-time validation for external PHP code.
+Tyhp is a transpiler that compiles to PHP. When your Tyhp code needs to interact with existing PHP libraries, extensions, or Composer packages, the Tyhp compiler must understand their types and signatures. Tyhpdef is a declaration-only syntax that describes existing PHP code to Tyhp's type system, enabling compile-time type checking for external PHP code.
 
 Tyhpdef files use the `<?tyhpdef` open tag, have the `.tyhpdef` file extension, and contain only type declarations with no implementation code. The Tyhp compiler reads these files during compilation but never emits them as PHP output.
 
@@ -19,8 +19,8 @@ Tyhpdef can describe the following PHP constructs to Tyhp:
 - Interfaces (including generic interfaces with extends chains)
 - Traits (including generic traits)
 - Enums (both unit enums and backed enums with string or int values)
-- Constants (typed global constants with optional defaults)
-- Variables (typed global variables with optional defaults and aliases)
+- Constants (typed global constants; `as` aliases; top-level `deprecated` / `obsolete`)
+- Variables (typed global variables; `as` aliases; top-level `deprecated` / `obsolete`)
 
 You can also define these supplemental constructs inside a Tyhpdef file to support your declarations:
 
@@ -30,12 +30,13 @@ You can also define these supplemental constructs inside a Tyhpdef file to suppo
 
 ## How the Compiler Finds Tyhpdef Files
 
-The Tyhp compiler loads Tyhpdef files from multiple sources in a specific order. Earlier sources take precedence when declarations conflict:
+The Tyhp compiler loads type information from multiple sources. Earlier sources take precedence when declarations conflict:
 
-1. TyhpSpec files — The compiler's built-in type definitions (core types like decimal, struct, Promise, iterators, etc.) are embedded in the compiler binary and always loaded first.
-2. PHP extension tyhpdefs — the `tyhp/php` Composer package (PHP 8.2 baseline in this alpha). Install it with your project so `\strlen`, `DateTime`, and other builtins type-check.
-3. User project tyhpdefs — Your project's own .tyhpdef files, discovered via the tyhpdefInclude and tyhpdefExclude glob patterns in tyhp.json. By default, .tyhpdef files in the project root and tyhpdef/ subdirectory are included.
-4. Generated Composer package tyhpdefs — Automatically generated declarations for installed Composer packages, stored in the tyhpdef_gen/ directory.
+1. Built-in registrations — Core language types (`decimal`, iterators, `callable<…>`, compile-time constructs, and similar) are registered in the compiler itself and are always available.
+2. Composer packages with `package.tyhp.json` — Runtime libraries (`tyhp/core`, `tyhp/decimal`, `tyhp/async`, `tyhp/lambda`) and the `tyhp/php` builtins package (stubs cover PHP 8.2+ APIs; this alpha’s compiler/init default target is PHP 8.4, ceiling 8.5). Install them with your project so `\strlen`, `DateTime`, `\Tyhp\Type`, and other APIs type-check.
+3. User project tyhpdefs — files matching `tyhpdefInclude` in `tyhp.json`, plus any `include` entries that end in `.tyhpdef` or `package.tyhp.json`. If you omit `tyhpdefInclude`, **project `.tyhpdef` files are not loaded** (`tyhp init` creates a `tyhpdef/` folder but does not set the glob). Add e.g. `"tyhpdefInclude": ["./tyhpdef/**/*.tyhpdef"]` (or `"**/*.tyhpdef"`) when you author stubs.
+
+This alpha does **not** auto-generate tyhpdefs and does not scan a `tyhpdef_gen/` directory. Write declarations by hand, or start from `tyhp/php`.
 
 ## Auto-Generating Tyhpdef Files
 
@@ -58,7 +59,7 @@ DO create tyhpdef files for: C extensions with no PHP source (e.g., custom PECL 
 :::
 
 :::danger
-DON'T create tyhpdef files for: PHP extensions already bundled with the compiler (Core, Standard, SPL, Date, JSON, etc.), Composer packages that already have auto-generated tyhpdef coverage, or Tyhp code — .tyhp files are already fully typed and don't need separate declarations.
+DON'T create tyhpdef files for: PHP builtins already covered by `tyhp/php` (Core, Standard, SPL, Date, JSON, and similar — install that package instead of redeclaring them), or Tyhp code — `.tyhp` files are already fully typed and don't need separate declarations. Automatic generation for Composer packages is not in this alpha, so third-party PHP packages you call still need hand-written tyhpdefs for the members you use.
 :::
 
 ## Accuracy Matters

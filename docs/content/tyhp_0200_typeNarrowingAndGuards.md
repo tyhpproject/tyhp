@@ -55,7 +55,7 @@ Tyhp supports `instanceof` from PHP and adds several aliases. The following keyw
 - `is_a` -- Tyhp alias (with underscore)
 - `is_an` -- Tyhp alias (with underscore)
 
-All of these check if a value is an instance of a specific class or interface (or a descendant of that type) and narrow the variable's type accordingly. They are defined in the lexer as the `T_TYHP_IS` token and are only available in Tyhp mode. For scalar types, the `is` keyword compiles to the appropriate type check function. For object types, it compiles to `instanceof`.
+All of these check if a value is an instance of a specific class or interface (or a descendant of that type) and narrow the variable's type accordingly. They are defined in the lexer as the `T_TYHP_IS` token and are only available in Tyhp mode. For scalar types, `$x is int` compiles to `\Tyhp\Type::is($x, \Tyhp\Type::int())`. For object types, it compiles to `instanceof`. Do not write `$x is null`; use `$x !== null` (or `\is_null($x)`). `\is_a(...)` as a function call is not how Tyhp `is` works — `is` is a keyword.
 
 ```tyhp
 <?tyhp
@@ -74,10 +74,16 @@ if ($builder instanceof BuilderInterface) {
     $builder->build();
 }
 
-// 'is' keyword works the same as instanceof
+// 'is' keyword works the same as instanceof for objects
 if ($builder is ConnectionInterface) {
     // $builder is narrowed to ConnectionInterface
     $builder->disconnect();
+}
+
+// Scalars use `is` too — emit is \Tyhp\Type::is(...)
+mixed $value = \getMixedValue();
+if ($value is int) {
+    // $value is narrowed to int
 }
 
 // Natural English-like syntax
@@ -194,15 +200,12 @@ PHP's symbol existence functions also act as type guards, narrowing string value
 
 - `\function_exists($name)` -- narrows `$name` to `__FunctionName`
 - `\class_exists($name)` -- narrows `$name` to `__ClassName<object>` (omit `<T>`; use `\class_exists<Foo>($name)` for `__ClassName<Foo>`)
-- `\function_exists($name)` -- narrows `$name` to `__FunctionName`
-- `\interface_exists($name)` / `\trait_exists($name)` / `\enum_exists($name)` -- same pattern with `__InterfaceName` / `__TraitName` / `__EnumName`
 - `\interface_exists($name)` -- narrows `$name` to `__InterfaceName`
 - `\trait_exists($name)` -- narrows `$name` to `__TraitName`
 - `\enum_exists($name)` -- narrows `$name` to `__EnumName`
 - `\property_exists($obj, $name)` -- narrows `$name` to `__PropertyName<typeof($obj)>`
 - `\method_exists($obj, $name)` -- narrows `$name` to `__MethodName<typeof($obj)>`
-- `isset($$varName)` -- narrows `$varName` to `__VarName`
-- `variable_exists($name)` -- narrows `$name` to `__VarName`
+- `variable_exists($count)` / `variable_exists('count')` -- narrows the name to `__VarName`
 
 ## Early Return Narrowing
 
@@ -302,7 +305,7 @@ function isPositiveInt(mixed $val): bool {
 }
 ```
 
-The `is` keyword compiles to `instanceof` for object types:
+The `is` keyword compiles to `instanceof` for object types and to `\Tyhp\Type::is(...)` for scalars:
 
 ```tyhp
 <?tyhp
@@ -310,6 +313,12 @@ The `is` keyword compiles to `instanceof` for object types:
 function checkBuilder(object $obj): void {
     if ($obj is BuilderInterface) {
         $obj->build();
+    }
+}
+
+function checkInt(mixed $n): void {
+    if ($n is int) {
+        echo $n;
     }
 }
 ```
@@ -323,6 +332,12 @@ declare(strict_types=1);
 function checkBuilder(object $obj): void {
     if ($obj instanceof BuilderInterface) {
         $obj->build();
+    }
+}
+
+function checkInt(mixed $n): void {
+    if (\Tyhp\Type::is($n, \Tyhp\Type::int())) {
+        echo $n;
     }
 }
 ```

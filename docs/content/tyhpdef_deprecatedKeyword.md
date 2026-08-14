@@ -6,7 +6,7 @@ status:
   state: complete
 ---
 
-Tyhpdef provides two keywords for marking imported declarations as outdated: deprecated and obsolete. These keywords control how the Tyhp compiler responds when code references marked items. The deprecated keyword generates compiler warnings, encouraging migration away from the item while still allowing its use. The obsolete keyword generates compiler errors, hard-blocking usage entirely. Both keywords can be applied to nearly any declaration type and at any level — from entire classes down to individual methods, properties, constants, and enum cases.
+Tyhpdef provides two keywords for marking imported declarations as outdated: deprecated and obsolete. These keywords control how the Tyhp compiler responds when code references marked items. The deprecated keyword generates compiler warnings, encouraging migration away from the item while still allowing its use. The obsolete keyword generates compiler errors, hard-blocking usage entirely. Both keywords can be applied to nearly any **top-level** declaration — functions, classes, interfaces, traits, enums, constants, and variables. Member-level `deprecated` / `obsolete` (methods, properties, enum cases) parse in this alpha but are **not** copied onto symbols, so they do not warn or error.
 
 ## The deprecated Keyword
 
@@ -19,12 +19,12 @@ deprecated function \mysql_connect(
     string $server,
     string $username,
     string $password
-): resource|false;
+): \mysqli|false;
 
 deprecated function \mysql_query(
     string $query,
-    resource $link
-): resource|false;
+    \mysqli $link
+): \mysqli|false;
 
 deprecated const int SORT_REGULAR;
 
@@ -55,19 +55,19 @@ obsolete class UnsafeSerializer {
 
 ## Keyword Placement
 
-The deprecated or obsolete keyword must appear before all other modifiers on a declaration. For class members, it appears before visibility and other modifiers.
+The deprecated or obsolete keyword must appear before all other modifiers on a declaration. For class members, the grammar allows it before visibility, but this alpha only **enforces** the keywords on top-level symbols.
 
 ```tyhp
 <?tyhpdef
 
+deprecated class LegacyLogger {
+    public function log(string $message): void;
+}
+
 class UserService {
-    deprecated public function getUser(int $id): ?User;
+    // Parsed, not enforced in this alpha:
+    // deprecated public function getUser(int $id): ?User;
     public function findById(int $id): ?User;
-
-    deprecated public static function getInstance(): static;
-
-    deprecated public const int MAX_RESULTS;
-    public const int DEFAULT_LIMIT;
 }
 ```
 
@@ -76,23 +76,18 @@ class UserService {
 Both keywords can be applied to any of the following declaration types:
 
 - Functions (global and namespaced)
-- Classes (including abstract and final classes)
-- Interfaces
-- Traits
-- Enums
-- Methods within classes, interfaces, traits, and enums
-- Properties within classes and traits
-- Constants (global and class-level)
-- Enum cases
-- Individual function/method overloads
+- Classes, interfaces, traits, and enums (the type itself)
+- Top-level constants and variables
+- Top-level function overloads (each overload is its own top-level declaration)
+
+Not enforced yet: methods, properties, class constants, and enum cases.
 
 ```tyhp
 <?tyhpdef
 
-// Deprecated enum with a deprecated case
-enum Status {
+deprecated enum LegacyStatus {
     case Active;
-    deprecated case Inactive;
+    case Inactive;
     case Deleted;
     case Archived;
 }
@@ -111,7 +106,7 @@ deprecated interface Cacheable {
 
 ## Deprecating Specific Overloads
 
-When a function or method has multiple overloads, you can deprecate individual overloads without affecting the others. This lets you guide users away from a specific calling pattern while keeping the rest.
+When a function has multiple **top-level** overloads, you can deprecate individual overloads without affecting the others. Member-level overload markers are not enforced in this alpha.
 
 ```tyhp
 <?tyhpdef
@@ -119,27 +114,18 @@ When a function or method has multiple overloads, you can deprecate individual o
 // Only the string-based connection is deprecated
 deprecated function \connectDb(string $connectionString): DbConnection;
 function \connectDb(DbConfig $config): DbConnection;
-
-class FileSystem {
-    // Deprecated: use the options-object overload instead
-    deprecated public function read(string $path, bool $binary): string;
-    public function read(string $path, ReadOptions $options): string;
-}
 ```
 
 ## Class-Level vs. Member-Level Deprecation
 
-When a class itself is marked as deprecated, using the class in any way (instantiation, type hints, extends, implements) triggers a warning. Individual non-deprecated members within a deprecated class will still trigger the class-level warning when the class is referenced.
+When a class itself is marked as deprecated, using the class in any way (instantiation, type hints, extends, implements) triggers a warning. Member-level `deprecated` on methods inside the class is parsed but not enforced in this alpha.
 
 ```tyhp
 <?tyhpdef
 
 deprecated class LegacyCache {
-    // This method is still valid, but using the class triggers a warning
     public function get(string $key): mixed;
-
-    // This method has its own deprecation on top of the class-level one
-    deprecated public function getMultiple(array<string> $keys): array<mixed>;
+    public function getMultiple(array<string> $keys): array<mixed>;
 }
 ```
 
@@ -151,12 +137,9 @@ deprecated class LegacyCache {
 // Warning: LegacyLogger is deprecated
 LegacyLogger $logger = new LegacyLogger();
 
-// Warning: getUser is deprecated
+// OK: class is not deprecated (member-level deprecated is not enforced yet)
 UserService $svc = new UserService();
 ?User $user = $svc->getUser(123);
-
-// OK: findById is not deprecated
-?User $user2 = $svc->findById(123);
 
 // Error: OldDataStore is obsolete -- will not compile
 // class Storage implements OldDataStore { }
@@ -183,7 +166,7 @@ DON'T: Use obsolete for items that are merely old or slow. Reserve obsolete for 
 - `deprecated` generates a compiler warning each time the item is referenced
 - `obsolete` generates a compiler error, preventing compilation entirely
 - Both keywords must appear before all other modifiers on a declaration
-- Can be applied to functions, classes, interfaces, traits, enums, methods, properties, constants, and enum cases
-- Individual overloads can be deprecated or made obsolete independently
+- Can be applied to top-level functions, classes, interfaces, traits, enums, constants, and variables
+- Top-level function overloads can be deprecated or made obsolete independently
 - A deprecated class triggers warnings on any usage (instantiation, type hints, inheritance)
-- Member-level deprecation can coexist with class-level deprecation
+- Member-level `deprecated` / `obsolete` parse but are not enforced in this alpha

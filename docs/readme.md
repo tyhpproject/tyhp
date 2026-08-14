@@ -18,7 +18,7 @@ Output is written to `output/` and zipped as `output.zip`.
 |------|------|
 | `content/toc.json` | JSON5 table of contents (section metadata + item list) |
 | `content/*.md` | Doc pages referenced by the TOC |
-| `content/_template.md` | Dialect reference / examples (listed in TOC) |
+| `content/_template.md` | Dialect reference / examples (not listed in the published TOC) |
 | `template/` | HTML templates and theme SCSS |
 | `generator-src/` | PHP build pipeline (`Tyhp\Docs\`) |
 

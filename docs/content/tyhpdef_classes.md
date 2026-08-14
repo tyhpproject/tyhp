@@ -237,7 +237,7 @@ class \Vendor\LongNamespace\SomeVeryLongClassName as ShortName {
 
 ## Deprecated and Obsolete
 
-Both the class itself and individual members can be marked as `deprecated` or `obsolete`.
+The class itself can be marked `deprecated` or `obsolete` (top-level). Member-level markers parse but are not enforced in this alpha.
 
 ```tyhp
 <?tyhpdef
@@ -247,7 +247,7 @@ deprecated class LegacyAuth {
 }
 
 class Auth {
-    deprecated public function loginWithPassword(string $pass): bool;
+    public function loginWithPassword(string $pass): bool;
     public function loginWithToken(string $token): bool;
 }
 ```

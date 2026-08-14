@@ -85,7 +85,7 @@ function firstOrNull<T>(array<T> $items): ?T {
 }
 ```
 
-## Generic Defaults (not in this alpha)
+## Generic Defaults
 
 Generic type parameters can have default types with `=`. Defaults must be trailing and can reference earlier parameters.
 
@@ -199,15 +199,15 @@ $text->toCamelCase();  // StringExtensions::toCamelCase($text)
 
 ## Object Declaration Changes
 
-Constructors support return types for explicit parent chaining (`: parent(args...)`). The `init` modifier makes properties settable only during construction and via `with`.
+Constructors support return types for explicit parent chaining (`: parent(args...)`). Constructor property promotion works as in PHP, including `readonly`.
 
 <a href="tyhp_1300_newObjectDeclSyntax.html">See full documentation →</a>
 
 ```tyhp
 class Point {
     public function __construct(
-        public init float $x,
-        public init float $y
+        public readonly float $x,
+        public readonly float $y
     ) {}
 }
 
@@ -221,7 +221,7 @@ class NamedPoint extends Point {
 
 ## The `with` Keyword
 
-Sets properties on objects/structs immediately after `new` or `clone`. Combined with `init` properties, enables immutable update patterns.
+Sets properties on objects/structs immediately after `new` or `clone`. Combined with `readonly` properties, enables immutable update patterns (`clone $obj with [...]` leaves the original unchanged).
 
 <a href="tyhp_2200_withKeyword.html">See full documentation →</a>
 
@@ -266,21 +266,6 @@ Restricts access to the defining project (scoped by `tyhp.json`). Emitted as `pu
 internal class InternalHelper { ... }
 internal function computeHash(string $data): string { ... }
 internal const int MAX_RETRIES = 3;
-```
-
-## The `init` Property Modifier
-
-Properties settable only during construction and via `with` (which clones). Unlike `readonly`, `init` permits `with` updates. Compiles to PHP `readonly` with auto-generated `__clone()` infrastructure.
-
-<a href="tyhp_3200_initPropertyModifier.html">See full documentation →</a>
-
-```tyhp
-class User {
-    public init string $name;
-    public init int $age;
-}
-
-$updated = clone $user with [name => 'Bob'];
 ```
 
 ## Null-Conditional Assignment (not in this alpha)
@@ -367,7 +352,7 @@ Four compile-time constructs that resolve at compilation with zero runtime cost.
 
 ```tyhp
 nameof($user->name);        // 'name' — refactoring-safe string name
-typeof(int);                // \Tyhp\Type::of('int')
+typeof(int);                // \Tyhp\Type::int()
 default(int);               // 0 — zero value for a type
 variable_exists($x);        // true/false literal
 ```
@@ -407,7 +392,7 @@ if (\class_exists($cls)) {
 
 ## PHP Magic Methods
 
-All PHP magic methods are supported with additional type safety. `mixed`-returning magic methods (`__get`, `__call`, etc.) require type narrowing before use. Extension methods take priority over `__call`. The compiler auto-generates `__clone()` for `init` properties.
+All PHP magic methods are supported with additional type safety. `mixed`-returning magic methods (`__get`, `__call`, etc.) require type narrowing before use. Extension methods take priority over `__call`. The compiler may generate `__clone()` helpers when `with` updates `readonly` properties.
 
 <a href="tyhp_2500_phpMagicMethods.html">See full documentation →</a>
 

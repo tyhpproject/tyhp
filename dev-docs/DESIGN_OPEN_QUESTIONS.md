@@ -463,8 +463,8 @@ variance-safety check.
   unsound and un-Tyhp-like)?
 - **Constructors and `readonly` are the classic exception.** A constructor takes `T` as a parameter (input
   position) even on a covariant `out T`, and `readonly T $x` is input-at-construction but output
-  thereafter. C# exempts constructors from the check. Confirm the same rule, and decide how `readonly` /
-  `init` properties are classified.
+  thereafter. C# exempts constructors from the check. Confirm the same rule, and decide how `readonly`
+  properties are classified.
 - **Relationship to the existing hardcoded array covariance.** `TypeComparer.Subtyping.cs` has an
   `arrayLikeCovariant` special case that forces covariance for array-like types regardless of declared
   variance. Does declared variance subsume that special case, or do they coexist (and which wins)?
@@ -501,8 +501,7 @@ function caller(): void {
 - **The tyhpdef docs already claim it works.** `docs/content/tyhpdef_runTimeErrorsAndExceptions.md` states:
   "Use the `@throws` doc comment annotation … **The compiler uses this information to validate that callers
   handle the declared exceptions.**" Nothing in `Tyhp/TyhpLang/` reads `@throws` — the claim is
-  aspirational. That doc needs correcting whether or not this feature is ever built (same class of problem
-  as the `init` diagnostics below).
+  aspirational. That doc needs correcting whether or not this feature is ever built.
 - Those existing tyhpdef `@throws` annotations are, however, a ready-made **seed dataset** for the
   interop boundary — the hardest part of any effect analysis is knowing what third-party PHP throws, and
   the tyhpdef convention for recording it already exists and is already documented.
@@ -594,7 +593,7 @@ extension MoneyFormatting {
 - **Interaction with property accessors.** Tyhp already has property accessors / PHP 8.4 hooks. Is an
   extension computed property just "a property hook whose receiver is the first parameter", reusing that
   machinery, or a separate path?
-- **`readonly` / `init` on extension properties.** Meaningful, or rejected? `readonly` has no construction
+- **`readonly` on extension properties.** Meaningful, or rejected? `readonly` has no construction
   moment to be written in when the object was constructed by someone else.
 - **PHP-side visibility.** A `\WeakMap`-backed property is invisible to a PHP consumer of the emitted code
   — they see a static map, not a property on their object. Story 15 (interop contract) should record what,
@@ -617,37 +616,6 @@ For refined types and other surface typing, the keyword `decimal` is treated as 
 - Related committed work: the `decimal` type itself, its operator/cast overloads, backing-library config
   (GMP vs BCMATH), default scale/rounding, and the `decimal::ZERO` constant are all part of the runtime
   library story (Story 04). This entry only tracks the *value-semantics* question, not the type's existence.
-
----
-
-## Unresolved status conflicts (needs a decision)
-
-### `init` property modifier — status unclear
-
-A write-once-during-construction property modifier (C#-style `init`; settable in the constructor and via
-`with`, but not afterward — unlike `readonly`, which also blocks `with`).
-
-- An old planning note (`Syntax_TODO.md`, now deleted) stated it was **REMOVED / cancelled** on the grounds
-  that `readonly` is sufficient.
-- **However**, the current website docs treat it as a **live feature**: a full page
-  (`docs/content/tyhp_3200_initPropertyModifier.md`), references in
-  `docs/content/tyhp_1300_newObjectDeclSyntax.md`, and a documented diagnostic list. These docs are newer
-  than the "removed" note.
-- **But the diagnostics it cites do not exist, and two of them collide.** `tyhp_3200` documents `TYHP4055`
-  ("property is declared as `init`") and `TYHP4056` ("`init` cannot be used with property hooks"), but
-  `MessageCode.cs` — the single source of truth per `CONVENTIONS.md` §1 — assigns those numbers to
-  `CheckerRedundantTypeInUnion` and `CheckerUseBoolInsteadOfTrueFalse`. The other two codes the page cites
-  (`TYHP4003` → `CheckerNotAllowedMemberModifier`, `TYHP4005` → `CheckerMemberModifierConflict`) do exist
-  but are generic modifier errors, not `init`-specific. There is **no** `init` diagnostic in
-  `MessageCode.cs`, so "dedicated diagnostics" is not actually evidence that `init` is live.
-
-**Decision needed:** confirm whether `init` is a current feature or cancelled.
-- If **current:** allocate real codes for the two `init`-specific diagnostics in `MessageCode.cs` (with
-  matching `.resx` entries) and correct `tyhp_3200` to cite them, then delete this entry.
-- If **cancelled:** remove/deprecate the `init` content from the website docs (`tyhp_3200` and the
-  references in `tyhp_1300`), remove the TOC entry, and move it to `DECISIONS.md` as a rejected feature.
-- **Either way:** fix the `TYHP4055`/`TYHP4056` collision in `tyhp_3200` — it currently documents two real
-  codes against the wrong messages.
 
 ---
 

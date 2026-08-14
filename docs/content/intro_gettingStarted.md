@@ -16,14 +16,15 @@ cd my-tyhp-project
 tyhp init
 ```
 
-This creates a `tyhp.json` configuration file and a basic project structure.
+This creates a `tyhp.json` configuration file, a root `composer.json` (with `tyhp/php` and `tyhp/core` pins), `src/index.tyhp`, and empty `tyhpdef/` and `build/` directories.
 
 ## Project Structure
 
 ```
 my-tyhp-project/
   tyhp.json          # Project configuration
-  src/               # Tyhp source files (.tyhp)
+  composer.json      # Pins tyhp/php and tyhp/core
+  src/index.tyhp     # Sample entry file
   tyhpdef/           # Type definitions for external PHP code (.tyhpdef)
   build/             # Compiled PHP output (generated)
 ```
@@ -32,15 +33,16 @@ my-tyhp-project/
 
 ```json
 {
-    "include": [
-        "./src/**/*.tyhp",
-        "./src/**/*.php"
-    ],
-    "exclude": [],
+    "include": ["src/**/*.tyhp"],
+    "exclude": ["vendor/**", "node_modules/**"],
+    "source": {
+        "tagless": false
+    },
     "output": {
-        "path": "./build",
+        "path": "build/",
         "phpVersion": "8.4",
-        "strictTypes": true
+        "strictTypes": true,
+        "comments": true
     }
 }
 ```
@@ -49,21 +51,15 @@ Supported `output.phpVersion` values are `"8.2"`, `"8.3"`, `"8.4"`, and `"8.5"`.
 
 ## Writing Your First .tyhp File
 
-Create `src/hello.tyhp`. Tyhp files use the `<?tyhp` opening tag instead of `<?php`:
+`tyhp init` writes `src/index.tyhp`. Tyhp files use the `<?tyhp` opening tag instead of `<?php`:
 
 ```tyhp
 <?tyhp
+declare(strict_types=1);
+namespace App;
 
-function greet(string $name): string
-{
-    return "Hello, {$name}!";
-}
-
-string $message = greet("World");
-echo $message;
+echo 'Hello, World!';
 ```
-
-The variable `$message` has an explicit type annotation. The compiler enforces that `greet()` returns a string.
 
 ## Building Your Project
 
@@ -71,11 +67,11 @@ The variable `$message` has an explicit type annotation. The compiler enforces t
 tyhp build
 ```
 
-The compiler reads `tyhp.json`, runs parse / bind / check / emit, and writes PHP to the output directory. It also updates `composer.json` so the project can require `tyhp/php`, `tyhp/core`, and any other runtime packages the code needs. Those pins use `output.phpVersion` plus each package’s own `X.Y` (`"8.4"` + `0.0` → `804.0.0`). See the Composer Runtime Packages page.
+The compiler reads `tyhp.json`, runs parse / bind / check / emit, and writes PHP to the output directory. `tyhp init` already pins `tyhp/php` and `tyhp/core` in the project `composer.json`. `tyhp build` updates Composer metadata only when `build.updateComposer` is `true` (default **false**); otherwise it reports which packages the emit needs. Pins use `output.phpVersion` plus each package’s own `X.Y` (`"8.4"` + `0.0` → `804.0.0`). See the Composer Runtime Packages page.
 
 ```
 composer install
-php build/hello.php
+php build/src/index.php
 ```
 
 Until Packagist lists the `tyhp/*` packages, use a compiler checkout so path repositories can resolve `runtime/packages/`.
@@ -88,13 +84,9 @@ The compiled PHP looks like standard PHP. Variable type annotations are erased �
 <?php
 declare(strict_types=1);
 
-function greet(string $name): string
-{
-    return "Hello, {$name}!";
-}
+namespace App;
 
-$message = greet("World");
-echo $message;
+echo 'Hello, World!';
 ```
 
 ## Checking Without Building

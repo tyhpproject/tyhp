@@ -6,7 +6,7 @@ status:
   state: complete
 ---
 
-Tyhp introduces several new types and enhances existing PHP types with generic support. This page covers generic PHP types, new Tyhp-specific types, and internal compiler types. All types listed here are defined in the TyhpSpec type definition files (`tyhpTypes.tyhpdef` and related files) that ship with the compiler.
+Tyhp introduces several new types and enhances existing PHP types with generic support. This page covers generic PHP types, new Tyhp-specific types, and internal compiler types. Built-in types are registered in the compiler; runtime types such as `\Tyhp\Type` and `Promise<T>` come from the `tyhp/core` and `tyhp/async` packages.
 
 ## Generic PHP Types
 
@@ -21,7 +21,7 @@ A typed array with 2 generic parameters. The first is the key type (must be `str
 :::
 
 :::member[array<TValue>]
-A typed array with 1 generic parameter (the value type). The key type defaults to `int` (a sequential numeric array).
+A typed array with 1 generic parameter (the value type). This is list shorthand for `array<int|string, TValue>` — keys are `int|string`, not int-only.
 :::
 
 :::member[array]
@@ -29,11 +29,11 @@ The non-generic version, equivalent to `array<int|string, mixed>`.
 :::
 
 :::member[iterable<TKey, TValue>]
-A typed iterable with 2 generic parameters. The key type is not restricted to `string|int` unlike `array`. This type is a type alias for `array<TKey, TValue>|\Traversable<TKey, TValue>` and is completely interchangeable with it.
+A typed iterable with 2 generic parameters. `iterable` is a built-in type equivalent to `array|Traversable` (with matching generic arguments when given). It is not a type alias.
 :::
 
 :::member[iterable<TValue>]
-Single-parameter version where the key type defaults to `int`.
+Single-parameter version. Like `array<TValue>`, this is shorthand for `iterable<int|string, TValue>`.
 :::
 
 :::member[iterable]
@@ -47,7 +47,7 @@ array<string> $names = ["Alice", "Bob"];
 array<string, int> $ages = ["Alice" => 30, "Bob" => 25];
 
 function processItems(iterable<string> $items): void {
-    foreach ($items as string $item) {
+    foreach ($items as $item) {
         echo $item;
     }
 }
@@ -58,7 +58,7 @@ function processItems(iterable<string> $items): void {
 The `\Traversable` interface from PHP gains optional generic parameters for the key and value types.
 
 :::member[\Traversable<TKey, TValue>]
-A typed traversable with 2 generic parameters. The `iterable<TKey, TValue>` type is a type alias that includes this type.
+A typed traversable with 2 generic parameters. The `iterable<TKey, TValue>` built-in is equivalent to `array<TKey, TValue>|\Traversable<TKey, TValue>`.
 :::
 
 ## The `\Iterator<TKey, TValue>` Type
@@ -200,7 +200,7 @@ The `void` and `never` types are restricted types -- they cannot be used as gene
 
 ### Optional parameters and arity facets
 
-Trailing parameters with default values expand into an **intersection of arity siblings** (not a subtype chain). The same model applies to `\Closure<…>` and will be reused by `new<…>` constructable facets (Story 27).
+Trailing parameters with default values expand into an **intersection of arity siblings** (not a subtype chain). The same model applies to `\Closure<…>` and will be reused by `new<…>` constructable facets (planned; Story 27).
 
 ```tyhp
 <?tyhp
@@ -225,13 +225,13 @@ A trailing variadic never produces infinite facets. `function joinAll(string ...
 
 ## The `decimal` Type
 
-Tyhp introduces a `decimal` type for precise arithmetic calculations. In the compiled PHP, a `decimal` value is an instance of the `\Tyhp\Decimal` wrapper class that handles all arithmetic operations using bcmath, gmp, or a pure-PHP fallback (configurable in `tyhp.json`). Decimal literals use the `d` suffix.
+Tyhp introduces a `decimal` type for precise arithmetic calculations. In the compiled PHP, a `decimal` value is an instance of the `\Tyhp\Decimal` wrapper class that handles all arithmetic operations using bcmath, gmp, or a pure-PHP fallback (configurable in `tyhp.json`). There is no `19.99d` suffix. Construct decimals with `\Tyhp\decimal('19.99')` or `new \Tyhp\Decimal(...)`.
 
 ```tyhp
 <?tyhp
 
-decimal $price = 19.99d;
-decimal $tax = 2.00d;
+decimal $price = \Tyhp\decimal('19.99');
+decimal $tax = \Tyhp\decimal('2.00');
 decimal $total = $price + $tax;  // Precise arithmetic
 
 class Invoice {
@@ -239,12 +239,12 @@ class Invoice {
     public decimal $taxRate;
 
     public function calculateTotal(): decimal {
-        return $this->amount * (1d + $this->taxRate);
+        return $this->amount * (\Tyhp\decimal('1') + $this->taxRate);
     }
 }
 ```
 
-The `decimal` type supports all standard arithmetic operators (`+`, `-`, `*`, `/`, `%`, `**`), comparison operators (`==`, `<`, `>`, `<=`, `>=`, `<=>`), unary negation (`-$val`), and casts to `int`, `float`, and `string`. These compile to method calls on the underlying `\Tyhp\Decimal` class.
+The `decimal` type supports all standard arithmetic operators (`+`, `-`, `*`, `/`, `%`, `**`), comparison operators (`==`, `<`, `>`, `<=`, `>=`, `<=>`), unary negation (`-$val`), and casts to `int`, `float`, and `string`. These compile to static method calls on `\Tyhp\Decimal` (for example `\Tyhp\Decimal::__add($a, $b)`).
 
 ## The `(decimal)` Cast
 
@@ -262,13 +262,13 @@ decimal $parsed = (decimal) $amount;
 
 ## Compiled PHP Output for `decimal`
 
-The `decimal` type compiles to `\Tyhp\Decimal` instances. Arithmetic operations become method calls:
+The `decimal` type compiles to `\Tyhp\Decimal` instances. Arithmetic operations become static method calls:
 
 ```tyhp
 <?tyhp
 
-decimal $a = 10.5d;
-decimal $b = 3.2d;
+decimal $a = \Tyhp\decimal('10.5');
+decimal $b = \Tyhp\decimal('3.2');
 decimal $result = $a + $b;
 ```
 
@@ -278,9 +278,9 @@ Compiles to:
 <?php
 declare(strict_types=1);
 
-$a = new \Tyhp\Decimal('10.5');
-$b = new \Tyhp\Decimal('3.2');
-$result = $a->__add($b);
+$a = \Tyhp\decimal('10.5');
+$b = \Tyhp\decimal('3.2');
+$result = \Tyhp\Decimal::__add($a, $b);
 ```
 
 ## The `struct` Base Type
@@ -297,7 +297,11 @@ The `never` type from PHP is retained in Tyhp with the same semantics: it indica
 
 ## The `mixed` Type
 
-The `mixed` type from PHP is available in Tyhp but is discouraged. Tyhp's strong type system should eliminate most needs for `mixed`. There is a recommended compiler setting to flag or disallow explicit use of `mixed`, encouraging developers to use specific types or union types instead. See the dedicated Mixed Type documentation page for more details.
+The `mixed` type from PHP is available in Tyhp but is discouraged. Tyhp's strong type system should eliminate most needs for `mixed`. There is no compiler setting that disallows `mixed`; prefer specific types or union types instead. See the dedicated Mixed Type documentation page for more details.
+
+## Template String Types
+
+Tyhp supports template (encaps) string types in type position: a double-quoted pattern with `${T}` holes and optional quantifiers right after `}` (`?` = 0–1, `+` = 1+, `*` = 0+). Examples: `"${string}*"`, `"api/${string}/items"`. They erase to `string`. See Type Aliases for a short usage note.
 
 ## The `self` / `static` / `parent` Relative Class Types
 
@@ -353,7 +357,7 @@ Use `: self<T>` or the declaring class name (`: Promise<T>`), **not** `: static<
 ```tyhp
 <?tyhp
 
-final class Promise<TReturn extends void|mixed = void> {
+final class Promise<TReturn extends void|mixed = mixed> {
     public static function _async<T extends void|mixed>(callable<T> $fn): self<T> {
         return new self<T>($fn);
     }
@@ -403,7 +407,7 @@ call-site class reference (including its type arguments).
 
 ## The `Promise<T>` Type
 
-Tyhp provides a `Promise<T>` type for async/await support. The `Promise` class is defined as `Promise<TReturn extends void|mixed>` where `TReturn` is the fulfillment value type. The constraint allows `Promise<void>` for async functions that do not return a value.
+Tyhp provides a `Promise<T>` type for async/await support. The `Promise` class is defined as `Promise<TReturn extends void|mixed = mixed>` where `TReturn` is the fulfillment value type (default `mixed`). The constraint allows `Promise<void>` for async functions that do not return a value. A bare `Promise` is `Promise<mixed>`, not `Promise<void>`.
 
 ```tyhp
 <?tyhp
@@ -435,7 +439,7 @@ The foundational internal wrapper type. A variable with a `__TyhpInternal<T>` ty
 These types represent string values that the compiler knows refer to specific symbols in scope. They enable Tyhp's type-safe dynamic language features. Each is obtained by using the corresponding type guard function (e.g., `\class_exists()` narrows a string to `__ClassName`).
 
 :::member[__VarName]
-A `string` representing a variable name valid in the current scope. Obtained via `isset($$varName)`. Alias for `__TypedVarName<mixed>`.
+A `string` representing a variable name valid in the current scope. Obtained via `variable_exists($count)` or `variable_exists('count')` — the argument is the variable itself or a string literal. Alias for `__TypedVarName<mixed>`. (`$$var` is prohibited: TYHP4133.)
 :::
 
 :::member[__TypedVarName<T>]
@@ -476,7 +480,7 @@ A `__TraitName` that is specifically a trait used by the class or enum specified
 :::
 
 :::member[__CompatibleTypeName<T>]
-A class, enum, or interface name that is compatible with (same as or descendant of) `T`. Used with `\is_a()` and `\is_subclass_of()`.
+A class, enum, or interface name that is compatible with (same as or descendant of) `T`. Used with the `is` / `instanceof` keyword and with `\is_subclass_of()`.
 Accepts string literals naming a subtype of `T`, and branded `__ClassName<S>` / `__EnumName<S>` / `__InterfaceName<S>` / `__CompatibleTypeName<S>` when `S` is the same as or a subtype of `T`.
 :::
 
@@ -673,7 +677,7 @@ $cache = new \WeakMap();
 ## Best Practices
 
 :::tip
-Use generic array types (`array<string>`, `array<string, int>`) instead of plain `array` for element-level type safety. The compiler can then catch type mismatches when adding or retrieving elements.
+Use generic array types (`array<string>`, `array<string, int>`) instead of plain `array` for element-level type safety. `array<string>` is shorthand for `array<int|string, string>`. The compiler can then catch type mismatches when adding or retrieving elements.
 :::
 
 :::tip

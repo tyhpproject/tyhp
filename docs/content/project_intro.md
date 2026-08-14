@@ -6,7 +6,7 @@ status:
   state: complete
 ---
 
-Every Tyhp project is driven by a configuration file called `tyhp.json`. This file tells the compiler which source files to include, where to write compiled PHP output, what PHP version to target, and how strict the type checker should be. It is the equivalent of `tsconfig.json` in the TypeScript world.
+Every Tyhp project is driven by a configuration file called `tyhp.json`. This file tells the compiler which source files to include, where to write compiled PHP output, and what PHP version to target. Language strictness is always on (null safety, required types). It is the equivalent of `tsconfig.json` in the TypeScript world.
 
 ## Creating a Project
 
@@ -16,7 +16,7 @@ The fastest way to create a new Tyhp project is with the `init` command:
 tyhp init
 ```
 
-This creates a `tyhp.json` file in the current directory with sensible defaults. You can then customize it to match your project structure.
+This creates a `tyhp.json` file, `src/index.tyhp`, a root `composer.json` pinning `tyhp/php` and `tyhp/core`, and `src/`, `build/`, and `tyhpdef/` directories. Init writes `source.tagless` (default false) and, when you set a namespace, a `psr4` mapping.
 
 ## File Location
 

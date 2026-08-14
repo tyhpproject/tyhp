@@ -3,15 +3,10 @@ title: 'Generic Type Parameter Defaults'
 status:
   tier: 3
   story: '28'
-  state: planned
+  state: complete
 ---
 
-:::warning Not in this alpha
-This feature is **not included** in Tyhp 805.0.0-alpha.1 (roadmap Tier 2/3). The rest of this page describes the planned design. Do not expect these commands or syntax to work yet.
-:::
-
-
-Tyhp allows generic type parameters to have default types, specified with = after the optional constraint. When a consumer does not provide a type argument for a defaulted parameter, the default is used automatically. This enables cleaner APIs where the common case requires no explicit type parameterization — for example, Promise<T = void> lets you write new Promise() instead of new Promise<void>() for the typical async procedure.
+Generic type parameter defaults shipped with this alpha (ahead of the original Tier 3 slot). Trailing type parameters may specify `= Type`; omitted arguments use those defaults.
 
 :::note
 Generic type parameter defaults are a compile-time-only feature. All generics — including defaults — are erased from PHP output. There is zero runtime cost.
@@ -88,9 +83,9 @@ A type parameter can have both a constraint and a default. The syntax is T exten
 ```tyhp
 <?tyhp
 
-// Promise defaults TReturn to void
+// Promise defaults TReturn to mixed (runtime tyhp/async)
 // The constraint allows void or mixed (both are valid return types)
-class Promise<TReturn extends void|mixed = void> {
+class Promise<TReturn extends void|mixed = mixed> {
     private ?TReturn $result = null;
 
     public function resolve(TReturn $value): void {
@@ -98,9 +93,8 @@ class Promise<TReturn extends void|mixed = void> {
     }
 }
 
-// Common case — async procedure with no return value
-Promise $p1 = new Promise();           // TReturn = void (from default)
-Promise<void> $p2 = new Promise<void>(); // Explicit, same as default
+Promise $p1 = new Promise();           // TReturn = mixed (from default)
+Promise<void> $p2 = new Promise<void>(); // Explicit override
 
 // Override for async functions that return values
 Promise<int> $p3 = new Promise<int>();   // TReturn = int
@@ -156,13 +150,13 @@ class Valid2<T, U = int, V = string> {}
 class Valid3<T = mixed> {}
 class Valid4<T = int, U = string, V = bool> {}
 
-// ERROR TYHP4062: Generic parameter 'U' without a default
+// ERROR TYHP4311: Generic parameter 'U' without a default
 // cannot follow parameter 'T' which has a default
 // class Invalid<T = int, U> {}
 ```
 
 :::danger
-Error TYHP4062 (CheckerGenericNonDefaultAfterDefault): "Generic parameter 'U' without a default cannot follow parameter 'T' which has a default"
+Error TYHP4311 (CheckerGenericNonDefaultAfterDefault): "Generic parameter 'U' without a default cannot follow parameter 'T' which has a default"
 :::
 
 ## Default Must Satisfy Constraint
@@ -180,17 +174,17 @@ class GoodCounter<T extends Countable = array> {
 class GoodSerializer<T extends Serializable = JsonSerializable> {
 }
 
-// ERROR TYHP4061: Default type 'string' does not satisfy
+// ERROR TYHP4310: Default type 'string' does not satisfy
 // constraint 'Countable' on generic parameter 'T'
 // class BadCounter<T extends Countable = string> {}
 
-// ERROR TYHP4061: Default type 'int' does not satisfy
+// ERROR TYHP4310: Default type 'int' does not satisfy
 // constraint 'Stringable' on generic parameter 'T'
 // class BadStringable<T extends Stringable = int> {}
 ```
 
 :::warning
-Error TYHP4061 (CheckerGenericDefaultDoesNotSatisfyConstraint): "Default type '{0}' does not satisfy constraint '{1}' on generic parameter '{2}'"
+Error TYHP4310 (CheckerGenericDefaultDoesNotSatisfyConstraint): "Default type '{0}' does not satisfy constraint '{1}' on generic parameter '{2}'"
 :::
 
 ## Defaults Referencing Earlier Parameters
@@ -261,7 +255,7 @@ When calling a generic function or method, the resolution order for each type pa
 
 function transform<TIn = string, TOut = TIn>(
     TIn $input,
-    callable(TIn): TOut $fn
+    callable<TIn, TOut> $fn
 ): TOut {
     return $fn($input);
 }
@@ -356,7 +350,7 @@ class Wrapper<T = array<int>> {
 }
 
 // Default is void (useful for return types in async)
-class AsyncTask<TReturn extends void|mixed = void> {
+class AsyncTask<TReturn extends void|mixed = mixed> {
     public function getResult(): TReturn {
         // ...
     }
@@ -370,32 +364,31 @@ The compiler catches two categories of errors with generic defaults: ordering vi
 ```tyhp
 <?tyhp
 
-// ERROR TYHP4062: non-defaulted U follows defaulted T
+// ERROR TYHP4311: non-defaulted U follows defaulted T
 // class Bad1<T = int, U> {}
 
-// ERROR TYHP4062: non-defaulted V follows defaulted U
+// ERROR TYHP4311: non-defaulted V follows defaulted U
 // class Bad2<T, U = int, V> {}
 
-// ERROR TYHP4061: string does not implement Countable
+// ERROR TYHP4310: string does not implement Countable
 // class Bad3<T extends Countable = string> {}
 
-// ERROR TYHP4061: int does not implement Stringable
+// ERROR TYHP4310: int does not implement Stringable
 // class Bad4<T extends Stringable = int> {}
 
-// ERROR: circular reference — T cannot default to itself
+// ERROR TYHP4312: circular reference — T cannot default to itself
 // class Bad5<T = T> {}
 ```
 
-## Tyhpdef Preservation
+## Tyhpdef Syntax
 
-When generating tyhpdef files for a compiled Tyhp library, generic parameter defaults are preserved in the output. Consumers of the library get the same defaulting behavior as if they were using the original source.
+Hand-written tyhpdefs can declare the same generic defaults. Auto-generation (`generate_tyhpdef`) is not in this alpha.
 
 ```tyhp
 <?tyhpdef
 
-// Generated tyhpdef preserves defaults
-class Promise<TReturn extends void|mixed = void> {
-    public static function _async<T extends void|mixed = void>(callable<T> $fn): Promise<T>;
+class Promise<TReturn extends void|mixed = mixed> {
+    public static function _async<T extends void|mixed = mixed>(callable<T> $fn): Promise<T>;
     public static function _await<T>(Promise<T> $promise): T;
 }
 
@@ -412,7 +405,7 @@ type Collection<T = mixed> = array<T>;
 ## Best Practices
 
 :::tip
-Use defaults for commonly-used type parameters where there is a clear "common case." For example, Promise<T = void> covers the majority of async procedures that do not return a value.
+Use defaults for commonly-used type parameters where there is a clear "common case." For example, `Promise<TReturn extends void|mixed = mixed>` matches the runtime package so omitted `TReturn` is `mixed`.
 :::
 
 :::tip
@@ -446,7 +439,7 @@ Don't rely on defaults for function calls when arguments can provide inference. 
 :::
 
 :::danger
-Don't create self-referencing defaults (e.g., <T = T>) — this is a circular reference and produces a compiler error.
+Don't create self-referencing defaults (e.g., <T = T>) — this is a circular reference and produces TYHP4312.
 :::
 
 :::danger

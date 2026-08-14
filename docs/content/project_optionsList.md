@@ -14,6 +14,10 @@ This is the complete reference for all options available in `tyhp.json`. Options
 Type: `bool` (default: `false`). When true, suppresses the banner and non-error output. Useful for scripting and CI environments.
 :::
 
+:::member[type]
+Type: `string` (default: `"application"`). Project kind: `"application"` or `"library"`. Library projects default `build.generateTyhpdef` to true (that generator is still **not** in this alpha).
+:::
+
 :::member[locale]
 Type: `string` (default: `"en-US"`). Sets the locale for compiler messages and diagnostic output.
 :::
@@ -32,6 +36,10 @@ Type: `array<string>`. Glob patterns for source files to include in the project.
 Type: `array<string>`. Glob patterns for files to exclude from the project. Files matching these patterns are skipped even if they match an `include` pattern. Useful for excluding test files, vendor directories, or generated code.
 :::
 
+:::member[source.tagless]
+Type: `bool` (default: `false`). When true, `.tyhp` and `.tyhpdef` files are parsed without requiring `<?tyhp` / `<?tyhpdef`. Closing `?>` is an error in this mode. Nested as `"source": { "tagless": true }`.
+:::
+
 ## Output Options
 
 These options are nested under the `"output"` key in `tyhp.json`.
@@ -41,7 +49,7 @@ Type: `string` (default: `"build/"`). The directory where compiled PHP files are
 :::
 
 :::member[output.phpVersion]
-Type: `string` (default: `"8.4"`). The target PHP version for the compiled output. Supported values: `"8.2"`, `"8.3"`, `"8.4"`. This affects which PHP features the emitter uses in the generated code and which tyhpdef definitions are loaded.
+Type: `string` (default: `"8.4"`). The target PHP version for the compiled output. Supported values: `"8.2"`, `"8.3"`, `"8.4"`, `"8.5"`. This affects which PHP features the emitter uses in the generated code.
 :::
 
 :::member[output.strictTypes]
@@ -65,11 +73,15 @@ These options are nested under the `"build"` key in `tyhp.json`, except where no
 :::
 
 :::member[build.generateSourcemap]
-Type: `bool` (default: `false`). When true, generates source map files (`.php.map`) alongside compiled PHP output. Source maps enable debugging with Tyhp source files through the XDebug proxy.
+Type: `bool` (default: `false`). **Not in this alpha** (Story 17). The key is parsed but no `.php.map` files are written.
+:::
+
+:::member[build.sourcemapIncludeContent]
+Type: `bool` (default: `false`). **Not in this alpha.** When sourcemaps land, true would embed original `.tyhp` source in the map.
 :::
 
 :::member[build.generateTyhpdef]
-Type: `bool` (default: `false`). When true, auto-generates tyhpdef files for the compiled code. Useful when publishing a Tyhp library that other Tyhp projects will consume.
+Type: `bool` (default: `false`; libraries default this to true in config). **Not in this alpha** (Story 20). Does not generate tyhpdef output yet.
 :::
 
 :::member[build.updateComposer]
@@ -98,6 +110,14 @@ Type: `string` (default: `"halfUp"`). The default rounding mode for decimal arit
 
 :::member[build.allowEval]
 Type: `bool` (default: `false`). When true, re-enables `eval()` usage in Tyhp code. By default, `eval()` is disabled for security and type-safety reasons.
+:::
+
+:::member[build.experimentalReadonlyCloneWith]
+Type: `bool` (default: `false`). When true, allows `clone ... with` on `readonly` properties for PHP 8.2–8.4 by emitting a compiler wrapper. PHP 8.5+ supports this natively and does not need the flag. `new ... with` on `readonly` never requires it. In-place `$obj with [...]` still cannot set `readonly` after construction.
+:::
+
+:::member[build.runtimeGenericChecks]
+Type: `bool` (default: `false`). When true, the emitter inserts runtime type checks at generic parameter and return boundaries (in addition to compile-time checking). Off by default.
 :::
 
 ## Optimization Options
@@ -155,7 +175,7 @@ Type: `int` (default: `10`). Maximum auto-fix re-run iterations for `tyhp lint -
 ## Tyhpdef Options
 
 :::member[tyhpdefInclude]
-Type: `array<string>` (default: `["**/*.tyhpdef"]`). Glob patterns for tyhpdef files to load. These files provide type information for existing PHP code, Composer packages, and PHP extensions.
+Type: `array<string>`. Glob patterns for tyhpdef files to load. These files provide type information for existing PHP code, Composer packages, and PHP extensions. The `TyhpdefConfig` class default is `["**/*.tyhpdef"]`, but loading **clears** that list then reads `tyhp.json`. If you omit `tyhpdefInclude`, **no** project `.tyhpdef` files are loaded (`tyhp init` creates `tyhpdef/` but does not set the glob). Add e.g. `"tyhpdefInclude": ["./tyhpdef/**/*.tyhpdef"]` when you author stubs. Entries in `include` that end in `.tyhpdef` or `package.tyhp.json` are also loaded as tyhpdefs.
 :::
 
 :::member[tyhpdefExclude]
@@ -186,10 +206,18 @@ Treat warnings as errors. The build fails if any warnings are produced, in addit
 Specify the path to the `tyhp.json` project file. Overrides the default behavior of looking in the current working directory.
 :::
 
+:::member[--watch]
+**Not in this alpha.** `tyhp build --watch` prints that watch mode is unimplemented, then runs a normal one-shot build.
+:::
+
+:::member[--fix]
+Apply auto-fixable diagnostic replacements (`tyhp lint --fix`). Experimental.
+:::
+
 ## Lint-Specific Options
 
 :::member[--format]
-Output format for lint diagnostics. Supported values: `text` (default, human-readable), `json` (machine-readable).
+Output format for lint diagnostics. Supported values: `text` (default, human-readable), `json` (machine-readable), `sarif` (SARIF v2.1.0 for GitHub Code Scanning and similar).
 :::
 
 :::member[--file]
@@ -212,11 +240,15 @@ Below is a comprehensive `tyhp.json` showing all available options with their de
 
 ```json
 {
+    "type": "application",
     "quiet": false,
     "locale": "en-US",
 
     "include": ["./src/**/*.tyhp", "./src/**/*.php"],
     "exclude": ["./src/legacy/**"],
+    "source": {
+        "tagless": false
+    },
 
     "output": {
         "path": "./build",
@@ -228,13 +260,16 @@ Below is a comprehensive `tyhp.json` showing all available options with their de
 
     "build": {
         "generateSourcemap": false,
+        "sourcemapIncludeContent": false,
         "generateTyhpdef": false,
         "updateComposer": false,
         "structBacking": "array",
         "decimalBacking": "bcmath",
         "decimalScale": 28,
         "decimalRounding": "halfUp",
-        "allowEval": false
+        "allowEval": false,
+        "experimentalReadonlyCloneWith": false,
+        "runtimeGenericChecks": false
     },
 
     "psr4": {

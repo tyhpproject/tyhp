@@ -45,7 +45,7 @@ Within a stable major version, Tyhp aims to maintain backward compatibility for 
 
 ## PHP Syntax Conflict Resolution
 
-Because Tyhp is a superset of PHP, new PHP versions may occasionally introduce syntax that conflicts with Tyhp-specific syntax. When this occurs, Tyhp follows a migration process: the Tyhp syntax is deprecated first, then modified or replaced in a subsequent minor version to avoid the conflict. This ensures that Tyhp always remains a valid superset of the PHP version it targets.
+Because Tyhp is a superset of PHP, new PHP versions may occasionally introduce syntax that conflicts with Tyhp-specific syntax. When this occurs, Tyhp works through the steps in `VERSIONING.md` **in order**: first **integrate-and-detect** (keep both syntaxes if they can be distinguished at compile time); then deprecate Tyhp’s form with compile-time options; then remove the old syntax in a later **MINOR**. Do not wait for the next PHP ceiling / MAJOR.
 
 ## Tracking Changes
 

@@ -30,7 +30,7 @@ Output written to: ./build/
 
 ## How do I use watch mode?
 
-Run `tyhp build --watch` to start the compiler in watch mode. The compiler monitors your source files for changes and automatically rebuilds when a file is saved. Incremental compilation ensures that only changed files are re-parsed, making rebuilds fast.
+Watch mode is **not** in this alpha. `tyhp build --watch` reports that it is unimplemented. Rebuild with `tyhp build` after edits, or use an external file watcher.
 
 ## How do I debug Tyhp code?
 

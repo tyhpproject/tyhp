@@ -275,8 +275,7 @@ Extension method calls can be chained. Each link in the chain is independently r
 ```tyhp
 <?tyhp
 
-string $result = $input
-    ->trim()
+string $result = \trim($input)
     ->toSnakeCase()
     ->truncate(50);
 ```
@@ -329,7 +328,7 @@ Do not try to access private or protected members from extension methods — ext
 :::
 
 :::danger
-Do not forget the extends keyword on the first parameter — without it, the method is a regular static method, not an extension method.
+Do not omit the extends keyword on the first parameter — that is a compile error (TYHP4147, CheckerExtensionMissingExtends), not a silent regular static method. The extension declaration itself does not need `extends` (`extension StringExtensions {` is valid).
 :::
 
 :::danger
@@ -339,7 +338,7 @@ Do not use regular use statements for extensions — always use use extension to
 ```tyhp
 <?tyhp
 
-// ERROR: missing extends keyword
+// ERROR TYHP4147: first parameter lacks `extends`
 // extension Bad {
 //     function doSomething(string $value): string { /* ... */ }
 // }
@@ -364,10 +363,9 @@ Do not use regular use statements for extensions — always use use extension to
 
 ## Compiler Errors
 
-- Extension method without extends keyword on the first parameter.
+- Extension method without `extends` on the first parameter (TYHP4147). The extension declaration itself does not require `extends`.
 - Extension operator overload without a <Type> target inside standalone extension bodies (e.g. operator +<Target>(...) is required inside extension Name { ... } blocks; tyhpdef inline extension operator members do not use <Type> because the target is the enclosing class).
 - Using abstract or final on extension operators or on tyhpdef extension function / extension fn / extension operator.
 - Conflicting extension methods for the same type and method name in scope.
 - Accessing private or protected members of the extended type from an extension method.
 - Using a regular use statement instead of use extension for importing extensions.
-- Extension declaration without an extends clause on the extension itself (the extension must declare what type it extends).

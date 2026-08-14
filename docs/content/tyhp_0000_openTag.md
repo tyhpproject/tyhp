@@ -6,7 +6,7 @@ status:
   state: complete
 ---
 
-Two of the first differences you will notice in Tyhp are a new open tag and a new file extension. These allow the Tyhp compiler to distinguish Tyhp code from PHP code and apply its strongly-typed compilation rules only to the appropriate sections. The new open tags work the same way as the existing PHP open tag `<?php`, except that Tyhp does not support short open tags (`<?`) or echo open tags (`<?=`). If either of those are encountered, the compiler treats them as PHP code.
+Two of the first differences you will notice in Tyhp are a new open tag and a new file extension. These allow the Tyhp compiler to distinguish Tyhp code from PHP code and apply its strongly-typed compilation rules only to the appropriate sections. The new open tags work the same way as the existing PHP open tag `<?php`. The echo open tag `<?=` is PHP echo mode (not Tyhp). A bare `<?` is not a PHP short open tag — Tyhp uses `<?` only as the start of `<?tyhp`, `<?tyhpdef`, or `<?php`.
 
 ## The `<?tyhp` Open Tag
 
@@ -47,15 +47,18 @@ Tyhp uses two file extensions that correspond to the two open tags:
 
 The compiler uses the file extension to determine how to parse the file. A `.tyhp` file is parsed starting with the `tyhpSrcFile` grammar rule, which expects `<?tyhp` blocks (with optional inline HTML output between blocks). A `.tyhpdef` file is parsed starting with the `tyhpdefSrcFile` grammar rule, which expects a single `<?tyhpdef` block.
 
+## Tagless source (`source.tagless`)
+
+Set `"source": { "tagless": true }` in `tyhp.json` (or `source.tagless` on a `package.tyhp.json` manifest) to parse `.tyhp` / `.tyhpdef` files as Tyhp/tyhpdef from the first token, without an open tag. Closing `?>` is not allowed in that mode. Use this for files that are entirely Tyhp (no interleaved HTML). The default remains tagged `<?tyhp` / `<?tyhpdef` files.
+
 ## Strict Types Are Always Enabled
 
-In Tyhp, `declare(strict_types=1)` is always active and cannot be disabled. Every `.tyhp` file is compiled with strict types enforced, regardless of whether you explicitly write a `declare(strict_types=1)` statement. This means PHP's type coercion rules do not apply in Tyhp code -- passing an `int` where a `string` is expected always produces a type error, never a silent conversion.
+In Tyhp, compiled PHP output always includes `declare(strict_types=1);`. Every `.tyhp` file is compiled with strict types enforced. This means PHP's type coercion rules do not apply in Tyhp code -- passing an `int` where a `string` is expected always produces a type error, never a silent conversion.
 
 ```tyhp
 <?tyhp
 
-// No need to write declare(strict_types=1) -- it is always on
-// Attempting to disable it has no effect
+// No need to write declare(strict_types=1) -- compiled output always includes it
 
 function greet(string $name): string {
     return "Hello, " . $name;
@@ -83,34 +86,30 @@ Tyhp extends PHP's `declare()` statement with a custom `output_file` directive. 
 <?tyhp
 
 declare(output_file='public/index.php');
+declare(autoload='composer');
 
-// Everything after this directive is emitted to public/index.php
-require_once 'vendor/autoload.php';
-
+// Everything after output_file is emitted to public/index.php
 App\Application $app = new App\Application();
 $app->run();
 ```
 
 :::note
-The `output_file` directive is a Tyhp-specific extension to `declare()`. It is stripped from the compiled PHP output -- only its effect (controlling the output file path) is applied during the build.
+`output_file` and `autoload` are Tyhp-specific `declare()` keys. They are stripped from the compiled PHP output — only their effects (output path and whether the emitter injects an autoloader `require_once`) apply during the build. Tyhp source cannot write `require` / `include` itself (that is always TYHP4801). See the Including Files page.
 :::
 
-## The `declare(tag='identifier')` Directive
+## The `declare(autoload=…)` Directive
 
-The `tag` directive marks a file with an identifier tag that can be referenced by the build configuration. Tags enable selective compilation, file grouping, or conditional inclusion based on build profiles.
+`declare(autoload=…)` is a per-file override for `build.entryPointAutoloader`. Values:
 
-```tyhp
-<?tyhp
+- `'composer'` — inject the configured Composer autoloader (default `vendor/autoload.php` under the output directory)
+- `'none'` (or empty) — do not inject an autoloader for this file
+- a config map key or a path — look up `build.entryPointAutoloader` first, otherwise treat the value as a path relative to the output directory
 
-declare(tag='migrations');
-
-// This file is tagged as a migration file
-// Build configuration can include/exclude files by tag
-```
+The emitter writes the `require_once` into the PHP output. Do not put `require_once 'vendor/autoload.php'` in Tyhp source.
 
 ## How the Compiler Distinguishes Tyhp from PHP
 
-The lexer recognizes the tag that follows `<?` and sets an internal language mode accordingly. When it sees `<?tyhp` followed by whitespace, it emits a `T_TYHP_OPEN_TAG` token and enters Tyhp mode. When it sees `<?tyhpdef` followed by whitespace, it emits a `T_TYHPDEF_OPEN_TAG` token and enters Tyhpdef mode. When it sees `<?php`, it emits the standard `T_OPEN_TAG` token and enters PHP mode. This language mode determines which keywords are active -- for example, `struct`, `async`, `await`, `is`, `typeof`, and `nameof` are only recognized as keywords in Tyhp mode.
+The lexer recognizes the tag that follows `<?` and sets an internal language mode accordingly. When it sees `<?tyhp` followed by whitespace, it emits a `T_TYHP_OPEN_TAG` token and enters Tyhp mode. When it sees `<?tyhpdef` followed by whitespace, it emits a `T_TYHPDEF_OPEN_TAG` token and enters Tyhpdef mode. When it sees `<?php`, it emits the standard `T_OPEN_TAG` token and enters PHP mode. When it sees `<?=`, it enters PHP echo mode (`phpEcho`). A bare `<?` that is not followed by `tyhp`, `tyhpdef`, or `php` is not a PHP short open tag. This language mode determines which keywords are active -- for example, `struct`, `async`, `await`, `is`, `typeof`, and `nameof` are only recognized as keywords in Tyhp mode.
 
 ## Mixing `<?tyhp` and `<?php` in `.tyhp` Files
 
@@ -191,11 +190,7 @@ Don't use `<?php` as the open tag for new Tyhp code. Code inside `<?php` blocks 
 :::
 
 :::danger
-Don't use short open tags (`<?`) or echo open tags (`<?=`) in `.tyhp` files. The compiler treats these as PHP code or inline output, not Tyhp code.
-:::
-
-:::danger
-Don't try to disable strict types with `declare(strict_types=0)`. Tyhp always enforces strict types -- the directive is ignored and the output always includes `declare(strict_types=1)`.
+Don't use `<?=` expecting Tyhp mode — that is PHP echo mode. Don't write a bare `<?` as a PHP short open tag; it is not treated as PHP. Use `<?tyhp` (or tagless source) for Tyhp, and `<?php` only when you intend PHP mode.
 :::
 
 :::danger

@@ -4,6 +4,8 @@ title: 'How New Syntax is Created in Tyhp'
 
 Tyhp is built on top of PHP and uses its syntax first and foremost. However, to achieve features like generics, structs, and strong typing, Tyhp introduces new syntax on top of PHP. This page explains how new syntax is designed, how the compiler pipeline processes it, and how conflicts with future PHP versions are handled.
 
+Compiler versioning (MAJOR encodes the PHP ceiling; MINOR carries Tyhp language change) is described on the [Release Planning](release_planning.md) page. This page is the public mirror of the syntax-conflict and rollout sections of `VERSIONING.md` in the compiler repository.
+
 ## Design Principles for New Syntax
 
 When creating new syntax in Tyhp, the following principles are followed in order of priority:
@@ -35,29 +37,33 @@ Adding a new language feature to Tyhp involves changes at each pipeline stage:
 - Checker rules — Type checking rules are added to validate correct usage
 - Emitter output — The emitter learns to transform the new construct into equivalent PHP code
 
-## Handling PHP Syntax Conflicts
+## PHP syntax conflict resolution
 
-Because Tyhp extends PHP, there is always a possibility that a future PHP version will introduce syntax that conflicts with Tyhp's additions. When this happens, Tyhp follows a defined migration process:
+Because Tyhp builds on PHP's syntax first and only adds new syntax when necessary, a future PHP version can introduce syntax that conflicts with, or overlaps, a Tyhp syntax. When that happens Tyhp works through the following, in order (usually spread across one or more releases):
 
-1. If PHP implements the same feature using a different syntax, Tyhp deprecates its own syntax in favor of PHP's. Compile-time flags allow both syntaxes during the transition. (MINOR to deprecate; a later MINOR to change the default and drop the old syntax.)
-2. If PHP introduces a different feature that uses conflicting syntax, Tyhp attempts to detect and differentiate the usages at compile time. If differentiation is not feasible, Tyhp transitions to a new non-conflicting syntax. (MINOR throughout — not held for the next MAJOR / PHP ceiling bump.)
-3. If PHP adds new functionality that does not conflict, Tyhp adopts the new PHP syntax on the next feasible release. (MINOR, or MAJOR only if that PHP version is also a new ceiling.)
-4. In all cases, Tyhp tries to detect usages of both PHP and Tyhp syntax at compile time to support both during the transition period.
+1. **Integrate and detect.** Try to adopt PHP's change while detecting each syntax (PHP's and Tyhp's) at compile time so both can coexist. Not always practical or possible, but always the preferred first step. Usually a MINOR change. If the conflict arrives with a new PHP minor, a MAJOR bump may ship in the same train because the PHP ceiling moved — the Tyhp syntax work is still MINOR.
+2. **PHP implements the same feature differently.** Deprecate Tyhp's own syntax in favor of PHP's. Compile flags may enable or disable either syntax until Tyhp drops the old one. MINOR to deprecate; a later MINOR to change the default and remove the old syntax.
+3. **PHP implements a different feature whose syntax conflicts with Tyhp's.** If the two usages can be reliably differentiated at compile time, keep both. If not, migrate Tyhp's syntax to be compatible: first deprecate the old syntax (with compile-time enable/disable options), then remove it. MINOR throughout — do not wait for the next PHP / MAJOR bump.
+4. **PHP adds new functionality that does not affect any Tyhp syntax.** Adopt the new PHP syntax at the next feasible release. Tyhp tracks PHP dev releases and roadmaps to anticipate this. MINOR, or MAJOR only if that PHP version is also a new ceiling.
 
-## Conflict Resolution Timeline
+Tyhp-only language evolution does not wait for a PHP version bump and is not scheduled as "the next MAJOR." MAJOR only changes when the highest supported PHP minor changes.
 
-When a syntax conflict is discovered with a new PHP version, the following steps are taken:
+## Rollout plan for incompatible changes
 
-1. **[Immediate]** — An alert is issued to developers indicating the incompatibility with the specific PHP version.
-2. **[ASAP]** — A PATCH release adds parsing support for the new PHP syntax, with compile-time options to toggle between PHP's and Tyhp's conflicting syntax. The default preserves existing Tyhp behavior.
-3. **[ASAP, if applicable]** — A MINOR release deprecates the old Tyhp syntax and provides an alternative syntax with the same functionality. The new syntax is opt-in via a compiler option.
-4. **[Later MINOR]** — The old conflicting syntax is removed. The new syntax becomes the default and the transitional compiler options are removed. This does not wait for the next PHP / MAJOR bump.
+This plan applies whether the incompatibility comes from a new PHP version or from Tyhp changing its own syntax. Removal and default-flips are MINOR work. They are not held for the next MAJOR, because MAJOR only moves when the PHP ceiling does.
+
+- **a. [immediate]** Alert developers (via this website) about the incompatibility.
+- **b. [asap]** Emergency PATCH that adds compile-time option(s) to disable the new, incompatible syntax (PHP and/or Tyhp) and to enable/disable the corresponding alternative. Default: keep existing Tyhp behavior. May be delayed if parsing new PHP syntax is substantial work.
+- **c. [asap, if applicable]** A MINOR that deprecates the old conflicting Tyhp syntax and, if PHP does not fully replace it, provides a new Tyhp alternative. The alternative is off by default; the option from (b) still applies. Gives developers time to migrate.
+- **d. [later MINOR]** The old syntaxes are removed in favor of the new ones, and the compile options from (b) and (c) are removed. This can be `805.N.0` on the same PHP ceiling; it does not require `806.0.0`.
+
+If the conflict is introduced by a new PHP minor, (b)–(d) may ship on the new MAJOR (`806.x`) because that release is the one that claims support for that PHP. The version *part* that carries the Tyhp syntax change is still MINOR.
 
 ## Community Feature Proposals
 
 The Tyhp language is open to community-driven feature proposals. If you have an idea for a new language feature or syntax improvement:
 
-1. Open an issue on the Tyhp GitHub repository describing the proposed feature, its syntax, and its use cases
+1. Open an issue on [tyhpproject/tyhp](https://github.com/tyhpproject/tyhp/issues) describing the proposed feature, its syntax, and its use cases
 2. Include examples showing the proposed Tyhp syntax and the expected PHP output
 3. Discuss how the feature interacts with existing Tyhp and PHP syntax
 4. Consider potential conflicts with future PHP development roadmaps

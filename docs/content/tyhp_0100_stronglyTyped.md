@@ -20,7 +20,7 @@ The places in PHP that already support optional type hints are required to be ty
 Additionally, Tyhp requires types for:
 
 - Variables -- either an explicit type declaration or type inference on first assignment
-- Closure / arrow function parameters and return types
+- Closure / arrow function parameters and return types — required unless the type is inferable from an expected callable type
 - Catch block exception types
 
 ## Variable Type Declarations
@@ -66,12 +66,12 @@ Tyhp also supports parenthesized type declarations, where the type is wrapped in
 // Parenthesized type declaration
 (string) $myStr = "hello";
 (int|float) $number = 3.14;
-(decimal) $price = 19.99d;
+(decimal) $price = \Tyhp\decimal('19.99');
 
 // Equivalent to:
 string $myStr2 = "hello";
 int|float $number2 = 3.14;
-decimal $price2 = 19.99d;
+decimal $price2 = \Tyhp\decimal('19.99');
 ```
 
 ## 2. Type Inference from First Assignment
@@ -85,9 +85,9 @@ When you assign a value to a variable without an explicit type declaration, Tyhp
 $myStr = "asdf";           // Inferred as `string`
 $myBool = \canIMoveThis(); // Inferred from the function's return type
 $price = 19.99;            // Inferred as `float`
-$discount = 1.89d;         // Inferred as `decimal`
+$amount = \Tyhp\decimal('1.89'); // Inferred as `decimal`
 $count = 42;              // Inferred as `int`
-$items = [1, 2, 3];       // Inferred as `array<int>`
+$items = [1, 2, 3];       // Inferred as `array<int>` (list shorthand for `array<int|string, int>`)
 ```
 
 :::note
@@ -109,9 +109,23 @@ string $name = "Alice";
 string|null $alsoNullable = null;  // Also OK
 ```
 
+## Closure and Arrow Parameter Inference
+
+Named function and method parameters always need an explicit type. Closure and arrow-function parameters also need a type, unless the expected callable type supplies it. If there is no expected callable type (or the parameter cannot be inferred), the compiler requires an annotation.
+
+```tyhp
+<?tyhp
+
+// $u is inferred as User from the expected callable type
+callable<User, bool> $isAdult = fn ($u) => $u->age > 18;
+
+// No expected type — annotate the parameter
+$double = fn (int $n): int => $n * 2;
+```
+
 ## Type Immutability
 
-Once a variable is typed -- whether explicitly declared or inferred -- its type is immutable. You cannot assign a value of an incompatible type, and you cannot re-declare a variable with a different type in the same scope.
+Once a variable is typed -- whether explicitly declared or inferred -- its type is immutable. You cannot assign a value of an incompatible type, and you cannot re-declare a variable with a different type in the same scope. `unset($x)` does not let you redeclare `$x` with a new type.
 
 ```tyhp
 <?tyhp
@@ -125,26 +139,6 @@ string $myStr = "hello";
 // int $myStr = 42;
 ```
 
-## The `unset` + Re-declare Pattern
-
-If you need to change a variable's type, you must first `unset` it and then re-declare it. The `unset` call removes the variable from the current scope, allowing a fresh declaration.
-
-```tyhp
-<?tyhp
-
-string $myStr = "hello";
-
-// Remove the variable from scope
-unset($myStr);
-
-// Now re-declare with a different type
-int $myStr = 42;  // OK: previous declaration was unset
-```
-
-:::warning
-The `unset` call must be in the same scope where the variable was declared. You cannot `unset` a variable from a parent scope.
-:::
-
 ## Array and Generic Types
 
 Tyhp extends PHP's `array` type with generic parameters for type-safe collections. See the New Types page for the full list of generic types.
@@ -152,7 +146,7 @@ Tyhp extends PHP's `array` type with generic parameters for type-safe collection
 ```tyhp
 <?tyhp
 
-// Typed arrays using generics
+// Typed arrays using generics (`array<string>` is list shorthand for `array<int|string, string>`)
 array<string> $names = ["Alice", "Bob"];
 array<string, int> $ages = ["Alice" => 30, "Bob" => 25];
 
@@ -225,7 +219,7 @@ Don't assign a value of an incompatible type to a typed variable. Once a variabl
 :::
 
 :::danger
-Don't try to re-declare a variable's type without unsetting it first. Duplicate type declarations in the same scope produce a `BinderDuplicateSymbolDeclaration` error.
+Don't try to re-declare a variable's type in the same scope. Duplicate type declarations produce a `BinderDuplicateSymbolDeclaration` error. `unset()` does not start a new typed declaration.
 :::
 
 :::danger

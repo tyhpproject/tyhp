@@ -7,7 +7,6 @@
             "lastUpdated": "", // leave empty to auto-calculate based on file modification timestamps
             "section": "Introduction",
             "items": [
-                "_template.md",
                 "intro.md",
                 "intro_installation.md",
                 "intro_gettingStarted.md",
@@ -49,7 +48,7 @@
                 "tyhp_0150_newTypes.md", // the decimal type, nd other new types
                 "tyhp_0151_newFunctions.md", // new functions
                 "tyhp_0200_typeNarrowingAndGuards.md", // typeguard functions/methods and the type guard return type
-                "tyhp_0300_includingFiles.md", // declare(output_file=,tag=), include(_once)/require(_once)
+                "tyhp_0300_includingFiles.md", // tyhp.json include globs, Composer autoload, declare(output_file); include/require are TYHP4801
                 "tyhp_0310_declarationGating.md", // if (!function_exists/class_exists) declaration gates + FQN checks
                 "tyhp_0350_useStatements.md", // use statements, use extension, generic import aliases
                 "tyhp_0400_structs.md", // structs
@@ -74,7 +73,6 @@
                 "tyhp_2900_lostFunctionality.md", // lost/changed functionality from PHP
                 "tyhp_3000_parsableLambdas.md", // parsable lambdas and expression trees
                 "tyhp_3100_internalModifier.md", // the internal visibility modifier
-                "tyhp_3200_initPropertyModifier.md", // the init property modifier
                 "tyhp_3300_nullConditionalAssignment.md", // null-conditional assignment ($obj?->prop = val)
                 "tyhp_3400_newTypeConstraint.md", // new<TArgs...> constructable object type
                 "tyhp_3500_genericDefaults.md" // generic type parameter defaults

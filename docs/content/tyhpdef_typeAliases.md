@@ -125,7 +125,7 @@ DON'T: Declare type aliases inside class, interface, or trait blocks within tyhp
 :::
 
 :::danger
-DON'T: Create circular type aliases where alias A references alias B and alias B references alias A. The compiler will detect and reject circular definitions.
+DON'T: Create circular type aliases where alias A references alias B and alias B references alias A. This alpha does not emit a dedicated circular-alias diagnostic; keep aliases acyclic yourself.
 :::
 
 ## Summary
@@ -137,4 +137,4 @@ DON'T: Create circular type aliases where alias A references alias B and alias B
 - Type aliases in tyhpdef can only appear at root level or inside namespace blocks
 - Type aliases are a compile-time construct — they are erased during PHP emission
 - Type aliases are interchangeable with their underlying type at compile time
-- Type aliases can reference other type aliases (but not circularly)
+- Type aliases can reference other type aliases (avoid cycles; they are not diagnosed in this alpha)

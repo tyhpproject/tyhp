@@ -101,6 +101,22 @@ reconsidered on those much smaller terms. The rejection is of the general mechan
 > **Related:** `sealed` classes/interfaces and value-semantics for object types are tracked separately in
 > `DESIGN_OPEN_QUESTIONS.md`; neither depends on this.
 
+### C#-style `init` property modifier — REJECTED
+
+A write-once-during-construction property modifier (C# `init`: settable in the constructor and via `with`,
+but not by later assignment). Website drafts treated it as a live feature, distinct from `readonly`
+(which those drafts claimed would also block `with`).
+
+**Why rejected:** `readonly` plus `clone ... with` / `new ... with` already covers the immutable-update
+pattern. `readonly` blocks in-place mutation after construction; `with` on a new or cloned instance can
+still set those properties on the copy. A second modifier would duplicate that, and the compiler never
+grew grammar, binder, checker, or diagnostic codes for `init` as a property modifier (`TYHP4055` /
+`TYHP4056` in those drafts collide with unrelated checker codes).
+
+This is not coming back. Document `readonly` + `with` instead
+(`docs/content/tyhp_2200_withKeyword.md`). On PHP 8.2–8.4, `clone ... with` on `readonly` needs
+`build.experimentalReadonlyCloneWith: true`; PHP 8.5+ does it natively.
+
 ---
 
 ## Firm decisions
@@ -116,6 +132,3 @@ abandoned.
 `eval`-using code must be written in **PHP** and imported via a `tyhpdef` file — it may not be written directly
 in Tyhp.
 
-> **Note:** the status of the `init` property modifier is currently **unresolved** (an old scratch note said it
-> was cancelled in favor of `readonly`, but the website docs still document it as a live feature). It is tracked
-> in `DESIGN_OPEN_QUESTIONS.md` until confirmed one way or the other.

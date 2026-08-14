@@ -28,7 +28,7 @@ type UserId = int;
 type StringOrNull = string|null;
 
 // Complex type alias
-type Callback = callable(string, int): bool;
+type Callback = callable<string, int, bool>;
 
 // Using type aliases
 function findUser(UserId $id): ?User {
@@ -78,7 +78,8 @@ type Map<TKey, TValue> = array<TKey, TValue>;
 
 // Using generic type aliases
 Collection<string> $names = ['Alice', 'Bob'];
-Optional<int> $age = null;
+Optional<int> $age = null;           // T = int
+Optional $unknown = null;            // T defaults to mixed (generic defaults are shipped)
 Map<string, User> $users = [];
 ```
 
@@ -89,7 +90,20 @@ declare(strict_types=1);
 
 $names = ['Alice', 'Bob'];
 $age = null;
+$unknown = null;
 $users = [];
+```
+
+## Template String Types
+
+Type aliases can name template (encaps) string types — double-quoted patterns in type position with `${T}` holes and quantifiers after `}` (`?`, `+`, `*`). They erase to `string`.
+
+```tyhp
+<?tyhp
+
+type AnyString = "${string}*";
+type ApiPath = "api/${string}/items";
+type OptionalPrefix = "${string}?id";
 ```
 
 ## Class-Level Type Aliases
@@ -104,20 +118,20 @@ class UserService {
     public type UserIdType = int;
 
     // Protected — accessible from subclasses
-    protected type UserData = array{name: string, email: string};
+    protected type UserData = array<string, string>;
 
     // Private — only accessible within this class
-    private type InternalState = array{cache: array, dirty: bool};
+    private type InternalState = array<string, mixed>;
 
     private InternalState $state;
 
-    public function findUser(UserIdType $id): ?User {
+    public function findUser(self\UserIdType $id): ?User {
         // ...
     }
 }
 
-// Accessing a public class-level type alias from outside
-UserService\UserIdType $id = 42;
+// Prefer self\Alias inside the class (as above). ClassName\Alias from outside
+// (e.g. UserService\UserIdType) may not bind/check completely yet.
 ```
 
 ```php
@@ -133,13 +147,11 @@ class UserService {
         // ...
     }
 }
-
-$id = 42;
 ```
 
 ## Self, Static, and Parent Scoping
 
-Class-level type aliases can be referenced using self, static, and parent, just like class constants and methods.
+Class-level type aliases can be referenced using self, static, and parent, just like class constants and methods. Prefer `self\Alias` (and `parent\Alias`) inside the class. Qualifying as `ClassName\Alias` from outside the class may not bind or check completely yet.
 
 ```tyhp
 <?tyhp
@@ -248,7 +260,7 @@ The compiler reports an error if a type alias references a type that does not ex
 ## Best Practices
 
 :::tip
-Use type aliases to give meaningful names to complex type expressions — this improves code readability. For example, type Callback = callable(Request): Response is clearer than repeating the callable signature everywhere.
+Use type aliases to give meaningful names to complex type expressions — this improves code readability. For example, type Callback = callable<string, int, bool> is clearer than repeating the callable signature everywhere.
 :::
 
 :::tip

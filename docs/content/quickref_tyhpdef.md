@@ -19,17 +19,15 @@ function myPhpFunction(string $input): int;
 
 ## Variables and Constants
 
-Declare global PHP variables and constants with types. Use `??` for fallback defaults, `as` for aliasing, and `&` for import-by-reference. Supports `deprecated`/`obsolete` markers.
+Declare global PHP variables and constants with types. Use `as` for aliasing. Top-level `deprecated`/`obsolete` work. Tyhpdef `??` is parsed but **not** applied; `&` is not a tyhpdef form.
 
 <a href="tyhpdef_variablesAndConstants.html">See full documentation →</a>
 
 ```tyhp
-bool $debugMode ?? false;
-string $legacy_app_name as $appName ?? "DefaultApp";
-int &$sharedCounter;
+bool $debugMode;
+string $legacy_app_name as $appName;
 
 const string APP_ENV;
-const float TAX_RATE ?? 0.08;
 const int \MAX_LOOPS_ALLOWED as MAX_LOOPS;
 ```
 
@@ -198,18 +196,18 @@ public function find(array<string, mixed> $criteria): array<User>;
 
 ## The `deprecated` and `obsolete` Keywords
 
-`deprecated` produces a compiler warning but still compiles. `obsolete` produces a compiler error and blocks compilation. Both must appear before all other modifiers. Can be applied to functions, classes, interfaces, traits, enums, methods, properties, constants, and enum cases.
+`deprecated` produces a compiler warning but still compiles. `obsolete` produces a compiler error and blocks compilation. Both must appear before all other modifiers. In this alpha they are enforced on **top-level** functions, classes, interfaces, traits, enums, constants, and variables — not on class/interface members or enum cases.
 
 <a href="tyhpdef_deprecatedKeyword.html">See full documentation →</a>
 
 ```tyhp
-deprecated function \mysql_connect(string $server, string $user, string $pass): resource|false;
+deprecated function \mysql_connect(string $server, string $user, string $pass): \mysqli|false;
 obsolete function \md5(string $string, bool $binary = false): string;
 ```
 
 ## Runtime Errors and Exceptions
 
-When tyhpdef declarations don't match actual PHP code, runtime errors can occur. Declare exception hierarchies, use `@throws` annotations, and provide fallback defaults with `??` to prevent type mismatch errors.
+When tyhpdef declarations don't match actual PHP code, runtime errors can occur. Declare exception hierarchies and document throws with `@throws` (documentation only in this alpha).
 
 <a href="tyhpdef_runTimeErrorsAndExceptions.html">See full documentation →</a>
 

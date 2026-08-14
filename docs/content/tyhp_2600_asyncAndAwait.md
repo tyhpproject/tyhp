@@ -85,18 +85,18 @@ async function processOrder(int $orderId): OrderResult {
 
 ## The Promise<T> Type
 
-The Promise<T> class is provided by the tyhp/async Composer package. It represents an asynchronous computation that eventually resolves to a value of type T. The generic parameter T uses the constraint extends void|mixed, allowing Promise<void> for async functions that return nothing. Unparameterized Promise defaults to Promise<void>.
+The Promise<T> class is provided by the tyhp/async Composer package. It represents an asynchronous computation that eventually resolves to a value of type T. The generic parameter is `TReturn extends void|mixed = mixed`, so unparameterized `Promise` defaults to `Promise<mixed>` (not `Promise<void>`). `Promise<void>` is still valid for async functions that return nothing.
 
 ## Promise Combinators
 
 Promise provides static combinator methods for coordinating multiple async operations.
 
-:::member[Promise::all(array<Promise<T>> $promises): array<T>]
-Waits for ALL promises to resolve. Returns an array of resolved values in the same order. If any promise rejects, the entire all() rejects with that error.
+:::member[Promise::all(array<Promise<T>> $promises): Promise<array<T>>]
+Waits for ALL promises to resolve. After `await`, you get an array of resolved values in the same order. If any promise rejects, the entire all() rejects with that error.
 :::
 
-:::member[Promise::race(array<Promise<T>> $promises): T]
-Returns the value of the FIRST promise to settle (resolve or reject). Other promises continue running but their results are discarded.
+:::member[Promise::race(array<Promise<T>> $promises): Promise<T>]
+After `await`, returns the value of the FIRST promise to settle (resolve or reject). Other promises continue running but their results are discarded.
 :::
 
 :::member[Promise::resolved(T $value): Promise<T>]
@@ -107,20 +107,20 @@ Creates a pre-resolved promise with the given value. Useful for returning synchr
 Creates a pre-rejected promise with the given error.
 :::
 
-:::member[Promise::delay(int $ms): void]
-An async method that resolves after the specified number of milliseconds. Useful for implementing backoff, throttling, or timeouts.
+:::member[Promise::delay(int $ms): Promise<void>]
+An async method that resolves after the specified number of milliseconds. `await Promise::delay(...)` yields `void`. Useful for implementing backoff, throttling, or timeouts.
 :::
 
-:::member[Promise::timeout(Promise<T> $promise, int $ms): T]
-Races a promise against a timeout. If the promise does not resolve within the specified milliseconds, a TimeoutException is thrown.
+:::member[Promise::timeout(Promise<T> $promise, int $ms): Promise<T>]
+Races a promise against a timeout. After `await`, you get `T`. If the promise does not resolve within the specified milliseconds, a TimeoutException is thrown.
 :::
 
-:::member[Promise::batch(array<TItem> $items, callable $processor, int $concurrency = 5): array<TResult>]
-Processes an array of items through an async processor function with a configurable concurrency limit. Returns an array of results.
+:::member[Promise::batch(array<TItem> $items, callable $processor, int $concurrency = 5): Promise<array<TResult>>]
+Processes an array of items through an async processor function with a configurable concurrency limit. After `await`, you get an array of results.
 :::
 
-:::member[Promise::run(callable $fn): T]
-Runs a callable inside the event loop. Used at the lowest async boundary to start the event loop. This is the entry point for async code from synchronous contexts.
+:::member[Promise::run(callable $fn): ?T]
+Runs a callable inside the event loop. Used at the lowest async boundary to start the event loop. This is the entry point for async code from synchronous contexts — it returns the unwrapped value, not a Promise.
 :::
 
 ```tyhp
@@ -240,8 +240,9 @@ class DataService {
         return $this->doProcess($d);
     }
 
-    // Async overload
-    public async function process(Data $d): Promise<Result> {
+    // Async overload — declared return is the unwrapped type (Result).
+    // Writing `Promise<Result>` here would wrap twice: Promise<Promise<Result>>.
+    public async function process(Data $d): Result {
         await $this->validate($d);
         return $this->doProcess($d);
     }
@@ -360,9 +361,9 @@ The tyhp/async package provides CancellationToken and CancellationTokenSource fo
 <?tyhp
 
 async function fetchWithTimeout(string $url): Data {
-    // CancellationTokenSource auto-cancels after 5000ms
-    $cts := new CancellationTokenSource(timeout: 5000);
-    return await $http->get($url, $cts->token);
+    // CancellationTokenSource auto-cancels after 5000ms (positional ctor, not `timeout:`)
+    $cts := new CancellationTokenSource(5000);
+    return await $http->get($url, $cts->getToken());
     // CancellationTokenSource is disposed when scope exits
 }
 
@@ -370,7 +371,7 @@ async function fetchWithManualCancel(string $url): ?Data {
     $cts := new CancellationTokenSource();
 
     try {
-        return await $http->get($url, $cts->token);
+        return await $http->get($url, $cts->getToken());
     } catch (\Throwable $e) {
         $cts->cancel(); // manually cancel on error
         return null;
@@ -459,11 +460,7 @@ function notAsync(): int {
     return 0;
 }
 
-// ERROR: async function must have Promise-compatible return type
-// async function bad(): int {  // Error: declared return is int,
-//     return 42;                 // but async wraps in Promise<int>
-// }
-// FIX: The return type IS the unwrapped type — Tyhp handles wrapping
+// The declared return type IS the unwrapped type — Tyhp wraps it in Promise<T>
 async function good(): int {
     return 42; // OK: returns Promise<int>, declared as int
 }

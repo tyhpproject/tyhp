@@ -145,7 +145,7 @@ enum Result<T> {
     case Ok;
     case Error;
 
-    public function map<U>(callable(T): U $fn): Result<U> {
+    public function map<U>(callable<T, U> $fn): Result<U> {
         // ...
     }
 }
@@ -171,7 +171,7 @@ function firstOrNull<T>(array<T> $items): ?T {
 
 // Generic method on a class
 class Transformer {
-    public function transform<TIn, TOut>(TIn $input, callable(TIn): TOut $fn): TOut {
+    public function transform<TIn, TOut>(TIn $input, callable<TIn, TOut> $fn): TOut {
         return $fn($input);
     }
 }
@@ -246,13 +246,12 @@ Generic type parameters can have default types, specified with = after the optio
 ```tyhp
 <?tyhp
 
-// Promise defaults TReturn to void — the common case for async procedures
-class Promise<TReturn extends void|mixed = void> {
+// Promise defaults TReturn to mixed (runtime: tyhp/async)
+class Promise<TReturn extends void|mixed = mixed> {
     // ...
 }
 
-// All equivalent — TReturn defaults to void
-Promise $p1 = new Promise();
+Promise $p1 = new Promise();            // TReturn = mixed
 Promise<void> $p2 = new Promise<void>();
 
 // Override the default
@@ -293,14 +292,14 @@ class Counter<T extends Countable = array> {
     // ...
 }
 
-// ERROR: TYHP4061 — string does not implement Countable
+// ERROR: TYHP4310 — string does not implement Countable
 // class BadCounter<T extends Countable = string> {
 //     ...
 // }
 ```
 
 :::warning
-Error TYHP4061 (CheckerGenericDefaultDoesNotSatisfyConstraint): "Default type 'string' does not satisfy constraint 'Countable' on generic parameter 'T'"
+Error TYHP4310 (CheckerGenericDefaultDoesNotSatisfyConstraint): "Default type 'string' does not satisfy constraint 'Countable' on generic parameter 'T'"
 :::
 
 ## Trailing Rule for Defaults
@@ -315,12 +314,12 @@ class Valid<T, U = int> {}
 class AlsoValid<T, U = int, V = string> {}
 class AllDefaults<T = mixed> {}
 
-// ERROR: TYHP4062 — U has no default but follows T which has one
+// ERROR: TYHP4311 — U has no default but follows T which has one
 // class Invalid<T = int, U> {}
 ```
 
 :::danger
-Error TYHP4062 (CheckerGenericNonDefaultAfterDefault): "Generic parameter 'U' without a default cannot follow parameter 'T' which has a default"
+Error TYHP4311 (CheckerGenericNonDefaultAfterDefault): "Generic parameter 'U' without a default cannot follow parameter 'T' which has a default"
 :::
 
 ## Type Inference Priority Over Defaults
@@ -451,7 +450,7 @@ Use constraints (extends) to limit type parameters to types that support the ope
 :::
 
 :::tip
-Use defaults on type parameters when there is a sensible common case (e.g., Promise<T = void>). This reduces boilerplate for callers.
+Use defaults on type parameters when there is a sensible common case (e.g., `Promise<TReturn extends void|mixed = mixed>`). This reduces boilerplate for callers.
 :::
 
 :::tip
@@ -469,11 +468,11 @@ Don't rely on generics at runtime — they are erased from PHP output and exist 
 :::
 
 :::danger
-Don't place a non-defaulted type parameter after a defaulted one — this produces error TYHP4062.
+Don't place a non-defaulted type parameter after a defaulted one — this produces error TYHP4311.
 :::
 
 :::danger
-Don't specify a default type that does not satisfy the constraint — this produces error TYHP4061.
+Don't specify a default type that does not satisfy the constraint — this produces error TYHP4310.
 :::
 
 :::danger
@@ -481,5 +480,5 @@ Don't over-use generics for types that are naturally a single concrete type — 
 :::
 
 :::danger
-Don't create self-referencing defaults (e.g., <T = T>) — this is a circular reference error.
+Don't create self-referencing defaults (e.g., <T = T>) — this is circular-reference error TYHP4312.
 :::

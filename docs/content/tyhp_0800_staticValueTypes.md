@@ -6,7 +6,7 @@ status:
   state: complete
 ---
 
-Tyhp supports static value types (also called literal types) — types that represent a single specific value rather than a range of values. A static value type is the type of a particular literal: the integer 42, the string 'hello', or the boolean true. Static value types enable precise type narrowing, exhaustive pattern matching, and more expressive function signatures.
+Tyhp supports static value types (also called literal types) — types that represent a single specific value rather than a range of values. A static value type is the type of a particular literal: the integer 42, the string 'hello', or the boolean true. Static value types enable precise type narrowing and more expressive function signatures (including overload dispatch on literals).
 
 ## Supported Literal Types
 
@@ -237,7 +237,7 @@ Status $s = 'active';    // OK
 
 ## Interaction with match Expressions
 
-Static value types work with match expressions. The compiler can verify exhaustiveness — that all possible values are handled.
+Static value types work with match expressions. The compiler does **not** check match exhaustiveness. A non-exhaustive `match` is accepted at compile time; at runtime PHP throws `\UnhandledMatchError` if no arm matches.
 
 ```tyhp
 <?tyhp
@@ -249,7 +249,8 @@ function toHex(Color $color): string {
         'red' => '#FF0000',
         'green' => '#00FF00',
         'blue' => '#0000FF',
-        // No default needed — all cases are covered
+        // A default arm is optional at compile time; omit it and a missing
+        // runtime value throws UnhandledMatchError
     };
 }
 ```
@@ -279,7 +280,7 @@ Take advantage of automatic type narrowing — check literal values in condition
 ## Common Mistakes
 
 :::danger
-Don't use literal types when a backed enum would be more appropriate — enums provide methods, interfaces, and exhaustiveness checking, which literal unions do not.
+Don't use literal types when a backed enum would be more appropriate — enums provide methods and interfaces. Match exhaustiveness is not compile-checked for either literal unions or enums.
 :::
 
 :::danger

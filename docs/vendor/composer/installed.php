@@ -1,9 +1,9 @@
 <?php return array(
     'root' => array(
         'name' => 'tyhp/docs',
-        'pretty_version' => 'dev-master',
-        'version' => 'dev-master',
-        'reference' => 'bdba99caa84fcab06172b09051613ac77217ffff',
+        'pretty_version' => 'dev-main',
+        'version' => 'dev-main',
+        'reference' => 'd4c2a7ee160ad511199db0dbed44395317c91d8c',
         'type' => 'project',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -110,9 +110,9 @@
             'dev_requirement' => false,
         ),
         'tyhp/docs' => array(
-            'pretty_version' => 'dev-master',
-            'version' => 'dev-master',
-            'reference' => 'bdba99caa84fcab06172b09051613ac77217ffff',
+            'pretty_version' => 'dev-main',
+            'version' => 'dev-main',
+            'reference' => 'd4c2a7ee160ad511199db0dbed44395317c91d8c',
             'type' => 'project',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

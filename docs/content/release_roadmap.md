@@ -3,7 +3,7 @@ title: Roadmap
 status:
   tier: 3
   story: '30'
-  state: planned
+  state: complete
 ---
 
 Tyhp is built in a deliberately ordered sequence of stories, grouped into four tiers. The guiding principle is a thin vertical slice that compiles and runs end-to-end as early as possible.
@@ -41,6 +41,7 @@ The two flagships are **Story 08 — the type checker** (the correctness engine 
 6. **Story 15 — The Tyhp ↔ PHP interop contract** (written down).
 7. **Story 16 — Parsable lambdas (expression trees)** — <i>flagship wedge showcase</i>.
 8. **Story 16.5 — Callable signature utilities** (`__CallableParametersStruct` / `__CallableParametersTuple` / `__CallableReturnType`).
+9. **Story 28 — Generic type parameter defaults** (originally sequenced in Tier 3; already in this alpha).
 
 ## Tier 2 — Developer Experience & Ecosystem — not in this alpha
 
@@ -60,9 +61,10 @@ The two flagships are **Story 08 — the type checker** (the correctness engine 
 3. **Story 25 — `internal` visibility modifier.**
 4. **Story 26 — Null-conditional chaining with assignment.**
 5. **Story 27 — `new<TArgs...>` constructable object type.**
-6. **Story 28 — Generic type parameter defaults.**
-7. **Story 29 — Tyhp reflection API** (sourcemap-backed).
-8. **Story 30 — Documentation & polish** (final capstone).
+6. **Story 29 — Tyhp reflection API** (sourcemap-backed).
+7. **Story 30 — Documentation & polish** (final capstone).
+
+> Story 28 (generic defaults) shipped with this alpha; see Tier 1 above.
 
 ## Runtime Library Packages
 

@@ -30,14 +30,14 @@ $value = new SomeObject();
 
 ## Requiring Type Guards Before Use
 
-Tyhp enforces that you narrow a mixed value to a specific type before performing type-specific operations. This is done through type guards: instanceof/is checks, type-checking functions (is_string, is_int, etc.), null checks, and user-defined type guard functions.
+Tyhp enforces that you narrow a mixed value to a specific type before performing type-specific operations. This is done through type guards: instanceof/is checks (scalars emit `\Tyhp\Type::is(...)`), type-checking functions (is_string, is_int, etc.), null checks (`$item === null` / `$item !== null`, not `$item is null`), and user-defined type guard functions.
 
 ```tyhp
 <?tyhp
 
 function processValue(mixed $value): string {
     // ERROR — cannot call string methods on mixed
-    // return $value->toUpperCase();
+    // return \strtoupper($value);
 
     // ERROR — cannot perform arithmetic on mixed
     // return $value + 1;
@@ -63,7 +63,7 @@ After a type guard narrows the type, the compiler automatically tracks the narro
 <?tyhp
 
 function describe(mixed $item): string {
-    if ($item is null) {
+    if ($item === null) {
         return 'null';
     }
     // After the null check, $item is non-null mixed
@@ -80,7 +80,7 @@ function describe(mixed $item): string {
 
     if (\is_string($item)) {
         // $item is automatically string here
-        return 'String: ' . $item->toupper();
+        return 'String: ' . \strtoupper($item);
     }
 
     return 'Unknown type';

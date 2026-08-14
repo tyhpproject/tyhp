@@ -22,7 +22,7 @@ tyhp build [options]
 - --dry-run — Run the full compilation pipeline (parse, bind, check, emit) but do not write any output files. Reports what would be written.
 - --strict — Treat warnings as errors. The build fails if any warnings are produced.
 - --quiet — Suppress the banner and non-diagnostic output.
-- --watch — Watch source files for changes and rebuild automatically.
+- --watch — Planned. Prints that watch mode is not implemented; use a rebuild loop or external file watcher instead.
 
 ## Build Process
 
@@ -36,8 +36,7 @@ The build action performs the following steps in order:
 6. Run the type checker to validate type compatibility, null safety, generic constraints, and other rules.
 7. If errors are found, display diagnostics and exit with code 4 (CompileError). If --strict is set and warnings are found, exit with code 5 (CompileWarning).
 8. Run the emitter to transform Tyhp-specific constructs into PHP equivalents.
-9. Write compiled PHP files to the output directory.
-10. Write compiled PHP files to the output directory and update composer.json with Tyhp runtime package requires when needed.
+9. Write compiled PHP files to the output directory. When `build.updateComposer` is true, also update `composer.json` with Tyhp runtime package requires.
 
 Sourcemap generation and `generate_tyhpdef` are **not** in this alpha even if the config keys exist.
 
@@ -61,7 +60,11 @@ The build action reads configuration from the tyhp.json project file. Key config
 - build.structBacking — How structs are backed in PHP: "array" (default: "array").
 - build.decimalBacking — Decimal math backend: "bcmath" or "gmp" (default: "bcmath").
 - build.decimalScale — Default scale for decimal operations (default: 28).
+- build.decimalRounding — Default rounding mode (default: `"halfUp"`).
 - build.allowEval — Re-enable the eval() function, which is disabled by default in Tyhp (default: false).
+- build.experimentalReadonlyCloneWith — Allow `clone ... with` on `readonly` properties for PHP 8.2–8.4 (default: false). PHP 8.5+ does not need this flag.
+- build.runtimeGenericChecks — Emit runtime type checks at generic boundaries (default: false).
+- build.entryPointAutoloader — Optional map of named autoloader paths injected into entry points.
 - psr4 — PSR-4 namespace-to-directory mappings for the output.
 - psr4Includes — Additional PSR-4 autoload paths.
 

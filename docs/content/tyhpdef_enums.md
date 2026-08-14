@@ -24,7 +24,7 @@ enum Status {
 
 ## Backed Enums
 
-A backed enum associates each case with a scalar value of a specific type — either `string` or `int`. When importing a backed enum in Tyhpdef, specifying case values is optional. Cases with explicit values enable exact-value type matching, while cases without values match the backing type generally.
+A backed enum associates each case with a scalar value of a specific type — either `string` or `int`. When importing a backed enum in Tyhpdef, specifying case values is optional. The checker validates values that **are** present; omitted values are not treated as “matches any int/string.” Prefer listing known values when you have them.
 
 ```tyhp
 <?tyhpdef
@@ -41,15 +41,15 @@ enum HttpMethod: string {
 // Int-backed enum — values optional
 enum LogLevel: int {
     case Debug = 0;
-    case Info;       // No value: matches any int
-    case Warning;    // No value: matches any int
-    case Error = 3;  // Exact match to 3
+    case Info;
+    case Warning;
+    case Error = 3;
     case Critical;
 }
 ```
 
 :::note
-When a backed enum case omits its value, Tyhp treats it as matching any value of the backing type. When a value is specified, Tyhp can perform exact-value type narrowing. Specifying values is recommended when you know them.
+Omitted backed-case values are allowed in the grammar. This alpha only checks values you write; it does not infer “any int” / “any string” from a missing `=`.
 :::
 
 ## Enums with Methods
@@ -130,23 +130,23 @@ enum BadgeType as BackedBadgeType: string {
 
 ## Deprecated and Obsolete
 
-Both the enum itself and individual cases or methods can be marked as `deprecated` or `obsolete`.
+The enum itself can be marked `deprecated` or `obsolete` (top-level). Markers on cases and methods parse but are not enforced in this alpha.
 
 ```tyhp
 <?tyhpdef
 
-enum Priority: int {
+deprecated enum LegacyPriority: int {
     case Low = 0;
     case Medium = 1;
     case High = 2;
-    deprecated case Urgent = 3;
+    case Urgent = 3;
 }
 ```
 
 ## Best Practices
 
 :::tip
-DO specify case values for backed enums when you know them. Explicit values enable exact-value type narrowing and catch value mismatches at compile time.
+DO specify case values for backed enums when you know them. Present values are checked; omitted values are not a wildcard.
 :::
 
 :::tip

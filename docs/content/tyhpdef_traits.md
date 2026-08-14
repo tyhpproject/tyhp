@@ -157,7 +157,7 @@ class AuditableUser {
 
 ## Deprecated and Obsolete
 
-Both the trait itself and individual members can be marked as `deprecated` or `obsolete`.
+The trait itself can be marked `deprecated` or `obsolete` (top-level). Member-level markers parse but are not enforced in this alpha.
 
 ```tyhp
 <?tyhpdef
@@ -167,7 +167,7 @@ deprecated trait LegacyCacheable {
 }
 
 trait Cacheable {
-    deprecated public function cacheForever(): void;
+    public function cacheForever(): void;
     public function cache(int $ttl): void;
     public function invalidateCache(): void;
 }

@@ -6,7 +6,7 @@ status:
   state: complete
 ---
 
-Tyhp allows you to define custom behavior for operators on classes and enums. Operator overloads enable intuitive syntax like $a + $b where $a and $b are object instances. The compiler rewrites operator usage into method calls in the PHP output. Operator overloads can only be defined on classes and enums — not on traits, interfaces, or structs.
+Tyhp allows you to define custom behavior for operators on classes, enums, traits, and interfaces. Operator overloads enable intuitive syntax like $a + $b where $a and $b are object instances. The compiler rewrites operator usage into method calls in the PHP output. Operator overloads can be declared on classes, enums, traits, and interfaces (the same class statement list). Structs cannot declare operators — struct bodies are properties only. Trait methods that use an operator on `$this` emit `static::__add` (and the matching `__*` name) so the composing class's overload late-binds.
 
 :::note
 Every operator overload compiles to a STATIC method, with a single exception: convert's to-form __to{T}() is an INSTANCE method so it can satisfy PHP's \Stringable and the \Tyhp\Contracts\*Convertible instance interfaces. Multiple forms of the same operator collapse into ONE method whose operands and return use union types; that method dispatches internally on the runtime operand types and throws \Tyhp\Exceptions\InvalidParametersForOperatorOverloadException for a combination no form accepts. The generated method name is reserved — declaring an operator forbids a hand-written method of the same name.
@@ -452,7 +452,7 @@ Define convert operators for seamless type integration — convert-to instance m
 ## Common Mistakes
 
 :::danger
-Do not define operators on traits, interfaces, or structs — operators are only allowed on classes and enums.
+Do not define operators on structs — struct bodies are properties only. Traits and interfaces may declare `operator` like classes.
 :::
 
 :::danger
@@ -473,7 +473,7 @@ Do not define two forms of the same operator that can both match the same runtim
 
 ## Compiler Errors
 
-- Defining operator overloads on traits, interfaces, or structs.
+- Defining operator overloads on structs.
 - Binary operator where neither operand is self.
 - Unary operator where the operand is not self.
 - A hand-written method conflicting with a declared operator's reserved generated name.

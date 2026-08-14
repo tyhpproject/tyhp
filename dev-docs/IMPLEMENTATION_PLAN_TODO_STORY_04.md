@@ -3440,7 +3440,7 @@ Complete mapping of Tyhp language features to runtime requirements:
 | String interpolation | — | Yes — native PHP feature |
 | `?.`, `??`, `??=` operators | — | Yes — native PHP 8.0+ operators |
 | `is` / `isa` / `isan` | — | Yes — emitted as `instanceof` |
-| `init` property modifier | — | Yes — emitted as `readonly` + `__clone()` |
+| `init` property modifier | — | Cancelled — use `readonly` + `clone`/`new` `with` |
 | `internal` visibility | — | Yes — compile-time enforcement only |
 | Expression trees (Story 16) | `tyhp/lambda` | No — PropertyPath, Expression, ExpressionNode hierarchy (Phase 11) |
 | `PropertyPath<T, R>` parameters | `tyhp/lambda` | No — PropertyPath class for property chain extraction |

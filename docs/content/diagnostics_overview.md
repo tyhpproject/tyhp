@@ -109,7 +109,7 @@ Build failed with 3 errors and 1 warning.
 ```status
 tier: 1
 story: '14'
-state: planned
+state: complete
 ```
 
 Beyond the basic <code>file(line,column): severity CODE: message</code> format, the Tyhp compiler renders diagnostics with rich, developer-focused detail. The renderer reuses the same diagnostic data carried by every phase, so text, JSON, and SARIF output stay consistent.
@@ -176,14 +176,16 @@ These occur when visibility or member modifiers are used incorrectly. Examples: 
 
 For CI/CD integration, the <code>tyhp lint</code> command supports JSON output via the <code>--format json</code> flag. Each diagnostic is serialized as a JSON object:
 
-```tyhp
+JSON `range` coordinates are **0-based lines** (text diagnostics are 1-based). Column is 0-based in both. Line 42 in text output is `"line": 41` here:
+
+```json
 {
   "severity": "error",
   "code": "TYHP4008",
   "file": "src/Models/User.tyhp",
   "range": {
-    "start": { "line": 42, "column": 5 },
-    "end": { "line": 42, "column": 15 }
+    "start": { "line": 41, "column": 5 },
+    "end": { "line": 41, "column": 15 }
   },
   "message": "Cannot assign type 'string' to type 'int'"
 }

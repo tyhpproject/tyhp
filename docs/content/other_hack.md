@@ -33,7 +33,7 @@ Because Tyhp outputs standard PHP, it integrates seamlessly with the PHP ecosyst
 
 ## Scope and Philosophy
 
-Hack has a large engineering team at Meta and introduces many new operators, control structures, and language constructs beyond what PHP offers. Tyhp takes a more conservative approach: it builds on top of PHP's existing syntax and adds new features only when they provide clear value, without changing or removing any existing PHP syntax. Tyhp's philosophy is to enhance PHP, not replace it.
+Hack has a large engineering team at Meta and introduces many new operators, control structures, and language constructs beyond what PHP offers. Tyhp takes a more conservative approach: it builds on top of PHP's existing syntax and adds new features only when they provide clear value. Some PHP features are restricted in `<?tyhp` (for example `eval()` is off by default, and dynamic properties are disallowed) so the compiler can type-check; see Lost and Changed Functionality. Tyhp's philosophy is to enhance PHP, not replace the runtime.
 
 ## When to Choose Hack
 

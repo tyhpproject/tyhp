@@ -74,7 +74,7 @@ namespace Guzzle\Exception {
 
 ## Documenting Throwable Functions with @throws
 
-Use the @throws doc comment annotation on function and method declarations to document which exceptions a function can throw. The compiler uses this information to validate that callers handle the declared exceptions.
+Use the @throws doc comment annotation on function and method declarations to document which exceptions a function can throw. Tyhp records these annotations for humans and for future tooling. This alpha does **not** require callers to catch or declare them — there is no checked-exception / throws-effect analysis yet.
 
 ```tyhp
 <?tyhpdef
@@ -116,27 +116,9 @@ class DatabaseConnection {
 }
 ```
 
-## Variable and Constant Import Runtime Checks
+## Variable and Constant Imports
 
-When Tyhp imports a global variable or constant via tyhpdef, it checks at runtime whether the value exists and whether it can be coerced to the declared type. If the value does not exist or coercion fails, an ErrorException is thrown. The coalesce operator (??) provides a fallback value for when the variable or constant does not exist.
-
-```tyhp
-<?tyhpdef
-
-// If $foo does not exist or is not coercible to float:
-// Runtime ErrorException is thrown
-float $foo ?? 0.00;
-
-// If MAX_RETRIES does not exist, 3 is used as the default
-const int MAX_RETRIES ?? 3;
-
-// No default -- will throw at runtime if the variable is missing
-string $globalApiKey;
-```
-
-:::note
-Global variables and constants can also be imported inside regular Tyhp code (not just tyhpdef), allowing you to wrap the import in a try-catch block for runtime error handling.
-:::
+Tyhpdef global imports are type information only. This alpha does **not** emit runtime `ErrorException` checks or apply tyhpdef `??` defaults. Handle missing PHP globals at the use site.
 
 ## Class and Interface Mismatch Errors
 
@@ -178,13 +160,12 @@ If the tyhpdef omits the false return type, the compiler will not require null/f
 
 ## Prevention Strategies
 
-1. Keep tyhpdef declarations synchronized with the actual PHP code they describe
-2. Use the tyhpdef generator tool (genTyhpdef.php) to auto-generate tyhpdef files from PHP reflection data, then manually refine the generics and type precision
-3. Use the compiler's tyhpdef validation mode to verify all tyhpdef files parse correctly
-4. Use automated testing and CI/CD pipelines to catch runtime mismatches early
-5. For global variables and constants, always use the ?? fallback operator to provide safe defaults
-6. Declare complete exception hierarchies so catch blocks have accurate type information
-7. Do not omit failure return types (like false or null) from function declarations — include them even if they make the types more complex
+1. Keep tyhpdef declarations synchronized with the actual PHP code they describe (by hand in this alpha — `generate_tyhpdef` is not shipped)
+2. Run `tyhp lint` so tyhpdef files parse and bind
+3. Use automated testing and CI/CD pipelines to catch runtime mismatches early
+4. Handle missing PHP globals at the Tyhp use site (`isset`, `??` in **code**, nullable types)
+5. Declare complete exception hierarchies so catch blocks have accurate type information
+6. Do not omit failure return types (like false or null) from function declarations — include them even if they make the types more complex
 
 :::tip
 DO: Include failure return types (false, null) in your tyhpdef function declarations even when they make the type more complex. Accurate types prevent unhandled runtime failures.
@@ -205,8 +186,8 @@ DON'T: Declare methods or properties in tyhpdef that do not exist on the actual 
 ## Summary
 
 - Exception classes are declared in tyhpdef like any other class, with their full inheritance chain
-- Use `@throws` doc comment annotations to document which exceptions functions and methods can throw
-- Global variable and constant imports are checked at runtime — use `??` for safe defaults
+- Use `@throws` doc comment annotations to document which exceptions functions and methods can throw (documentation only in this alpha — the compiler does not enforce that callers handle them)
+- Tyhpdef global imports are type information only — tyhpdef `??` is not applied in this alpha
 - Tyhpdef declarations are trusted at compile time; mismatches between tyhpdef and PHP cause runtime errors
 - Always declare accurate return types including failure types (`false`, `null`)
-- Use the tyhpdef generator and validation tools to keep declarations synchronized with PHP code
+- Keep declarations synchronized with PHP by hand in this alpha (`generate_tyhpdef` is Story 20 and is not shipped)

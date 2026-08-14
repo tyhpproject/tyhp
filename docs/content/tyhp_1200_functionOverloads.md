@@ -60,7 +60,7 @@ function parseValue(string $input, string $format): array|string
 {
     return match($format) {
         'json' => \json_decode($input, true),
-        'csv' => $input->getcsv(),
+        'csv' => \str_getcsv($input),
         default => $input,
     };
 }

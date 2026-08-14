@@ -4,7 +4,7 @@ title: 'FAQ: Project Configuration'
 
 ## What goes in tyhp.json?
 
-The `tyhp.json` file configures the Tyhp compiler for your project. It specifies which source files to include, where to write compiled PHP output, which PHP version to target, how strict the type checker should be, and various build options. The file uses standard JSON format and is placed in your project root.
+The `tyhp.json` file configures the Tyhp compiler for your project. It specifies which source files to include, where to write compiled PHP output, which PHP version to target, and various build options. Language strictness is not a config knob — null safety and required types are always on. The file uses standard JSON format and is placed in your project root.
 
 A minimal configuration only needs source file patterns and an output path:
 

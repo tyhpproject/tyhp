@@ -103,14 +103,12 @@ class HttpClient {
 
 ## Overload Resolution
 
-The compiler resolves overloads at compile time using the following priority order:
+The compiler resolves overloads at compile time in two stages:
 
-1. Exact type match — a parameter whose type exactly matches the argument type
-2. Static value type match — a literal value type (like true, false, 0) that matches the argument's compile-time value
-3. Compatible type match — a parameter whose type is a supertype of the argument type
-4. Generic type inference — a generic overload whose type parameters can be inferred from the arguments
+1. **Arity** — keep signatures whose parameter count range includes the call’s argument count.
+2. **Score** — among same-arity candidates, pick the highest compatibility score (exact types score higher than merely compatible types; generic inference participates in scoring).
 
-If no single overload matches or if multiple overloads match equally, the compiler reports an ambiguity error.
+If several candidates share the winning score, the first one wins. This alpha does **not** emit a dedicated overload-ambiguity diagnostic.
 
 ## Implementing Overloaded Interfaces in Tyhp
 
@@ -139,7 +137,7 @@ array<User> $users = $repo->find(['status' => 'active']);
 
 ## Deprecating Specific Overloads
 
-Individual overloads can be marked as deprecated or obsolete without affecting the other overloads of the same function.
+Top-level function overloads can be marked `deprecated` or `obsolete` independently. Member-level overload markers on class/interface methods parse but are not enforced in this alpha.
 
 ```tyhp
 <?tyhpdef
@@ -169,9 +167,9 @@ DON'T: Mix async and non-async overloads for the same function name. If one over
 - Declare overloads by repeating the same function or method name with different parameter signatures
 - Each overload must have a unique parameter signature
 - The compiler internally constructs an encompassing signature from all overloads
-- Overload resolution happens at compile time based on argument types
+- Overload resolution is arity first, then a compatibility score (best score wins; no ambiguity error)
 - Static value types (literal values) can be used as parameter types for precise overload matching
 - Generic overloads are supported — each overload can have its own type parameters
 - Async overloads must consistently use the `async` keyword across all overloads
 - In Tyhp code, implementing an overloaded interface requires only the encompassing method
-- Individual overloads can be independently marked as `deprecated` or `obsolete`
+- Top-level function overloads can be independently marked as `deprecated` or `obsolete` (member-level flags are not enforced yet)

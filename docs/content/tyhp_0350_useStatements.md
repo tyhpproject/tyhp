@@ -152,10 +152,8 @@ Compiles to:
 <?php
 declare(strict_types=1);
 
-use App\Extensions\StringHelpers;
-
 $name = 'hello_world';
-$camel = StringHelpers::toCamelCase($name);
+$camel = \StringHelpers::toCamelCase($name);
 ```
 
 ## Tyhpdef Use Statements

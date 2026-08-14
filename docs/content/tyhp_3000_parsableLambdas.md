@@ -52,15 +52,9 @@ $query->select(fn ($u) => $u->address->city);
 
 ## PropertyPath Members
 
-:::member[readonly string $sourceType]
-The fully qualified source type that the property chain starts from. For fn (User $u) => $u->address->city, this is 'User'.
-:::
+The constructor takes `$sourceType` and `$resultType` as strings and passes them to the parent `Expression`. PropertyPath itself does **not** expose `$sourceType` / `$resultType` properties. The parent stores the result type as `$returnType`. PropertyPath adds `readonly array<string> $path`.
 
-:::member[readonly string $resultType]
-The resolved type at the end of the property chain. For fn (User $u) => $u->address->city, this is 'string'.
-:::
-
-:::member[readonly array $path]
+:::member[readonly array<string> $path]
 The property names in the access chain, in order. For fn (User $u) => $u->address->city, this is ['address', 'city'].
 :::
 
@@ -182,6 +176,10 @@ The compiled closure for execution. Every Expression carries its original compil
 
 :::member[readonly string $returnType]
 The resolved return type of the expression.
+:::
+
+:::member[mixed $lastResult]
+The last value produced by `__invoke` or `PropertyPath::getValue`. Stashed before the return-type check so callers who catch `IncompatibleTypeException` can inspect the mismatched value.
 :::
 
 :::member[__invoke(mixed ...$args): mixed]
@@ -410,12 +408,17 @@ use \Tyhp\Expression\ExpressionSerializer;
 Expression<User, bool> $expr = fn ($u) => $u->age > 18;
 string $json = ExpressionSerializer::toJson($expr);
 
-// Result:
+// Result wraps { parameters, returnType, body }.
+// The `{ "nodeType": "binary", ... }` object is the **body** only:
 // {
-//   "nodeType": "binary",
-//   "operator": ">",
-//   "left": { "nodeType": "propertyAccess", "property": "age", ... },
-//   "right": { "nodeType": "constant", "value": 18, "type": "int" }
+//   "parameters": [ { "name": "u", "index": 0, "type": "..." } ],
+//   "returnType": "bool",
+//   "body": {
+//     "nodeType": "binary",
+//     "operator": ">",
+//     "left": { "nodeType": "propertyAccess", "property": "age", ... },
+//     "right": { "nodeType": "constant", "value": 18, "type": "int" }
+//   }
 // }
 
 // Structural equality ignores the compiled closures — two independently

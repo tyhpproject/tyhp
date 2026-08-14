@@ -141,18 +141,7 @@ class Widget
 
 ## Compiled PHP Output for Property Aliasing
 
-The compiler resolves the property aliasing and emits the appropriate PHP code. The alias becomes a separate property declaration in the class.
-
-```php
-<?php
-
-class Widget
-{
-    use HasName, HasLabel {
-        HasLabel::$name as $label;
-    }
-}
-```
+PHP cannot alias properties in a `use` adaptation block. This alpha still **parses** `HasLabel::$name as $label` and emits it as a PHP `use` alias (`HasLabel::$name as $label`), which PHP will reject. It does **not** rewrite the alias into a separate property declaration. Prefer distinct property names on the traits, or copy the value in the class constructor, until emit is fixed.
 
 ## Multiple Requirements
 

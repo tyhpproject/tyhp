@@ -6,28 +6,28 @@ status:
   state: complete
 ---
 
-While Tyhp is a superset of PHP and maintains broad compatibility, some PHP features are disabled or restricted to improve type safety, security, and static analysis. This page documents every disabled feature, every restricted feature, and every preserved PHP feature — along with the Tyhp alternatives for each restriction.
+While Tyhp is a superset of PHP and maintains broad compatibility, some PHP features are disabled or restricted to improve type safety, security, and static analysis. This page documents disabled features, restricted features, and preserved PHP features — along with the Tyhp alternatives for each restriction.
 
 ## Disabled Features
 
-The following PHP features are completely disabled in Tyhp. Using them produces a compiler error. For each disabled feature, a Tyhp alternative is provided.
+The following PHP features are disabled or strongly discouraged in Tyhp. Using them produces a compiler diagnostic as noted. For each, a Tyhp alternative is provided.
 
-## eval() — Disabled
+## eval() — Informational (TYHP4800)
 
-The eval() function is disabled in Tyhp. It is a security risk (arbitrary code execution) and makes static analysis impossible — the compiler cannot type-check dynamically generated code. Using eval() produces compiler diagnostic 4800.
+The eval() function is discouraged in Tyhp. It is a security risk (arbitrary code execution) and makes static analysis impossible — the compiler cannot type-check dynamically generated code. Using eval() produces **informational** diagnostic TYHP4800 (`CheckerEvalUsage`), not an error. Set `build.allowEval: true` in `tyhp.json` to suppress it.
 
 ```tyhp
 <?tyhp
 
-// ERROR 4800: eval() usage is disabled in Tyhp
+// INFO 4800: eval() usage (suppressed when build.allowEval is true)
 // eval('echo "Hello";');
 
 // ALTERNATIVE: Write the dynamic code in a PHP file
-// and import it via a tyhpdef file
+// and declare it via a tyhpdef file
 // Or use closures/callables for dynamic behavior
 ```
 
-If you absolutely need eval-like functionality, write that code in a plain PHP file and import it into your Tyhp project via a tyhpdef file. This keeps the security boundary clear and the eval usage isolated from type-checked code.
+If you absolutely need eval-like functionality, write that code in a plain PHP file and declare it into your Tyhp project via a tyhpdef file. This keeps the security boundary clear and the eval usage isolated from type-checked code. `build.allowEval` only suppresses the informational diagnostic; it does not change how eval behaves at runtime.
 
 ## Short Open Tags — Disabled
 
@@ -124,25 +124,19 @@ A named function declared at file/namespace scope inside an `if (!\function_exis
 unaffected by this restriction — that pattern does not nest the declaration inside another named
 function or method.
 
-## Untyped Catch Blocks — Disabled
+## Catch Types
 
-PHP allows catch blocks without specifying an exception type (catch ($e) or bare catch). In Tyhp, all catch blocks must specify the exception type. Use \Throwable to catch all exceptions.
+PHP 8 requires every `catch` clause to name an exception type — untyped `catch ($e)` is not a PHP feature. Tyhp's checker validates the types that are present: they must be `\Throwable` (or a subtype), not scalars, and not intersection types.
 
 ```tyhp
 <?tyhp
 
-// ERROR: Untyped catch block
-// try { ... } catch ($e) { ... }
-
-// CORRECT: Always specify the exception type
 try {
     riskyOperation();
 } catch (\Throwable $e) {
-    // Catches all exceptions and errors
     echo $e->getMessage();
 }
 
-// BEST: Catch specific exception types
 try {
     riskyOperation();
 } catch (\InvalidArgumentException $e) {
@@ -152,32 +146,28 @@ try {
 }
 ```
 
-## Restricted Features (Require Type Narrowing)
+## Variable Variables ($$var) — Disabled
 
-The following PHP dynamic features are still available in Tyhp but require type narrowing through type guard functions or the special __ types before use. This ensures the compiler can verify the referenced symbols exist. See the Dynamic Language Features page for full details.
-
-## Variable Variables ($$var) — Restricted
-
-Variable variables require the variable name to be of type __VarName or to pass a variable_exists() check. The compiler must be able to verify the referenced variable exists.
+Variable variables are prohibited (TYHP4133). There is no `__VarName` exception. Use `variable_exists($name)` on a simple variable when you need an existence check.
 
 ```tyhp
 <?tyhp
 
 string $greeting = 'Hello';
 
-// ERROR: Plain string used for variable variable
+// ERROR TYHP4133: variable variables are prohibited
 string $name = 'greeting';
-// echo $$name;  // Compiler error!
+// echo $$name;
 
-// OK: Narrowed to __VarName
-__VarName $varName = 'greeting';
-echo $$varName;  // OK
-
-// OK: Using variable_exists() guard
-if (variable_exists($$name)) {
-    echo $$name;  // OK: guard narrows the type
+// OK: existence check on a simple variable
+if (variable_exists($greeting)) {
+    echo $greeting;
 }
 ```
+
+## Restricted Features (Require Type Narrowing)
+
+The following PHP dynamic features are still available in Tyhp but require type narrowing through type guard functions or the special __ types before use. This ensures the compiler can verify the referenced symbols exist. See the Dynamic Language Features page for full details.
 
 ## Variable Functions ($fn()) — Restricted
 
@@ -250,45 +240,50 @@ __ClassName $cls = 'App\\Models\\User';
 $obj = new $cls();  // OK
 ```
 
-## include/require — Restricted
+## include/require — Disabled
 
-Dynamic include/require with non-constant paths is disabled (compiler error 4801). Only static string paths or constant values are allowed. Tyhp uses import statements and Composer autoloading instead. An exception is made for require_once of Composer's vendor/autoload.php in entry point files.
+`include` / `include_once` / `require` / `require_once` **always** produce compiler error TYHP4801 (`CheckerIncludeNotAllowed`). There is no static-path exception. The emitter injects `vendor/autoload.php` itself; a user-written `require_once __DIR__ . '/vendor/autoload.php'` still fails 4801. There is no `import` keyword — use `use` plus Composer autoloading.
 
 ```tyhp
 <?tyhp
 
-// ERROR 4801: Dynamic include path
+// ERROR 4801: include/require are not allowed
 string $file = getIncludeFile();
-// include $file;  // Compiler error!
+// include $file;
 
-// OK: Static string path
-require_once __DIR__ . '/vendor/autoload.php';
+// ERROR 4801: even a static Composer autoload path is rejected
+// require_once __DIR__ . '/vendor/autoload.php';
 
-// ALTERNATIVE: Use Tyhp import statements
-import App\Models\User;
-import App\Services\{UserService, OrderService};
+// ALTERNATIVE: `use` the type; Composer (and the emitter's autoload injection) loads it
+use App\Models\User;
+use App\Services\UserService;
+use App\Services\OrderService;
 ```
 
-## extract() and compact() — Restricted
+## extract() and compact() — Disabled
 
-The extract() and compact() functions dynamically create or collect variables, which completely bypasses static analysis. The compiler emits a warning when these functions are used.
+The extract() and compact() functions dynamically create or collect variables, which completely bypasses static analysis. The compiler reports **errors** TYHP4136 (`CheckerExtractProhibited`) and TYHP4135 (`CheckerCompactProhibited`).
 
 ```tyhp
 <?tyhp
 
-// WARNING: extract() bypasses static analysis
-// \extract($data);  // Compiler warning!
+// ERROR TYHP4136: extract() is prohibited
+// \extract($data);
 
 // ALTERNATIVE: Destructure explicitly
 string $name = $data['name'];
 int $age = $data['age'];
 
-// WARNING: compact() bypasses static analysis
-// $result = \compact('name', 'age');  // Compiler warning!
+// ERROR TYHP4135: compact() is prohibited
+// $result = \compact('name', 'age');
 
 // ALTERNATIVE: Build the array explicitly
 array $result = ['name' => $name, 'age' => $age];
 ```
+
+## global $var — Warning (TYHP4137)
+
+The `global` keyword is not unrestricted. Using `global $var` produces warning TYHP4137 (`CheckerGlobalVariableWarning`). Prefer importing PHP globals through tyhpdef (see Importing PHP Variables and Constants) or passing values as parameters.
 
 ## Required Typing
 
@@ -362,7 +357,6 @@ The following PHP features work exactly the same in Tyhp, with no restrictions o
 - First-class callable syntax (strlen(...))
 - Nullsafe operator (?->)
 - References (&$variable)
-- Global keyword (global $var)
 - Static variables (static $count = 0)
 - Goto statements
 - Try/catch/finally
@@ -377,23 +371,24 @@ The following PHP features work exactly the same in Tyhp, with no restrictions o
 
 The following table summarizes the status of each changed feature, why it is restricted, and the Tyhp alternative.
 
-- eval() — DISABLED — Security risk, impossible to type-check — Alternative: Write PHP and import via tyhpdef
+- eval() — INFO 4800 — Security risk, impossible to type-check — suppressed by `build.allowEval`; alternative: write PHP and declare via tyhpdef
 - Short open tags (<?, <?=) — DISABLED — Use <?tyhp instead
 - Dynamic properties — DISABLED — Use declared properties or __get/__set
 - Nested named functions/methods — DISABLED — Use a private method or a closure assigned to a typed local
-- Untyped catch blocks — DISABLED — Always specify exception type (use \Throwable)
-- Variable variables ($$var) — RESTRICTED — Requires __VarName or variable_exists() guard
+- Variable variables ($$var) — DISABLED — TYHP4133; use `variable_exists($name)` on a simple variable
 - Variable functions ($fn()) — RESTRICTED — Requires __FunctionName or \function_exists() guard
 - Dynamic property access ($obj->$prop) — RESTRICTED — Requires __PropertyName<T> or \property_exists() guard
 - Dynamic method calls ($obj->$method()) — RESTRICTED — Requires __MethodName or \method_exists() guard
 - Dynamic class instantiation (new $cls()) — RESTRICTED — Requires __ClassName or \class_exists() guard
-- Dynamic include/require — RESTRICTED — Only static paths allowed; use import statements
-- extract()/compact() — RESTRICTED — Warning emitted; use explicit variable assignment/array building
+- include/require — DISABLED — Always TYHP4801, including `vendor/autoload.php`; use `use` + Composer
+- extract()/compact() — DISABLED — Errors TYHP4136 / TYHP4135; use explicit variable assignment/array building
+- `global $var` — WARNING TYHP4137 (`CheckerGlobalVariableWarning`) — not unrestricted
+- Catch types — checker validates present catch types (must be `\Throwable`); untyped `catch ($e)` is not a PHP 8 feature
 
 ## Best Practices
 
 :::tip
-Use the Tyhp alternatives for disabled features: declared properties instead of dynamic properties, import statements instead of include/require, and \Throwable catch types instead of untyped catches.
+Use the Tyhp alternatives for disabled features: declared properties instead of dynamic properties, `use` plus Composer instead of include/require, and `\Throwable` catch types.
 :::
 
 :::tip
@@ -407,7 +402,7 @@ Prefer static access patterns over dynamic ones. Direct property access ($obj->n
 ## Common Mistakes
 
 :::danger
-Attempting to use eval() in Tyhp. If you need dynamic code execution, isolate it in a plain PHP file and import the interface via tyhpdef.
+Using eval() without intending to. eval() is an informational diagnostic (TYHP4800), suppressed by `build.allowEval`. If you need dynamic code execution, isolate it in a plain PHP file and declare the interface via tyhpdef.
 :::
 
 :::danger
@@ -415,7 +410,7 @@ Using <? or <?= in Tyhp files. Always use <?tyhp as the opening tag for Tyhp sou
 :::
 
 :::danger
-Using dynamic access patterns without type guards. Variable variables, variable functions, dynamic properties, dynamic methods, and dynamic class instantiation all require type narrowing first.
+Using dynamic access patterns without type guards. Variable functions, dynamic properties, dynamic methods, and dynamic class instantiation all require type narrowing first. Variable variables (`$$var`) are prohibited (TYHP4133).
 :::
 
 :::danger

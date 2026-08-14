@@ -4,11 +4,11 @@ title: 'FAQ: Other'
 
 ## How can I contribute to Tyhp?
 
-Tyhp is an open-source project and welcomes contributions. Check the CONTRIBUTING.md file in the repository for guidelines on submitting code, reporting bugs, and proposing features. Contributions can include compiler improvements, runtime package enhancements, tyhpdef files for popular PHP libraries, documentation, and tooling.
+Tyhp is an open-source project and welcomes contributions. See [CONTRIBUTING.md](https://github.com/tyhpproject/tyhp/blob/main/CONTRIBUTING.md) in the [tyhpproject/tyhp](https://github.com/tyhpproject/tyhp) repository.
 
 ## Where do I report bugs?
 
-Report bugs through the project's issue tracker. Include the Tyhp source code that triggers the issue, the expected behavior, the actual behavior (error message or incorrect output), your Tyhp compiler version (run `tyhp version`), and the target PHP version from your `tyhp.json`. Providing a minimal reproduction case helps resolve issues faster.
+Report bugs on the [GitHub issue tracker](https://github.com/tyhpproject/tyhp/issues). Include the Tyhp source code that triggers the issue, the expected behavior, the actual behavior (error message or incorrect output), your Tyhp compiler version (run `tyhp version`), and the target PHP version from your `tyhp.json`. Providing a minimal reproduction case helps resolve issues faster.
 
 ## Is there a Tyhp community?
 

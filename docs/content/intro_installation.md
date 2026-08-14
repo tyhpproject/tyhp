@@ -27,7 +27,9 @@ Download a binary from [GitHub Releases](https://github.com/tyhpproject/tyhp/rel
 curl -fsSL https://raw.githubusercontent.com/tyhpproject/tyhp/main/scripts/install.sh | bash -s --
 ```
 
-The script selects OS and architecture. It prefers a self-contained build. Pass `--framework-dependent` if .NET 9 is already installed.
+The script selects OS and architecture. If .NET 9 is already installed, it prefers a **framework-dependent** build; otherwise it installs a **self-contained** binary. Pass `--self-contained` or `--framework-dependent` to force a variant.
+
+On Windows, use [`scripts/install.ps1`](https://github.com/tyhpproject/tyhp/blob/main/scripts/install.ps1) instead of the bash script.
 
 There is **no** `composer global require tyhp/compiler` package in this alpha, and no `dotnet tool install --global tyhp` feed yet.
 
@@ -46,8 +48,10 @@ tyhp version
 You should see output similar to:
 
 ```
-Tyhp Compiler v805.0.0-alpha.1
-Target PHP: 8.5
+Tyhp compiler: 805.0.0-alpha.1
+.NET runtime:   .NET 9.0.x
+ANTLR runtime:  4.x.x
+OS:             ...
 ```
 
 ## Runtime packages

@@ -131,7 +131,7 @@ class Container<T> {
 
     public fn getItem(): T => $this->item;
 
-    public fn map<U>(callable(T): U $fn): U => $fn($this->item);
+    public fn map<U>(callable<T, U> $fn): U => $fn($this->item);
 }
 ```
 

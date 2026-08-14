@@ -12,14 +12,14 @@ Tyhp uses tyhpdef files to declare the types of PHP global variables, constants,
 
 Tyhpdef files (.tyhpdef) are declaration files that tell the Tyhp compiler about the types of PHP symbols that exist outside of your Tyhp codebase. They are similar to TypeScript's .d.ts files — they contain only type signatures, no implementation. The compiler uses these declarations to type-check your code against PHP's standard library, extensions, and third-party packages.
 
-- Bundled extension tyhpdefs (tyhpdef/php8.2/) provide types for PHP built-in functions and classes
-- TyhpSpec files (Tyhp/TyhpSpec/) provide types for Tyhp-specific built-in types like decimal, Promise, and Type
+- Composer packages with `package.tyhp.json` (`tyhp/php`, `tyhp/core`, `tyhp/decimal`, `tyhp/async`, `tyhp/lambda`) provide types for PHP builtins and Tyhp runtime APIs
+- Built-in compiler registrations cover language types such as `decimal` aliases, compile-time constructs, and generic overlays the binder always knows
 - User tyhpdef files declare types for your project's PHP dependencies and global variables
-- Generated tyhpdef files can be created from PHP packages using the tyhpdef generator
+- Auto-generated tyhpdefs (`generate_tyhpdef`) are **not** in this alpha — write declarations by hand
 
 ## Importing Constants
 
-PHP constants (defined with define() or const) are imported into tyhpdef files using the const keyword with an explicit type annotation. The null-coalescing operator (??) provides a default value when the constant may not be defined at runtime.
+PHP constants (defined with define() or const) are imported into tyhpdef files using the const keyword with an explicit type annotation.
 
 ```tyhp
 <?tyhpdef
@@ -28,9 +28,6 @@ namespace App\Config;
 
 // Import a constant with its type
 const string APP_NAME;
-
-// Import with a default value using ?? (null coalescing)
-const int MAX_CONNECTIONS ?? 100;
 
 // Import with alias — use DATABASE_HOST in Tyhp code
 const string DB_HOST as DATABASE_HOST;
@@ -50,25 +47,19 @@ const bool PHP_ZTS;
 // Constants compile to direct PHP constant access
 echo APP_NAME;
 
-// Constants with ?? compile to defined() checks
-echo \defined('MAX_CONNECTIONS') ? MAX_CONNECTIONS : 100;
-
 // Aliased constants compile to the original constant name
 echo DB_HOST;
 ```
 
 ## Importing Variables
 
-PHP global variables can be imported into tyhpdef files with explicit type annotations. The as keyword aliases the variable name within Tyhp code, and the ?? operator provides a default value for variables that may not be set at runtime.
+PHP global variables can be imported into tyhpdef files with explicit type annotations. The as keyword aliases the variable name within Tyhp code.
 
 ```tyhp
 <?tyhpdef
 
 // Import a global variable with its type
 string $globalConfig;
-
-// Import with a default value
-int $maxRetries ?? 3;
 
 // Import with alias (different variable name in Tyhp)
 string $legacy_var as $modernVar;
@@ -89,9 +80,6 @@ array<string, mixed> $_POST;
 
 // Imported variables compile to direct PHP variable access
 echo $globalConfig;
-
-// Variables with ?? compile to null coalescing
-echo $maxRetries ?? 3;
 
 // Aliased variables compile to the original variable name
 echo $legacy_var;
@@ -165,31 +153,9 @@ interface JsonSerializable {
 }
 ```
 
-## Default Values with ??
+## `??` on tyhpdef imports (not applied)
 
-The null-coalescing operator ?? in tyhpdef declarations provides a fallback value when the imported constant or variable is not defined at runtime. This is compiled to a null-coalescing check in the generated PHP, ensuring your code handles missing symbols gracefully.
-
-```tyhp
-<?tyhpdef
-
-// If APP_DEBUG is not defined, default to false
-const bool APP_DEBUG ?? false;
-
-// If $dbPort is not set, default to 5432
-int $dbPort ?? 5432;
-
-// If LOG_LEVEL is not defined, default to 'info'
-const string LOG_LEVEL ?? 'info';
-```
-
-```php
-<?php
-
-// ?? defaults compile to null-coalescing or defined() checks
-$appDebug = \defined('APP_DEBUG') ? APP_DEBUG : false;
-$port = $dbPort ?? 5432;
-$logLevel = \defined('LOG_LEVEL') ? LOG_LEVEL : 'info';
-```
+The grammar accepts `??` after a tyhpdef variable or constant (`int $dbPort ?? 5432`). This alpha does **not** bind that default or emit `defined()` / null-coalesce / `ErrorException` checks. Declare the type you actually use, and handle missing PHP globals in Tyhp (`isset`, `??` at the **use** site, or nullable types).
 
 ## Aliasing with as
 
@@ -257,10 +223,11 @@ deprecated const string LEGACY_API_URL;
 
 Tyhpdef files are loaded from multiple sources in a specific priority order. Higher-priority sources take precedence when the same symbol is declared in multiple places.
 
-1. TyhpSpec files (Tyhp/TyhpSpec/) — Tyhp built-in types like decimal, Promise<T>, IsDisposable. Always loaded, highest priority.
-2. PHP extension tyhpdefs (tyhpdef/php8.2/) — bundled type definitions for PHP built-in extensions (Core, Standard, SPL, Date, JSON, etc.). Loaded based on the target PHP version.
-3. User project tyhpdefs — custom .tyhpdef files in your project, configured via tyhpdefInclude/tyhpdefExclude in tyhp.json.
-4. Generated Composer package tyhpdefs — auto-generated tyhpdef files for third-party Composer packages.
+1. Built-in compiler registrations — language types always available (highest priority).
+2. Composer packages with `package.tyhp.json` — `tyhp/php` (PHP builtins; stubs cover 8.2+ APIs) plus `tyhp/core`, `tyhp/decimal`, `tyhp/async`, `tyhp/lambda`.
+3. User project tyhpdefs — files matching `tyhpdefInclude` in `tyhp.json`, plus `include` entries that end in `.tyhpdef` or `package.tyhp.json`. Omitting `tyhpdefInclude` loads **no** project `.tyhpdef` files (`tyhp init` does not set the glob).
+
+Auto-generated Composer package tyhpdefs are not produced in this alpha.
 
 ## Best Practices
 
@@ -269,7 +236,7 @@ Always provide types for all imported PHP variables and constants. Tyhp requires
 :::
 
 :::tip
-Use ?? default values for constants and variables that may not be defined in all environments. This prevents runtime errors from undefined symbols.
+Handle missing PHP globals at the use site (`isset`, `??` in Tyhp code, or nullable types). Tyhpdef `??` is parsed but not applied in this alpha.
 :::
 
 :::tip
@@ -291,11 +258,11 @@ Accessing PHP globals without importing via tyhpdef first. Tyhp does not allow u
 :::
 
 :::danger
-Assuming imported variables are non-null unless declared so. If a PHP variable might not be set at runtime, declare it as nullable (?type) or provide a ?? default value.
+Assuming imported variables are non-null unless declared so. If a PHP variable might not be set at runtime, declare it as nullable (`?type`) and check it in Tyhp.
 :::
 
 :::danger
-Duplicating declarations that already exist in bundled extension tyhpdefs. Check the bundled tyhpdef/php8.2/ files before creating your own declarations for PHP standard library functions and classes.
+Duplicating declarations that already exist in `tyhp/php`. Prefer that package for PHP standard library functions and classes instead of hand-writing overlapping tyhpdefs.
 :::
 
 :::danger
@@ -315,7 +282,7 @@ Using <?tyhp in tyhpdef files. Tyhpdef files must use the <?tyhpdef opening tag.
 
 // OK: All of these are valid tyhpdef declarations
 const string APP_NAME;
-const int MAX_RETRIES ?? 3;
+const int MAX_RETRIES;
 string $globalConfig;
 deprecated function old_func(): void;
 ```

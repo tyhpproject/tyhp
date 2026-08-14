@@ -71,7 +71,7 @@ function \array_map<T, U> as map(
 ```tyhp
 <?tyhpdef
 
-int $myGlobalPHPVar as $myGlobalTyhpVar ?? 0;
+int $myGlobalPHPVar as $myGlobalTyhpVar;
 
 const int \MAX_LOOPS_ALLOWED as MAX_LOOPS;
 
@@ -148,7 +148,7 @@ use extension StringExtensions {
 
 ## Alias Restrictions
 
-The following items cannot be aliased:
+Do not alias these — PHP dispatches them by their real names. This alpha does **not** reject the aliases at compile time:
 
 - A class's `__construct` or `__destruct` method
 - Any magic methods (`__get`, `__set`, `__isset`, `__unset`, `__call`, `__callStatic`, `__sleep`, `__wakeup`, `__toString`, `__invoke`, `__clone`, etc.)
@@ -162,7 +162,7 @@ DO: Import the same PHP item with multiple aliases when you need different type 
 :::
 
 :::danger
-DON'T: Alias magic methods or constructors. The compiler will reject these because PHP relies on their specific names for internal dispatch.
+DON'T: Alias magic methods or constructors. PHP still dispatches on the original names; this alpha does not reject those aliases for you.
 :::
 
 :::danger

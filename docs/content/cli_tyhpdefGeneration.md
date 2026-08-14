@@ -7,7 +7,7 @@ status:
 ---
 
 :::warning Not in this alpha
-This feature is **not included** in Tyhp 805.0.0-alpha.1 (roadmap Tier 2/3). The rest of this page describes the planned design. Do not expect these commands or syntax to work yet.
+This feature is **not included** in Tyhp 805.0.0-alpha.1 (roadmap Tier 2/3). The rest of this page describes the planned design. Do not expect these commands or syntax to work yet. `tyhp generate_tyhpdef --ext-name=curl` currently requires `--ext-name`, then **exits 0 and writes nothing**.
 :::
 
 

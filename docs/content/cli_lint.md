@@ -22,6 +22,9 @@ tyhp lint [options] [files...]
 - --fix — Apply auto-fixable changes to source files (experimental).
 - --max-fix-iterations=<n> — Maximum auto-fix re-run iterations (default: 10; also checker.maxFixIterations).
 - --quiet — Suppress the banner and non-diagnostic output.
+- --strict — Treat warnings as errors.
+- --cache-dir=<path> — Override the AST cache directory.
+- --no-cache — Disable the on-disk parse cache for this run.
 - --include=<glob> — Include additional source paths.
 - --exclude=<glob> — Exclude source paths.
 

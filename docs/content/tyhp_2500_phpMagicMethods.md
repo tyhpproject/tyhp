@@ -13,7 +13,7 @@ Tyhp supports all of PHP's magic methods with additional type safety requirement
 All standard PHP magic methods are supported in Tyhp. They must follow PHP's expected signatures but can use Tyhp's enhanced type system. The following table lists every supported magic method and its Tyhp-specific behavior.
 
 :::member[__construct()]
-Constructor. Supports Tyhp constructor property promotion with modifiers like init. The return type can optionally be : void or : parent(args) for explicit parent constructor invocation.
+Constructor. Supports Tyhp constructor property promotion with modifiers like `readonly`. The return type can optionally be : void or : parent(args) for explicit parent constructor invocation.
 :::
 
 :::member[__destruct()]
@@ -53,7 +53,7 @@ Called when an object is used as a function ($obj()). Return type is mixed — m
 :::
 
 :::member[__clone(): void]
-Called after an object is cloned with clone. The compiler auto-generates __clone() for classes with init properties to support the with keyword.
+Called after an object is cloned with clone. You may implement it yourself. For PHP &lt; 8.5, the compiler may emit a clone wrapper when `with` updates `readonly` properties.
 :::
 
 :::member[__debugInfo(): array]
@@ -140,9 +140,11 @@ class ApiClient {
     }
 }
 
-// Extension method — compile-time type safety
-extension ApiClientExtensions extends ApiClient {
-    public static function getUsers(extends ApiClient $client): array<User> {
+// Extension method — compile-time type safety.
+// Members are top-level `function` forms (optional `async` only).
+// Visibility/`static` cannot appear. `extension Name extends ApiClient` is optional.
+extension ApiClientExtensions {
+    function getUsers(extends ApiClient $client): array<User> {
         mixed $result = $client->sendRequest('getUsers', []);
         // narrowing and type-safe return
         return $result is array ? $result : [];
@@ -170,7 +172,7 @@ $result = $api->unknownMethod();
 
 ## Auto-Generated Magic Methods for Generics
 
-When a class uses generics with runtime type tracking, the Tyhp compiler adds the GenericObject trait from the tyhp/core package. This trait provides runtime generic type parameter storage and retrieval. The compiler also auto-generates constructor logic to initialize the generic type information.
+When a class uses generics with runtime type tracking (for example `typeof(T)`), the Tyhp compiler adds the `HasGenerics` trait from the tyhp/core package (`\Tyhp\Concerns\HasGenerics`). `Concerns\GenericObject` is the legacy name. The compiler also auto-generates constructor logic to initialize the generic type information (`__initGenerics__tyhpGeneric` and `$this->__tyhpGeneric->init(...)`). Generic classes that never use `typeof(T)` or other tracking triggers emit **no** trait.
 
 ```tyhp
 <?tyhp
@@ -185,15 +187,18 @@ class TypedCollection<T> {
     public function get(int $index): T {
         return $this->items[$index];
     }
+
+    public function getItemType(): \Tyhp\Type {
+        return typeof(T);
+    }
 }
 ```
 
 ```php
 <?php
 
-// The compiler adds the GenericObject trait and type tracking
 class TypedCollection {
-    use \Tyhp\Concerns\GenericObject;
+    use \Tyhp\Concerns\HasGenerics;
 
     private array $items = [];
 
@@ -204,11 +209,13 @@ class TypedCollection {
     public function get(int $index): mixed {
         return $this->items[$index];
     }
-}
 
-// When instantiated with concrete types:
-$collection = new TypedCollection();
-$collection->__setGenericTypes([\Tyhp\Type::of('int')]);
+    protected function __initGenerics__tyhpGeneric(?\Tyhp\Type ...$generics): void
+    {
+        $this->__tyhpGeneric->init(static::class, \TypedCollection::class, new \Tyhp\NamedType('T', $generics[0] ?? null));
+        $this->__tyhpGeneric->markBound();
+    }
+}
 ```
 
 ## __toString Must Return string
@@ -276,15 +283,15 @@ class Child extends Base {
 
 ## __clone and the with Keyword
 
-The compiler auto-generates __clone() for classes with init properties to support immutable cloning via the with keyword. You do not need to write __clone() manually for init-property classes — the compiler handles it.
+`clone ... with` on `readonly` properties does not require you to write `__clone()`. On PHP 8.5+ the compiler emits native `clone($obj, [...])`. On PHP 8.2–8.4 it uses a compiler-generated wrapper (opt-in via `build.experimentalReadonlyCloneWith`). You can still write your own `__clone()` for other clone-time work.
 
 ```tyhp
 <?tyhp
 
 class Point {
     public function __construct(
-        public init int $x,
-        public init int $y
+        public readonly int $x,
+        public readonly int $y
     ) {}
 }
 
@@ -307,7 +314,7 @@ Use operator overloads instead of relying on __toString() for arithmetic or comp
 :::
 
 :::tip
-Let the compiler auto-generate __clone() for classes with init properties. The auto-generated __clone() correctly handles the with keyword for immutable value objects.
+Use `readonly` properties with `clone ... with` for immutable value objects. You do not need a handwritten `__clone()` for that pattern.
 :::
 
 ## Common Mistakes
@@ -329,12 +336,12 @@ Returning a non-string value from __toString(). The compiler enforces that __toS
 :::
 
 :::danger
-Manually writing __clone() logic for init property handling. Let the compiler generate it automatically — manual __clone() implementations may conflict with the with keyword behavior.
+Assuming `clone ... with` on `readonly` works on PHP 8.2–8.4 without `build.experimentalReadonlyCloneWith: true`. Enable that flag, or target PHP 8.5+.
 :::
 
 ## Compiled PHP Output
 
-Magic methods compile to standard PHP magic methods. The compiler does not transform the magic method signatures or bodies — they pass through to PHP directly. The only additions are auto-generated magic methods for generic classes (GenericObject trait) and auto-generated __clone() for init-property classes.
+Magic methods compile to standard PHP magic methods. The compiler does not transform the magic method signatures or bodies — they pass through to PHP directly. The only additions are auto-generated generic-tracking members when needed (`HasGenerics` trait, `__initGenerics__tyhpGeneric`). Readonly `clone ... with` on PHP &lt; 8.5 may emit a separate wrapper, not a replacement of your own `__clone()`.
 
 ```tyhp
 <?tyhp
