@@ -10,6 +10,8 @@
     <IsWindows Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">true</IsWindows>
     <IsOSX Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'">true</IsOSX>
     <IsLinux Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))' == 'true'">true</IsLinux>
+    <!-- Isolated publish artifacts-path lives under dist/; do not compile those generated .cs files. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);dist/**</DefaultItemExcludes>
   </PropertyGroup>
   <PropertyGroup Condition="'$(IsWindows)'=='true'">
     <DefineConstants>Windows</DefineConstants>
@@ -26,6 +28,8 @@
   <ItemGroup>
     <Compile Remove="tests/**" />
     <None Include="tests/**" />
+    <Compile Remove="dist/**" />
+    <EmbeddedResource Remove="dist/**" />
   </ItemGroup>
   <ItemGroup>
     <CSFile Include="Tyhp/**/*.cs" />
