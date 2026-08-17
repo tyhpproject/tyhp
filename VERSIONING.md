@@ -109,7 +109,7 @@ following, in order (usually spread across one or more releases):
    MINOR change. If the conflict arrives with a new PHP minor, a MAJOR bump may ship in the same train because
    the PHP ceiling moved — the Tyhp syntax work is still MINOR.)*
 2. **PHP implements the same feature differently.** Deprecate Tyhp's own syntax in favor of PHP's. Compile
-   flags may enable/disable either syntax until Tyhp drops the old one. *(MINOR to deprecate; a later MINOR to
+   flags may enable/disable either syntax until Tyhp drops the old one. *(PATCH to deprecate; MINOR to
    change the default and remove the old syntax.)*
 3. **PHP implements a *different* feature whose syntax conflicts with Tyhp's.** If the two usages can be
    reliably differentiated at compile time, keep both. If not, migrate Tyhp's syntax to be compatible: first
