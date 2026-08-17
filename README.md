@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/template/tyhp-logo.svg" alt="Tyhp" width="132">
+  <img src="https://tyhplang.com/assets/images/tyhp-logo-alt.svg" alt="Tyhp Logo" width="132">
 </p>
 
 <h1 align="center">Tyhp</h1>
