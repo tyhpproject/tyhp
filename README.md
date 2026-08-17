@@ -1,9 +1,6 @@
 <p align="center">
   <img src="https://tyhplang.com/assets/images/tyhp-logo-alt.svg" alt="Tyhp Logo" width="132">
 </p>
-
-<h1 align="center">Tyhp</h1>
-
 <p align="center">
   <strong>A strongly typed superset of PHP.</strong><br>
 </p>
