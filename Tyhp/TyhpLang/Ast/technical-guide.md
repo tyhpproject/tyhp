@@ -520,6 +520,7 @@ Carries lexer token text (`ValueString`) and token type (`ValueInt64`). Basis fo
 | `TyhpGenericIdentifierAst` | Name + generics |
 | `TyhpGenericsTypeArgumentAst` / `List` | `<T extends U = V>` |
 | `TyhpTypedVarExprAst` | `int $x = …` |
+| `TyhpAsyncBlockAst` | `async { … }` Promise-valued block (not a callable) |
 | `TyhpUsingBlockAst` / `TyhpUsingResourceAst` | `using` / `using await` |
 | `TyhpNameofAst` / `TyhpTypeofAst` / `TyhpDefaultAst` / `TyhpVariableExistsAst` | Compile-time helpers |
 | `TyhpReturnTypeGuardAst` | `: $x is T` return guards |

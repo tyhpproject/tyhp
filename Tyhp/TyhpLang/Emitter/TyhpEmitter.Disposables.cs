@@ -202,7 +202,8 @@ namespace Tyhp.TyhpLang.Emitter
 
             foreach (var child in node.AstChildren)
             {
-                if (child is null || child is PhpStatementBlockAst || child is PhpInlineFunctionAst)
+                if (child is null || child is PhpStatementBlockAst || child is PhpInlineFunctionAst
+                    || child is TyhpAsyncBlockAst)
                 {
                     continue;
                 }

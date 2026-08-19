@@ -69,6 +69,7 @@ namespace Tyhp.TyhpLang.Checker
             new TypeDeclarationValidationRule(),
             new ReferenceTrackingRule(),
             new ClosureRule(),
+            new AsyncBlockRule(),
             new NullSafetyRule(),
             new UnsetTrackingRule(),
             new StructRule(),

@@ -346,7 +346,7 @@ namespace Tyhp.TyhpLang.Emitter
             {
                 // Nested closures own their disposable scope — a closure-local `:=` must not
                 // make the enclosing block create a `$__scope` the closure can't reach.
-                if (child is PhpInlineFunctionAst)
+                if (child is PhpInlineFunctionAst or TyhpAsyncBlockAst)
                 {
                     continue;
                 }

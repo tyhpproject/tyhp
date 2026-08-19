@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Tyhp.CLI;
 using Tyhp.Config;
 using Tyhp.Domain.Enums;
+using Tyhp.Domain.Services;
 
 namespace Tyhp.Tests.CLI;
 
@@ -224,8 +225,10 @@ public class InitActionTests : IDisposable
 
         var composer = JsonDocument.Parse(File.ReadAllText(Path.Combine(target, "composer.json"))).RootElement;
         composer.GetProperty("require").GetProperty("php").GetString().Should().Be("~8.2.0");
-        composer.GetProperty("require").GetProperty("tyhp/core").GetString().Should().Be("802.0.0");
-        composer.GetProperty("require").GetProperty("tyhp/php").GetString().Should().Be("802.0.0");
+        composer.GetProperty("require").GetProperty("tyhp/core").GetString()
+            .Should().Be(ComposerJsonService.EncodeRuntimePackageVersion("8.2", RuntimePackageVersions.Core));
+        composer.GetProperty("require").GetProperty("tyhp/php").GetString()
+            .Should().Be(ComposerJsonService.EncodeRuntimePackageVersion("8.2", RuntimePackageVersions.Php));
     }
 
     private static void RunInit(string targetDirectory, Dictionary<string, string?>? options = null)

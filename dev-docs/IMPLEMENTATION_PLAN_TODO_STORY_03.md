@@ -131,8 +131,8 @@ Story 09: Emitter (rewrites extension operator usage to static calls)
 
 ## Phase 1: Grammar Changes — Extension Operator Overloads with Target Type
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -205,8 +205,8 @@ After modifying the grammar:
 
 ## Phase 2: Grammar Changes — Tyhpdef Inline Extension Members
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -295,8 +295,8 @@ The `T_TYHP_EXTENSION` token at the start of a tyhpdef class statement is unambi
 
 ## Phase 3: Grammar Changes — `use extension` in Tyhpdef Class Bodies
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -346,8 +346,8 @@ The adaptation syntax matches PHP trait adaptations at the grammar level for a f
 
 ## Phase 4: AST and Visitor — Extension Operator Overloads
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -461,8 +461,8 @@ public TyhpOperatorOverloadAst VisitTyhpExtensionOperatorOverload(
 
 ## Phase 5: AST and Visitor — Tyhpdef Inline Extension Members
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -579,8 +579,8 @@ public override TyhpImportExtensionAst VisitTyhpdefClassUseExtension(
 
 ## Phase 6: Binder — Extension Operator Overloads and Tyhpdef Inline Extensions
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -731,8 +731,8 @@ Add in the 4000s range (checker — see Story 08 for full implementation):
 
 ## Phase 7: Update Documentation and Examples
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

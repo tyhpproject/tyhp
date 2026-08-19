@@ -146,8 +146,8 @@ Tyhp/TyhpLang/Emitter/
 
 ## Phase 1: Emitter Architecture, EmitContext, and AST-to-Emit Dispatch Framework
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -285,8 +285,8 @@ Note: A project may have multiple entry points (e.g., a web handler and a CLI to
 
 ## Phase 2: PHPOutputFile.FromAstTree() — AST Splitting into Output File Units
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -445,8 +445,8 @@ Code without a namespace declaration is in the global namespace (`\`). The split
 
 ## Phase 3: TyhpEmitter Core — PHP Pass-Through (Declarations and Top-Level Constructs)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -635,8 +635,8 @@ Handle `PhpDeclareAst`:
 
 ## Phase 4: TyhpEmitter Core — PHP Pass-Through (Statements and Expressions)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -921,8 +921,8 @@ Handle `PhpNopStatementAst`:
 
 ## Phase 5: ConvertAliases() — Tyhp-to-PHP Transformations
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1074,8 +1074,8 @@ If `EmitConfig.EntryPointAutoloader` is set and the current output file is a roo
 
 ## Phase 6: Generate(), PruneFileImports(), and Merge()
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1201,8 +1201,8 @@ The `EmitItem.emit(indentLevel)` method uses 4-space indentation. The `Generate(
 
 ## Phase 7: Output File Writing and Pipeline Integration
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1349,8 +1349,8 @@ After each PHP file is written, the writer should have a hook for writing the co
 
 ## Phase 8: End-to-End Validation and Emitter MessageCodes
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

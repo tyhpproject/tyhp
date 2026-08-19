@@ -202,6 +202,10 @@ namespace Tyhp.TyhpLang.Checker
                     unsupportedKind = "nested fn";
                     return false;
 
+                case TyhpAsyncBlockAst:
+                    unsupportedKind = "async block";
+                    return false;
+
                 case PhpYieldAst:
                     unsupportedKind = "yield";
                     return false;
@@ -516,7 +520,7 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             // Nested fn bodies are unsupported; still avoid descending into them for captures.
-            if (node is PhpInlineFunctionAst)
+            if (node is PhpInlineFunctionAst or TyhpAsyncBlockAst)
             {
                 return;
             }

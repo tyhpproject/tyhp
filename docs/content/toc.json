@@ -103,6 +103,7 @@
                 "tyhpdef_structs.md", // structs
                 "tyhpdef_variablesAndConstants.md", // vars and constants
                 "tyhpdef_functions.md", // functions
+                "tyhpdef_extensions.md", // extension methods and operators
                 "tyhpdef_typeAliases.md", // type aliases
                 "tyhpdef_namespaces.md", // namespaces
                 "tyhpdef_importAliases.md", // import aliases

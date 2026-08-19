@@ -1,0 +1,291 @@
+{
+    "name": "tyhp",
+    "displayName": "Tyhp Language",
+    "description": "Tyhp language support: syntax highlighting, LSP, XDebug proxy debugging, tasks, workspace init, status bar, file icons, and CLI binary management for .tyhp / .tyhpdef",
+    "version": "0.8.0",
+    "publisher": "tyhp-lang",
+    "license": "Apache-2.0",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/tyhpproject/tyhp.git",
+        "directory": "tyhp-lang/vscode"
+    },
+    "engines": {
+        "vscode": "^1.70.0"
+    },
+    "categories": [
+        "Programming Languages",
+        "Debuggers"
+    ],
+    "main": "./out/extension.js",
+    "activationEvents": [
+        "onLanguage:tyhp",
+        "workspaceContains:tyhp.json",
+        "onCommand:tyhp.refreshBinary",
+        "onCommand:tyhp.installCli",
+        "onCommand:tyhp.revealBinary",
+        "onCommand:tyhp.restartLanguageServer",
+        "onCommand:tyhp.initProject",
+        "onCommand:tyhp.startXdebugProxy",
+        "onCommand:tyhp.stopXdebugProxy",
+        "onCommand:tyhp.restartXdebugProxy"
+    ],
+    "scripts": {
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "bundle": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+        "test": "npm run compile && node scripts/run-unit-tests.cjs",
+        "package": "vsce package",
+        "vscode:prepublish": "npm run compile && npm run bundle"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^8.1.0"
+    },
+    "devDependencies": {
+        "@types/node": "^18.19.0",
+        "@types/vscode": "^1.70.0",
+        "@vscode/vsce": "^3.2.0",
+        "esbuild": "^0.25.0",
+        "typescript": "^5.7.0"
+    },
+    "contributes": {
+        "commands": [
+            {
+                "command": "tyhp.refreshBinary",
+                "title": "Refresh Tyhp binary",
+                "category": "Tyhp"
+            },
+            {
+                "command": "tyhp.installCli",
+                "title": "Install / Update CLI",
+                "category": "Tyhp"
+            },
+            {
+                "command": "tyhp.revealBinary",
+                "title": "Reveal CLI Path",
+                "category": "Tyhp"
+            },
+            {
+                "command": "tyhp.restartLanguageServer",
+                "title": "Restart Language Server",
+                "category": "Tyhp"
+            },
+            {
+                "command": "tyhp.initProject",
+                "title": "Initialize Project",
+                "category": "Tyhp"
+            },
+            {
+                "command": "tyhp.startXdebugProxy",
+                "title": "Start XDebug Proxy",
+                "category": "Tyhp"
+            },
+            {
+                "command": "tyhp.stopXdebugProxy",
+                "title": "Stop XDebug Proxy",
+                "category": "Tyhp"
+            },
+            {
+                "command": "tyhp.restartXdebugProxy",
+                "title": "Restart XDebug Proxy",
+                "category": "Tyhp"
+            },
+            {
+                "command": "tyhp.showStatusActions",
+                "title": "Show Status Actions",
+                "category": "Tyhp"
+            }
+        ],
+        "configuration": {
+            "title": "Tyhp",
+            "properties": {
+                "tyhp.path": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "Path to the `tyhp` CLI (absolute path or command name). When empty, the extension searches `PATH` and writes the resolved location here. Later phases (language server, tasks, XDebug proxy) use this resolved binary."
+                },
+                "tyhp.projectPath": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "Force a **single** Tyhp project: path to `tyhp.json` (file or directory containing one). When set, the extension does not scan other `tyhp.json` files. Files outside that project’s `include`/`exclude` stay TextMate-only (no language server). When empty, every `tyhp.json` under the workspace is indexed and each file is owned by the project whose `include` globs match (same rules as `tyhp build`). Passed as `--tyhp-project` (must be a file)."
+                },
+                "tyhp.languageServer.args": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "markdownDescription": "Additional arguments passed after `tyhp language_server`. Do not include the `language_server` subcommand itself. `--quiet`, `--stdio`, and `--tyhp-project` are added automatically when needed."
+                },
+                "tyhp.languageServer.trace": {
+                    "type": "string",
+                    "enum": [
+                        "off",
+                        "messages",
+                        "verbose"
+                    ],
+                    "default": "off",
+                    "markdownDescription": "Trace level for the Tyhp language server (Output panel > **Tyhp Language Server**)."
+                },
+                "tyhp.diagnostics.enable": {
+                    "type": "boolean",
+                    "default": true,
+                    "markdownDescription": "Publish diagnostics from the language server to the Problems panel."
+                },
+                "tyhp.completion.autoImport": {
+                    "type": "boolean",
+                    "default": true,
+                    "markdownDescription": "Offer auto-import on completion and code actions (used when the LSP client is enabled)."
+                },
+                "tyhp.binary.installMode": {
+                    "type": "string",
+                    "enum": [
+                        "path",
+                        "global",
+                        "extension"
+                    ],
+                    "enumDescriptions": [
+                        "CLI found on PATH or set manually",
+                        "Installed into a user-global location by this extension",
+                        "Installed under this extension’s globalStorage"
+                    ],
+                    "default": "path",
+                    "markdownDescription": "How the CLI was obtained. Set automatically by **Tyhp: Install / Update CLI** and PATH discovery. Auto-update applies only to `extension`."
+                },
+                "tyhp.binary.autoUpdate": {
+                    "type": "boolean",
+                    "default": true,
+                    "markdownDescription": "When `tyhp.binary.installMode` is `extension` and this extension installed the binary, check GitHub Releases for a newer CLI on startup (debounced). Never auto-overwrites a global or PATH binary."
+                },
+                "tyhp.binary.pinnedVersion": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "Pin the extension-only CLI to a GitHub release tag (with or without a leading `v`, e.g. `805.0.0-alpha.1`). When set, the extension installs/keeps that version and will not auto-update to other tags. Empty tracks latest when auto-update is on."
+                },
+                "tyhp.xdebugProxy.idePort": {
+                    "type": "number",
+                    "default": 9003,
+                    "markdownDescription": "IDE listen port for `tyhp xdebug_proxy` (PHP Debug connects here). When unset, `tyhp.json` `xdebugProxy.idePort` is used, then Story 18 default `9003`."
+                },
+                "tyhp.xdebugProxy.xdebugPort": {
+                    "type": "number",
+                    "default": 9004,
+                    "markdownDescription": "XDebug engine listen port for `tyhp xdebug_proxy` (`xdebug.client_port`). When unset, `tyhp.json` `xdebugProxy.xdebugPort` is used, then Story 18 default `9004`."
+                },
+                "tyhp.xdebugProxy.sourceMapDir": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "Directory of `.php.map` files passed as `--sourcemap-dir`. Empty uses `tyhp.json` `xdebugProxy.sourceMapDir`, otherwise the CLI defaults to `output.path`."
+                }
+            }
+        },
+        "languages": [
+            {
+                "id": "tyhp",
+                "aliases": [
+                    "Tyhp",
+                    "tyhp"
+                ],
+                "extensions": [
+                    ".tyhp",
+                    ".tyhpdef"
+                ],
+                "configuration": "./language-configuration.json",
+                "icon": {
+                    "light": "./media/tyhp-file-light.svg",
+                    "dark": "./media/tyhp-file-dark.svg"
+                }
+            },
+            {
+                "id": "php-tyhp",
+                "aliases": [
+                    "PHP (Tyhp)"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "tyhp",
+                "scopeName": "source.tyhp",
+                "path": "./syntaxes/tyhp.tmLanguage.json"
+            },
+            {
+                "language": "php-tyhp",
+                "scopeName": "source.tyhp.php",
+                "path": "./syntaxes/tyhp-php.tmLanguage.json"
+            },
+            {
+                "scopeName": "markdown.tyhp.codeblock",
+                "path": "./syntaxes/tyhp-markdown.tmLanguage.json",
+                "injectTo": ["text.html.markdown"],
+                "embeddedLanguages": {
+                    "meta.embedded.block.tyhp": "tyhp",
+                    "meta.embedded.block.php-tyhp": "php-tyhp"
+                }
+            }
+        ],
+        "iconThemes": [
+            {
+                "id": "tyhp-file-icons",
+                "label": "Tyhp File Icons",
+                "path": "./media/tyhp-icon-theme.json"
+            }
+        ],
+        "menus": {
+            "commandPalette": [
+                {
+                    "command": "tyhp.showStatusActions",
+                    "when": "false"
+                }
+            ]
+        },
+        "taskDefinitions": [
+            {
+                "type": "tyhp",
+                "required": ["action"],
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["build", "lint"],
+                        "description": "Tyhp CLI action (`build` or `lint`)"
+                    }
+                }
+            }
+        ],
+        "problemMatchers": [
+            {
+                "name": "tyhp",
+                "owner": "tyhp",
+                "fileLocation": ["relative", "${workspaceFolder}"],
+                "pattern": {
+                    "regexp": "^(.*)\\((\\d+),(\\d+)\\):\\s+(error|warning|info)\\s+TYHP(\\d+):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "code": 5,
+                    "message": 6
+                }
+            }
+        ],
+        "debuggers": [
+            {
+                "type": "php",
+                "languages": ["tyhp", "php"],
+                "configurationSnippets": [
+                    {
+                        "label": "Tyhp: Listen for XDebug (via proxy)",
+                        "description": "PHP Debug listens on the Tyhp XDebug proxy IDE port (default 9003). Requires the PHP Debug extension (xdebug.php-debug). Point XDebug client_port at the proxy XDebug port (default 9004).",
+                        "body": {
+                            "name": "Listen for Tyhp (XDebug proxy)",
+                            "type": "php",
+                            "request": "launch",
+                            "port": 9003
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

@@ -4,6 +4,7 @@ using Tyhp.Config;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Emitter;
+using Tyhp.TyhpLang.Emitter.SourceMap;
 
 namespace Tyhp.Domain.Services
 {
@@ -38,6 +39,7 @@ namespace Tyhp.Domain.Services
 
             var filesToWrite = this.ResolveOutputFiles(outputFiles, result);
             var directoriesCreated = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var sourceMapOptions = this.CreateSourceMapOptions();
 
             foreach (var outputFile in filesToWrite)
             {
@@ -62,12 +64,31 @@ namespace Tyhp.Domain.Services
                 }
 
                 var content = outputFile.GeneratedContent!;
-                var sourcemapJson = this._project.Build.GenerateSourcemap
-                    ? this.TryProduceSourceMap(outputFile)
+                var sourcemapJson = sourceMapOptions.Enabled
+                    ? SourceMapWriter.TryGenerateSourceMapJson(
+                        outputFile,
+                        sourceMapOptions,
+                        this._diagnostics)
                     : null;
                 if (sourcemapJson != null)
                 {
-                    content = this.AppendSourceMappingUrl(content, fullPath);
+                    if (sourceMapOptions.ValidateSourceMaps)
+                    {
+                        // Validate against the Generate() PHP, before the write-time
+                        // sourceMappingURL comment is appended (that extra line is not
+                        // represented in mappings).
+                        SourceMapValidator.Validate(
+                            sourcemapJson,
+                            content,
+                            this._diagnostics,
+                            sourceContentProvider: sourceMapOptions.SourceContentProvider);
+                    }
+
+                    content = SourceMapWriter.ApplySourceMappingComment(
+                        content,
+                        fullPath,
+                        sourcemapJson,
+                        sourceMapOptions);
                 }
 
                 if (dryRun)
@@ -105,9 +126,9 @@ namespace Tyhp.Domain.Services
                     result.WrittenPaths.Add(fullPath);
                     result.FilesWritten += 1;
 
-                    if (sourcemapJson != null)
+                    if (sourcemapJson != null && !sourceMapOptions.InlineSourceMap)
                     {
-                        this.WriteSourcemap(outputFile, fullPath, sourcemapJson);
+                        SourceMapWriter.WriteSourceMapFile(fullPath, sourcemapJson, this._diagnostics);
                     }
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -214,6 +235,8 @@ namespace Tyhp.Domain.Services
                     merged.Merge(group[i], this._emitContext);
                 }
 
+                // Merge() replaces any populated collector with a fresh one. Generate() also
+                // Resets at start, so this re-emit cannot double-track from the pre-merge cursor.
                 merged.Generate(this._emitContext);
 
                 this._diagnostics.AddWarning(
@@ -252,51 +275,18 @@ namespace Tyhp.Domain.Services
             }
         }
 
-        private string AppendSourceMappingUrl(string content, string phpFilePath)
+        private SourceMapOptions CreateSourceMapOptions()
         {
-            var mapFileName = Path.GetFileName(phpFilePath) + ".map";
-            var trimmed = content.TrimEnd();
-            if (trimmed.Contains("sourceMappingURL=", StringComparison.Ordinal))
+            var projectPath = Path.GetFullPath(this._project.GetProjectPath());
+            return new SourceMapOptions
             {
-                return content;
-            }
-
-            // Use "\n" to match the line endings PHPOutputFile.Generate() normalizes the content to,
-            // keeping the written file's endings consistent across platforms.
-            return trimmed + "\n" + "//# sourceMappingURL=" + mapFileName + "\n";
-        }
-
-        private string? TryProduceSourceMap(PHPOutputFile outputFile)
-        {
-            try
-            {
-                return outputFile.SourceMap();
-            }
-            catch (NotImplementedException)
-            {
-                // PLACEHOLDER_STORY_17: SourceMapWriter will replace this stub. Until a real map is
-                // produced, no //# sourceMappingURL= comment is appended (avoids a dangling reference).
-                return null;
-            }
-        }
-
-        private void WriteSourcemap(PHPOutputFile outputFile, string phpFilePath, string mapJson)
-        {
-            try
-            {
-                var mapPath = phpFilePath + ".map";
-                File.WriteAllText(mapPath, mapJson, Utf8NoBom);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                this._diagnostics.AddError(
-                    MessageCode.BuildFileWriteError,
-                    outputFile.SourceFileAst?.Identifier ?? "",
-                    0,
-                    0,
-                    phpFilePath + ".map",
-                    ex.Message);
-            }
+                Enabled = this._project.Build.GenerateSourcemap,
+                IncludeSourcesContent = this._project.Build.SourceMapIncludeContent,
+                AppendSourceMappingUrl = true,
+                InlineSourceMap = false,
+                ValidateSourceMaps = this._project.Build.GenerateSourcemap,
+                SourceContentProvider = SourceMapWriter.CreateFileContentProvider(projectPath),
+            };
         }
 
         private static bool HasWritableContent(PHPOutputFile outputFile)

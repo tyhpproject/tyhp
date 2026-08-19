@@ -116,7 +116,7 @@ Beyond the basic <code>file(line,column): severity CODE: message</code> format, 
 
 - Source spans and underlines — The text renderer prints the offending source line with a caret/underline beneath the primary span, plus labeled secondary spans that point at related locations (similar to the Rust compiler). Output degrades gracefully to a single line when <code>--quiet</code> is set.
 - "Did you mean" suggestions — When the binder or checker reports an unknown symbol, type, or member, it attaches a Levenshtein-based suggestion drawn from the in-scope symbol table, surfaced as a <code>help:</code> hint in text output and as a machine-applicable fix in JSON and SARIF.
-- Actionable fixes — Suggestions carry a span and replacement text, providing the data contract that drives <code>tyhp lint --fix</code>. Language server code actions are planned.
+- Actionable fixes — Suggestions carry a span and replacement text, providing the data contract that drives <code>tyhp lint --fix</code>. The language server exposes the same import quick fixes as LSP code actions (auto-import and remove unused import).
 - The <code>--explain</code> command — Run <code>tyhp --explain TYHP4008</code> to print the long-form explanation for any diagnostic code. The error index is generated directly from the compiler's code registry, so it always matches the codes the compiler emits.
 
 Diagnostic messages follow a consistent style: present tense, the offending symbol or type named in backticks, and "expected X, found Y" framing. A build-time consistency gate enforces that every diagnostic code has conforming message text and vice versa.

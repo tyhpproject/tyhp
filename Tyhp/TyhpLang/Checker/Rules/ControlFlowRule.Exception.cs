@@ -80,8 +80,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 }
             }
 
-            DeclareForeachVariable(loop.ValueVariable, valueType, loopState, diagnostics);
-            DeclareForeachVariable(loop.KeyVariable, keyType, loopState, diagnostics);
+            DeclareForeachVariable(loop.ValueVariable, valueType, loopState, context, diagnostics);
+            DeclareForeachVariable(loop.KeyVariable, keyType, loopState, context, diagnostics);
         }
 
         private static void CheckTryCatch(
@@ -111,6 +111,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                             new Binder.Symbols.VariableSymbol(key),
                             catchType,
                             isReference: false);
+                    context.ResolveExpressionType(catchClause.Variable, catchState);
                 }
 
                 context.CheckStatementBlock(catchClause.Body, catchState);

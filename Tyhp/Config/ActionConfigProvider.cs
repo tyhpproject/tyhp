@@ -172,6 +172,7 @@ namespace Tyhp.Config
             // Global
             "--tyhp-project",
             "--locale",
+            "--pid-file",
             // help / explain
             "--subject",
             "--code",
@@ -197,6 +198,12 @@ namespace Tyhp.Config
             // language_server
             "--tcp",
             "--pipe",
+            // xdebug_proxy
+            "--ide-port",
+            "--xdebug-port",
+            "--sourcemap-dir",
+            "--ide-key",
+            "--log-level",
         };
 
         /// <summary>

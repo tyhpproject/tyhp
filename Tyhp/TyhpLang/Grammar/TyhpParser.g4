@@ -472,6 +472,15 @@ phpExprAssignmentOpsGrammarAddon
     : TokenValue=T_TYHP_USING_EQUAL {this.isLanguageMode("tyhp")}?
     ;
 
+// ! OVERRIDE
+// Async block expression: `async { ... }` evaluates to Promise<T>, not a callable.
+// Distinct from `async function () { }` / `async fn() =>` (those are inlineFunction /
+// phpExprInlineFunctionShort, which are tried before this phpExprBase alternative).
+phpExprPrecBaseGrammarAddon
+    : T_TYHP_ASYNC {this.isLanguageMode("tyhp")}?
+        T_OPEN_CURLY_BRACE StatementList=innerStatementList T_CLOSE_CURLY_BRACE
+    ;
+
 //#endregion Tyhp Expressions
 
 //#region Tyhp Identifiers

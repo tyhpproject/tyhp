@@ -35,6 +35,7 @@ namespace Tyhp.CLI
             {
                 "tyhp-project",
                 "locale",
+                "pid-file",
             };
 
         private static readonly HashSet<string> TyhpdefTriggerCommands =

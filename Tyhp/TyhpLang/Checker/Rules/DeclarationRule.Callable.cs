@@ -190,7 +190,6 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // explicitly. Do not route through CheckNode: DeclarationRule would double-fire.
             AttributeRule.ValidateDeclarationAttributes(method, state, context, diagnostics);
             TypeAnnotationRule.CheckMethodReturnType(method, state, context);
-            AsyncRule.ValidateAsyncMethod(method, state, context, diagnostics);
             CodeQualityRule.CheckMethodBody(method, state, diagnostics);
             DisposableRule.AnalyzeMethodBody(method, state, context, diagnostics);
             // Walk AstAttributes so ImportRule (and any name-based rules) see member attribute
@@ -257,6 +256,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             GenericConstraintResolver.ResolveAll(methodSymbol.GenericParameters, methodState, context);
+            AsyncRule.ValidateAsyncMethod(method, methodState, context, diagnostics);
             var methodReturnTypeAst = method.ReturnType ?? methodSymbol.ReturnType;
             if (methodReturnTypeAst is TyhpReturnTypeGuardAst methodTypeGuard)
             {

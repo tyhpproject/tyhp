@@ -93,12 +93,19 @@ float $distance = \sqrt($p->x ** 2 + $p->y ** 2);
 
 ## How do I use async/await?
 
-Tyhp provides async/await syntax for asynchronous programming. Async functions return a `Promise<T>` and can use `await` to suspend execution until a promise resolves. At compile time, async/await is transformed into promise-based PHP code using the `tyhp/async` runtime package.
+Tyhp provides async/await syntax for asynchronous programming. Named async functions are declared with the unwrapped value type (the compiler wraps `Promise<T>`). `await` suspends until a promise resolves. An `async { ... }` block is itself a `Promise<T>` — use it when you want running async work rather than a callable. At compile time, async/await is transformed into promise-based PHP code using the `tyhp/async` runtime package.
 
 ```tyhp
 <?tyhp
-async function fetchUser(int $id): Promise<User> {
+async function fetchUser(int $id): User {
     Response $response = await httpClient->get("/users/{$id}");
     return User::fromJson($response->body());
+}
+
+function after(Promise<User> $pending): Promise<string> {
+    return async {
+        User $user = await $pending;
+        return $user->name;
+    };
 }
 ```

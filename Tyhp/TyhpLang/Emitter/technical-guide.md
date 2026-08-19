@@ -105,7 +105,7 @@ Expressions are usually **string-built** (`BuildExpression`) and attached as sta
 | --- | --- |
 | `TyhpEmitter.cs` | Constructor, `Emit()` pipeline, `EmitNode`, merge, entry-point Promise wrapping |
 | `EmitContext.cs` / `EmitConfig` | Shared emit state, alias maps, checker flags, package requirements, disposable/async helpers |
-| `EmitItem.cs` | Tree of PHP text segments; `emit(indent)` renders; children sorted by `EmitType` then source order |
+| `EmitItem.cs` | Tree of PHP text segments; `emit(indent)` renders; `emit(indent, collector)` is the same string plus source-map tracking; children sorted by `EmitType` then source order |
 | `PHPOutputFile.cs` | One output file’s AST slices + generate/prune/merge |
 | `PHPOutputFileSplitter.cs` | Split source AST into output-file units |
 | `OutputPathResolver.cs` | PSR-4 object paths, `_functions.php`, entry-point path, `output_file` paths |
@@ -147,6 +147,21 @@ Expressions are usually **string-built** (`BuildExpression`) and attached as sta
 | `DeclarationExistenceGateHelper.cs` | `if (!function_exists(…)) { function … }` gates: move with declaration, rewrite gate args |
 | `GeneratedNames` (`Tyhp/TyhpLang/GeneratedNames.cs`) | Shared compiler-generated PHP names (`__tyhpGeneric`, `__initGenerics__tyhpGeneric`, factories) — reserved by the checker too |
 
+### `SourceMap/`
+
+VLQ Base64 encoding and mapping collection for Source Map v3. Deep guide: `SourceMap/technical-guide.md`.
+
+| File | Role |
+| --- | --- |
+| `SourceMap/VlqEncoder.cs` | Encode/decode signed integers as self-delimiting Base64 VLQ (`internal`) |
+| `SourceMap/SourceMapping.cs` | One generated → original segment (`public readonly record struct`) |
+| `SourceMap/SourceMapCollector.cs` | Generated-position tracker and mapping accumulator (`public`) |
+| `SourceMap/SourceMapGenerator.cs` | Source Map v3 JSON from a collector (`internal`) |
+| `SourceMap/SourceMapWriter.cs` | `.map` files, `sourceMappingURL` comments, inline data URLs (`internal`) |
+| `SourceMap/SourceMapValidator.cs` | Validates Source Map v3 JSON against generated PHP (`internal`) |
+
+`.map` file writing is `SourceMapWriter`, used by `OutputWriterService`. `PHPOutputFile.SourceMap()` returns Source Map v3 JSON when a `SourceMapCollector` was assigned before `Generate()`; left `null`, `Generate()` stays on the fast `emit(int)` path and `SourceMap()` returns `""`. `TyhpEmitter.GenerateAll` assigns the collector when `build.generateSourcemap` is true. `SourceMapValidator` checks JSON/VLQ/coverage against that PHP; the live writer runs it when sourcemaps are on (see `SourceMap/technical-guide.md`).
+
 ### `PHP8.3/`
 
 Placeholder files (`ClassFile.cs`, `FunctionFile.cs`, `ObjectDefinition.cs`, members) are **empty**. Version-specific behavior lives in `EmitContext.IsPhpVersionAtLeast` and feature modules (e.g. property accessors), not in this subdirectory yet.
@@ -164,6 +179,7 @@ Placeholder files (`ClassFile.cs`, `FunctionFile.cs`, `ObjectDefinition.cs`, mem
 | Structs / with | `StructEmitterTests.cs`, `WithKeywordEmitterTests.cs` |
 | Async / disposables | `AsyncAwaitEmitterTests.cs`, `UsingBlockEmitterTests.cs`, `Disposable*EmitterTests.cs` |
 | Naming / imports | `TypeNameFormatterTests.cs`, `ImportConsolidationTests.cs`, `RelativeQualifiedNameEmitterTests.cs` |
+| Source maps | `VlqEncoderTests.cs`, `SourceMapCollectorTests.cs`, `EmitItemSourceMapTests.cs`, `SourceMapGeneratorTests.cs`, `PHPOutputFileSourceMapTests.cs`, `SourceMapWriterTests.cs`, `SourceMapValidatorTests.cs`, `SourceMapEndToEndTests.cs` |
 
 ---
 
@@ -192,7 +208,12 @@ SrcFileAst (bound)
 - Factories: `Line`, `Block`, `BlockBraceNextLine` (PSR-12 brace-on-next-line for named types/methods), `MultiLine`, `Empty`, `AttachDocComment`.
 - `SortedChildren()` orders children by `EmitType` numeric value, then original index — so trait uses, constants, properties, constructor, methods land in a stable class-member order even if collected interleaved.
 - `emit(indentLevel)` joins non-empty segments with newlines and indents embedded multiline content (closures, switches). Sibling children must never be concatenated without a separator — that previously glued statements into `$a = 1;    $b = 2;` (indent looked like mid-line spacing) and adjacent braces into `}function …`.
-- `PHPOutputFile.AppendBodyChildren` joins top-level declarations with a blank line (`\n\n`) so multiple functions/classes in one output file stay PSR-12 separated.
+- `emit(indentLevel, SourceMapCollector collector)` returns the same PHP string, and additionally reports each fragment to the collector as it is written. Indent whitespace and the `\n` separators between segments use a null provider (no mapping). Each content line uses `this.Provider`. Whitespace-only children are peeked via `emit(indentLevel + 1)` and skipped without touching the collector, matching the non-tracking path. `PHPOutputFile.Generate` calls this overload only when `SourceMapCollector` is set; otherwise it uses the non-tracking `emit(int)` fast path. Prune-time `EmitBody` peeks never pass the collector, so import pruning cannot pollute mappings.
+- `PHPOutputFile.AppendBodyChildren` joins top-level declarations with a blank line (`\n\n`) so multiple functions/classes in one output file stay PSR-12 separated. When tracking, those separators are reported with a null provider so the collector stays aligned with the joined string.
+
+### `PHPOutputFile` sourcemap wiring
+
+`SourceMapCollector` is the single enable/store flag: set it before `Generate()`, leave it `null` for the fast path. `FromAstTree` sets `SourceFileName` from `SrcFileAst.FileName` (project-relative). Tracking `Generate()` resets the collector first (so a second `Generate()` cannot double-track), registers that path, reports preamble (`<?php`, declares, namespace, `use`) with a null provider, then calls `emit(indent, collector)` for body items. `SourceMap(includeSourcesContent, sourceContentProvider)` builds JSON via `SourceMapGenerator` using `Path.GetFileName(OutputFilePath)` and `SourceRoot`. `TyhpEmitter.GenerateAll` assigns the collector and a `SourceRoot` directory prefix of `SourceFileName` when `build.generateSourcemap` is true — never a URL-style `../src/` from the output directory. `Merge` replaces any populated collector with a fresh one and keeps this file's `SourceFileName` / `SourceRoot` when set. Diagnostics `TYHP5020`–`TYHP5022` (`EmitterSourceMapGenerationFailed`, `EmitterSourceMapWriteFailed`, `EmitterSourceMapInvalidMapping`) are non-fatal warnings emitted by `SourceMapWriter` during JSON generation, `.map` writes, and invalid-mapping checks.
 
 ### `EmitType` (member ordering)
 
@@ -717,7 +738,7 @@ Currently a no-op. Design note: if the optimizer later inlines extension/operato
 Items that remain ambiguous or lightly specified after reading the emitter sources and primary docs:
 
 1. **`PHP8.3/` placeholders** — Still empty. Unclear whether version-specific emit will ever move here or remain feature-gated inside the main partials.
-2. **Story 17 source maps** — `PHPOutputFile.SourceMappings` exists; no active population path was verified in the emitter partials reviewed for this guide.
+2. **Story 17 source maps** — `SourceMapWriter` writes `.map` files and URL comments; `TyhpEmitter.GenerateAll` assigns collectors when `build.generateSourcemap` is true; `SourceMapValidator` round-trips JSON against the generated PHP (unpadded `mappings` and the write-time `sourceMappingURL` line are accounted for). Optimizer `OriginalAst` mapping is still upcoming with Story 23.
 3. **Optimizer ↔ emitter contract** — Documented as a future concern; no live optimizer interactions to validate today.
 4. **Custom struct backing edge cases** — `StructEmissionHelper` + `build.structBacking` paths exist; full matrix of rewrite vs error reporting for misconfigured backing is easier to miss than array-backed structs (covered more heavily in tests).
 5. **Optional rename of `RequiresGenericVariant` / related API** — cosmetic only;
@@ -744,6 +765,7 @@ Items that remain ambiguous or lightly specified after reading the emitter sourc
 | Object `with` | `WithKeywordHelper` |
 | Imports / paths / FQNs | `PHPOutputFile` prune, `OutputPathResolver`, `EmittedFqnHelper` |
 | Pipeline phases | `TyhpEmitter.Emit` only |
+| Source maps | `SourceMap/VlqEncoder.cs`, `SourceMapping.cs`, `SourceMapCollector.cs`, `SourceMapGenerator.cs`, `SourceMapWriter.cs`, `SourceMapValidator.cs`; tracking emit is `EmitItem.emit(int, SourceMapCollector)`; `PHPOutputFile.SourceMap()` / `Generate()` wiring and `OutputWriterService` I/O (see `SourceMap/technical-guide.md`) |
 
 ---
 

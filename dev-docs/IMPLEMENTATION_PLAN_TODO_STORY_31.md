@@ -2430,8 +2430,8 @@ Grow the plugin platform beyond v1’s pre-binder / compile-only / expr-only sur
    **needs rebind** or not; host rebinds when any participant requests it (combine former “typed transform” +
    “project/cross-file context” needs — binder scopes and project symbols are visible here).
 2. **IDE / TextMate for `p` islands** — plugin ships a TextMate grammar (or injection) for its namespace; Story 19.5
-   VS Code extension matches `p"ns:…"`, `p<<<ns`, etc., and applies highlighting; room for further LSP pickup
-   (completion, hover) as the extension evolves.
+   VS Code and PhpStorm clients match `p"ns:…"`, `p<<<ns`, etc., and apply highlighting; room for further LSP pickup
+   (completion, hover) as the extensions evolve.
 3. **Diagnostic spans + fix-its** — accurate offsets inside islands/encaps; suggested fixes consumable by
    `tyhp lint --fix` / IDE.
 4. **Statement-form islands** — `p'ns:…';` / heredoc as statements, not only exprs.
@@ -2460,8 +2460,8 @@ Grow the plugin platform beyond v1’s pre-binder / compile-only / expr-only sur
 ### IDE integration (Story 19.5)
 
 - Plugin manifest may point at a **TextMate grammar** / injection scoped to its namespace.
-- `vscode-tyhp` detects `p` / `p<<<` forms, reads the namespace/label, and activates the matching grammar for the
-  island body (encaps `$vars` can remain Tyhp/PHP scopes).
+- `tyhp-lang` (VS Code + PhpStorm) detect `p` / `p<<<` forms, read the namespace/label, and activate the matching
+  grammar for the island body (encaps `$vars` can remain Tyhp/PHP scopes). Shared grammars from Story 19.5.
 - Additional IDE surfaces (completion, hover, go-to for tables/columns) are desirable but unspecified in detail —
   capture as follow-ons once TextMate injection works.
 

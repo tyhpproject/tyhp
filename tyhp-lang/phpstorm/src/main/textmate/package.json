@@ -1,0 +1,31 @@
+{
+  "name": "tyhp",
+  "displayName": "Tyhp Language",
+  "contributes": {
+    "languages": [
+      {
+        "id": "tyhp",
+        "aliases": ["Tyhp", "tyhp"],
+        "extensions": [".tyhp", ".tyhpdef"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tyhp",
+        "scopeName": "source.tyhp",
+        "path": "./syntaxes/tyhp.tmLanguage.json"
+      },
+      {
+        "language": "php-tyhp",
+        "scopeName": "source.tyhp.php",
+        "path": "./syntaxes/tyhp-php.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.tyhp.codeblock",
+        "path": "./syntaxes/tyhp-markdown.tmLanguage.json",
+        "injectTo": ["text.html.markdown"]
+      }
+    ]
+  }
+}

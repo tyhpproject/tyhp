@@ -616,7 +616,7 @@ A `readonly` property is being assigned outside of the constructor.
 class User {
     public function __construct(
         public readonly string $name
-    ): void {}
+    ) {}
 
     public function rename(string $newName): void {
         $this->name = $newName;  // Error: Cannot assign to readonly property
@@ -1924,6 +1924,30 @@ Overloaded `++` / `--` rewrites to a method call plus write-back. Postfix forms 
 That split is not safe inside short-circuit operands (`&&`, `||`, `??`), ternary arms, `else if` conditions (reached only when earlier conditions in the chain were false), or loop conditions that re-evaluate each iteration. Move the postfix into its own statement (or use prefix `++$a` when the new value is intended), then use the captured variable in the expression.
 :::
 
+:::member[TYHP5020 (Warning)]
+**EmitterSourceMapGenerationFailed.** Message: <code>Failed to generate source map for file `{0}`: {1}</code>.
+
+Source map generation builds Source Map v3 JSON from mappings collected while emitting PHP. A failure here is non-fatal: the `.php` file is still written, but debugging and stack-trace mapping for that file will not have a `.map` companion.
+
+The build continues. Inspect the detail in the warning for the underlying exception, then retry with `build.generateSourcemap` enabled after fixing the cause.
+:::
+
+:::member[TYHP5021 (Warning)]
+**EmitterSourceMapWriteFailed.** Message: <code>Failed to write source map file `{0}`: {1}</code>.
+
+The compiler writes a `.php.map` file next to each generated PHP file when `build.generateSourcemap` is true. A write failure (permissions, disk full, invalid path) is non-fatal: the PHP output is still usable without the map.
+
+The build continues. Fix the path or permissions named in the warning and rebuild to produce the missing source map file.
+:::
+
+:::member[TYHP5022 (Warning)]
+**EmitterSourceMapInvalidMapping.** Message: <code>Invalid source mapping in file `{0}`: generated position (`{1}`,`{2}`) references invalid source position (`{3}`,`{4}`)</code>.
+
+A source mapping segment points at a generated PHP position whose original `.tyhp` line or column is invalid (negative, or otherwise not a real start position). The mapping is skipped; remaining segments are still emitted.
+
+This is non-fatal. If mappings look wrong in a debugger, report the generated and original coordinates from this warning — they identify the emit item whose AST provider had a bad span.
+:::
+
 
 ## Configuration Errors (TYHP6xxx)
 
@@ -2089,6 +2113,66 @@ An auto-fix was attempted but could not be applied. The placeholders name the fi
 **LintUnsupportedFormat.** Message: <code>Unsupported output format `{0}`; valid formats: `text`, `json`, `sarif`</code>.
 
 The `--format` argument to `tyhp lint` specifies a format that is not recognized.
+:::
+
+:::member[TYHP7300 (Error)]
+**LspUnknownError.** Message: <code>Language server failed: {0}</code>.
+Run <code>tyhp --explain TYHP7300</code> for the long-form explanation.
+:::
+
+:::member[TYHP7301 (Error)]
+**LspServerStartupFailed.** Message: <code>Language server startup failed: {0}</code>.
+Run <code>tyhp --explain TYHP7301</code> for the long-form explanation.
+:::
+
+:::member[TYHP7302 (Error)]
+**LspAnalysisError.** Message: <code>Document analysis failed: {0}</code>.
+Run <code>tyhp --explain TYHP7302</code> for the long-form explanation.
+:::
+
+:::member[TYHP7303 (Error)]
+**LspSourceMapLoadError.** Message: <code>Sourcemap `{0}` could not be loaded: {1}</code>.
+Run <code>tyhp --explain TYHP7303</code> for the long-form explanation.
+:::
+
+:::member[TYHP7400 (Error)]
+**ProxyUnknownError.** Message: <code>XDebug proxy failed: {0}</code>.
+Run <code>tyhp --explain TYHP7400</code> for the long-form explanation.
+:::
+
+:::member[TYHP7401 (Warning)]
+**ProxySourceMapNotFound.** Message: <code>Sourcemap `{0}` is not found</code>.
+Run <code>tyhp --explain TYHP7401</code> for the long-form explanation.
+:::
+
+:::member[TYHP7402 (Warning)]
+**ProxySourceMapParseError.** Message: <code>Sourcemap `{0}` is malformed: {1}</code>.
+Run <code>tyhp --explain TYHP7402</code> for the long-form explanation.
+:::
+
+:::member[TYHP7403 (Error)]
+**ProxyConnectionFailed.** Message: <code>TCP connection failed: {0}</code>.
+Run <code>tyhp --explain TYHP7403</code> for the long-form explanation.
+:::
+
+:::member[TYHP7404 (Warning)]
+**ProxySessionPairingTimeout.** Message: <code>Debug session pairing wait for `{0}` exceeds the timeout</code>.
+Run <code>tyhp --explain TYHP7404</code> for the long-form explanation.
+:::
+
+:::member[TYHP7405 (Warning)]
+**ProxyTranslationError.** Message: <code>DBGp message translation failed: {0}</code>.
+Run <code>tyhp --explain TYHP7405</code> for the long-form explanation.
+:::
+
+:::member[TYHP7406 (Warning)]
+**ProxyInvalidDbgpMessage.** Message: <code>Malformed DBGp message is skipped: {0}</code>.
+Run <code>tyhp --explain TYHP7406</code> for the long-form explanation.
+:::
+
+:::member[TYHP7407 (Error)]
+**ProxyPortInUse.** Message: <code>Port `{0}` is already in use</code>.
+Run <code>tyhp --explain TYHP7407</code> for the long-form explanation.
 :::
 
 :::member[TYHP7505 (Error)]

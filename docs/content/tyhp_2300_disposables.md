@@ -234,7 +234,14 @@ Uses try/finally. Deterministic disposal guaranteed regardless of circular refer
 
 ## Async Disposal
 
-When disposing async resources, DisposableScope automatically detects the context. Inside a Fiber (async context), it uses Promise::_await(). Outside a Fiber, it uses EventLoop::run() to block-wait. The using await syntax provides explicit async disposal in the finally block. There is no dedicated diagnostic for `using await` outside an async function — TYHP4028 (`CheckerAwaitOutsideAsync`) applies to `await` expressions. The emitter still emits `Promise::_await` in the `using await` finally block.
+When disposing async resources, DisposableScope waits for `disposeAsync()` to settle:
+
+- If the promise is already settled, it observes the result immediately (this also works from a synchronous EventLoop callback).
+- Inside a Fiber, it uses `Promise::_await()` so the running loop can resume that Fiber.
+- Outside a Fiber with the loop idle, it uses `Promise::wait()` (block until *this* promise settles). It does not call `EventLoop::run()`, which would keep draining unrelated queued work after settlement.
+- A *pending* async dispose from a synchronous callback while the loop is already running cannot be waited on (re-entrant `run()` is forbidden, and there is no Fiber to suspend). That throws `AsyncContextException`. Prefer `using await` or dispose from async code.
+
+The `using await` syntax provides explicit async disposal in the finally block. There is no dedicated diagnostic for `using await` outside an async function — TYHP4028 (`CheckerAwaitOutsideAsync`) applies to `await` expressions. The emitter still emits `Promise::_await` in the `using await` finally block.
 
 ```tyhp
 <?tyhp

@@ -1,12 +1,8 @@
-# Tyhp PHP extension overlays (Layer 3)
+# Tyhp PHP extension overlay backup (not loaded)
 
-Preservation baseline for **hand-authored / hand-enriched** PHP extension tyhpdefs.
+This directory is a **disaster-recovery snapshot** of hand-authored / hand-enriched PHP extension tyhpdefs that already existed in the live trees. It is **not** the overlay mechanism and is **not** loaded by the compiler.
 
-This directory is **Layer 3** of the Story 20 three-layer model:
-
-1. **Baseline** — Reflection-generated signatures  
-2. **Enrichment** — harvested from Psalm / PHPStan / Phan / PhpStorm stubs (with attribution)  
-3. **Overlays (this tree)** — Tyhp-owned edits that regen must not destroy  
+Story 21 Layer 2 stub harvest and Layer 3 hand overlays are separate tyhpdef files under each package's `_tyhpdef/overlays/` (`stubs/` first, hand-written last; `package.tyhp.json` `"overlay"` array order, last wins).
 
 ## What is here
 
@@ -15,32 +11,13 @@ Full-file copies of the live trees as of the snapshot recorded in `MANIFEST.txt`
 | Path | Source |
 |------|--------|
 | `php8.2.9/*.tyhpdef` | `runtime/php-extensions/php8.2.9/` (hand-enriched Core/Standard/SPL/…) |
-| `Decimal/ExtDecimal.tyhpdef` | `runtime/php-extensions/Decimal/` (operators / convert overloads) |
+| `Decimal/ExtDecimal.tyhpdef` | `runtime/php-extensions/Decimal/` (PECL Decimal — becomes `tyhp/php-ext-decimal`, not `tyhp/decimal`) |
 
-These copies intentionally include **everything** that was in the live files at snapshot time (Reflection surface **plus** generics, overloads, type guards, language constructs, etc.). Until programmatic overlay apply exists, this is the recovery source of truth if a regen overwrites the live tree.
-
-## What loads today
-
-The compiler still loads **`runtime/php-extensions/php8.2.9/`** (and `Decimal/`) via project / package manifests.  
-**This `overlays/` tree is not loaded automatically.**
-
-## Rules
-
-- **Do not** treat regenerators as free to delete or rewrite this directory.
-- Prefer writing new Reflection baselines to staging (`tyhpdef_gen/`) and merging deliberately into the live tree.
-- Future markers (not required on these snapshot files yet):
-
-  ```tyhpdef
-  // @generated
-  // @generated-original: …
-  // @tyhp-overlay … @end-tyhp-overlay
-  ```
-
-- When overlay apply tooling lands, these files (or diffs derived from them) become the input; until then, if the live tree is damaged, **restore from here**.
+Until those hand edits are extracted into package overlay files, this tree is the recovery source if a regen overwrites the live harvest. Regenerators **must not** delete or rewrite this directory.
 
 ## Related docs
 
-- `IMPLEMENTATION_PLAN_TODO_STORY_20.md` — Three-Layer Generation Model, Phase 8  
-- `IMPLEMENTATION_PLAN_TODO_STORY_20.5.md` — `declare(php=…)` / `#[\Tyhp\Php]` gates  
-- `IMPLEMENTATION_PLAN_TODO_STORY_21.md` — `tyhp/php` package + stub harvest  
-- `runtime/README.md` — stub corpus URLs  
+- `IMPLEMENTATION_PLAN_TODO_STORY_20.md` — Three-Layer Generation Model
+- `IMPLEMENTATION_PLAN_TODO_STORY_21.md` — `tyhp/php` / `tyhp/php-ext-*` + load-time overlays
+- `CONVENTIONS.md` §6 — baseline + overlay
+- `runtime/README.md` — stub corpus URLs

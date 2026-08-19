@@ -194,8 +194,8 @@ This story uses MessageCode values starting at **4330** (4320–4324 are allocat
 
 ## Phase 1: Grammar — Add `internal` as a Modifier Token
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -367,8 +367,8 @@ Requires `antlr-ng` (`npm install -g antlr-ng`). Grammar regeneration is **not**
 
 ## Phase 2: Binder — Track `IsInternal` on Symbols
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -487,8 +487,8 @@ For symbols loaded from external `.tyhpdef` files, `IsInternal` defaults to `fal
 
 ## Phase 3: Checker — Enforce Project Boundary Access Rules
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -631,8 +631,8 @@ Note: Internal type ALIASES are resolved by the tyhpdef generator (Phase 5, sect
 
 ## Phase 4: Emitter — Strip `internal`, Emit as `public`
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -723,8 +723,8 @@ The `internal` modifier only affects the declaration line. Method bodies, proper
 
 ## Phase 5: Tyhpdef Generation — Exclude Internal Items
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -834,8 +834,8 @@ If all declarations within a namespace are internal, the namespace block itself 
 
 ## Phase 6: LSP Support — Filter by Project Boundary
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -918,8 +918,8 @@ Provide a quick-fix code action when the user references an internal symbol from
 
 ## Phase 7: Testing — Comprehensive Coverage
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

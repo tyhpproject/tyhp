@@ -64,7 +64,7 @@ class UserService {
 
 ## Await Expression
 
-The await keyword is a unary prefix operator that suspends the current async function until the given Promise<T> resolves, then returns the resolved value of type T. It can only be used inside an async function. If the promise rejects, the exception is thrown at the await point.
+The await keyword is a unary prefix operator that suspends the current async function, async closure, or async block until the given Promise<T> resolves, then returns the resolved value of type T. It can only be used inside those async contexts. If the promise rejects, the exception is thrown at the await point.
 
 ```tyhp
 <?tyhp
@@ -99,12 +99,16 @@ Waits for ALL promises to resolve. After `await`, you get an array of resolved v
 After `await`, returns the value of the FIRST promise to settle (resolve or reject). Other promises continue running but their results are discarded.
 :::
 
-:::member[Promise::resolved(T $value): Promise<T>]
-Creates a pre-resolved promise with the given value. Useful for returning synchronous values from async interfaces.
+:::member[Promise::resolve(T $value): Promise<T>]
+JS `Promise.resolve`: if `$value` is already a Promise, returns that same instance (flatten — it may still be pending). Otherwise returns an **already-fulfilled** Promise holding `$value`, with no Fiber scheduled.
 :::
 
-:::member[Promise::rejected(Throwable $error): Promise<T>]
-Creates a pre-rejected promise with the given error.
+:::member[Promise::resolved(T $value): Promise<T>]
+Creates a new already-fulfilled Promise. Unlike `resolve()`, does not unwrap an existing Promise — a Promise passed as `$value` is stored as the fulfillment value.
+:::
+
+:::member[Promise::reject(Throwable $error): Promise<T>]
+Creates an already-rejected Promise with the given error (no Fiber). Alias of `rejected()`.
 :::
 
 :::member[Promise::delay(int $ms): Promise<void>]
@@ -226,6 +230,38 @@ $fetch = function(int $id) use ($repo): \Tyhp\Promise {
     });
 };
 ```
+
+## Async Blocks
+
+An `async { ... }` block is an expression that evaluates to a **running** `Promise<T>`, not a callable. Inner `return` completes that promise; inner `await` is legal. This is the form to use when a method already returns `Promise<T>` / `self<T>` and you want to write sequential await logic without making the method itself `async` (which would wrap an extra Promise layer).
+
+```tyhp
+<?tyhp
+
+function then<TThenReturn>(
+    ?callable<T, TThenReturn> $onFulfilled = null
+): Promise<TThenReturn> {
+    return async {
+        TThenReturn $value = await $this;
+        return $onFulfilled !== null ? $onFulfilled($value) : $value;
+    };
+}
+
+// Empty block — Promise<void>
+Promise<void> $idle = async {};
+```
+
+```php
+<?php
+
+// Compiles to an already-started Promise, not a callable:
+return \Tyhp\Promise::_async(function () use ($onFulfilled) {
+    $value = \Tyhp\Promise::_await($this);
+    return $onFulfilled !== null ? $onFulfilled($value) : $value;
+});
+```
+
+`async function () { ... }` remains a **callable** that *returns* a Promise when invoked. `(async function () { ... })()` is the IIFE equivalent of `async { ... }`. Do not write `return async function () { ... };` from a method typed `Promise<T>` — that returns a callable, not a Promise.
 
 ## Async Overloads
 

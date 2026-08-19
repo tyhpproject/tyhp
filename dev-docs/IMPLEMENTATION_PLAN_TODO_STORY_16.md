@@ -81,8 +81,8 @@ Wedge prerequisites satisfied
 
 ## Phase 1: `PropertyPath<T, R>` — Simple Property Chain Extraction
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -296,8 +296,8 @@ These are **optional polish** items layered on top of Story 19's existing handle
 
 ## Phase 2: `Expression<T, R>` — Full Expression Trees
 
-> **[Phase Runner] Runtime/Model:** `claude/opus` | `cursor/opus`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -570,8 +570,8 @@ This enables library authors to build SQL translators, serialization mappers, et
 
 ## Phase 3: Advanced Features and Ecosystem Integration
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 

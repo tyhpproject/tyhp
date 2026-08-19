@@ -35,10 +35,15 @@ The Tyhp language server provides the following capabilities:
 - Go to Definition — Navigate to the declaration of any symbol: classes, functions, methods, properties, variables, type aliases, and imported symbols.
 - Find References — Find all usages of a symbol across the project.
 - Rename — Rename a symbol and update all references consistently across the project.
-- Code Actions — Quick fixes and refactoring suggestions, such as adding missing imports, organizing use statements, and adding type annotations.
+- Document Highlights — Read/write highlights for all occurrences of a symbol in the current file.
 - Document Symbols — Outline view showing all declarations (classes, functions, constants) in the current file.
-- Workspace Symbols — Search for any symbol across the entire project by name.
 - Signature Help — Parameter hints shown while typing function and method calls.
+- Folding Ranges — Foldable regions for classes, functions, blocks, multi-line comments, and import groups.
+- Code Actions — Quick fixes for auto-importing missing types and removing unused `use` statements, plus organize-imports.
+- Formatting — Document and range formatting that sorts `use` statements and normalizes indentation.
+- Selection Range — Smart selection expansion from token to expression, statement, block, function, class, and file.
+- Semantic Tokens — Semantic highlighting that colors variables, parameters, types, methods, and other symbols from binder results (including `static` and deprecated modifiers).
+- Workspace Symbols — Search for any symbol across the entire project by name.
 
 ## IDE Integration
 
@@ -68,6 +73,7 @@ Any editor with LSP support can integrate with the Tyhp language server. Configu
 
 - --tyhp-project=<path> — Path to the tyhp.json project file. The language server uses this to discover source files and configuration.
 - --quiet — Suppress startup banner output (useful when the IDE captures stderr).
+- --pid-file=<path> — Write the process id to this file while the server is running. Opt-in; nothing is written by default.
 
 :::note
 The language server is a long-running process. It should be started by your IDE automatically and does not need to be run manually. Use Ctrl+C to stop it if running from the command line.

@@ -41,6 +41,11 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Localization" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
+    <PackageReference Include="Microsoft.VisualStudio.LanguageServer.Protocol" Version="17.2.8" />
+    <PackageReference Include="StreamJsonRpc" Version="2.24.84">
+      <!-- Analyzer targets a newer Roslyn than this SDK ships; exclude to avoid CS9057. -->
+      <ExcludeAssets>analyzers</ExcludeAssets>
+    </PackageReference>
     <!-- <PackageReference Include="My.Extensions.Localization.Json" Version="3.1.0" /> -->
   </ItemGroup>
     <!-- <ItemGroup>

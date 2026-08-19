@@ -1271,6 +1271,36 @@ Upgrade or reinstall matching `tyhp/core`, `tyhp/async`, `tyhp/decimal`, and/or 
 That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`), ternary arms, `else if` conditions (reached only when earlier conditions in the chain were false), or loop conditions that re-evaluate each iteration. Move the postfix into its own statement (or use prefix `++$a` when the new value is intended), then use the captured variable in the expression.</value>
     <comment>Long-form explanation for tyhp --explain TYHP5019</comment>
   </data>
+  <data name="WARNING_TYHP5020" xml:space="preserve">
+    <value>Failed to generate source map for file `{0}`: {1}</value>
+    <comment>Emitter source map JSON generation failed (Story 17). Args: output file path, exception or failure detail</comment>
+  </data>
+  <data name="EXPLAIN_TYHP5020" xml:space="preserve">
+    <value>Source map generation builds Source Map v3 JSON from mappings collected while emitting PHP. A failure here is non-fatal: the `.php` file is still written, but debugging and stack-trace mapping for that file will not have a `.map` companion.
+
+The build continues. Inspect the detail in the warning for the underlying exception, then retry with `build.generateSourcemap` enabled after fixing the cause.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP5020</comment>
+  </data>
+  <data name="WARNING_TYHP5021" xml:space="preserve">
+    <value>Failed to write source map file `{0}`: {1}</value>
+    <comment>Emitter source map `.map` file write failed (Story 17). Args: map file path, exception or failure detail</comment>
+  </data>
+  <data name="EXPLAIN_TYHP5021" xml:space="preserve">
+    <value>The compiler writes a `.php.map` file next to each generated PHP file when `build.generateSourcemap` is true. A write failure (permissions, disk full, invalid path) is non-fatal: the PHP output is still usable without the map.
+
+The build continues. Fix the path or permissions named in the warning and rebuild to produce the missing source map file.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP5021</comment>
+  </data>
+  <data name="WARNING_TYHP5022" xml:space="preserve">
+    <value>Invalid source mapping in file `{0}`: generated position (`{1}`,`{2}`) references invalid source position (`{3}`,`{4}`)</value>
+    <comment>Emitter source map mapping references an invalid original position (Story 17). Args: output file, generated line, generated column, original line, original column</comment>
+  </data>
+  <data name="EXPLAIN_TYHP5022" xml:space="preserve">
+    <value>A source mapping segment points at a generated PHP position whose original `.tyhp` line or column is invalid (negative, or otherwise not a real start position). The mapping is skipped; remaining segments are still emitted.
+
+This is non-fatal. If mappings look wrong in a debugger, report the generated and original coordinates from this warning — they identify the emit item whose AST provider had a bad span.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP5022</comment>
+  </data>
   <data name="ERROR_TYHP7200" xml:space="preserve">
     <value>File not found: `{0}`</value>
     <comment>Lint --file target does not exist</comment>
@@ -2473,11 +2503,11 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   </data>
   <data name="CLI_LanguageServerNotImplemented" xml:space="preserve">
     <value>The language server is not yet implemented (Story 19).</value>
-    <comment>Shown when tyhp language_server is invoked before Story 19 lands</comment>
+    <comment>Unused after Story 19 Phase 1 (LanguageServerAction landed); retained for resource-key stability</comment>
   </data>
   <data name="CLI_LanguageServerHelpNotAvailable" xml:space="preserve">
     <value>Note: The language server action is not yet implemented (Story 19). The options below document the planned interface.</value>
-    <comment>Language server help availability note</comment>
+    <comment>Unused after Story 19 Phase 1 (full LanguageServerHelp landed); retained for resource-key stability</comment>
   </data>
   <data name="CLI_LanguageServerHelpDescription" xml:space="preserve">
     <value>Start the Tyhp Language Server Protocol (LSP) server for IDE integration (diagnostics, completion, hover, go-to-definition, and related features).</value>
@@ -2500,7 +2530,7 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <comment>Language server help --help description</comment>
   </data>
   <data name="CLI_LanguageServerHelpOptionStdio" xml:space="preserve">
-    <value>Communicate via stdin/stdout (default; the only transport planned for Story 19)</value>
+    <value>Communicate via stdin/stdout (default; the only transport implemented)</value>
     <comment>Language server help --stdio description</comment>
   </data>
   <data name="CLI_LanguageServerHelpOptionTcp" xml:space="preserve">
@@ -2510,6 +2540,10 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   <data name="CLI_LanguageServerHelpOptionPipe" xml:space="preserve">
     <value>Communicate via named pipe (not yet implemented)</value>
     <comment>Language server help --pipe description; PLACEHOLDER_STORY_30</comment>
+  </data>
+  <data name="CLI_LanguageServerHelpOptionPidFile" xml:space="preserve">
+    <value>Write the process id to this file while running (opt-in; nothing is written by default)</value>
+    <comment>Language server help --pid-file description</comment>
   </data>
   <data name="CLI_LanguageServerHelpExamplesHeader" xml:space="preserve">
     <value>Examples:</value>
@@ -2523,13 +2557,45 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>Show language server help</value>
     <comment>Language server help example: --help</comment>
   </data>
+  <data name="CLI_LanguageServerTransportNotImplemented" xml:space="preserve">
+    <value>TCP and named-pipe transports are not implemented; use stdin/stdout (default)</value>
+    <comment>Shown when tyhp language_server is invoked with --tcp or --pipe; PLACEHOLDER_STORY_30</comment>
+  </data>
+  <data name="CLI_LanguageServerDocumentSyncFailed" xml:space="preserve">
+    <value>Document synchronization failed: {0}: {1}</value>
+    <comment>LSP window/logMessage when didOpen/didChange/didClose/didSave throws. Args: exception type, message</comment>
+  </data>
+  <data name="CLI_LanguageServerWorkspaceScanFailed" xml:space="preserve">
+    <value>Workspace scan failed: {0}: {1}</value>
+    <comment>LSP window/logMessage when project scan or tyhp.json reload fails. Args: exception type, message</comment>
+  </data>
+  <data name="CLI_LanguageServerFeatureFailed" xml:space="preserve">
+    <value>Language server request `{0}` failed: {1}: {2}</value>
+    <comment>LSP window/logMessage when a feature handler (hover, definition, …) throws. Args: method name, exception type, message</comment>
+  </data>
+  <data name="CLI_LspCodeActionImport" xml:space="preserve">
+    <value>Import `{0}`</value>
+    <comment>LSP code action title to add a use statement. Arg: fully qualified type/function name</comment>
+  </data>
+  <data name="CLI_LspCodeActionRemoveUnusedImport" xml:space="preserve">
+    <value>Remove unused import `{0}`</value>
+    <comment>LSP code action title to delete an unused use statement. Arg: imported name</comment>
+  </data>
+  <data name="CLI_LspCodeActionOrganizeImports" xml:space="preserve">
+    <value>Organize imports</value>
+    <comment>LSP source code action title to sort use statements</comment>
+  </data>
   <data name="CLI_XDebugProxyNotImplemented" xml:space="preserve">
     <value>The XDebug proxy is not yet implemented (Story 18).</value>
-    <comment>Shown when tyhp xdebug_proxy is invoked before Story 18 lands</comment>
+    <comment>Unused after Story 18 Phase 5 (XDebugProxyAction landed); retained for resource-key stability</comment>
   </data>
   <data name="CLI_XDebugProxyHelpPlaceholder" xml:space="preserve">
     <value>Note: The XDebug proxy is not yet implemented — see Story 18. The usage below documents the planned interface; the full option list ships with Story 18.</value>
-    <comment>XDebug proxy help placeholder (Story 13); PLACEHOLDER_STORY_18</comment>
+    <comment>Unused after Story 18 Phase 7 (full XDebugProxyHelp landed); retained for resource-key stability</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpDescription" xml:space="preserve">
+    <value>Starts a DBGp proxy between an IDE debug adapter and PHP XDebug. The proxy loads .php.map sourcemaps from a tyhp build and translates file paths and line numbers so you can debug original .tyhp sources while PHP executes the compiled output. Configure XDebug to connect to the proxy XDebug port (default 9004) and the IDE to connect to the proxy IDE port (default 9003). --ide-key filters XDebug init idekey only.</value>
+    <comment>XDebug proxy help description paragraph</comment>
   </data>
   <data name="CLI_XDebugProxyHelpUsageHeader" xml:space="preserve">
     <value>Usage:</value>
@@ -2543,9 +2609,257 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>Options:</value>
     <comment>XDebug proxy help options section header</comment>
   </data>
+  <data name="CLI_XDebugProxyHelpOptionIdePort" xml:space="preserve">
+    <value>Port for IDE debug adapter connections (default: 9003)</value>
+    <comment>XDebug proxy help --ide-port description</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpOptionXdebugPort" xml:space="preserve">
+    <value>Port for XDebug engine connections (default: 9004)</value>
+    <comment>XDebug proxy help --xdebug-port description</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpOptionSourcemapDir" xml:space="preserve">
+    <value>Directory of .php.map sourcemap files (defaults to output.path)</value>
+    <comment>XDebug proxy help --sourcemap-dir description</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpOptionIdeKey" xml:space="preserve">
+    <value>Only accept XDebug sessions whose init idekey matches this value</value>
+    <comment>XDebug proxy help --ide-key description</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpOptionLogLevel" xml:space="preserve">
+    <value>Logging verbosity: debug, info, warn, or error (default: info)</value>
+    <comment>XDebug proxy help --log-level description</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpOptionPidFile" xml:space="preserve">
+    <value>Write the process id to this file while running (opt-in; nothing is written by default)</value>
+    <comment>XDebug proxy help --pid-file description</comment>
+  </data>
   <data name="CLI_XDebugProxyHelpOptionHelp" xml:space="preserve">
     <value>Show this help text (same as help --subject=xdebug_proxy)</value>
     <comment>XDebug proxy help --help description</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpXdebugConfigHeader" xml:space="preserve">
+    <value>XDebug configuration (php.ini / xdebug.ini):</value>
+    <comment>XDebug proxy help php.ini section header</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpXdebugConfigIntro" xml:space="preserve">
+    <value>Point XDebug at the proxy XDebug port (9004 by default), not the IDE port:</value>
+    <comment>XDebug proxy help php.ini intro (no braces — Paragraph uses String.Format)</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpXdebugIniExample" xml:space="preserve">
+    <value>xdebug.mode = debug
+xdebug.client_host = 127.0.0.1
+xdebug.client_port = 9004
+xdebug.idekey = tyhp</value>
+    <comment>XDebug proxy help php.ini / xdebug.ini example (printed via LocalizeRaw)</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpTyhpJsonHeader" xml:space="preserve">
+    <value>tyhp.json (xdebugProxy section):</value>
+    <comment>XDebug proxy help tyhp.json section header</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpTyhpJsonIntro" xml:space="preserve">
+    <value>CLI flags override these keys. When sourceMapDir is omitted, the proxy uses output.path. When ideKey is omitted, every XDebug idekey is accepted.</value>
+    <comment>XDebug proxy help tyhp.json intro (no braces)</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpTyhpJsonExample" xml:space="preserve">
+    <value>{
+    "xdebugProxy": {
+        "idePort": 9003,
+        "xdebugPort": 9004,
+        "ideListenAddress": "127.0.0.1",
+        "xdebugListenAddress": "127.0.0.1",
+        "sourceMapDir": null,
+        "ideKey": null,
+        "maxSessions": 10,
+        "logLevel": "info",
+        "autoReloadSourceMaps": true
+    }
+}</value>
+    <comment>XDebug proxy help tyhp.json example (braces; printed via LocalizeRaw)</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpLaunchJsonHeader" xml:space="preserve">
+    <value>VS Code launch.json:</value>
+    <comment>XDebug proxy help launch.json section header</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpLaunchJsonIntro" xml:space="preserve">
+    <value>Connect the IDE debug adapter to the proxy IDE port (9003 by default):</value>
+    <comment>XDebug proxy help launch.json intro (no braces)</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpLaunchJsonExample" xml:space="preserve">
+    <value>{
+    "name": "Debug Tyhp (via proxy)",
+    "type": "php",
+    "request": "launch",
+    "port": 9003
+}</value>
+    <comment>XDebug proxy help VS Code launch.json example (braces; printed via LocalizeRaw)</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpExamplesHeader" xml:space="preserve">
+    <value>Examples:</value>
+    <comment>XDebug proxy help examples section header</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpExampleStart" xml:space="preserve">
+    <value>Start the proxy using sourcemaps from the build output directory</value>
+    <comment>XDebug proxy help example: start with --sourcemap-dir</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpExampleHelp" xml:space="preserve">
+    <value>Show xdebug_proxy help</value>
+    <comment>XDebug proxy help example: --help</comment>
+  </data>
+  <data name="CLI_XDebugProxyStarted" xml:space="preserve">
+    <value>XDebug Proxy started</value>
+    <comment>XDebug proxy startup banner title (bound ports printed on following lines)</comment>
+  </data>
+  <data name="CLI_XDebugProxyStartedIdePort" xml:space="preserve">
+    <value>  IDE port:      {0}</value>
+    <comment>XDebug proxy startup banner; arg: bound IDE port (including ephemeral 0)</comment>
+  </data>
+  <data name="CLI_XDebugProxyStartedXdebugPort" xml:space="preserve">
+    <value>  XDebug port:   {0}</value>
+    <comment>XDebug proxy startup banner; arg: bound XDebug port</comment>
+  </data>
+  <data name="CLI_XDebugProxyStartedSourcemaps" xml:space="preserve">
+    <value>  Sourcemaps:    {0} files loaded from {1}</value>
+    <comment>XDebug proxy startup banner; args: loaded map count, sourcemap directory</comment>
+  </data>
+  <data name="CLI_XDebugProxyStartedSourceRoot" xml:space="preserve">
+    <value>  Source root:   {0}</value>
+    <comment>XDebug proxy startup banner; arg: tyhp source root</comment>
+  </data>
+  <data name="CLI_XDebugProxyStartedIdeKey" xml:space="preserve">
+    <value>  IDE key:       {0}</value>
+    <comment>XDebug proxy startup banner; arg: configured idekey or CLI_XDebugProxyIdeKeyAny</comment>
+  </data>
+  <data name="CLI_XDebugProxyIdeKeyAny" xml:space="preserve">
+    <value>(any)</value>
+    <comment>XDebug proxy startup banner when no idekey filter is configured</comment>
+  </data>
+  <data name="CLI_XDebugProxyShuttingDown" xml:space="preserve">
+    <value>Shutting down... closing {0} active session(s).</value>
+    <comment>XDebug proxy Ctrl+C shutdown; arg: active session count</comment>
+  </data>
+  <data name="CLI_XDebugProxyPortInUseHint" xml:space="preserve">
+    <value>Specify a different port with `--{0}`.</value>
+    <comment>CLI follow-up after TYHP7407; arg: ide-port or xdebug-port flag name</comment>
+  </data>
+  <data name="CLI_XDebugProxyLogLine" xml:space="preserve">
+    <value>{0}</value>
+    <comment>Passthrough for a ProxyLogger info/warn/error line (prefix already applied)</comment>
+  </data>
+  <data name="CLI_XDebugProxyConnectionAccepted" xml:space="preserve">
+    <value>{0} connection accepted from {1}</value>
+    <comment>ProxyLogger info; args: side (IDE/XDebug), remote endpoint</comment>
+  </data>
+  <data name="CLI_XDebugProxyConnectionRejected" xml:space="preserve">
+    <value>{0} connection from {1} rejected: {2}</value>
+    <comment>ProxyLogger warn; args: side, remote endpoint, reason</comment>
+  </data>
+  <data name="CLI_XDebugProxySessionPaired" xml:space="preserve">
+    <value>Session {0} paired</value>
+    <comment>ProxyLogger info; arg: session id</comment>
+  </data>
+  <data name="CLI_XDebugProxySessionPairedWithKey" xml:space="preserve">
+    <value>Session {0} paired (idekey={1})</value>
+    <comment>ProxyLogger info; args: session id, idekey</comment>
+  </data>
+  <data name="CLI_XDebugProxySessionDisconnected" xml:space="preserve">
+    <value>Session {0} disconnected</value>
+    <comment>ProxyLogger info; arg: session id</comment>
+  </data>
+  <data name="CLI_XDebugProxyTranslationFailed" xml:space="preserve">
+    <value>Translation failed: {0}</value>
+    <comment>ProxyLogger warn; arg: translator detail</comment>
+  </data>
+  <data name="CLI_XDebugProxyMalformedDbgp" xml:space="preserve">
+    <value>Malformed DBGp message from {0} skipped: {1}</value>
+    <comment>ProxyLogger warn; args: side, detail</comment>
+  </data>
+  <data name="CLI_XDebugProxyConnectionLost" xml:space="preserve">
+    <value>{0} connection lost: {1}</value>
+    <comment>ProxyLogger info; args: side or direction, detail</comment>
+  </data>
+  <data name="CLI_XDebugProxyConnectionFailed" xml:space="preserve">
+    <value>{0} connection failed: {1}</value>
+    <comment>ProxyLogger error; args: side or direction, detail</comment>
+  </data>
+  <data name="CLI_XDebugProxyAcceptFailed" xml:space="preserve">
+    <value>Accept on {0} failed; still listening: {1}</value>
+    <comment>ProxyLogger warn; args: side (IDE/XDebug), detail</comment>
+  </data>
+  <data name="CLI_XDebugProxySessionError" xml:space="preserve">
+    <value>Session ended with error: {0}</value>
+    <comment>ProxyLogger error; arg: exception detail</comment>
+  </data>
+  <data name="CLI_XDebugProxyStopped" xml:space="preserve">
+    <value>XDebug Proxy stopped.</value>
+    <comment>XDebug proxy shutdown (Ctrl+C / cancellation)</comment>
+  </data>
+  <data name="CLI_XDebugProxyNoSourceMaps" xml:space="preserve">
+    <value>No sourcemaps found in `{0}`. Build the project with sourcemap generation enabled first.</value>
+    <comment>XDebug proxy warning when the sourcemap directory has no .php.map files. Arg: directory</comment>
+  </data>
+  <data name="CLI_XDebugProxyInvalidPort" xml:space="preserve">
+    <value>Invalid port `{0}`; expected an integer from 0 to 65535</value>
+    <comment>XDebug proxy rejected a port CLI/JSON value. Arg: raw port</comment>
+  </data>
+  <data name="CLI_XDebugProxyInvalidAddress" xml:space="preserve">
+    <value>Invalid listen address `{0}`</value>
+    <comment>XDebug proxy rejected ideListenAddress or xdebugListenAddress. Arg: address</comment>
+  </data>
+  <data name="CLI_XDebugProxySourceMapDirMissing" xml:space="preserve">
+    <value>Sourcemap directory `{0}` does not exist</value>
+    <comment>XDebug proxy --sourcemap-dir / xdebugProxy.sourceMapDir points at a missing path. Arg: directory</comment>
+  </data>
+  <data name="CLI_XDebugProxyInvalidMaxSessions" xml:space="preserve">
+    <value>Invalid maxSessions `{0}`; expected an integer of at least 1</value>
+    <comment>XDebug proxy xdebugProxy.maxSessions is missing or below 1. Arg: raw value</comment>
+  </data>
+  <data name="ERROR_TYHP7300" xml:space="preserve">
+    <value>Language server failed: {0}</value>
+    <comment>Generic language server error. Arg: exception detail</comment>
+  </data>
+  <data name="ERROR_TYHP7301" xml:space="preserve">
+    <value>Language server startup failed: {0}</value>
+    <comment>Failed to start the LSP server. Arg: exception detail</comment>
+  </data>
+  <data name="ERROR_TYHP7302" xml:space="preserve">
+    <value>Document analysis failed: {0}</value>
+    <comment>Error during language-server document analysis. Arg: exception detail</comment>
+  </data>
+  <data name="ERROR_TYHP7303" xml:space="preserve">
+    <value>Sourcemap `{0}` could not be loaded: {1}</value>
+    <comment>Error loading a sourcemap for workspace analysis. Args: path, detail</comment>
+  </data>
+  <data name="ERROR_TYHP7400" xml:space="preserve">
+    <value>XDebug proxy failed: {0}</value>
+    <comment>Generic XDebug proxy error. Arg: exception detail</comment>
+  </data>
+  <data name="WARNING_TYHP7401" xml:space="preserve">
+    <value>Sourcemap `{0}` is not found</value>
+    <comment>No sourcemap file for a PHP path. Arg: path</comment>
+  </data>
+  <data name="WARNING_TYHP7402" xml:space="preserve">
+    <value>Sourcemap `{0}` is malformed: {1}</value>
+    <comment>Sourcemap JSON could not be parsed. Args: path, detail</comment>
+  </data>
+  <data name="ERROR_TYHP7403" xml:space="preserve">
+    <value>TCP connection failed: {0}</value>
+    <comment>XDebug proxy TCP connection error. Arg: detail</comment>
+  </data>
+  <data name="WARNING_TYHP7404" xml:space="preserve">
+    <value>Debug session pairing wait for `{0}` exceeds the timeout</value>
+    <comment>IDE or XDebug side did not connect in time. Arg: side name</comment>
+  </data>
+  <data name="WARNING_TYHP7405" xml:space="preserve">
+    <value>DBGp message translation failed: {0}</value>
+    <comment>Non-fatal DBGp translation warning. Arg: detail</comment>
+  </data>
+  <data name="WARNING_TYHP7406" xml:space="preserve">
+    <value>Malformed DBGp message is skipped: {0}</value>
+    <comment>Malformed DBGp message; session continues. Arg: detail</comment>
+  </data>
+  <data name="ERROR_TYHP7407" xml:space="preserve">
+    <value>Port `{0}` is already in use</value>
+    <comment>Configured proxy listen port is already bound. Arg: port</comment>
   </data>
   <data name="CLI_GenerateTyhpdefNotImplemented" xml:space="preserve">
     <value>generate tyhpdef NOT IMPLEMENTED</value>

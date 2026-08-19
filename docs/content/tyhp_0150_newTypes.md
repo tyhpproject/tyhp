@@ -424,7 +424,7 @@ Promise<User> $userPromise = fetchUser(42);
 User $user = await $userPromise;
 ```
 
-Key `Promise` methods include static combinators (`all<T>`, `race<T>`, `resolved<T>`, `rejected<T>`, `delay`, `timeout<T>`, `batch<TItem, TResult>`, `run<T>`), instance methods (`then<TResult>`, `catch<TResult>`, `finally`), and the internal `_async`/`_await` methods that the `async`/`await` keywords desugar to. See the Async/Await documentation for full details.
+Key `Promise` methods include static combinators (`all<T>`, `race<T>`, `resolved<T>`, `rejected<T>`, `delay`, `timeout<T>`, `batch<TItem, TResult>`, `run<T>`), instance methods (`then<TResult>`, `catch<TResult>`, `finally`), and the internal `_async`/`_await` methods that the `async`/`await` keywords desugar to. `async { ... }` is a block expression that evaluates to `Promise<T>` (not a callable). See the Async/Await documentation for full details.
 
 ## Internal Compiler Types
 

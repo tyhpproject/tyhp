@@ -174,8 +174,8 @@ The 7000–7999 range is subdivided into 100-code sub-ranges per CLI action to a
 
 ## Phase 1: Expand Configuration Parsing — Output and Build Options
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -354,8 +354,8 @@ Add build action error codes in the 7100s range (7000s range is subdivided per C
 
 ## Phase 2: Implement Full BuildAction Pipeline
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -544,8 +544,8 @@ Pass `this.project` to `BuildAction` so it has access to all configuration. `Bui
 
 ## Phase 3: Output Writer Service
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -656,8 +656,8 @@ Path computation logic:
 
 ## Phase 4: Composer JSON Service
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -751,8 +751,8 @@ Create in namespace `Tyhp.Domain.Services`:
 
 ## Phase 5: Incremental Compilation and Build Performance
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -848,8 +848,8 @@ The `--clean` flag should also delete the build state file (forcing a full rebui
 
 ## Phase 6: Tyhp Runtime Package Distribution Integration
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -923,8 +923,8 @@ The `EmitContext` (Story 11, Phase 1) maintains a `HashSet<string> RequiredPacka
 
 ## Phase 7: End-to-End Validation and Polish
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

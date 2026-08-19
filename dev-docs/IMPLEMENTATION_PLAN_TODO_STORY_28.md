@@ -169,8 +169,8 @@ This story uses MessageCode values in the **4300–4399 feature-checker band** (
 
 ## Phase 1: Grammar — Add Default Type to Generic Parameter Rule
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -244,8 +244,8 @@ Requires `antlr-ng` (`npm install -g antlr-ng`). Grammar regeneration is **not**
 
 ## Phase 2: AST — Add Default Type to Generic Type Argument AST Node
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -329,8 +329,8 @@ Note the label changes: `context.TypeExpr` becomes `context.ConstraintExpr` (mat
 
 ## Phase 3: Binder — Store Default on `GenericTypeParameterSymbol`
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -413,8 +413,8 @@ The binder does NOT validate that defaulted parameters are trailing. This valida
 
 ## Phase 4: Checker — Validate and Apply Defaults
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -669,8 +669,8 @@ Add corresponding localized strings for all three error codes (4310, 4311, 4312)
 
 ## Phase 5: Tyhpdef — Preserve Defaults in Generated Package Tyhpdef
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -731,8 +731,8 @@ The tyhpdef parser (which uses the same grammar) already handles parsing `= type
 
 ## Phase 6: LSP — Show Defaults in Hover and Completion
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -783,8 +783,8 @@ When the user is typing generic type arguments, signature help should indicate w
 
 ## Phase 7: Testing — Comprehensive Test Coverage
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

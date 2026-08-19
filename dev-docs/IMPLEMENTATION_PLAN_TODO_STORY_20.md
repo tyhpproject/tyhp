@@ -33,7 +33,7 @@ Story 20 implements the `generate_tyhpdef` CLI action, which produces `.tyhpdef`
 | CLI routing | `Tyhp/CLI/TyhpHostedService.cs` | Routes `generate_tyhpdef` action to `GenerateTyhpdefAction`, already wired |
 | Config getter | `Tyhp/Config/Project.cs` | `GetExtName()` method returns `--ext-name` CLI argument |
 | Bundled extension tyhpdefs | `runtime/php-extensions/php8.2.9/` | 16+ extension tyhpdef files — **hand-enriched** over Reflection output (generics, overloads, type guards, language constructs). Live input for the compiler today. |
-| Tyhp overlay baseline (preservation) | `runtime/php-extensions/overlays/` | Full-file snapshot of hand-authored / hand-enriched tyhpdefs so regen cannot silently lose work. Programmatic apply is future work. |
+| Tyhp overlay backup snapshot | `runtime/php-extensions/overlays/` | Full-file copies of existing hand edits for recovery. Not loaded. Story 21 load-time overlays supersede in-place merge. |
 | PHP generator scripts | `tools/genTyhpdef.php`, `DebugProject/genTyhpdef.php` | Functional Reflection-based generators (reference for Track A); diverge slightly (docs on/off, const syntax). To be replaced by C# orchestration. |
 | Generated Composer tyhpdefs | `DebugProject/tyhpdef_gen/…` | Historical per-package dumps from the PHP script |
 | Tyhpdef parser/visitor | `Tyhp/TyhpLang/Visitor/TyhpParserAstVisitor.Tyhpdef.cs` | ~900 lines, functional — can parse `.tyhpdef` files |
@@ -103,8 +103,8 @@ Reflection alone under-types Core/Standard. Community stubs close much of that g
 | Layer | Source | Owns |
 |-------|--------|------|
 | **1. Baseline (mechanical)** | PHP Reflection per target (`8.2`–`8.5`) via Track A `php -r` → JSON | Names, signatures, defaults, by-ref/variadic, unions/intersections, enums, attributes, deprecation / tentative returns |
-| **2. Enrichment (imported)** | Psalm / PHPStan / Phan / PhpStorm stubs (`runtime/README.md`) | Docblock types, `@template`, better `array`/`callable`, some overloads — harvested into **native tyhpdef syntax**, with **attribution** |
-| **3. Tyhp overlays (hand-owned)** | `runtime/php-extensions/overlays/` (and later `_tyhpdef/support/*.tyhp`) | Real generics, operator overloads, `exit`/`die`/`clone`, Tyhp-only constructs, anything stubs miss |
+| **2. Enrichment (imported)** | Psalm / PHPStan / Phan / PhpStorm stubs (`runtime/README.md`) | Docblock types, `@template`, better `array`/`callable`, some overloads — harvested into **generated overlay** files `_tyhpdef/overlays/stubs/` (native tyhpdef + attribution). Listed **first** in `"overlay"`. |
+| **3. Tyhp overlays (hand-owned)** | Package `_tyhpdef/overlays/*.tyhpdef` (not `stubs/`). `runtime/php-extensions/overlays/` is a **backup snapshot only** | Real generics, operator overloads, `exit`/`die`/`clone`, Tyhp-only constructs, anything stubs miss. Listed **last** in `"overlay"`. Never written into baseline. |
 
 ```text
 For each PHP target (8.2, 8.3, 8.4, 8.5):
@@ -112,11 +112,11 @@ For each PHP target (8.2, 8.3, 8.4, 8.5):
        ↓
   Merge snapshots → gated IR   (Phase 8; requires Story 20.5 for emit)
        ↓
-  Overlay stub harvest (Psalm/PHPStan/Phan/PhpStorm) by FQN
+  TyhpdefOutputWriter → Layer 1 baseline (_tyhpdef/*.tyhpdef)
        ↓
-  Re-apply Tyhp overlays
+  Layer 2 stub harvest → _tyhpdef/overlays/stubs/*.tyhpdef
        ↓
-  TyhpdefOutputWriter → one gated tree (Story 21: tyhp/php)
+  (compile time) apply package.tyhp.json "overlay" in array order (stubs first, hand last; last wins)
 ```
 
 **Short term:** emit / compare under `runtime/php-extensions/php{ver}/` or staging `tyhpdef_gen/`.  
@@ -136,26 +136,19 @@ Treat the four stub trees as **read-only inputs** (vendored or fetched at genera
 2. Prefer stub param/return/`@template` when Reflection is weak (`array`, `mixed`, `callable`, untyped).
 3. When corpora disagree, prefer consensus of Psalm + PHPStan; use PhpStorm for coverage gaps; Phan as additional signal.
 4. Emit a per-file header crediting sources, plus a package `SOURCES.md` / `NOTICE` listing URLs and licenses.
-5. **Do not** copy stub files wholesale into the repo as Tyhp source of truth — harvest into tyhpdef IR.
+5. **Do not** copy stub files wholesale into the repo as Tyhp source of truth — harvest into tyhpdef IR and emit `_tyhpdef/overlays/stubs/*.tyhpdef` (Layer 2 overlay files, listed first in `"overlay"`).
 
 #### Overlay preservation + regen safety (Layer 3)
 
-Hand enrichment already exists in `php8.2.9/Ext*.tyhpdef` (generics, overloads, type guards, language constructs, Decimal operators). A naïve regen will wipe that.
+Hand enrichment already exists in `php8.2.9/Ext*.tyhpdef` (generics, overloads, type guards, language constructs, Decimal operators). A naïve regen of **baseline** files will wipe in-place edits.
 
-**Contract (markers — apply tooling is future work):**
+**Story 21 lock:** overlays are **separate tyhpdef files** loaded after baseline (`package.tyhp.json` `"overlay"` **in array order; last wins**). Stub harvest files (`_tyhpdef/overlays/stubs/`) are listed first and may be regenerated. Hand-written files (`_tyhpdef/overlays/*.tyhpdef`, non-recursive) are listed last and must **never** be overwritten by regen. Match by **Tyhp name**. Full declaration replaces; `partial` merges members on class/enum/interface/trait; `omit` hides a symbol. Optional `// @overlay-against:` stamps the compact Layer 1 signature. Regenerators overwrite Layer 1 baseline and may overwrite `overlays/stubs/`; they **must not** touch hand-written `_tyhpdef/overlays/*.tyhpdef` or `runtime/php-extensions/overlays/`.
 
-```tyhpdef
-// @generated  — reflection baseline (safe to overwrite on regen)
-// @generated-original: …  — optional breadcrumb of pre-overlay / pre-enrichment form
-// @tyhp-overlay  …  @end-tyhp-overlay  — never overwritten by regen
-```
+`runtime/php-extensions/overlays/` is a **full-file backup** of hand edits that already existed before load-time overlays shipped. It is not loaded. After extracting those edits into package overlay files, keep the snapshot for recovery.
 
-Until programmatic merge/apply exists:
+Until Story 21 overlay load is wired, the compiler continues to load `runtime/php-extensions/php8.2.9/` (live tree). Do not implement in-place `@tyhp-overlay` / `@generated-original` merge as the long-term mechanism — that was superseded.
 
-1. **`runtime/php-extensions/overlays/`** holds a **full-file snapshot** of the current hand-enriched tyhpdefs (baseline for Layer 3).
-2. The compiler **continues to load** `runtime/php-extensions/php8.2.9/` (live tree).
-3. Regenerators **must not** overwrite `overlays/`. Prefer writing new baseline output to staging (`tyhpdef_gen/`) and merging deliberately.
-4. Language constructs (`exit`/`die`/`clone`) and PECL Decimal operators are overlay-owned content.
+Language constructs (`exit`/`die`/`clone`) and PECL Decimal operators are overlay-owned content (`tyhp/php` overlays and `tyhp/php-ext-decimal` overlays respectively — PECL Decimal is not `tyhp/decimal`).
 
 #### Snapshots as first-class artifacts
 
@@ -168,7 +161,7 @@ Per-target Reflection JSON under `tyhpdef_gen/snapshots/{phpVersion}/` (checked 
 3. Multi-target harness — `--php-targets=8.2,8.3,8.4,8.5` + binary map; write snapshots.
 4. Diff/merge prototype (comment-annotated or gated once Story 20.5 lands).
 5. Stub enricher (PhpStorm first for coverage; then Psalm/PHPStan).
-6. Overlay re-apply tooling (consume `overlays/` + markers).
+6. Story 21 overlay load (array order, last wins; stubs first, hand last).
 7. Replace `tools/genTyhpdef.php` as the primary path (keep as reference until parity).
 
 #### Practical locks
@@ -236,8 +229,8 @@ Tyhpdef *generation* (the `generate_tyhpdef` CLI action) uses the CLI `generate_
 
 ## Phase 1: GenerateTyhpdefAction CLI Infrastructure
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -390,8 +383,8 @@ These live in the `generate_tyhpdef` CLI range (7500–7599) because tyhpdef *ge
 
 ## Phase 2: PHP Delegation (Track A)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -514,8 +507,8 @@ Implement the output file path logic:
 
 ## Phase 3: PHPDoc Parser for C# Native Generation
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -630,8 +623,8 @@ The parser does not need to fully resolve types — it produces a string that is
 
 ## Phase 4: C# Native PHP Source to Tyhpdef (Track B)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -777,8 +770,8 @@ The C# native generator needs special handling for PHP idioms:
 
 ## Phase 5: Tyhpdef Output Writer
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -874,8 +867,8 @@ The default behavior (one file per extension/package) matches the existing `genT
 
 ## Phase 6: Tyhpdef Generation from Tyhp Code (Track C)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1134,8 +1127,8 @@ This discovery mechanism is what enables the Tyhp runtime libraries (`tyhp/core`
 
 ## Phase 7: Validation, Integration, and End-to-End Testing
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1686,9 +1679,9 @@ Pipeline for this phase (builds on the three-layer model above):
 --php-targets=8.2,8.3,8.4,8.5
     → per-target Track A JSON snapshots (tyhpdef_gen/snapshots/{ver}/)
     → diff/merge → gated IR
-    → Layer 2 stub harvest
-    → Layer 3 overlay re-apply (from runtime/php-extensions/overlays/ + markers)
-    → TyhpdefOutputWriter → one tree
+    → TyhpdefOutputWriter → Layer 1 baseline tree
+    → Layer 2 stub harvest → _tyhpdef/overlays/stubs/*.tyhpdef
+    → (compile time) apply "overlay" in array order (stubs first, hand last; last wins)
 ```
 
 ### Deliverables
@@ -1702,7 +1695,7 @@ Pipeline for this phase (builds on the three-layer model above):
    - Signature changed at V → version-disjoint declarations (overlapping constraints must not be emitted)
    - Removed after V → upper-bound constraint (`<V+`)
 4. Fail clearly if any configured target PHP is missing / cannot run
-5. Documented regen workflow that **preserves** Layer 3 overlays (`overlays/` + `@tyhp-overlay` / `@generated-original:` markers). Regenerators must never wipe `runtime/php-extensions/overlays/`
+5. Documented regen workflow: overwrite Layer 1 baseline and Layer 2 `overlays/stubs/`; never wipe hand-written `_tyhpdef/overlays/*.tyhpdef` or `runtime/php-extensions/overlays/` (backup snapshot)
 6. Attribution headers + `SOURCES.md` when Layer 2 stub enrichments are applied
 
 ### Implementation notes
@@ -1710,11 +1703,9 @@ Pipeline for this phase (builds on the three-layer model above):
 - Prefer emitting **member attributes** for additions inside shared classes; use **`declare(php=…)` blocks** for
   whole functions/files and for **struct/extension** (Story 20.5 forbids `#[\Tyhp\Php]` on those).
 - Output must be valid under Story 20.5 semantics and lint clean for each `output.phpVersion` in the matrix.
-- Hand-authored Tyhp overlays start as full-file copies in `runtime/php-extensions/overlays/` (preservation
-  snapshot taken from the hand-enriched `php8.2.9/` tree). Programmatic apply/merge is a follow-on; until then,
-  treat `overlays/` as the recovery source of truth for hand work after mistaken regen.
-- Live compiler load path remains `php8.2.9/` (and later Story 21 `tyhp/php`) until overlay apply is wired.
-- Existing `// @generated-original:` pattern (Story 21) may extend to gated regions and overlay breadcrumbs.
+- Hand-authored Tyhp overlays are separate tyhpdefs under each package's `_tyhpdef/overlays/` (Story 21). `runtime/php-extensions/overlays/` is a recovery snapshot of pre-split hand edits, not the load path.
+- Live compiler load path remains `php8.2.9/` until Story 21 packages + overlay load are wired; then baseline + `package.tyhp.json` `overlay`.
+- Do not extend `// @generated-original:` as the overlay mechanism; use load-time overlay files and optional `// @overlay-against:`.
 
 ### Acceptance Criteria
 
@@ -1722,8 +1713,8 @@ Pipeline for this phase (builds on the three-layer model above):
 - [ ] Generating Core/standard stubs for 8.2–8.5 produces one gated tree
 - [ ] `tyhp lint` with `output.phpVersion` set to each minor succeeds and exposes the expected APIs
 - [ ] Missing target PHP → actionable error (no silent partial merge)
-- [ ] Regen into staging does not modify `runtime/php-extensions/overlays/`
-- [ ] Overlay baseline exists and is documented (`overlays/README.md`)
+- [ ] Regen into staging does not modify hand-written `_tyhpdef/overlays/*.tyhpdef` or `runtime/php-extensions/overlays/`
+- [ ] Backup snapshot exists and is documented (`runtime/php-extensions/overlays/README.md`)
 - [ ] Stub-derived enrichments credit sources (file header and/or `SOURCES.md`)
 
 ---

@@ -36,6 +36,7 @@ namespace Tyhp.TyhpLang.Emitter
                 PhpArrayAst array => this.BuildArrayExpression(array),
                 PhpNewAst newExpr => this.BuildNewExpression(newExpr),
                 PhpInlineFunctionAst inlineFn => this.BuildInlineFunctionExpression(inlineFn),
+                TyhpAsyncBlockAst asyncBlock => this.BuildAsyncBlockExpression(asyncBlock),
                 PhpYieldAst yield => this.BuildYieldExpression(yield),
                 PhpConditionalAst conditional when !conditional.IsMatchSyntax => this.BuildSwitchExpression(conditional),
                 PhpConditionalAst conditional => this.BuildMatchExpression(conditional),

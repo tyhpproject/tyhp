@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace Tyhp\Tests\Async;
 
 use PHPUnit\Framework\TestCase;
+use Tyhp\Deferred;
 use Tyhp\DisposableScope;
 use Tyhp\EventLoop;
 use Tyhp\Promise;
+use Tyhp\Contracts\AsyncIsDisposable;
 use Tyhp\Contracts\IsDisposable;
 use Tyhp\Exceptions\AggregateException;
+use Tyhp\Exceptions\AsyncContextException;
 
 final class DisposableScopeTest extends TestCase
 {
@@ -203,6 +206,65 @@ final class DisposableScopeTest extends TestCase
             \restore_error_handler();
         }
     }
+
+    public function testAsyncDisposeFromSyncWaitsUntilSettled(): void
+    {
+        $resource = new ScopeDelayedAsyncDisposable();
+        $scope = DisposableScope::create();
+        $scope->using($resource);
+
+        $scope->dispose();
+
+        $this->assertTrue($resource->disposed);
+    }
+
+    public function testAsyncDisposeFromFiberWaitsUntilSettled(): void
+    {
+        $resource = new ScopeDelayedAsyncDisposable();
+
+        $result = Promise::run(function () use ($resource) {
+            $scope = DisposableScope::create();
+            $scope->using($resource);
+            $scope->dispose();
+            return $resource->disposed;
+        });
+
+        $this->assertTrue($result);
+    }
+
+    public function testSettledAsyncDisposeFromSyncLoopCallbackSucceeds(): void
+    {
+        $resource = new ScopeMockAsyncDisposable();
+
+        Promise::run(function () use ($resource) {
+            $scope = DisposableScope::create();
+            $scope->using($resource);
+            EventLoop::getInstance()->defer(function () use ($scope): void {
+                $scope->dispose();
+            });
+        });
+
+        $this->assertTrue($resource->disposed);
+    }
+
+    public function testPendingAsyncDisposeFromSyncLoopCallbackThrows(): void
+    {
+        $this->expectException(AsyncContextException::class);
+        $this->expectExceptionMessage('Cannot wait for async disposal');
+
+        \set_error_handler(static fn (): bool => true, E_USER_WARNING);
+        try {
+            Promise::run(function () {
+                $scope = DisposableScope::create();
+                $scope->using(new ScopePendingAsyncDisposable());
+                EventLoop::getInstance()->defer(function () use ($scope): void {
+                    $scope->dispose();
+                });
+            });
+        } finally {
+            \restore_error_handler();
+        }
+    }
 }
 
 // ── Test helper classes ─────────────────────────────────────────────
@@ -248,5 +310,48 @@ class ScopeCountingDisposable implements IsDisposable
     public function dispose(): void
     {
         $this->count++;
+    }
+}
+
+class ScopeMockAsyncDisposable implements AsyncIsDisposable
+{
+    public bool $disposed = false;
+    private Promise $settled;
+
+    public function __construct()
+    {
+        // Promise::resolved() from untyped PHP defaults T to void; pre-settle via _async instead.
+        $settled = Promise::_async(static fn (): bool => true);
+        Promise::run(static function () use ($settled): void {
+            Promise::_await($settled);
+        });
+        $this->settled = $settled;
+    }
+
+    public function disposeAsync(): Promise
+    {
+        $this->disposed = true;
+        return $this->settled;
+    }
+}
+
+class ScopeDelayedAsyncDisposable implements AsyncIsDisposable
+{
+    public bool $disposed = false;
+
+    public function disposeAsync(): Promise
+    {
+        $self = $this;
+        return Promise::_async(function () use ($self) {
+            $self->disposed = true;
+        });
+    }
+}
+
+class ScopePendingAsyncDisposable implements AsyncIsDisposable
+{
+    public function disposeAsync(): Promise
+    {
+        return (new Deferred())->getPromise();
     }
 }

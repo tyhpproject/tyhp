@@ -8,7 +8,7 @@
 > **Scope:** Story 21 of the Tyhp compiler TODO
 > **Branch:** TBD
 > **Generated:** 2026-03-24
-> **Last design lock:** 2026-07-29 — single `tyhp/php` + `tyhp/php-ext-*` packages; version diffs via Story 20.5 gating (no per-minor package forks); Phase 2 harvests Psalm/PHPStan/Phan/PhpStorm stubs for tyhpdef enrichment
+> **Last design lock:** 2026-08-17 — `tyhp/php` holds always-present PHP extensions only (no overlapping `tyhp/php-ext-*`); PECL Decimal is `tyhp/php-ext-decimal` (not `tyhp/decimal`); Layer 2 stub harvest and Layer 3 hand edits are both overlay tyhpdefs; `overlay` array order, last wins (handwritten last)
 > **Prerequisites:** Story 06 (Built-in Type System — package discovery via `package.tyhp.json`, `TyhpdefSymbolRegistrar`), **Story 20.5** (PHP Version Gating — `declare(php=…)` + `#[\Tyhp\Php]`), Story 20 (Tyhpdef Generator — for generating `.tyhpdef` files from PHP extensions; Phase 8 multi-target generator when available), Story 28 (Generic Type Parameter Defaults — `T = DefaultType` syntax)
 
 ---
@@ -18,6 +18,7 @@
 - [Architecture Overview](#architecture-overview)
 - [Phase 1: Package Infrastructure](#phase-1-package-infrastructure)
 - [Phase 2: Tyhpdef Refinement](#phase-2-tyhpdef-refinement)
+- [Phase 2.5: Load-Time Overlays](#phase-25-load-time-overlays)
 - [Phase 3: Core & SPL Generic Declarations](#phase-3-core--spl-generic-declarations)
 - [Phase 4: Scalar & Callable Extension Classes](#phase-4-scalar--callable-extension-classes)
 - [Phase 5: Validation and Testing](#phase-5-validation-and-testing)
@@ -43,23 +44,23 @@ PHP does not have generics. When the Tyhp compiler type-checks code that uses PH
 
 The single `tyhp/php` Composer package (plus optional `tyhp/php-ext-*` packages) solves both problems by distributing:
 
-1. **`.tyhpdef` files** — type signatures for all PHP built-in functions, classes, interfaces, constants, and enums from every bundled extension (Core, SPL, Standard, Date, JSON, PCRE, mbstring, DOM, etc.), with generic type parameters added directly to types that are logically generic (e.g., `Iterator<TKey, TValue>`, `SplStack<T>`)
+1. **`.tyhpdef` files** — type signatures for PHP built-in functions, classes, interfaces, constants, and enums. `tyhp/php` covers always-present extensions (Core, SPL, standard, date, json, …). Optional extensions are `tyhp/php-ext-*`. Generic parameters and other hand refinements live in overlay tyhpdefs loaded after the baseline (e.g., `Iterator<TKey, TValue>`, `SplStack<T>`).
 2. **`.tyhp` files** — standalone extension classes that add methods to scalar types, arrays, and `Closure`, mapping to underlying PHP functions with clean, consistent naming
-3. **`package.tyhp.json`** — the package manifest with an `include` array that tells the Tyhp compiler which files to load
+3. **`package.tyhp.json`** — the package manifest with `include` (baseline + support) and `overlay` (Layer 3 tyhpdefs applied at load)
 
 ### Package Naming
 
 Two package categories exist:
 
-**Base package** — one package covering all supported PHP minors (8.2–8.5), with version-specific APIs gated via Story 20.5:
+**Base package** — one package covering all supported PHP minors (8.2–8.5), with version-specific APIs gated via Story 20.5. It contains **only extensions that are always present in PHP** (cannot be unbundled). If a `tyhp/php-ext-*` package exists for an extension, that extension is **not** also in `tyhp/php`.
 
 | Package Name | Path | Composer `require.php` | Coverage |
 |---|---|---|---|
-| `tyhp/php` | `runtime/packages/php/` | `>=8.2` | PHP 8.2.x–8.5.x (and later minors as they land), commonly-bundled extensions |
+| `tyhp/php` | `runtime/packages/php/` | `>=8.2` | Always-present PHP 8.2+ surface: Core, date, filter, hash, json, libxml, pcre, random, Reflection, SPL, standard |
 
 PHP 8.1 is not supported. The minimum supported PHP version is 8.2. Version differences are **not** expressed as separate Composer packages; they use `declare(php=…)` / `#[\Tyhp\Php]` (Story 20.5) matched against the project's `output.phpVersion`.
 
-**Individual extension packages** — one per optional extension for all PHP versions (gates inside for version-specific APIs):
+**Individual extension packages** — one per optional / disableable / PECL extension for all PHP versions (gates inside for version-specific APIs). Compiled-by-default but disableable extensions (mbstring, openssl, tokenizer, Phar, …) live here, **not** in `tyhp/php`.
 
 | Package Name | Path | Extension |
 |---|---|---|
@@ -67,27 +68,27 @@ PHP 8.1 is not supported. The minimum supported PHP version is 8.2. Version diff
 | `tyhp/php-ext-pdo` | `runtime/packages/php-ext-pdo/` | PDO |
 | `tyhp/php-ext-pdo_mysql` | `runtime/packages/php-ext-pdo_mysql/` | pdo_mysql |
 | `tyhp/php-ext-gd` | `runtime/packages/php-ext-gd/` | gd |
+| `tyhp/php-ext-decimal` | `runtime/packages/php-ext-decimal/` | PECL `decimal` (php-decimal / mpdecimal) — **not** `tyhp/decimal` |
 | ... | ... | ... |
+
+Do **not** create `tyhp/php-ext-json`, `tyhp/php-ext-hash`, or `tyhp/php-ext-libxml` — those extensions are always present and belong only in `tyhp/php`.
+
+`tyhp/php-ext-decimal` is the PECL Decimal extension (`runtime/php-extensions/Decimal/ExtDecimal.tyhpdef` today). It is unrelated to the Tyhp runtime package `tyhp/decimal` (`Tyhp\Decimal\`, bcmath-backed).
 
 Do **not** create per-minor packages (`tyhp/php-8.2`, `tyhp/php-8.x-ext-*`, etc.). Patch-level PHP releases do not change the extension API surface; minor-level diffs are gated in the single tree.
 
 ### How Generic Declarations Work
 
-Generic type parameters are added **directly to the `.tyhpdef` files**. The original auto-generated non-generic declaration is preserved as a comment block (prefixed with `// @generated-original:`) above the generic version. This approach avoids the need for separate overlay files or "last-wins" binder logic.
+Generic type parameters are **not** written into generated baseline `.tyhpdef` files. They live in **overlay** tyhpdefs (see [Load-time overlays](#load-time-overlays)) that replace the baseline symbol by **Tyhp name**. Regen overwrites the baseline; overlays are never regenerated.
 
-For example, in `Ext.Core.tyhpdef`:
+For example, baseline `Ext.Core.tyhpdef` keeps Reflection's `interface Iterator`, and `_tyhpdef/overlays/Ext.Core.tyhpdef` replaces it:
 
 ```tyhpdef
-// @generated-original: interface Iterator extends \Traversable {
-// @generated-original:     public function current(): mixed;
-// @generated-original:     public function key(): mixed;
-// @generated-original:     public function next(): void;
-// @generated-original:     public function rewind(): void;
-// @generated-original:     public function valid(): bool;
-// @generated-original: }
-
+// @overlay-against: interface Iterator extends Traversable
 interface Iterator<TKey = mixed, TValue = mixed> extends \Traversable<TKey, TValue> {
+    // @overlay-against: function current(): mixed
     public function current(): TValue;
+    // @overlay-against: function key(): mixed
     public function key(): TKey;
     public function next(): void;
     public function rewind(): void;
@@ -95,7 +96,82 @@ interface Iterator<TKey = mixed, TValue = mixed> extends \Traversable<TKey, TVal
 }
 ```
 
+Adding generics (or otherwise changing the type header) is a **full top-level replace**, not `partial`. `partial` only merges members (see Phase 2.5).
+
 Generic type parameter defaults (from Story 28) allow these types to be used without explicit type arguments. For example, `Iterator` without arguments defaults to `Iterator<mixed, mixed>`, matching PHP's untyped behavior. Where possible, defaults are narrower than `mixed` (e.g., `SplPriorityQueue<TValue = mixed, TPriority = int>` since priorities are typically integers, `ArrayObject<TKey = string|int, TValue = mixed>` since PHP array keys can only be `string|int`).
+
+### Load-time overlays
+
+Story 20 Layer 1 emits **baseline** tyhpdefs (Reflection only) into `_tyhpdef/*.tyhpdef`. Layers 2 and 3 are **overlay** tyhpdefs applied at binder load — not by rewriting baseline files.
+
+- **Layer 2 (stub harvest):** Story 20 writes generated overlay files under `_tyhpdef/overlays/stubs/`. Safe to regenerate. Native tyhpdef translated from Psalm / PHPStan / Phan / PhpStorm (`runtime/README.md`), with attribution in headers / `SOURCES.md`.
+- **Layer 3 (hand-written):** humans (and `tyhp overlay create`) write `_tyhpdef/overlays/*.tyhpdef` (not under `stubs/`). Never regenerated.
+
+`runtime/php-extensions/overlays/` is **only a backup snapshot** of hand edits that already exist in `php8.2.9/` / `Decimal/`. Regenerators must not touch it. The compiler must not load it. After overlays are extracted into package `_tyhpdef/overlays/`, that backup remains disaster recovery.
+
+**`package.tyhp.json`:**
+
+```json
+{
+    "include": [
+        "./_tyhpdef/*.tyhpdef",
+        "./_tyhpdef/support/*.tyhp"
+    ],
+    "overlay": [
+        "./_tyhpdef/overlays/stubs/*.tyhpdef",
+        "./_tyhpdef/overlays/*.tyhpdef"
+    ]
+}
+```
+
+Load `include` first, then **each `overlay` entry in array order**. Later overlay files win for the same Tyhp name (full replace / `partial` merge / `omit` apply against the symbol table as it exists after previous overlays, not only against the original baseline). Overlay globs must **not** appear in `include`. `./_tyhpdef/*.tyhpdef` and `./_tyhpdef/overlays/*.tyhpdef` must **not** recurse into subdirectories (`stubs/` is a separate entry). Within one glob, expand in lexicographic path order so regen is deterministic.
+
+**Convention:** stub overlays first, hand-written overlays last. `tyhp overlay create` writes hand-written files and appends that glob at the **end** of `"overlay"` if it is not already listed (never inserts it before stubs).
+
+Same-package duplicate FQNs in `include` remain conflicts; overlay load is a distinct last-wins mode:
+
+| Overlay declaration | Baseline has that **Tyhp name** | Result |
+|---|---|---|
+| Normal (full) symbol | yes | **Replace** the whole symbol (functions: the entire overload set) |
+| Normal (full) symbol | no | **Add** |
+| `partial` type | yes (same name + kind) | Merge members only (add or replace listed members) |
+| `partial` type | no | Do **not** apply; **warning** |
+| `omit` | yes | Remove the Tyhp name from the environment (not found) |
+| `omit` | no | **Warning**; no-op |
+
+Identity is the **Tyhp name**, not the PHP name. `function \call_user_func as call_user_func_unsafe(...)` **adds** `call_user_func_unsafe` and leaves generated `call_user_func` in place (keep-original + alias for a special case). To **rename**, overlay an `obsolete` (or `omit`) declaration of the old Tyhp name **and** an aliased declaration of the new name.
+
+**Keywords (overlay files only):** `partial` and `omit` are tyhpdef keywords alongside `deprecated` / `obsolete`. Using them in a non-overlay tyhpdef is an error. They cannot be combined with each other or with `deprecated` / `obsolete` **on the same declaration**. `omit` on a **member** inside a `partial` type is a different declaration (allowed):
+
+```tyhpdef
+omit function \array_map();
+omit class \Closure {};
+
+partial class \DomainException {
+    omit public function getPrevious();
+}
+```
+
+- `partial` — only on `class`, `enum`, `interface`, `trait`. Does **not** change generics / `extends` / `implements` / flags; only members. New members are added; listed members fully replace that member (including its overload set).
+- `omit` — any symbol. Signature may be a skeleton only (`omit function \array_map();`, `omit class \Closure {};`, `omit public function getPrevious();`). Does not require parameters or a class body.
+
+**`// @overlay-against:`** (optional) records the compact **Layer 1 Reflection** signature the overlay was written against. Not an error to omit. Functions: one line for the whole signature. Types: one line for the **header only** (no members); each overlaid member may have its own line.
+
+- Stamp **matches** current baseline → apply silently.
+- Stamp **mismatches** current baseline → **warning**, overlay **still applied**. `--strict` / `build.strictMode` elevates to error.
+- **No stamp** and the overlay **replaces** an existing symbol → **warning** if the overlay is not a compile-time-compatible rewrite of the baseline (still applied). Compatibility ignores generics (treat as the default or `mixed`); may drop optional baseline parameters not present on the overlay; may use static value types when they are compatible with the baseline parameter type. The test is: Tyhp can rewrite overlay-typed calls to a PHP call signature the baseline accepts.
+- **No stamp** and the overlay **adds** a symbol → no compatibility check (do not invent `@overlay-add`).
+- `omit` of a missing symbol → **warning**.
+
+CLI (this story; new `overlay` action — diagnostics in `MessageCode.cs`, not invented here):
+
+```bash
+tyhp overlay create \Iterator
+tyhp overlay stamp
+tyhp overlay stamp \Iterator
+```
+
+`create <FQN>` copies the current declaration into a **hand-written** overlay file (not `overlays/stubs/`) and appends that glob at the **end** of `package.tyhp.json` `"overlay"` (or project `tyhp.json`) if it is not already covered. Never insert the hand-written glob before stub entries. `stamp` writes/updates `// @overlay-against:` from the current Layer 1 baseline.
 
 ### How Scalar Extension Classes Work
 
@@ -107,7 +183,7 @@ Extension methods are annotated with:
 - `#[\Tyhp\Optimize\Inline]` — for simple one-liner wrappers, so `$str->length()` compiles to `\mb_strlen($str)` with zero overhead
 - `#[\Tyhp\Optimize\Pure]` — for side-effect-free methods, enabling optimizer optimizations (Story 24)
 
-String methods use `mb_*` functions as defaults (e.g., `$str->length()` maps to `\mb_strlen()`, not `\strlen()`). Non-multibyte alternatives use a `byte` prefix (e.g., `$str->byteLength()` maps to `\strlen()`). No encoding parameter is exposed; PHP's `mbstring.internal_encoding` or `default_charset` applies.
+String methods use `mb_*` functions as defaults (e.g., `$str->length()` maps to `\mb_strlen()`, not `\strlen()`). Non-multibyte alternatives use a `byte` prefix (e.g., `$str->byteLength()` maps to `\strlen()`). No encoding parameter is exposed; PHP's `mbstring.internal_encoding` or `default_charset` applies. `mbstring` is **not** in `tyhp/php` (it is `tyhp/php-ext-mbstring`). The scalar methods still emit `\mb_*` at runtime; installing `tyhp/php-ext-mbstring` is required to type-check direct `\mb_*` calls.
 
 Array extension methods follow a naming convention:
 - **Immutable** methods (return a new array) use **past participle** names: `sorted()`, `reversed()`, `filtered()`
@@ -124,7 +200,9 @@ Array extension methods follow a naming convention:
 | Generic type parameter defaults | Story 28 | Complete |
 | Extension method syntax | Story 03 | Complete |
 | Scalar extension classes | N/A | Do not exist yet |
-| Single `tyhp/php` package | `runtime/packages/php/` | Does not exist yet (this story) |
+| Single `tyhp/php` package | `runtime/packages/php/` | This story — always-present extensions only |
+| Hand-edit backup snapshot | `runtime/php-extensions/overlays/` | Full-file copies of existing hand edits — recovery only; not loaded |
+| Load-time overlays | `runtime/packages/{php,php-ext-*}/_tyhpdef/overlays/` | This story — applied at bind via `package.tyhp.json` `overlay` |
 
 ### Version gating (Story 20.5)
 
@@ -152,13 +230,13 @@ declare(php=">=8.5") {
 
 ### Design Principles
 
-1. **One base package for all supported PHP minors.** `tyhp/php` at `runtime/packages/php/` is self-contained with commonly-bundled extension tyhpdefs, generic declarations, and scalar extension classes. Composer `require.php` is `>=8.2` (not mutually exclusive per-minor constraints).
+1. **One base package for always-present PHP.** `tyhp/php` at `runtime/packages/php/` holds Core / date / filter / hash / json / libxml / pcre / random / Reflection / SPL / standard, plus scalar extension classes. Composer `require.php` is `>=8.2`. Always-present extensions must **not** have a `tyhp/php-ext-*` package.
 
-2. **Individual packages for optional extensions.** Extensions not bundled by default (e.g., `curl`, `pdo`, `gd`) get their own Composer packages (`tyhp/php-ext-{name}` at `runtime/packages/php-ext-{name}/`). One package per extension covers all PHP versions; version-specific APIs use Story 20.5 gates. Packages may depend on each other (e.g., `tyhp/php-ext-pdo_mysql` depends on `tyhp/php-ext-pdo`).
+2. **Individual packages for optional extensions.** Disableable, PECL, and not-always-present extensions get `tyhp/php-ext-{name}` at `runtime/packages/php-ext-{name}/` and are **not** also in `tyhp/php`. One package per extension covers all PHP versions; version-specific APIs use Story 20.5 gates. Packages may depend on each other (e.g., `tyhp/php-ext-pdo_mysql` depends on `tyhp/php-ext-pdo`). `tyhp/php-ext-decimal` is PECL Decimal; `tyhp/decimal` is the Tyhp bcmath runtime — they are not the same package.
 
 3. **Version diffs via gating, not package forks.** Do not `cp -r` into `php-8.3` / `php-8.4` / `php-8.5` packages. Author and maintain one gated tree; use Story 20 Phase 8 multi-target generator when available; until then hand-apply `declare(php=…)` / `#[\Tyhp\Php]`.
 
-4. **Generics and stub enrichments in tyhpdef, with overlay preservation.** Generic type parameters and other stub-derived refinements are expressed as **native tyhpdef** (not analyzer-only PHPDoc). Prefer keeping the Reflection-generated non-generic / under-typed form as `// @generated-original:` above the enriched declaration when editing in place. **In addition**, Story 20 Layer 3 maintains `runtime/php-extensions/overlays/` as a full-file preservation snapshot of hand-enriched extension tyhpdefs so mistaken regen cannot silently lose work. Programmatic overlay apply/merge is future work; until then the live load path remains `runtime/php-extensions/php8.2.9/` (and later `tyhp/php`), while `overlays/` is the recovery baseline. Reflection-generated `.tyhpdef` files only know PHP's runtime type hints (often `mixed` / untyped). Use community stub corpora (Psalm, PHPStan, Phan, PhpStorm — see Phase 2.3 and `runtime/README.md`) as the primary source of PHPDoc / analyzer annotations when refining signatures: parameter/return types, `@template` generics, array element/key types, stub array shapes (as Tyhp `struct` declarations), callable signatures, and type-guard / assertion metadata. Prefer translating those annotations into native Tyhp tyhpdef syntax over leaving `mixed`.
+4. **Three layers: Reflection baseline, stub overlays, hand overlays.** Layer 1 (Story 20) is Reflection-generated baseline under `_tyhpdef/*.tyhpdef`. Layer 2 harvests Psalm / PHPStan / Phan / PhpStorm stubs (`runtime/README.md`) into **generated overlay** files under `_tyhpdef/overlays/stubs/` (native tyhpdef, attribution in headers / `SOURCES.md`) — not analyzer-only PHPDoc. Layer 3 is hand-owned overlay tyhpdefs under `_tyhpdef/overlays/*.tyhpdef`. Both overlay layers load via `package.tyhp.json` `"overlay"` **in array order; last wins**. List stubs first, hand-written last. Do not hand-edit baseline files to add generics. `runtime/php-extensions/overlays/` is a **backup snapshot only** of existing hand edits; it is not loaded and is not the overlay mechanism.
 
 5. **Extension classes for scalar methods, not tyhpdef inline extensions.** Scalar type methods use standalone `extension` classes in `.tyhp` files under `_tyhpdef/support/`. This keeps them separate from the auto-generated tyhpdef declarations. Gate version-specific method bodies with `declare(php=…) { … }` (attributes are not allowed on `extension` declarations).
 
@@ -175,36 +253,25 @@ runtime/packages/php/
 ├── composer.json
 ├── package.tyhp.json
 ├── _tyhpdef/
-│   ├── Ext.Calendar.tyhpdef
 │   ├── Ext.Core.tyhpdef
-│   ├── Ext.Ctype.tyhpdef
 │   ├── Ext.Date.tyhpdef
-│   ├── Ext.Dom.tyhpdef
-│   ├── Ext.Exif.tyhpdef
-│   ├── Ext.Fileinfo.tyhpdef
 │   ├── Ext.Filter.tyhpdef
 │   ├── Ext.Hash.tyhpdef
-│   ├── Ext.Iconv.tyhpdef
 │   ├── Ext.Json.tyhpdef
 │   ├── Ext.Libxml.tyhpdef
-│   ├── Ext.Mbstring.tyhpdef
-│   ├── Ext.Openssl.tyhpdef
-│   ├── Ext.Pcntl.tyhpdef
 │   ├── Ext.Pcre.tyhpdef
-│   ├── Ext.Phar.tyhpdef
-│   ├── Ext.Posix.tyhpdef
 │   ├── Ext.Random.tyhpdef
 │   ├── Ext.Reflection.tyhpdef
-│   ├── Ext.Session.tyhpdef
-│   ├── Ext.Simplexml.tyhpdef
-│   ├── Ext.Sodium.tyhpdef
 │   ├── Ext.SPL.tyhpdef
 │   ├── Ext.Standard.tyhpdef
-│   ├── Ext.Tokenizer.tyhpdef
-│   ├── Ext.Xml.tyhpdef
-│   ├── Ext.Xmlreader.tyhpdef
-│   ├── Ext.Xmlwriter.tyhpdef
-│   ├── Ext.Zlib.tyhpdef
+│   ├── overlays/
+│   │   ├── stubs/                # Layer 2 — generated from Psalm/PHPStan/Phan/PhpStorm; safe to regen
+│   │   │   ├── Ext.Core.tyhpdef
+│   │   │   ├── Ext.SPL.tyhpdef
+│   │   │   └── Ext.Standard.tyhpdef
+│   │   ├── Ext.Core.tyhpdef      # Layer 3 — hand-written; never regen
+│   │   ├── Ext.SPL.tyhpdef
+│   │   └── Ext.Standard.tyhpdef
 │   └── support/
 │       ├── string.tyhp
 │       ├── array.tyhp
@@ -218,14 +285,15 @@ runtime/packages/php/
     └── test_extensions.tyhp
 ```
 
-Individual extension packages follow the same pattern (one package for all PHP versions):
+Individual extension packages follow the same pattern (one package for all PHP versions), including `_tyhpdef/overlays/` when that extension has hand refinements:
 
 ```
 runtime/packages/php-ext-curl/
 ├── composer.json
 ├── package.tyhp.json
 ├── _tyhpdef/
-│   └── Ext.Curl.tyhpdef
+│   ├── Ext.Curl.tyhpdef
+│   └── overlays/
 └── tests/
     └── test_curl.tyhp
 ```
@@ -236,17 +304,17 @@ runtime/packages/php-ext-curl/
 
 ### Phase Overview
 
-Create the directory structure, `composer.json`, and `package.tyhp.json` for the single `tyhp/php` package. Move the existing 16 `.tyhpdef` files from `runtime/php-extensions/php8.2.9/` into the new package structure and generate the remaining 14 tyhpdef files for newly-included extensions using Story 20's tyhpdef generator.
+Create the directory structure, `composer.json`, and `package.tyhp.json` for the single `tyhp/php` package (always-present extensions only). Move the matching baseline `.tyhpdef` files from `runtime/php-extensions/php8.2.9/` into `runtime/packages/php/_tyhpdef/`. Route disableable-extension files from that harvest into their `tyhp/php-ext-*` packages (Phases 7–15) rather than into `tyhp/php`. Keep `runtime/php-extensions/overlays/` as the hand-edit **backup** (do not delete it; do not load it).
 
 ### Deliverables
 
-1. `runtime/packages/php/` directory created with full structure
+1. `runtime/packages/php/` directory created with full structure including `_tyhpdef/overlays/`
 2. `runtime/packages/php/composer.json` created
-3. `runtime/packages/php/package.tyhp.json` created
-4. `runtime/packages/php/_tyhpdef/` directory with all 30 `.tyhpdef` files (dot-notation naming)
+3. `runtime/packages/php/package.tyhp.json` created with `include` and `overlay`
+4. `runtime/packages/php/_tyhpdef/` directory with the 11 always-present `.tyhpdef` files (dot-notation naming)
 5. `runtime/packages/php/_tyhpdef/support/` directory created (empty until Phase 4)
-6. `runtime/packages/php/tests/` directory created (empty until Phase 5)
-7. `runtime/php-extensions/php8.2.9/` directory removed after files are moved
+6. `runtime/packages/php/_tyhpdef/overlays/` directory created (populated in Phases 2.5–3)
+7. `runtime/packages/php/tests/` directory created (empty until Phase 5)
 
 ### Implementation Details
 
@@ -254,6 +322,7 @@ Create the directory structure, `composer.json`, and `package.tyhp.json` for the
 
 ```bash
 mkdir -p runtime/packages/php/_tyhpdef/support
+mkdir -p runtime/packages/php/_tyhpdef/overlays/stubs
 mkdir -p runtime/packages/php/tests
 ```
 
@@ -264,7 +333,7 @@ File: `runtime/packages/php/composer.json`
 ```json
 {
     "name": "tyhp/php",
-    "description": "Tyhp type definitions for PHP built-in extensions (8.2+) — includes function/class/constant signatures, generic type parameters, and scalar extension methods for string, array, int, float, bool, and Closure. Version-specific APIs are gated via declare(php=…) / #[\\Tyhp\\Php] (Story 20.5).",
+    "description": "Tyhp type definitions for always-present PHP built-ins (8.2+) — Core, date, filter, hash, json, libxml, pcre, random, Reflection, SPL, standard — plus scalar extension methods. Version-specific APIs are gated via declare(php=…) / #[\\Tyhp\\Php] (Story 20.5).",
     "type": "library",
     "license": "MIT",
     "require": {
@@ -275,12 +344,8 @@ File: `runtime/packages/php/composer.json`
             "php-version": ">=8.2",
             "supported-minors": ["8.2", "8.3", "8.4", "8.5"],
             "extensions": [
-                "Core", "calendar", "ctype", "date", "dom", "exif",
-                "fileinfo", "filter", "hash", "iconv", "json", "libxml",
-                "mbstring", "openssl", "pcntl", "pcre", "Phar", "posix",
-                "random", "Reflection", "session", "SimpleXML", "sodium",
-                "SPL", "standard", "tokenizer", "xml", "xmlreader",
-                "xmlwriter", "zlib"
+                "Core", "date", "filter", "hash", "json", "libxml",
+                "pcre", "random", "Reflection", "SPL", "standard"
             ]
         }
     }
@@ -298,15 +363,19 @@ File: `runtime/packages/php/package.tyhp.json`
     "include": [
         "./_tyhpdef/*.tyhpdef",
         "./_tyhpdef/support/*.tyhp"
+    ],
+    "overlay": [
+        "./_tyhpdef/overlays/stubs/*.tyhpdef",
+        "./_tyhpdef/overlays/*.tyhpdef"
     ]
 }
 ```
 
-The `include` array lists `.tyhpdef` files first, then `.tyhp` support files. The `.tyhp` files contain extension classes that are automatically available via the tyhpdef extension auto-inclusion mechanism.
+The `include` array lists baseline `.tyhpdef` files first, then `.tyhp` support files. The `overlay` array is load-time Layers 2–3 (Phase 2.5): **stubs first, hand-written last**; later entries win. Overlay globs must not also appear in `include`. The glob `./_tyhpdef/*.tyhpdef` must not recurse into `overlays/`. The glob `./_tyhpdef/overlays/*.tyhpdef` must not recurse into `stubs/`.
 
-**1.4 — Move and Rename Existing Tyhpdef Files**
+**1.4 — Move Always-Present Tyhpdef Files Into `tyhp/php`**
 
-Move all 16 `.tyhpdef` files from `runtime/php-extensions/php8.2.9/` to `runtime/packages/php/_tyhpdef/`, renaming from legacy `Ext{Name}.tyhpdef` to dot-notation `Ext.{Name}.tyhpdef`:
+Move only always-present extension files from `runtime/php-extensions/php8.2.9/` to `runtime/packages/php/_tyhpdef/`, renaming from legacy `Ext{Name}.tyhpdef` to dot-notation `Ext.{Name}.tyhpdef`. **Copy** (do not destroy the harvest until overlays are extracted) so `runtime/php-extensions/overlays/` remains a valid backup of the pre-split hand-edited trees.
 
 | Source | Destination |
 |---|---|
@@ -316,63 +385,34 @@ Move all 16 `.tyhpdef` files from `runtime/php-extensions/php8.2.9/` to `runtime
 | `ExtHash.tyhpdef` | `Ext.Hash.tyhpdef` |
 | `ExtJson.tyhpdef` | `Ext.Json.tyhpdef` |
 | `ExtLibxml.tyhpdef` | `Ext.Libxml.tyhpdef` |
-| `ExtOpenssl.tyhpdef` | `Ext.Openssl.tyhpdef` |
-| `ExtPcntl.tyhpdef` | `Ext.Pcntl.tyhpdef` |
 | `ExtPcre.tyhpdef` | `Ext.Pcre.tyhpdef` |
 | `ExtRandom.tyhpdef` | `Ext.Random.tyhpdef` |
 | `ExtReflection.tyhpdef` | `Ext.Reflection.tyhpdef` |
-| `ExtSession.tyhpdef` | `Ext.Session.tyhpdef` |
-| `ExtSodium.tyhpdef` | `Ext.Sodium.tyhpdef` |
 | `ExtSPL.tyhpdef` | `Ext.SPL.tyhpdef` |
 | `ExtStandard.tyhpdef` | `Ext.Standard.tyhpdef` |
-| `ExtZlib.tyhpdef` | `Ext.Zlib.tyhpdef` |
 
-After verifying all 16 files are intact, remove the old directory:
+Leave disableable-extension files (`ExtOpenssl`, `ExtPcntl`, `ExtSession`, `ExtSodium`, `ExtZlib`, `ExtGmp`, `ExtBcMath`, …) in the harvest tree until their `tyhp/php-ext-*` packages are created. Move `runtime/php-extensions/Decimal/ExtDecimal.tyhpdef` into `tyhp/php-ext-decimal` (Phase 14) — not into `tyhp/decimal`.
 
-```bash
-rm -rf runtime/php-extensions/php8.2.9/
-```
+Do **not** delete `runtime/php-extensions/overlays/`. Do **not** `rmdir runtime/php-extensions/`.
 
-If `runtime/php-extensions/` is now empty, remove it:
+**1.5 — Do Not Generate Optional Extensions Into the Base Package**
 
-```bash
-rmdir runtime/php-extensions/ 2>/dev/null || true
-```
-
-**1.5 — Generate New Tyhpdef Files**
-
-Generate the remaining 14 tyhpdef files for extensions now included in the base package but not previously covered. Use Story 20's tyhpdef generator against a PHP 8.2 installation (baseline). Higher-minor APIs are added later in Phase 6 via Story 20.5 gates (or Story 20 Phase 8 multi-target generation when available):
-
-```bash
-tyhp generate_tyhpdef --ext-name=calendar --output=runtime/packages/php/_tyhpdef/Ext.Calendar.tyhpdef
-tyhp generate_tyhpdef --ext-name=ctype --output=runtime/packages/php/_tyhpdef/Ext.Ctype.tyhpdef
-tyhp generate_tyhpdef --ext-name=dom --output=runtime/packages/php/_tyhpdef/Ext.Dom.tyhpdef
-tyhp generate_tyhpdef --ext-name=exif --output=runtime/packages/php/_tyhpdef/Ext.Exif.tyhpdef
-tyhp generate_tyhpdef --ext-name=fileinfo --output=runtime/packages/php/_tyhpdef/Ext.Fileinfo.tyhpdef
-tyhp generate_tyhpdef --ext-name=iconv --output=runtime/packages/php/_tyhpdef/Ext.Iconv.tyhpdef
-tyhp generate_tyhpdef --ext-name=mbstring --output=runtime/packages/php/_tyhpdef/Ext.Mbstring.tyhpdef
-tyhp generate_tyhpdef --ext-name=Phar --output=runtime/packages/php/_tyhpdef/Ext.Phar.tyhpdef
-tyhp generate_tyhpdef --ext-name=posix --output=runtime/packages/php/_tyhpdef/Ext.Posix.tyhpdef
-tyhp generate_tyhpdef --ext-name=SimpleXML --output=runtime/packages/php/_tyhpdef/Ext.Simplexml.tyhpdef
-tyhp generate_tyhpdef --ext-name=tokenizer --output=runtime/packages/php/_tyhpdef/Ext.Tokenizer.tyhpdef
-tyhp generate_tyhpdef --ext-name=xml --output=runtime/packages/php/_tyhpdef/Ext.Xml.tyhpdef
-tyhp generate_tyhpdef --ext-name=xmlreader --output=runtime/packages/php/_tyhpdef/Ext.Xmlreader.tyhpdef
-tyhp generate_tyhpdef --ext-name=xmlwriter --output=runtime/packages/php/_tyhpdef/Ext.Xmlwriter.tyhpdef
-```
+Do **not** run `generate_tyhpdef` for calendar, ctype, dom, mbstring, tokenizer, Phar, etc. into `runtime/packages/php/`. Those belong in `tyhp/php-ext-*` (Phases 7–15). Always-present files that are missing from the harvest can be generated into `tyhp/php` only.
 
 If the tyhpdef generator requires a specific PHP version to run against and the current environment is not PHP 8.2, use the generator's `--php-version` flag or run it against a PHP 8.2 Docker container.
 
 ### Acceptance Criteria
 
-- [ ] `runtime/packages/php/composer.json` exists with `name: tyhp/php` and PHP `>=8.2` constraint
-- [ ] `runtime/packages/php/package.tyhp.json` exists with `include` entries for `*.tyhpdef` and `support/*.tyhp`
-- [ ] All 30 `.tyhpdef` files exist in `runtime/packages/php/_tyhpdef/` using dot-notation names
-- [ ] `runtime/packages/php/_tyhpdef/support/` directory exists
+- [ ] `runtime/packages/php/composer.json` exists with `name: tyhp/php`, PHP `>=8.2`, and only always-present extensions in `extra.tyhp.extensions`
+- [ ] `runtime/packages/php/package.tyhp.json` exists with `include` (baseline + support) and `overlay` (stubs glob first, hand-written glob last)
+- [ ] The 11 always-present `.tyhpdef` files exist in `runtime/packages/php/_tyhpdef/` using dot-notation names
+- [ ] `runtime/packages/php/_tyhpdef/` does **not** contain calendar, ctype, dom, mbstring, openssl, tokenizer, Phar, or other optional extensions
+- [ ] `runtime/packages/php/_tyhpdef/overlays/` and `support/` directories exist
 - [ ] `runtime/packages/php/tests/` directory exists
-- [ ] `runtime/php-extensions/php8.2.9/` is removed
-- [ ] No data loss — all 16 original tyhpdef files are intact after the move
+- [ ] `runtime/php-extensions/overlays/` still exists (backup snapshot)
 - [ ] No root `runtime/composer.json` exists (each package is standalone)
 - [ ] No `runtime/packages/php-8.{2,3,4,5}/` per-minor forks exist
+- [ ] No `tyhp/php-ext-json`, `tyhp/php-ext-hash`, or `tyhp/php-ext-libxml` packages exist
 
 ---
 
@@ -380,9 +420,9 @@ If the tyhpdef generator requires a specific PHP version to run against and the 
 
 ### Phase Overview
 
-Review and fix all 30 `.tyhpdef` files to ensure they parse correctly, contain accurate type signatures, and follow consistent formatting. Harvest PHPDoc / analyzer annotations from community PHP stub corpora to enrich generated signatures (narrower types, generics, callable signatures, stub array shapes → Tyhp `struct`s, type guards). Add `#[\Tyhp\Optimize\Pure]` annotations to pure PHP built-in functions.
+Review and lint the **11 always-present** baseline `.tyhpdef` files in `tyhp/php`. Layer 2 stub harvest (Story 20) writes generated overlays under `_tyhpdef/overlays/stubs/`. Hand-owned changes (generics, Pure, aliases such as `call_user_func_unsafe`, language constructs) go in `_tyhpdef/overlays/*.tyhpdef` (Phase 2.5 / Phase 3) — do not hand-edit baseline files for those.
 
-Reflection-based generation (Story 20) only sees PHP's runtime type surface. Most built-ins are under-specified there (`mixed`, untyped params, no templates). Static analyzers already encode the missing information in stub files — Story 21 Phase 2 (and later extension phases) must use those stubs as the authoritative enrichment input when hand-refining or tooling-assisted-refining `.tyhpdef` output.
+Reflection-based generation (Story 20) only sees PHP's runtime type surface. Most built-ins are under-specified there (`mixed`, untyped params, no templates). Static analyzers already encode the missing information in stub files — Phase 2.3 uses those stubs as the enrichment input for Layer 2 harvest and as evidence for Layer 3 overlays.
 
 ### Deliverables
 
@@ -409,16 +449,16 @@ Fix any parse errors found. Common issues in auto-generated tyhpdefs:
 
 **2.2 — Verify Extension Coverage**
 
-Confirm that the 30 extension tyhpdef files cover all PHP 8.2 extensions that are commonly bundled:
+Confirm that `tyhp/php` contains **only** always-present extensions, and that compiled-by-default / optional extensions are `tyhp/php-ext-*` packages (not duplicated in the base):
 
-| Category | Extensions |
+| Category | Where |
 |---|---|
-| Always present | Core, date, filter, hash, json, libxml, pcre, random, Reflection, SPL, standard |
-| Compiled by default | calendar, ctype, dom, exif, fileinfo, iconv, mbstring, openssl, Phar, posix, session, SimpleXML, sodium, tokenizer, xml, xmlreader, xmlwriter, zlib, pcntl |
+| Always present — Core, date, filter, hash, json, libxml, pcre, random, Reflection, SPL, standard | `tyhp/php` only (no `php-ext-*`) |
+| Compiled by default but disableable — calendar, ctype, dom, exif, fileinfo, iconv, mbstring, openssl, Phar, posix, session, SimpleXML, sodium, tokenizer, xml, xmlreader, xmlwriter, zlib, pcntl | `tyhp/php-ext-*` only |
 
 **2.3 — Analyze Static-Analysis Stubs for Type Enrichment**
 
-Before (and while) hand-editing generated `.tyhpdef` files, analyze the community stub corpora listed in `runtime/README.md` under **PHP Stubs with annotations**. These stubs are the primary source of PHPDoc / analyzer tags that describe how to modify the generated PHP tyhpdefs beyond what Reflection emits.
+Before authoring hand overlays (and while feeding Story 20 Layer 2 harvest), analyze the community stub corpora listed in `runtime/README.md` under **PHP Stubs with annotations**. These stubs are the primary source of PHPDoc / analyzer tags beyond what Reflection emits. Layer 2 harvest writes **generated overlay** files under `_tyhpdef/overlays/stubs/` (listed first in `"overlay"`). Tyhp-specific or hand-curated changes write into `_tyhpdef/overlays/*.tyhpdef` (listed last).
 
 | Source | URL | Role |
 |---|---|---|
@@ -432,7 +472,7 @@ Before (and while) hand-editing generated `.tyhpdef` files, analyze the communit
 | Stub annotation / pattern | Use when refining tyhpdef |
 |---|---|
 | `@param`, `@return`, `@var` (and `@phpstan-` / `@psalm-` overrides) | Replace `mixed` / missing types with concrete unions, nullables, object types, and literals |
-| `@template` / `@phpstan-template` / `@psalm-template` (+ bounds/defaults) | Drive Phase 3-style generic params on classes/interfaces/functions (e.g. `Iterator<TKey, TValue>`); preserve `// @generated-original:` for the non-generic Reflection form |
+| `@template` / `@phpstan-template` / `@psalm-template` (+ bounds/defaults) | Drive Phase 3 overlay generic params on classes/interfaces/functions (e.g. `Iterator<TKey, TValue>` in `_tyhpdef/overlays/`) |
 | `@param array<…>`, `list<…>`, `non-empty-array` (homogeneous / key-value arrays) | Express as `array<TKey, TValue>` / `list<T>` (or the closest Tyhp array form) on params, returns, and properties |
 | Stub array shapes (`array{…}`, `array{foo: int, bar?: string}`, etc.) | **Do not** keep analyzer shape syntax. Declare a Tyhp `struct` in the tyhpdef (or a nearby support tyhpdef) with typed properties for each key; optional shape keys become nullable / optional struct properties; invalid PHP identifier keys use `'key' as $name` aliases. Use that struct type on the enriched signature. See `docs/content/tyhpdef_structs.md` |
 | `@param callable(…):…` / Closure signatures | Tighten `callable` / `Closure` parameters and returns |
@@ -462,18 +502,18 @@ Reuse one named struct when the same shape appears on multiple symbols. Nested s
 2. For each symbol (function, method, property, class/interface), look up the corresponding stub entry across the four corpora.
 3. Prefer the **most precise type that Tyhp can express** and that agrees with real PHP runtime behavior. When corpora disagree, prefer consensus of Psalm + PHPStan; use PhpStorm for coverage gaps; use Phan as a tie-breaker / additional signal.
 4. Translate stub tags into **native tyhpdef declarations** (typed params/returns, generics, `struct`s for array shapes, type-guard returns). Do not leave analyzer-only PHPDoc as the sole carrier of type information inside `.tyhpdef` files — the binder/checker consume tyhpdef syntax, not Psalm/PHPStan tags.
-5. Keep the Reflection-generated non-enriched form as `// @generated-original:` (same pattern as Phase 3 generics) whenever a signature is materially changed.
-6. Re-run enrichment for optional `tyhp/php-ext-*` packages in Phases 7–15 using the same stub sources (PhpStorm stubs are especially useful for less-common extensions).
+5. Put Tyhp-owned changes (generics, aliases, Pure, language constructs) in hand-written overlay files (Phase 2.5), listed **after** stub overlays. Do not use `// @generated-original:` in baseline files as an overlay mechanism.
+6. Re-run enrichment for optional `tyhp/php-ext-*` packages in Phases 7–15 using the same stub sources (PhpStorm stubs are especially useful for less-common extensions). Overlay files live in each package's `_tyhpdef/overlays/`.
 
 **Out of scope for automated dump-and-paste:** Stub dialects that Tyhp cannot express yet stay as notes / follow-ups — do not invent unsupported tyhpdef syntax (including leaving `array{…}` shape literals in tyhpdef). Prefer a slightly wider but valid Tyhp type over an illegal construct. Stub array shapes must become `struct` declarations (or a wider `array` / `array<…>` if a struct is not practical).
 
 **2.4 — Add `#[\Tyhp\Optimize\Pure]` Attributes**
 
-Add `#[\Tyhp\Optimize\Pure]` to PHP built-in functions that are genuinely side-effect-free. A function is pure if it does NOT modify global/static state, does NOT perform I/O, always returns the same output for the same input, and does NOT modify its arguments.
+Add `#[\Tyhp\Optimize\Pure]` via **overlay** replacements of those functions (full top-level replace of the Tyhp name). Do not hand-edit the generated baseline. A function is pure if it does NOT modify global/static state, does NOT perform I/O, always returns the same output for the same input, and does NOT modify its arguments.
 
 Minimum viable set (must be completed in this story):
 
-**String functions (Ext.Standard.tyhpdef, Ext.Mbstring.tyhpdef):**
+**String functions (`tyhp/php` overlay on Ext.Standard; `tyhp/php-ext-mbstring` overlay for `mb_*`):**
 
 ```tyhpdef
 #[\Tyhp\Optimize\Pure]
@@ -522,15 +562,68 @@ Pure encoding functions: `\base64_encode`, `\base64_decode`, `\urlencode`, `\url
 
 ### Acceptance Criteria
 
-- [ ] All 30 `.tyhpdef` files parse without errors
+- [ ] All 11 always-present baseline `.tyhpdef` files in `tyhp/php` parse without errors
 - [ ] Parse errors discovered during linting are fixed
-- [ ] `@generated` annotations are preserved in all files
+- [ ] `@generated` annotations are preserved in baseline files
 - [ ] Stub corpora (Psalm, PHPStan, Phan, PhpStorm — URLs in `runtime/README.md`) were consulted when refining signatures
 - [ ] Material type / generic / type-guard enrichments from stubs are expressed as native tyhpdef syntax (not left as analyzer-only PHPDoc)
 - [ ] Stub array shapes (`array{…}`) are represented as Tyhp `struct` declarations (not as shape syntax in tyhpdef)
-- [ ] Materially changed signatures retain `// @generated-original:` for the Reflection-generated form
-- [ ] `#[\Tyhp\Optimize\Pure]` attributes added to the minimum viable set of pure functions listed above
-- [ ] The 30 files cover all commonly-bundled PHP 8.2 extensions
+- [ ] Hand-owned signature changes live in `_tyhpdef/overlays/`, not as in-place `// @generated-original:` edits of baseline files
+- [ ] `#[\Tyhp\Optimize\Pure]` attributes added (via overlays) to the minimum viable set of pure functions listed above
+- [ ] `tyhp/php` covers only always-present PHP 8.2 extensions; compiled-by-default extensions are `php-ext-*` packages
+
+---
+
+## Phase 2.5: Load-Time Overlays
+
+### Phase Overview
+
+Implement overlay loading, tyhpdef keywords `partial` and `omit`, `// @overlay-against:` stamps, compatibility warnings, and the `tyhp overlay` CLI. Semantics are locked in [Load-time overlays](#load-time-overlays). This phase is the binder/parser/CLI work; Phases 3+ author overlay *content*.
+
+### Deliverables
+
+1. Lexer/parser: `partial` and `omit` as tyhpdef keywords (same position as `deprecated` / `obsolete` — `TyhpLexer.g4` `T_TYHPDEF_*` tokens). `omit` skeleton forms parse (`omit function \array_map();`, `omit class \Closure {};`, `omit public function getPrevious();`).
+2. `package.tyhp.json` `overlay` glob list; load after `include` **in array order; last wins**; overlay globs do not recurse from `include` or into `stubs/` from `overlays/*.tyhpdef`.
+3. Binder overlay mode: match by **Tyhp name**; replace / add / `partial` member merge / `omit` hide against the **current** symbol table (previous overlays already applied).
+4. Keyword legality: `partial`/`omit` error outside overlay sources; cannot combine `partial`, `omit`, `deprecated`, `obsolete` on the **same** declaration; `omit` on a member inside a `partial` type is allowed; `partial` only on class/enum/interface/trait.
+5. `// @overlay-against:` parse + compare to Layer 1 baseline (compact: type header without members; per-member stamps). Missing stamp is allowed.
+6. Diagnostics (new `MessageCode` values in the tyhpdef 8000s band for bind; CLI codes in the CLI band — do not invent numbers in this plan):
+   - `partial`/`omit` used outside overlay → error
+   - illegal keyword combination → error
+   - `partial` with no matching type → warning, skip
+   - `omit` of missing symbol → warning
+   - stamp mismatch → warning (still apply); `--strict` / `build.strictMode` → error
+   - no stamp + replace not emit-compatible with baseline → warning (still apply)
+7. CLI `tyhp overlay create <FQN>` and `tyhp overlay stamp` [`<FQN>`]
+
+### Implementation Details
+
+**Binder.** Overlay apply happens in tyhpdef registration after baseline symbols exist. Walk `"overlay"` **in listed order**; within a glob, lexicographic path order. Each file applies replace/add/`partial`/`omit` against the symbol table as left by the previous overlay (last wins). Full overlay of a function replaces the entire overload set for that Tyhp name. `partial` does not change generics / extends / implements / flags. Compatibility (no stamp) ignores generics (default or `mixed`), may omit optional baseline parameters, and allows static value types compatible with the baseline parameter type — if emit can rewrite the overlay call to a baseline-accepted PHP signature. `@overlay-against:` still compares to **Layer 1 Reflection**, not to a previous overlay.
+
+**CLI.**
+
+```bash
+tyhp overlay create \Iterator
+tyhp overlay stamp
+tyhp overlay stamp \Iterator
+```
+
+`create` copies the current declaration into the owning package's `_tyhpdef/overlays/` file (create or append — **not** `overlays/stubs/`). It also **appends** that package's `package.tyhp.json` `"overlay"` entry for `./_tyhpdef/overlays/*.tyhpdef` if no existing overlay glob already covers the file. The hand-written glob must stay **last** (after `./_tyhpdef/overlays/stubs/*.tyhpdef`). For a project-owned overlay (not inside a Composer package), it updates `tyhp.json` the same way. Do not add a duplicate path. `stamp` writes `// @overlay-against:` from the current baseline Reflection signature (header-only for types).
+
+**Grammar note.** Story 02's tyhpdef grammar is complete for `deprecated`/`obsolete`; this story extends it. User-facing keyword docs (`docs/content/tyhpdef_deprecatedKeyword.md` or a sibling overlay page) ship with Story 30 / this story's docs touch as needed.
+
+### Acceptance Criteria
+
+- [ ] Overlay files listed in `package.tyhp.json` `overlay` apply in array order; later files win for the same Tyhp name
+- [ ] Stub overlays (`overlays/stubs/`) are listed before hand-written overlays
+- [ ] `function \call_user_func as call_user_func_unsafe(...)` adds the alias and leaves `call_user_func`
+- [ ] `partial` / `omit` error in non-overlay tyhpdefs
+- [ ] `partial class \DomainException { omit public function getPrevious(); }` omits that member only
+- [ ] `omit function \array_map();` makes `\array_map` not found
+- [ ] Stamp mismatch warns and still applies; `--strict` errors
+- [ ] `tyhp overlay create` and `tyhp overlay stamp` work against a known FQN
+- [ ] `tyhp overlay create` appends the hand-written overlay glob at the **end** of `package.tyhp.json` `"overlay"` (or project `tyhp.json`) when that path is not already covered; it does not duplicate an existing glob and does not insert it before stub overlays
+- [ ] Regen of Layer 1 baseline / Layer 2 stub overlays does not modify hand-written `_tyhpdef/overlays/*.tyhpdef` or `runtime/php-extensions/overlays/`
 
 ---
 
@@ -538,26 +631,24 @@ Pure encoding functions: `\base64_encode`, `\base64_decode`, `\urlencode`, `\url
 
 ### Phase Overview
 
-Edit the `Ext.Core.tyhpdef` and `Ext.SPL.tyhpdef` files to add generic type parameters directly to types that are logically generic. Use Phase 2.3 stub analysis (`@template` / `@phpstan-template` / `@psalm-template` and related tags from Psalm, PHPStan, Phan, and PhpStorm stubs) as the primary evidence for which types are generic and what their parameter names/bounds/defaults should be; reconcile with the explicit lists below when stubs and this plan disagree. The original auto-generated non-generic declarations are preserved as `// @generated-original:` comment blocks above the new generic versions. Generic type parameter defaults are used so types can be used without explicit type arguments.
+Author overlay files `runtime/packages/php/_tyhpdef/overlays/Ext.Core.tyhpdef` and `.../overlays/Ext.SPL.tyhpdef` that **fully replace** (not `partial`) the logically generic types. Baseline files stay Reflection/stub-harvest output. Use Phase 2.3 stub analysis (`@template` / `@phpstan-template` / `@psalm-template`) as the primary evidence for parameter names/bounds/defaults; reconcile with the lists below when stubs and this plan disagree. Stamp with `tyhp overlay stamp` (`// @overlay-against:` on the type header and on members as needed). Generic type parameter defaults are used so types can be used without explicit type arguments.
 
 ### Deliverables
 
-1. `Ext.Core.tyhpdef` updated with generic declarations for 8 types
-2. `Ext.SPL.tyhpdef` updated with generic declarations for 15 types
-3. All modified files parse without errors
+1. Overlay `Ext.Core.tyhpdef` with generic declarations for 8 types
+2. Overlay `Ext.SPL.tyhpdef` with generic declarations for 15 types
+3. Baseline `Ext.Core.tyhpdef` / `Ext.SPL.tyhpdef` still contain the non-generic generated forms
+4. All modified files parse without errors
 
 ### Implementation Details
 
-**3.1 — Core Types (`Ext.Core.tyhpdef`)**
+**3.1 — Core Types (overlay `Ext.Core.tyhpdef`)**
 
-Edit `runtime/packages/php/_tyhpdef/Ext.Core.tyhpdef` to add generic parameters to the following types. For each type, comment out the original auto-generated declaration using the `// @generated-original:` prefix and add the generic version below it.
+Write `runtime/packages/php/_tyhpdef/overlays/Ext.Core.tyhpdef`. Each type below is a **full replace** of the Tyhp name (adding generics is a header change, so `partial` must not be used). Use `tyhp overlay create \Iterator` (etc.) as a starting point.
 
 **Traversable:**
 
 ```tyhpdef
-// @generated-original: interface Traversable {
-// @generated-original: }
-
 interface Traversable<TKey = mixed, TValue = mixed> {
 }
 ```
@@ -565,14 +656,6 @@ interface Traversable<TKey = mixed, TValue = mixed> {
 **Iterator:**
 
 ```tyhpdef
-// @generated-original: interface Iterator extends \Traversable {
-// @generated-original:     public function current(): mixed;
-// @generated-original:     public function key(): mixed;
-// @generated-original:     public function next(): void;
-// @generated-original:     public function rewind(): void;
-// @generated-original:     public function valid(): bool;
-// @generated-original: }
-
 interface Iterator<TKey = mixed, TValue = mixed> extends \Traversable<TKey, TValue> {
     public function current(): TValue;
     public function key(): TKey;
@@ -585,10 +668,6 @@ interface Iterator<TKey = mixed, TValue = mixed> extends \Traversable<TKey, TVal
 **IteratorAggregate:**
 
 ```tyhpdef
-// @generated-original: interface IteratorAggregate extends \Traversable {
-// @generated-original:     public function getIterator(): \Traversable;
-// @generated-original: }
-
 interface IteratorAggregate<TKey = mixed, TValue = mixed> extends \Traversable<TKey, TValue> {
     public function getIterator(): \Traversable<TKey, TValue>;
 }
@@ -597,13 +676,6 @@ interface IteratorAggregate<TKey = mixed, TValue = mixed> extends \Traversable<T
 **ArrayAccess:**
 
 ```tyhpdef
-// @generated-original: interface ArrayAccess {
-// @generated-original:     public function offsetExists(mixed $offset): bool;
-// @generated-original:     public function offsetGet(mixed $offset): mixed;
-// @generated-original:     public function offsetSet(mixed $offset, mixed $value): void;
-// @generated-original:     public function offsetUnset(mixed $offset): void;
-// @generated-original: }
-
 interface ArrayAccess<TKey = mixed, TValue = mixed> {
     public function offsetExists(TKey $offset): bool;
     public function offsetGet(TKey $offset): TValue;
@@ -615,17 +687,6 @@ interface ArrayAccess<TKey = mixed, TValue = mixed> {
 **Generator:**
 
 ```tyhpdef
-// @generated-original: final class Generator implements \Iterator {
-// @generated-original:     public function rewind(): void;
-// @generated-original:     public function valid(): bool;
-// @generated-original:     public function current(): mixed;
-// @generated-original:     public function key(): mixed;
-// @generated-original:     public function next(): void;
-// @generated-original:     public function send(mixed $value): mixed;
-// @generated-original:     public function throw(\Throwable $exception): mixed;
-// @generated-original:     public function getReturn(): mixed;
-// @generated-original: }
-
 final class Generator<TKey = mixed, TValue = mixed, TSend = mixed, TReturn = mixed> implements \Iterator<TKey, TValue> {
     public function rewind(): void;
     public function valid(): bool;
@@ -641,12 +702,6 @@ final class Generator<TKey = mixed, TValue = mixed, TSend = mixed, TReturn = mix
 **WeakReference:**
 
 ```tyhpdef
-// @generated-original: final class WeakReference {
-// @generated-original:     public function __construct(): void;
-// @generated-original:     public static function create(object $object): \WeakReference;
-// @generated-original:     public function get(): ?object;
-// @generated-original: }
-
 final class WeakReference<T extends object = object> {
     public function __construct(): void;
     public static function create(T $object): \WeakReference<T>;
@@ -657,15 +712,6 @@ final class WeakReference<T extends object = object> {
 **WeakMap:**
 
 ```tyhpdef
-// @generated-original: final class WeakMap implements \ArrayAccess, \Countable, \IteratorAggregate {
-// @generated-original:     public function offsetGet(object $object): mixed;
-// @generated-original:     public function offsetSet(object $object, mixed $value): void;
-// @generated-original:     public function offsetExists(object $object): bool;
-// @generated-original:     public function offsetUnset(object $object): void;
-// @generated-original:     public function count(): int;
-// @generated-original:     public function getIterator(): \Iterator;
-// @generated-original: }
-
 final class WeakMap<TKey extends object = object, TValue = mixed> implements \ArrayAccess<TKey, TValue>, \Countable, \IteratorAggregate<TKey, TValue> {
     public function offsetGet(TKey $object): TValue;
     public function offsetSet(TKey $object, TValue $value): void;
@@ -679,20 +725,6 @@ final class WeakMap<TKey extends object = object, TValue = mixed> implements \Ar
 **Fiber:**
 
 ```tyhpdef
-// @generated-original: final class Fiber {
-// @generated-original:     public function __construct(callable $callback): void;
-// @generated-original:     public function start(mixed ...$args): mixed;
-// @generated-original:     public function resume(mixed $value = null): mixed;
-// @generated-original:     public function throw(\Throwable $exception): mixed;
-// @generated-original:     public function isStarted(): bool;
-// @generated-original:     public function isSuspended(): bool;
-// @generated-original:     public function isRunning(): bool;
-// @generated-original:     public function isTerminated(): bool;
-// @generated-original:     public function getReturn(): mixed;
-// @generated-original:     public static function getCurrent(): ?\Fiber;
-// @generated-original:     public static function suspend(mixed $value = null): mixed;
-// @generated-original: }
-
 final class Fiber<TStart = mixed, TReturn = mixed, TSuspend = mixed, TResume = mixed> {
     public function __construct(callable $callback): void;
     public function start(TStart ...$args): TSuspend;
@@ -712,7 +744,7 @@ Non-generic types (`Countable`, `Stringable`, `JsonSerializable`) remain unchang
 
 **3.2 — SPL Types (`Ext.SPL.tyhpdef`)**
 
-Edit `runtime/packages/php/_tyhpdef/Ext.SPL.tyhpdef` to add generic parameters. Same `// @generated-original:` comment pattern.
+Write `runtime/packages/php/_tyhpdef/overlays/Ext.SPL.tyhpdef`. Same full-replace overlay pattern as Core (not `partial`).
 
 **SPL Iterator Interfaces:**
 
@@ -922,7 +954,7 @@ class RecursiveArrayIterator<TKey = string|int, TValue = mixed> extends \ArrayIt
 }
 ```
 
-Each of the above types must have the `// @generated-original:` comment block before it, containing the complete original non-generic version. The code blocks above show only the generic versions for brevity.
+Baseline files keep the non-generic generated declarations. Overlay files hold only the generic replacements. Stamp with `tyhp overlay stamp` when ready.
 
 **3.3 — Lint After Changes**
 
@@ -935,7 +967,8 @@ tyhp lint runtime/packages/php/_tyhpdef/Ext.SPL.tyhpdef
 
 - [ ] `Ext.Core.tyhpdef` contains generic declarations for all 8 Core types (Traversable, Iterator, IteratorAggregate, ArrayAccess, Generator, WeakReference, WeakMap, Fiber)
 - [ ] `Ext.SPL.tyhpdef` contains generic declarations for all 15 SPL types
-- [ ] Every generic declaration has a `// @generated-original:` comment block above it with the complete original non-generic version
+- [ ] Generic declarations live in `_tyhpdef/overlays/Ext.Core.tyhpdef` and `.../overlays/Ext.SPL.tyhpdef`, not in the generated baselines
+- [ ] Baseline files still contain the non-generic generated forms
 - [ ] Generic type parameter defaults are used (e.g., `TKey = mixed`, `T extends object = object`, `TKey = string|int`)
 - [ ] Both files parse without errors via `tyhp lint`
 - [ ] `SplPriorityQueue` defaults `TPriority` to `int`
@@ -1862,6 +1895,10 @@ runtime/packages/php-ext-{name}/
     "include": [
         "./_tyhpdef/*.tyhpdef",
         "./_tyhpdef/support/*.tyhp"
+    ],
+    "overlay": [
+        "./_tyhpdef/overlays/stubs/*.tyhpdef",
+        "./_tyhpdef/overlays/*.tyhpdef"
     ]
 }
 ```
@@ -1873,7 +1910,7 @@ runtime/packages/php-ext-{name}/
    ```bash
    tyhp generate_tyhpdef --ext-name={name} --output=runtime/packages/php-ext-{name}/_tyhpdef/Ext.{Name}.tyhpdef
    ```
-3. Enrich signatures from stub corpora (Phase 2.3 — Psalm / PHPStan / Phan / PhpStorm): narrower param/return types, generics, callable signatures, stub array shapes as Tyhp `struct`s, and type-guard metadata. Apply generic declarations where applicable (using the `// @generated-original:` comment pattern from Phase 3)
+3. Enrich signatures from stub corpora (Phase 2.3 — Psalm / PHPStan / Phan / PhpStorm): narrower param/return types, generics, callable signatures, stub array shapes as Tyhp `struct`s, and type-guard metadata. Apply generic / hand refinements in that package's `_tyhpdef/overlays/` (Phase 2.5), not by editing the generated baseline.
 4. Create a minimal test file for each package
 5. Lint all generated files
 
@@ -2007,14 +2044,14 @@ Create individual Composer packages for data format and markup PHP extensions. F
 
 | Package | Extension | Composer Dependencies |
 |---|---|---|
-| `tyhp/php-ext-json` | json | base only |
 | `tyhp/php-ext-xml` | xml | base only |
 | `tyhp/php-ext-xmlreader` | xmlreader | base only |
 | `tyhp/php-ext-xmlwriter` | xmlwriter | base only |
 | `tyhp/php-ext-simplexml` | SimpleXML | base only |
 | `tyhp/php-ext-dom` | dom | base only |
-| `tyhp/php-ext-libxml` | libxml | base only |
 | `tyhp/php-ext-csv` | csv | base only |
+
+json and libxml are always-present — they live in `tyhp/php` only. Do **not** create `tyhp/php-ext-json` or `tyhp/php-ext-libxml`.
 
 ### Implementation Details
 
@@ -2024,7 +2061,7 @@ Create individual Composer packages for data format and markup PHP extensions. F
 
 ### Acceptance Criteria
 
-- [ ] All 8 data format extension packages exist as one package each (gated; verified across targets)
+- [ ] All 6 data format extension packages exist as one package each (gated; verified across targets)
 - [ ] Each package follows the Phase 7 template structure
 - [ ] `tyhp/php-ext-csv` exists as one package, gated `>=8.5`, verified across targets
 - [ ] All `.tyhpdef` files pass `tyhp lint`
@@ -2047,6 +2084,8 @@ Create individual Composer packages for file and system PHP extensions. Follow t
 | `tyhp/php-ext-zlib` | zlib | base only |
 | `tyhp/php-ext-posix` | posix | base only |
 | `tyhp/php-ext-pcntl` | pcntl | base only |
+| `tyhp/php-ext-phar` | Phar | base only |
+| `tyhp/php-ext-tokenizer` | tokenizer | base only |
 
 ### Implementation Details
 
@@ -2054,7 +2093,7 @@ Create individual Composer packages for file and system PHP extensions. Follow t
 
 ### Acceptance Criteria
 
-- [ ] All 5 file & system extension packages exist as one package each (gated; verified across `output.phpVersion` 8.2–8.5)
+- [ ] All 7 file & system extension packages exist as one package each (gated; verified across `output.phpVersion` 8.2–8.5)
 - [ ] Each package follows the Phase 7 template structure
 - [ ] All `.tyhpdef` files pass `tyhp lint`
 - [ ] All packages have test files
@@ -2129,8 +2168,12 @@ Create individual Composer packages for math and cryptography PHP extensions. Fo
 | `tyhp/php-ext-bcmath` | bcmath | base only |
 | `tyhp/php-ext-gmp` | gmp | base only |
 | `tyhp/php-ext-sodium` | sodium | base only |
-| `tyhp/php-ext-hash` | hash | base only |
 | `tyhp/php-ext-ctype` | ctype | base only |
+| `tyhp/php-ext-decimal` | PECL `decimal` (php-decimal) | base only |
+
+hash is always-present — it lives in `tyhp/php` only. Do **not** create `tyhp/php-ext-hash`.
+
+`tyhp/php-ext-decimal` is the PECL Decimal extension (today `runtime/php-extensions/Decimal/ExtDecimal.tyhpdef`). It is **not** `tyhp/decimal` (Tyhp's bcmath runtime). Move the existing ExtDecimal tyhpdef into this package; hand-owned operators stay in its `_tyhpdef/overlays/`.
 
 ### Implementation Details
 
@@ -2206,12 +2249,12 @@ Create individual Composer packages for all remaining PHP extensions not covered
 | Story | Relationship | Details |
 |---|---|---|
 | Story 03 | **Extension syntax** | Story 03 implements the extension method syntax (`extends Type $this`, `extension function`, `extension fn`, standalone extension classes) used by Phase 4's scalar extension classes. |
-| Story 06 | **Upstream dependency** | Story 06 implements `package.tyhp.json` discovery, `LoadPackageTyhpdefs()`, and `TyhpdefSymbolRegistrar`. Story 21's packages are consumed through this pipeline. Extension auto-inclusion is handled by Story 06 Phase 4's tyhpdef extension auto-inclusion mechanism — the binder stores extension declarations as part of the type's symbol metadata during tyhpdef loading, and includes them in resolution scope automatically when the type is referenced. |
-| Story 08 | **Consumer** | The checker uses types loaded from these packages to perform type checking. Generic type parameters flow through the binder into the checker's type system. |
-| Story 10 | **Config** | `output.phpVersion` is the evaluation target for Story 20.5 gates in these packages. |
+| Story 06 | **Upstream dependency** | Story 06 implements `package.tyhp.json` discovery, `LoadPackageTyhpdefs()`, and `TyhpdefSymbolRegistrar`. Story 21 adds an `overlay` array (load after `include`, replace/add by Tyhp name). Extension auto-inclusion is handled by Story 06 Phase 4. |
+| Story 08 | **Consumer** | The checker uses types loaded from these packages (after overlays apply) to perform type checking. Generic type parameters flow through the binder into the checker's type system. |
+| Story 10 | **Config** | `output.phpVersion` is the evaluation target for Story 20.5 gates in these packages. `--strict` / `build.strictMode` elevates overlay stamp-mismatch warnings to errors. |
 | **Story 20.5** | **Hard dependency (gating)** | Story 20.5 provides `declare(php=…)` and `#[\Tyhp\Php]` so Story 21 can ship a **single** `tyhp/php` (+ `tyhp/php-ext-*`) instead of per-minor forks. Story 21 must not start package authoring until 20.5 binder/checker/emitter gating works. |
-| Story 20 | **Tool dependency** | Story 20 implements `tyhp generate_tyhpdef`, which generates the base `.tyhpdef` files from PHP extensions (Reflection / source). Phase 1 and Phase 7 rely on this tool. **Phase 8** (multi-target gated generation) is the preferred way to refresh version diffs into the single tree once available. Story 21 Phase 2.3 then enriches those generated files using community stub annotations (Psalm / PHPStan / Phan / PhpStorm — see `runtime/README.md`), because Reflection alone does not provide templates, refined types, or type-guard metadata. |
-| Story 13 | **CLI integration** | Story 13 documents the `tyhp generate_tyhpdef` CLI command used to generate tyhpdefs. |
+| Story 20 | **Tool dependency** | Story 20 implements `tyhp generate_tyhpdef` (Layer 1 Reflection baseline + Layer 2 stub harvest into `_tyhpdef/overlays/stubs/`). Phase 1 and Phase 7 rely on this tool. **Phase 8** (multi-target gated generation) refreshes version diffs into the single baseline tree and may regen stub overlays. Hand-written overlays load last at bind time (this story, Phase 2.5). `runtime/php-extensions/overlays/` remains a backup snapshot only. |
+| Story 13 | **CLI integration** | Story 13 documents `tyhp generate_tyhpdef`. This story adds `tyhp overlay create` / `tyhp overlay stamp`. |
 | Story 28 | **Syntax dependency** | Story 28 implements generic type parameter defaults (`T = DefaultType`). The generic-default grammar/syntax becomes available only after **Story 28 Phase 1**. Phase 3 uses defaults extensively (e.g., `Iterator<TKey = mixed, TValue = mixed>`), so Story 28 (Phase 1 at minimum) is a hard prerequisite and must be complete before this story executes. |
 | Story 23 | **Optimizer** | Story 23 implements `#[\Tyhp\Optimize\Inline]` which is used on Phase 4's scalar extension methods to compile `$str->length()` to `\mb_strlen($str)` with zero overhead. |
 | Story 24 | **Optimizer** | Story 24 implements `#[\Tyhp\Optimize\Pure]` validation. Phase 2.4 adds purity annotations to PHP built-in functions, and Phase 4 marks pure extension methods. Phase 2.3 stub analysis may inform which APIs are pure, but the emitted form is always `#[\Tyhp\Optimize\Pure]`. |
@@ -2232,7 +2275,7 @@ The following plans reference the obsolete monorepo pattern and need updating (a
 | `IMPLEMENTATION_PLAN_TODO_STORY_07.md` | PHP test execution (`cd runtime && composer test` → per-package `cd runtime/packages/{pkg} && composer test`), PHPUnit root config. Test paths referencing `runtime/php-extensions/` should be updated to `runtime/packages/php/` and `runtime/packages/php-ext-*/`. |
 | `IMPLEMENTATION_PLAN_TODO_STORY_20.5.md` | Already owns gating semantics; Story 21 is listed as consumer — keep package layout references aligned with this plan (`tyhp/php`, `tyhp/php-ext-*`). |
 
-*Last updated: 2026-07-23 — Locked design: single `tyhp/php` + `tyhp/php-ext-*`; version diffs via Story 20.5 (supersedes per-minor `cp -r` forks)*
+*Last updated: 2026-08-17 — Always-present-only `tyhp/php`; stub overlays then hand overlays (`overlay` array order, last wins); PECL Decimal is `tyhp/php-ext-decimal` *
 
 ---
 
@@ -2247,18 +2290,19 @@ After Phase 1 is complete, verify the directory structure:
 ```bash
 ls -la runtime/packages/php/
 ls -la runtime/packages/php/_tyhpdef/
-ls runtime/packages/php/_tyhpdef/ | wc -l   # Should be 30 tyhpdef files
+ls runtime/packages/php/_tyhpdef/*.tyhpdef | wc -l   # Should be 11 always-present baseline files
 ls -la runtime/packages/php/_tyhpdef/support/
 ls -la runtime/packages/php/tests/
 ```
 
 **Expected:**
 - `composer.json` exists with `"name": "tyhp/php"`
-- `package.tyhp.json` exists with `include` entries for `*.tyhpdef` and `support/*.tyhp`
-- 30 `.tyhpdef` files exist using dot-notation naming (e.g., `Ext.Core.tyhpdef`, `Ext.SPL.tyhpdef`)
+- `package.tyhp.json` exists with `include` (baseline + support) and `overlay` (stubs first, hand-written last)
+- 11 always-present `.tyhpdef` files exist using dot-notation naming (e.g., `Ext.Core.tyhpdef`, `Ext.SPL.tyhpdef`)
+- `_tyhpdef/overlays/` directory exists
 - `support/` directory exists (initially empty, populated in Phase 4)
 - `tests/` directory exists
-- The old `runtime/php-extensions/php8.2.9/` directory is removed
+- `runtime/php-extensions/overlays/` still exists as a backup snapshot (not loaded)
 
 ### Step 2: Verify Tyhpdef Files Parse Successfully
 
@@ -2268,18 +2312,18 @@ Run the Tyhp linter on all tyhpdef files:
 tyhp lint runtime/packages/php/_tyhpdef/
 ```
 
-**Expected:** All 30 `.tyhpdef` files parse without errors. If any parse errors are found, check the auto-generated content for syntax issues (missing semicolons, unsupported type syntax, etc.).
+**Expected:** All 11 always-present baseline `.tyhpdef` files parse without errors. Overlay files under `overlays/` also parse.
 
 ### Step 3: Verify Generic Type Declarations
 
-After Phase 3, open `runtime/packages/php/_tyhpdef/Ext.Core.tyhpdef` and verify:
+After Phase 3, open `runtime/packages/php/_tyhpdef/overlays/Ext.Core.tyhpdef` and verify:
 
 - `Iterator` has generic parameters: `Iterator<TKey = mixed, TValue = mixed>`
 - `Generator` has generic parameters: `Generator<TKey = mixed, TValue = mixed, TSend = mixed, TReturn = mixed>`
 - `WeakMap` has generic parameters: `WeakMap<TKey extends object = object, TValue = mixed>`
-- Each generic declaration has a `// @generated-original:` comment block above it
+- Baseline `Ext.Core.tyhpdef` still has the non-generic generated `Iterator`
 
-Open `runtime/packages/php/_tyhpdef/Ext.SPL.tyhpdef` and verify:
+Open `runtime/packages/php/_tyhpdef/overlays/Ext.SPL.tyhpdef` and verify:
 
 - `SplStack<T = mixed>` extends `SplDoublyLinkedList<T>`
 - `SplQueue<T = mixed>` extends `SplDoublyLinkedList<T>`

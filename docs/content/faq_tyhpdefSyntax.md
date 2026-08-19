@@ -14,6 +14,10 @@ Not in this alpha. `tyhp generate_tyhpdef` is Story 20. Write tyhpdef files by h
 
 PHP extensions (like PDO, cURL, mbstring, etc.) are typed with tyhpdef files. This alpha ships a PHP 8.2-baseline `tyhp/php` package for commonly bundled extensions. Additional or newer APIs need hand-written tyhpdefs. The `generate_tyhpdef` CLI is not in this alpha.
 
+## How do I add Tyhp extension methods in a tyhpdef file?
+
+You cannot declare a standalone `extension Name { … }` block in a `.tyhpdef` file — that construct is Tyhp-only. On a tyhpdef class, write inline `extension function` / `extension fn` / `extension operator` members with mapping bodies, or attach a Tyhp extension with `use extension` so callers get the methods without their own import. See [Extensions in Tyhpdef](tyhpdef_extensions.md).
+
 ## Can I override tyhpdef files?
 
 Yes. If an auto-generated tyhpdef file has incorrect or imprecise types, you can create your own tyhpdef file with corrected declarations. When multiple tyhpdef files declare the same symbol, the one loaded last takes precedence. Place your overrides in a separate directory and make sure it appears after the generated files in your `tyhpdefInclude` glob patterns.

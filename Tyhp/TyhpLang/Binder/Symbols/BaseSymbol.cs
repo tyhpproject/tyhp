@@ -74,6 +74,18 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         public int Column { get; protected internal set; }
 
         /// <summary>
+        /// Ending source line of the declaring AST node, or <c>0</c> when no declaring node
+        /// was provided. <c>-1</c> means the AST node itself has no end position.
+        /// </summary>
+        public int EndLine { get; protected internal set; }
+
+        /// <summary>
+        /// Exclusive ending column of the declaring AST node, or <c>0</c> when no declaring
+        /// node was provided. Matches <see cref="IBase2Ast.EndColumn"/>.
+        /// </summary>
+        public int EndColumn { get; protected internal set; }
+
+        /// <summary>
         /// Initializes the base symbol data that all symbols share.
         /// </summary>
         /// <param name="name">Declared symbol name.</param>
@@ -100,6 +112,8 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
             this.DocComment = declaringNode?.DocComment;
             this.Line = declaringNode?.Line ?? 0;
             this.Column = declaringNode?.Column ?? 0;
+            this.EndLine = declaringNode?.EndLine ?? 0;
+            this.EndColumn = declaringNode?.EndColumn ?? 0;
             this.FullyQualifiedName = name;
 
             if (declaringNode != null)

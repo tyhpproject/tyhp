@@ -23,6 +23,7 @@ tyhp <action> [options]
 - `help` — Display help. `tyhp help --subject=<action>` for action-specific help.
 - `explain` — Print the long-form explanation for a diagnostic code (`tyhp explain TYHP4001`).
 - `composer` — Run Composer with Tyhp-aware processing when configured.
+- `xdebug_proxy` — Xdebug + sourcemap debugging
 
 Developer/debug actions also exist (`tokenize`, `dump_ast`, `clear_cache`, `integrity_check`) and are documented by `tyhp help`.
 
@@ -31,7 +32,6 @@ Developer/debug actions also exist (`tokenize`, `dump_ast`, `clear_cache`, `inte
 These actions are planned (Tier 2) and are **not** available in 805.0.0-alpha.1:
 
 - `language_server` — Language Server Protocol
-- `xdebug_proxy` — Xdebug + sourcemap debugging
 - `generate_tyhpdef` — Reflection-based tyhpdef generation
 
 ## Global Options
@@ -41,6 +41,7 @@ These actions are planned (Tier 2) and are **not** available in 805.0.0-alpha.1:
 - `--quiet` — Suppress the banner and non-diagnostic output.
 - `--verbose` — Enable detailed output for each compilation phase.
 - `--locale=<locale>` — Set the locale for diagnostic messages (default: en-US).
+- `--pid-file=<path>` — Write the process id to this file while the process is running. Opt-in; nothing is written by default. Use a unique path per process if you run more than one long-lived Tyhp command.
 
 ## Project File
 

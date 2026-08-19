@@ -701,6 +701,15 @@ namespace Tyhp.Domain.Exceptions
             /// </summary>
             EmitterPostfixOperatorOverloadRequiresStatementSplit = 5019,
 
+            /// <summary>Source map JSON could not be generated for an output file.</summary>
+            EmitterSourceMapGenerationFailed = 5020,
+
+            /// <summary>A <c>.map</c> file could not be written to disk.</summary>
+            EmitterSourceMapWriteFailed = 5021,
+
+            /// <summary>A mapping references an invalid original source position.</summary>
+            EmitterSourceMapInvalidMapping = 5022,
+
             #endregion Emitter
 
             #region Configuration (6000–6999)
@@ -801,13 +810,45 @@ namespace Tyhp.Domain.Exceptions
 
             #region CLI — language_server action (7300–7399)
 
-            // Language server error codes are added by the language-server story.
+            /// <summary>Generic language server error.</summary>
+            LspUnknownError = 7300,
+
+            /// <summary>Failed to start the LSP server.</summary>
+            LspServerStartupFailed = 7301,
+
+            /// <summary>Error during document analysis.</summary>
+            LspAnalysisError = 7302,
+
+            /// <summary>Error loading a sourcemap for workspace analysis.</summary>
+            LspSourceMapLoadError = 7303,
 
             #endregion CLI — language_server action (7300–7399)
 
             #region CLI — xdebug_proxy action (7400–7499)
 
-            // XDebug proxy error codes are added by Story 14.
+            /// <summary>Generic XDebug proxy error.</summary>
+            ProxyUnknownError = 7400,
+
+            /// <summary>No sourcemap file found for a given PHP file (or none in the map directory).</summary>
+            ProxySourceMapNotFound = 7401,
+
+            /// <summary>Sourcemap JSON is invalid or malformed.</summary>
+            ProxySourceMapParseError = 7402,
+
+            /// <summary>TCP connection error.</summary>
+            ProxyConnectionFailed = 7403,
+
+            /// <summary>IDE or XDebug side did not connect within the pairing timeout.</summary>
+            ProxySessionPairingTimeout = 7404,
+
+            /// <summary>Error translating a DBGp message (non-fatal).</summary>
+            ProxyTranslationError = 7405,
+
+            /// <summary>Received a malformed DBGp message.</summary>
+            ProxyInvalidDbgpMessage = 7406,
+
+            /// <summary>Configured port is already bound by another process.</summary>
+            ProxyPortInUse = 7407,
 
             #endregion CLI — xdebug_proxy action (7400–7499)
 

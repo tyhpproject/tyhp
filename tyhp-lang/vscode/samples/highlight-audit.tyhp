@@ -1,0 +1,58 @@
+<?tyhp
+
+namespace Sample;
+
+use extension App\Extensions\StringExtensions;
+use extension App\Extensions\ArrayExtensions {
+    map as arrayMap;
+}
+
+// Line comment and /* block comment */
+type Result<T> = T|null;
+type Json = "${array|string|int|float|bool|null}";
+
+struct Point<T extends int|float> {
+    public T $x;
+    public T $y;
+}
+
+extension StringExtensions {
+    function toCamelCase(extends string $this): string {
+        return $this;
+    }
+
+    operator +<string>(self $left, string $right): string {
+        return $left . $right;
+    }
+}
+
+deprecated class Widget<T> extends Point<int> implements \Countable
+{
+    public function __construct(private readonly T $value): parent($value, 0) {}
+
+    public static fn empty(): self => new self(null);
+
+    async function load(): Promise<T> {
+        mixed $n = 42;
+        string $hex = 0xFF;
+        float $f = 1.5e2;
+        $handle := new \stdClass();
+        using (FileHandle $fh = new FileHandle()) {
+            await $this->flush();
+        }
+        if ($value is string && $value isa Widget && $value isan Point) {
+            echo nameof(T) . typeof(T) . "${nameof(T)}";
+        }
+        decimal $d = (decimal) 1;
+        resource|false $fp = \fopen('/tmp/x', 'r');
+        return $value with ['x' => 1];
+    }
+
+    operator +(self $left, self $right): self {
+        return $left;
+    }
+}
+
+array<string, Widget<int>> $items = [];
+echo $items[0]?->load<int>();
+echo Widget::empty<int>();

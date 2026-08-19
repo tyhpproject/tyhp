@@ -842,7 +842,7 @@ namespace Tyhp.TyhpLang.Checker
                     resolved, inferred, _symbolTree, _globalScope);
             }
 
-            return resolved;
+            return WrapIfAsyncCall(resolved, function.IsAsync);
         }
 
         /// <summary>
@@ -1025,7 +1025,7 @@ namespace Tyhp.TyhpLang.Checker
                     resolved, inferred, _symbolTree, _globalScope);
             }
 
-            return resolved;
+            return WrapIfAsyncCall(resolved, method.IsAsync);
         }
 
         private enum RelativeReturnKind

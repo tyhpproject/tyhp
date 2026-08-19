@@ -1,0 +1,34 @@
+<?tyhpdef
+
+namespace Sample;
+
+use App\Models\User;
+use function App\Helpers\{formatCurrency};
+
+const string APP_NAME;
+resource|false $stream;
+
+function fopen(string $filename, string $mode): resource|false;
+
+class Money {
+    public function plus(Money $other): Money;
+    public function __toString(): string;
+
+    extension function formatCurrency(string $locale = 'en_US'): string {
+        return $locale . ' ' . $this->__toString();
+    }
+
+    extension fn shortLabel(): string => $this->formatCurrency();
+
+    extension operator +(self $left, self $right): self {
+        return $left->plus($right);
+    }
+
+    use extension MoneyFormatting {
+        formatCurrency as format;
+    }
+}
+
+extension StringExtensions {
+    function toCamelCase(extends string $this): string;
+}

@@ -116,8 +116,8 @@ dereferenceableMemberAccessSuffix
 
 ## Phase 1: Grammar — Ensure Parser Acceptance of Null-Safe Assignment LHS
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -229,8 +229,8 @@ Requires `antlr-ng` (`npm install -g antlr-ng`). Grammar regeneration is **not**
 
 ## Phase 2: Binder — Track Null-Conditional Assignment Expressions
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -321,8 +321,8 @@ No new symbols are created — null-safe assignment is a property of an existing
 
 ## Phase 3: Checker — Validate Null-Conditional Assignments
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -493,8 +493,8 @@ The checker must reject these with `CheckerNullSafeArrayDestructuringNotSupporte
 
 ## Phase 4: Emitter — Transform Null-Conditional Assignments to Nested Ternaries
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -787,8 +787,8 @@ The transformer checks each assignment expression for the `HasNullSafeChain` fla
 
 ## Phase 5: Testing
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

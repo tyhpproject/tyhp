@@ -8,7 +8,11 @@
     ],
     "exclude": [],
     "output": {
-        "path": "../dist/tyhp-core/803.0.0/src",
+        "path": "../dist/tyhp-core/803.0.1/src",
         "phpVersion": "8.3"
+    },
+    "build": {
+        "generateSourcemap": true,
+        "sourcemapIncludeContent": false
     }
 }

@@ -104,6 +104,10 @@ namespace Tyhp.TyhpLang.Binder
                         BindAnonymousFunction(inlineFunc, parentScope);
                         break;
 
+                    case TyhpAsyncBlockAst asyncBlock:
+                        BindAsyncBlock(asyncBlock, parentScope);
+                        break;
+
                     // Named function declared inside a statement block (FOUND_BUGS #36). Without
                     // this arm the default path walks the function's AST children as if they
                     // belonged to the enclosing block and never calls BindFunctionDecl.
@@ -280,6 +284,27 @@ namespace Tyhp.TyhpLang.Binder
             }
         }
 
+        private void BindAsyncBlock(TyhpAsyncBlockAst block, IBaseScope parentScope)
+        {
+            var name = $"asyncBlock@{block.Line}:{block.Column}";
+            var anonSymbol = new AnonymousFunctionSymbol(name, _currentFileName);
+
+            if (parentScope is not ICodeBlockScopeParent cbParent)
+            {
+                _diagnostics.AddErrorFromAst(MessageCode.BinderInvalidSymbolTypeForParent, block,
+                    _currentFileName, "async block");
+                return;
+            }
+
+            var anonScope = new AnonymousFunctionScope(cbParent, anonSymbol);
+            cbParent.AddCodeBlockChildScope(anonScope);
+
+            if (block.Body != null)
+            {
+                BindStatementBlock(block.Body, anonScope);
+            }
+        }
+
         private void BindCodeBlockChildren(IBase2Ast node, IBaseScope parentScope)
         {
             _bindDepth++;
@@ -310,6 +335,10 @@ namespace Tyhp.TyhpLang.Binder
                     else if (child is PhpInlineFunctionAst inlineFunc)
                     {
                         BindAnonymousFunction(inlineFunc, parentScope);
+                    }
+                    else if (child is TyhpAsyncBlockAst asyncBlock)
+                    {
+                        BindAsyncBlock(asyncBlock, parentScope);
                     }
                     else if (child is IStatement childStmt)
                     {

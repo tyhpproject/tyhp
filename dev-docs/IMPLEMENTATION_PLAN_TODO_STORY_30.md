@@ -64,8 +64,8 @@ The project has three distinct documentation layers:
 
 ## Phase 1: Write the README.md
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -146,8 +146,8 @@ The README must include these sections in order:
 
 ## Phase 2: Review and Update JSON Documentation Content (Part 1 — Introduction, Tyhpdef, CLI, Project, FAQ Sections)
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -239,8 +239,8 @@ Review and update the JSON documentation content files in `docs/content/` for ac
 
 ## Phase 3: Review and Update JSON Documentation Content (Part 2 — Tyhp Language Section)
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -324,8 +324,8 @@ Review and update the 33 JSON content files in the Tyhp language section of `doc
 
 ## Phase 4: Error Message Quality Pass
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -415,8 +415,8 @@ For each existing `.resx` entry, verify:
 
 ## Phase 5: Update CONTRIBUTING.md
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -478,8 +478,8 @@ The `CONTRIBUTING.md` file was adapted from TypeScript's contributing guide and 
 
 ## Phase 6: Performance Profiling Infrastructure and Build/Release Pipeline
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
