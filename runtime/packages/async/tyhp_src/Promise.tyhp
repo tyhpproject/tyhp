@@ -264,7 +264,7 @@ final class Promise<TReturn extends void|mixed = mixed> {
      * Runs the event loop until settlement.
      */
     public function wait(int $timeoutMs = -1): mixed {
-        return EventLoop::getInstance()->runUntilSettled($this, $timeoutMs);{}
+        return EventLoop::getInstance()->runUntilSettled($this, $timeoutMs);
     }
 
     /**
