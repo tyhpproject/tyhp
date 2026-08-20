@@ -100,8 +100,8 @@ Tyhp/TyhpLang/Optimizer/
 
 ## Phase 1: Operator Chain Optimization Module
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -148,8 +148,8 @@ $result = $temp2->add($d);
 
 ## Phase 2: Null-Safe Chain Collapsing Module
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -178,8 +178,8 @@ If `getProfile()` returns a non-nullable type (e.g., `Profile` not `?Profile`), 
 
 ## Phase 3: Type Guard Elimination Module
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -229,8 +229,8 @@ The checker persists narrowed type information by storing it on a `NarrowedTypes
 
 ## Phase 4: Devirtualization Module
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -260,8 +260,8 @@ Replace virtual method calls with direct calls when the concrete type is known a
 
 ## Phase 5: Struct Copy Elision Module
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -293,8 +293,8 @@ If `$p` is not referenced after the `clone`/`with` expression, the optimizer can
 
 ## Phase 6: Pure Function Memoization, `#[\Tyhp\Optimize\Pure]` Attribute, and `#[\Tyhp\Optimize\Memoize]` Attribute
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -548,8 +548,8 @@ The tyhpdef overlay files (`.tyhp`) and base tyhpdef files (`.tyhpdef`) in Story
 
 ## Phase 7: Cross-Reference Constant Folding Module
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -588,8 +588,8 @@ The reference `self::MAX_RETRIES` can be folded to `3` since the constant is `pr
 
 ## Phase 8: Escape Analysis Module
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -621,8 +621,8 @@ An object that does NOT escape can be:
 
 ## Phase 9: Tyhp Reflection API (Foundation)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 

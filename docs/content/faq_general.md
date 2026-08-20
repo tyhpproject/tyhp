@@ -38,4 +38,4 @@ Tyhp's own runtime packages (`tyhp/core`, `tyhp/php`, …) version independently
 
 ## What editor or IDE support is available?
 
-This alpha does not include a language server or Xdebug proxy. Use `tyhp lint` and `tyhp build` from the CLI, and debug the emitted PHP. LSP, sourcemaps, and `tyhp xdebug_proxy` are planned for later releases.
+This alpha does not include a language server. Use `tyhp lint` and `tyhp build` from the CLI. For debugging, build with sourcemaps enabled and run `tyhp xdebug_proxy` so the IDE can step through `.tyhp` sources. LSP is planned for a later release.

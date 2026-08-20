@@ -179,14 +179,18 @@ story must keep this check green (see its acceptance subsection).
 ## 6. tyhpdef Regeneration — Baseline + Overlay (non-destructive)
 
 Generated type surfaces (`.tyhpdef`, `package.tyhp.json`) must survive regeneration without clobbering hand-tuned
-signatures. Adopt the **"generate baseline + curated, idempotent, non-destructive overlay"** pattern (Stories 20, 21):
+signatures. Adopt the **"generate baseline + curated overlay files applied at load"** pattern (Stories 20, 21):
 
-- **Baseline:** mechanically generated from PHP reflection / from the compiled Tyhp public API. Always safe to
-  regenerate from scratch.
-- **Overlay:** curated, hand-authored refinements (e.g. generic parameters on PHP built-ins like `Iterator<TKey,TValue>`,
-  type-guard signatures, `T = DefaultType` defaults). Overlays are applied **on top of** the baseline idempotently and
-  are **never overwritten** by regeneration.
-- Regeneration = re-derive baseline, then re-apply overlays. The author's hand-tuned signatures are preserved.
+- **Baseline:** mechanically generated from PHP reflection (Layer 1) only. Always safe to regenerate from scratch.
+- **Overlay:** tyhpdef files listed in `package.tyhp.json` `"overlay"`, loaded after baseline **in array order; last wins**.
+  Layer 2 stub harvest writes generated files under `_tyhpdef/overlays/stubs/` (listed first). Layer 3 hand-written
+  files live under `_tyhpdef/overlays/*.tyhpdef` (listed last). Match by **Tyhp name**: replace if present, add if not;
+  `partial` merges members; `omit` hides a symbol. Optional `// @overlay-against:` records the compact Layer 1
+  signature. Hand-written overlays are **never overwritten** by regeneration; stub overlays may be regenerated.
+- **Backup snapshot:** `runtime/php-extensions/overlays/` holds full-file copies of existing hand edits for
+  disaster recovery. It is not loaded and is not the overlay mechanism.
+- Regeneration = re-derive Layer 1 baseline (and optionally Layer 2 stub overlays). Hand overlays apply again at
+  the next compile because they are separate files listed last.
 
 ---
 

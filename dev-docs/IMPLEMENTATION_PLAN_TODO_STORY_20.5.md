@@ -7,6 +7,7 @@
 
 > **Branch:** TBD
 > **Generated:** 2026-07-23
+> **Last design lock:** 2026-08-20 — Phase 9 user documentation; Track A managed PHP is Story 20 (not this story); `output.phpVersion` is the compiler target, not a generator runtime
 > **Prerequisites:** Stories ≤11 complete or in progress for emitter feature surface; Story 04 runtime `tyhp/core` package; Story 06 package/tyhpdef loading; Story 08 checker; Story 09/11 emitter; Story 10 `output.phpVersion`.
 > **Consumers:** Story 21 (PHP extension Composer packages), Story 20 Phase 8 (multi-target gated tyhpdef generation).
 
@@ -27,6 +28,7 @@
 - [Phase 6: Emitter — strip gate constructs](#phase-6-emitter--strip-gate-constructs)
 - [Phase 7: Config default & package-load integration](#phase-7-config-default--package-load-integration)
 - [Phase 8: Tests & conformance fixtures](#phase-8-tests--conformance-fixtures)
+- [Phase 9: User documentation](#phase-9-user-documentation)
 - [Diagnostic Codes](#diagnostic-codes)
 - [Cross-Story References](#cross-story-references)
 - [Golden Fixtures / Tests (Acceptance)](#golden-fixtures--tests-acceptance)
@@ -38,7 +40,7 @@
 This story adds **compile-time PHP version gating** to Tyhp and tyhpdef:
 
 1. **`declare(php="…")`** — file-level or block-level, using **full Composer version-constraint syntax**. Value is a string. The directive key is `php` and must appear **alone** in that `declare`.
-2. **`#[\Tyhp\Php(string $version)]`** — attribute on class / interface / enum / trait and on their members (and other normal attribute targets such as functions). **Not** allowed on `struct` or `extension` declarations (those use `declare` blocks only).
+2. **`#[\Tyhp\Php(string $version)]`** — attribute on class / interface / enum / trait and on their members (and other normal attribute targets such as functions). **Not** allowed on `struct` or `extension` declarations — Tyhp `extension { }` **and** tyhpdef `extension { }` (Story 20). Those use `declare` blocks only.
 3. Evaluation is against **`output.phpVersion`**. If unset, default to **`8.2`** and **warn**.
 4. Bare version numbers like `"8.2"` mean the **whole minor** (`8.2.*`).
 5. Inactive file-level `declare(php=…);` → **skip the file silently**.
@@ -108,7 +110,7 @@ output.phpVersion (Story 10) ──► PhpVersionConstraint.IsSatisfied(target, 
 | Block-level | Wherever `declare` is allowed |
 | Alone | `php` not mixed with other directives in the same `declare` |
 | Attribute | `\Tyhp\Php` in `tyhp/core`, ctor `string $version` |
-| Attribute targets | class, interface, enum, trait, members, functions — **not** struct/extension |
+| Attribute targets | class, interface, enum, trait, members, functions — **not** struct/extension (Tyhp or tyhpdef `extension`) |
 | Struct / extension gating | `declare(php=…) { … }` only |
 | Same-name | Disjoint constraints OK; overlap → error |
 | Nesting | Must satisfy all; unreachable when inactive |
@@ -134,8 +136,8 @@ function example(string $v): mixed;
 function example(string $v, bool $strict = false): string;
 
 declare(php=">=8.5") {
-    extension UriStringExtensions extends string {
-        // ...
+    extension UriStringExtensions {
+        function parse(extends string $this): string => \parse_url($this, \PHP_URL_PATH) ?? '';
     }
 }
 ```
@@ -346,6 +348,43 @@ Wire `output.phpVersion` defaulting and ensure package/tyhpdef loading uses the 
 
 ---
 
+## Phase 9: User documentation
+
+> Completeness pass for every user-facing page this story ships. Do **not** fold PHP-version gating into `tyhp_0310_declarationGating.md` — that page is `if (!function_exists)` / `class_exists` declaration gates.
+
+### Phase Overview
+
+Document `declare(php=…)` (file- and block-level), `#[\Tyhp\Php]`, Composer constraint syntax, `"8.2"` = `8.2.*`, default `output.phpVersion` + warning, skip-file vs unreachable, disjoint vs overlapping same-name, emit stripping, and the struct/extension (Tyhp **and** tyhpdef) restriction. Update `toc.json` if a new page is added.
+
+### Pages to update (create a sibling page only if an existing page cannot hold the topic)
+
+| Page | What this story adds |
+|------|----------------------|
+| **New** `docs/content/tyhp_0320_phpVersionGating.md` | Canonical page: `declare(php="…")`, `#[\Tyhp\Php("…")]`, AND nesting, inactive file skip, overlap error, examples. Insert in `toc.json` after `tyhp_0310_declarationGating.md` |
+| `docs/content/project_optionsList.md` | `output.phpVersion` missing → default `8.2` + one warning per compilation. Distinct from Story 20’s Track A managed PHP (generator runtimes). |
+| `docs/content/project_composerPackages.md` / `docs/content/intro_gettingStarted.md` | Single `tyhp/php` across 8.2–8.5 depends on these gates (Story 21 consumes) |
+| `docs/content/tyhp_2100_extensions.md` / `docs/content/tyhpdef_extensions.md` | Gate `extension { }` with `declare(php=…) { }`; `#[\Tyhp\Php]` is illegal on Tyhp and tyhpdef extensions |
+| `docs/content/tyhpdef_classes.md` / `docs/content/tyhpdef_functions.md` / `docs/content/tyhpdef_about.md` | Attribute vs declare on tyhpdef symbols |
+| `docs/content/tyhp_2700_compileTimeConstructs.md` | Short pointer: version gates are compile-time only and never emitted (like `declare(output_file=…)`) |
+| `docs/content/quickref.md` / `docs/content/quickref_tyhpdef.md` | Compact syntax |
+| `docs/content/faq_tyhpSyntax.md` / `docs/content/faq_tyhpdefSyntax.md` / `docs/content/faq_project.md` | Why one stubs package; default PHP version |
+| `docs/content/diagnostics_reference.md` | Checker 4300–4399 codes this story registers |
+| `docs/content/toc.json` | New page entry; follow `docs/readme.md` front matter |
+
+### Acceptance Criteria
+
+- [ ] Every gating behavior this story implements is on the pages above
+- [ ] `tyhp_0310_declarationGating.md` is not overloaded with PHP-version gating
+- [ ] Docs state `#[\Tyhp\Php]` is illegal on struct and on Tyhp / tyhpdef `extension`
+- [ ] `docs/content/toc.json` lists any new page; `php generate_docs.php` would succeed for the new files
+
+### Dependencies
+
+- **Requires:** Phases 1–8 (document shipped semantics, not a design sketch)
+- **Provides:** User-facing docs that match shipped behavior
+
+---
+
 ## Diagnostic Codes
 
 Reserve in `MessageCode.cs` checker **feature band** (update CONVENTIONS note to include Story 20.5). Exact registry:
@@ -356,7 +395,7 @@ Reserve in `MessageCode.cs` checker **feature band** (update CONVENTIONS note to
 | 4301 | `CheckerPhpVersionDeclareNotAlone` | Error | `php` mixed with other declare directives |
 | 4302 | `CheckerPhpVersionUnreachable` | Error/Warning* | Code under inactive `declare(php=…)` |
 | 4303 | `CheckerPhpVersionDuplicateDeclaration` | Error | Same symbol, overlapping version constraints |
-| 4304 | `CheckerPhpVersionAttributeInvalidTarget` | Error | `#[\Tyhp\Php]` on struct or extension |
+| 4304 | `CheckerPhpVersionAttributeInvalidTarget` | Error | `#[\Tyhp\Php]` on struct or extension (Tyhp or tyhpdef) |
 | 4305 | `CheckerPhpVersionAttributeInvalidArgument` | Error | Missing/non-string `version` |
 | 4306 | `CheckerPhpVersionDefaulted` | Warning | `output.phpVersion` unset; defaulted to `8.2` |
 
@@ -373,8 +412,8 @@ Reserve in `MessageCode.cs` checker **feature band** (update CONVENTIONS note to
 | **08** | Checker rules / unreachable patterns |
 | **09 / 11** | Emitter stripping |
 | **10** | `output.phpVersion` |
-| **20** | Phase 8 multi-target generator **emits** these gates (depends on this story) |
-| **21** | Consumes gates for single `tyhp/php` + `tyhp/php-ext-*` packages |
+| **20** | Phase 8 multi-target generator **emits** these gates (depends on this story). Story 20 also adds tyhpdef `extension { }`; gate those with `declare(php=…) { }`, not `#[\Tyhp\Php]`. Track A **managed PHP** (download per minor) is how Phase 8 obtains 8.2–8.5; that is **not** `output.phpVersion`. This story does not download PHP. |
+| **21** | Consumes gates for single `tyhp/php` + `tyhp/php-ext-*` packages. Regen uses Story 20 `--php-targets` + managed PHP; contributors do not install a Homebrew PHP matrix. |
 | **12 / 19** | Lint/LSP automatically benefit once bind/check honor gates |
 
 ---

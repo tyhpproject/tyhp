@@ -471,7 +471,7 @@ Items not fully settled from source alone; verify before relying on them:
 3. **Remaining `InvalidOperationException` throws** in using-resource / tyhpdef switches — should they migrate to `HandleUnexpectedAlternativeSpecial` for consistency with Story 01?
 4. **`PhpParserAstVisitor.Unsorted.cs`** — keep forever, or delete?
 5. **Anonymous class vs anonymous struct** — anon classes use `PhpNewAst.CreateAnonymous`; structs hoist a decl. Is there a plan to unify registration?
-6. **`VisitPhpExprPrecBaseGrammarAddon`** still returns `UnexpectedNodeAst` — are there planned Tyhp primary-expression addons?
+6. **`VisitPhpExprPrecBaseGrammarAddon`** — Tyhp overrides this for `async { ... }` (`TyhpAsyncBlockAst`). PHP mode still has no addon.
 7. **Coverage of every GrammarAddon stub** — this guide lists patterns; a mechanical audit of all `*GrammarAddon` rules vs Tyhp overrides was not fully enumerated line-by-line. When adding syntax, grep both grammars and both visitor hierarchies.
 8. **Thread safety** — visitors are per-file and not shared across threads in `CompilationService`, but nothing in the visitor itself documents that invariant; confirm before reusing a visitor instance.
 

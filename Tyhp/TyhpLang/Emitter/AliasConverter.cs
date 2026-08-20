@@ -480,7 +480,7 @@ namespace Tyhp.TyhpLang.Emitter
 
         private static bool IsFunctionLike(IBase2Ast node) =>
             node is PhpFunctionDeclAst or PhpMethodDeclAst or PhpInlineFunctionAst
-                or TyhpOperatorOverloadAst;
+                or TyhpOperatorOverloadAst or TyhpAsyncBlockAst;
 
         private ObjectDeclarationSymbol? ResolveStructTypeFromTypeExpression(ITypeExpression? typeExpr)
         {

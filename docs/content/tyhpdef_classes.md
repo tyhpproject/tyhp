@@ -189,39 +189,37 @@ class AuditableUser {
 }
 ```
 
-## Operator Overloads
+## Operators
 
-Tyhpdef supports two operator forms on a class:
+When a PHP type already supports an operator at runtime (engine magic, a PECL extension, `DateTime` arithmetic, and similar), declare it as a bodyless `operator` member. Tyhp type-checks expressions such as `$a + $b` against the signature. The emitter leaves the PHP operator in place — it does **not** rewrite the site to `__add` or any other method.
 
-1. **Native passthrough** — bodyless `operator …;` (no `extension` keyword). The underlying PHP
-   type already supports the operator (engine magic / PECL). Tyhp type-checks `$a + $b` but the
-   emitter **does not** rewrite it to a method call.
-2. **Mapped overload** — `extension operator … { … }` or `=> …` (**body required**). Maps Tyhp
-   operator usage onto methods (e.g. `plus()` or a compiled `__add`). Call sites are rewritten.
+The declaration is signature-only: `operator`, the token, typed parameters, a return type, and a semicolon. There is no body and no visibility modifier.
 
 ```tyhp
 <?tyhpdef
 
-// Native: DateTime / PECL Decimal-style — leave PHP operators alone
 class Instant {
     operator +(self $left, DateInterval $right): Instant;
     operator <=>(self $left, Instant $right): int;
 }
+```
 
-// Mapped: rewrite $a + $b via a body (brace or =>)
-class Money {
-    public function plus(Money $other): Money;
-    public function isEqualTo(Money $other): bool;
+Binary operators take two parameters; unary operators take one. The same operator can be overloaded for different operand types, the same way methods can.
 
-    extension operator +(self $left, self $right): self {
-        return $left->plus($right);
-    }
-    extension operator ==(self $left, self $right): bool => $left->isEqualTo($right);
+```tyhp
+<?tyhpdef
+
+class Decimal {
+    operator +(self $left, Decimal $right): self;
+    operator +(self $left, int|float|string $right): self;
+    operator +(self $value): int|float;
+
+    operator convert(int $value): self;
+    operator convert(self $value): string;
 }
 ```
 
-A bodyless `extension operator +(…): T;` is an error — use plain `operator` for native ops, or
-give `extension operator` a body.
+`extension operator` is a different member: it maps Tyhp operator usage onto PHP methods and **requires** a brace or `=>` body. Use it when the PHP type has methods such as `plus()` but does not implement the operator natively. See [Extensions in Tyhpdef](tyhpdef_extensions.md#native-vs-mapped-operators). A bodyless `extension operator +(…): T;` is an error (`TYHP8013`).
 
 ## Class Aliasing
 
@@ -262,11 +260,14 @@ DO declare only public and protected members. Private members are not accessible
 DO match the abstract/final modifiers to the actual PHP class. Mismatched modifiers cause compile-time or runtime errors.
 :::
 
+:::tip
+DO use bodyless `operator …;` when the PHP type already implements the operator natively. Do not give that member a body.
+:::
+
 :::danger
 DON'T include ordinary method bodies or property default values in class declarations — those end
-with a semicolon. Exception: tyhpdef `extension function` / `extension operator` **require** bodies
-(brace or `=>`) because they map onto PHP methods. Bodyless `operator …;` (no `extension`) is the
-native-passthrough form.
+with a semicolon. Mapping Tyhp operators onto PHP methods uses `extension operator` with a required
+body; see [Extensions in Tyhpdef](tyhpdef_extensions.md#native-vs-mapped-operators).
 :::
 
 :::danger

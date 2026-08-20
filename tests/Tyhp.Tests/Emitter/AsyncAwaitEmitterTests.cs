@@ -78,6 +78,41 @@ public class AsyncAwaitEmitterTests
         php.Should().NotContain("function load(int $id): int");
     }
 
+    [Fact]
+    public void Emit_AsyncBlock_DesugarsToPromiseAsyncNotCallableWrapper()
+    {
+        var php = EmitOnly("""
+            <?tyhp
+            function wrap(int $id): mixed {
+                return async {
+                    return await fetch($id);
+                };
+            }
+            function fetch(int $id): int { return $id; }
+            """);
+
+        php.Should().Contain("\\Tyhp\\Promise::_async(function ()");
+        php.Should().Contain("use ($id)");
+        php.Should().Contain("\\Tyhp\\Promise::_await(");
+        php.Should().NotContain("async {");
+        php.Should().NotContain("function (): \\Tyhp\\Promise");
+        php.Should().NotContain("async function");
+    }
+
+    [Fact]
+    public void Emit_EmptyAsyncBlock_EmitsPromiseAsync()
+    {
+        var php = EmitOnly("""
+            <?tyhp
+            function wrap(): mixed {
+                return async {};
+            }
+            """);
+
+        php.Should().Contain("\\Tyhp\\Promise::_async(function ()");
+        php.Should().NotContain("async {");
+    }
+
     // Parse-only emit avoids loading runtime/packages/async (pre-existing WeakMap TYHP3019).
     private static string EmitOnly(string content)
     {

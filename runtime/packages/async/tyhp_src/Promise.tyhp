@@ -54,9 +54,6 @@ final class Promise<TReturn extends void|mixed = mixed> {
     }
 
     private function initFiber(callable<TReturn> $executor): void {
-        if (!$this->doInitFiber) {
-            return;
-        }
         $this->fiber = new \Fiber<mixed, mixed, TReturn, mixed>(function () use ($executor): void {
             try {
                 TReturn $result = $executor();
@@ -78,6 +75,8 @@ final class Promise<TReturn extends void|mixed = mixed> {
      * The `async` keyword desugars to this internally.
      */
     public static function _async<T extends void|mixed>(callable<T> $fn): self<T> {
+        // DEV NOTE: Do not make this method itself `async` — that would wrap an extra
+        // Promise layer. `return async { ... }` starts one Promise and is the intended form. This method would cause recursion.
         return new self<T>($fn);
     }
 
@@ -125,7 +124,9 @@ final class Promise<TReturn extends void|mixed = mixed> {
      */
     public static function yield(): self<void>
     {
-        return new self<void>(static function (): void {});
+        // DEV NOTE: Do not make this method itself `async` — that would wrap an extra
+        // Promise layer. `return async { ... }` starts one Promise and is the intended form.
+        return async {};
     }
 
     /**
@@ -141,36 +142,36 @@ final class Promise<TReturn extends void|mixed = mixed> {
      */
     public static function yieldTick(): self<void>
     {
+        // DEV NOTE: Do not make this method itself `async` — that would wrap an extra
+        // Promise layer. `delay` is already async; returning it yields one Promise<void>.
         return Promise::delay(0);
     }
 
     /**
      * Registers fulfillment and/or rejection handlers, returning a new Promise.
      */
-    public function then<TThenReturn>(
+    async public function then<TThenReturn>(
         ?callable<TReturn, TThenReturn> $onFulfilled = null,
         ?callable<\Throwable, TThenReturn> $onRejected = null
-    ): self<TThenReturn> {
-        return new self<TThenReturn>(function () use ($onFulfilled, $onRejected) {
-            try {
-                TThenReturn $value = self::_await<TThenReturn>($this);
-                return $onFulfilled !== null ? $onFulfilled($value) : $value;
-            } catch (\Throwable $e) {
-                if ($onRejected !== null) {
-                    return $onRejected($e);
-                }
-                throw $e;
+    ): TThenReturn {
+        try {
+            TThenReturn $value = await $this;
+            return $onFulfilled !== null ? $onFulfilled($value) : $value;
+        } catch (\Throwable $e) {
+            if ($onRejected !== null) {
+                return $onRejected($e);
             }
-        });
+            throw $e;
+        }
     }
 
     /**
      * Registers a rejection handler.
      */
     public function catch<TCatchResult extends mixed|void = void>(callable<\Throwable, TCatchResult> $onRejected): self<TCatchResult> {
-        return new self<TCatchResult>(function () use ($onRejected) {
-            return self::_await($this->then(null, $onRejected));
-        });
+        // DEV NOTE: Do not make this method itself `async` — that would wrap an extra
+        // Promise layer.
+        return $this->then(null, $onRejected);
     }
 
     /**
@@ -180,36 +181,36 @@ final class Promise<TReturn extends void|mixed = mixed> {
      * We do not use a `} finally {` block because we only execute the finally callback
      * when the promise settles (finishes or throws), and not under other conditions.
      */
-    public function finally(callable<void|mixed> $onFinally): self<void> {
-        return new self(function () use ($onFinally) {
-            try {
-                TReturn $value = self::_await<TReturn>($this);
-                $onFinally();
-                return $value;
-            } catch (\Throwable $e) {
-                $onFinally();
-                throw $e;
-            }
-        });
+    async public function finally(callable<void|mixed> $onFinally): TReturn {
+        try {
+            TReturn $value = await $this;
+            $onFinally();
+            return $value;
+        } catch (\Throwable $e) {
+            $onFinally();
+            throw $e;
+        }
     }
 
     /**
      * Registers a continuation that receives both the result and error (C# style).
      */
-    public function continueWith<TContinueReturn>(callable<?TReturn, ?\Throwable, TContinueReturn> $continuation): self<TContinueReturn> {
-        return new self<TContinueReturn>(function () use ($continuation) {
-            try {
-                mixed $value = self::_await($this);
-                return $continuation($value, null);
-            } catch (\Throwable $e) {
-                return $continuation(null, $e);
-            }
-        });
+    async public function continueWith<TContinueReturn>(callable<?TReturn, ?\Throwable, TContinueReturn> $continuation): TContinueReturn {
+        try {
+            mixed $value = await $this;
+            return $continuation($value, null);
+        } catch (\Throwable $e) {
+            return $continuation(null, $e);
+        }
     }
 
     /**
-     * Creates a pre-resolved Promise with the given value.
-     * If the value is already a Promise, it is returned as-is.
+     * JS Promise.resolve: adopt an existing Promise, or return an already-fulfilled
+     * Promise for a plain value (no Fiber).
+     *
+     * Passing a Promise returns that same instance — even if it is still pending. That is
+     * flatten/adopt, not "force fulfilled". Use resolved() when you need a new
+     * immediately-fulfilled Promise and do not want to unwrap.
      */
     public static function resolve<T extends void|mixed>(?T $value = null): self<T> {
         if ($value === null) {
@@ -218,24 +219,15 @@ final class Promise<TReturn extends void|mixed = mixed> {
         if ($value instanceof self<T>) {
             return $value;
         }
-        return new self<T>(static fn(): T => $value);
+
+        return self::resolved<T>($value);
     }
 
     /**
-     * Creates a pre-rejected Promise with the given reason.
+     * JS Promise.reject: an already-rejected Promise (no Fiber).
      */
     public static function reject<T extends void|mixed = void>(\Throwable $reason): self<T> {
-        return new self<T>(static function () use ($reason): never {
-            throw $reason;
-        });
-    }
-
-    private static function settled<T extends void|mixed = void>(PromiseState $state, ?T $value = null, ?\Throwable $error = null): self<T> {
-        $promise = new self<T>(fn():T => $value ?? default(T), true);
-        $promise->state = $state;
-        $promise->value = $value;
-        $promise->error = $error;
-        return $promise;
+        return self::rejected<T>($reason);
     }
 
     /**
@@ -244,7 +236,7 @@ final class Promise<TReturn extends void|mixed = mixed> {
      * null, uses `default(T)`. Unlike `resolve()`, does not unwrap an existing Promise.
      */
     public static function resolved<T extends void|mixed = void>(?T $value = null): self<T> {
-        return new self<T>(fn():T => $value ?? default(T), true);
+        return new self<T>(fn(): T => $value ?? default(T), true);
     }
 
     /**
@@ -253,7 +245,7 @@ final class Promise<TReturn extends void|mixed = mixed> {
      * immediate construction and `doReject()` rather than a throwing executor.
      */
     public static function rejected<T extends void|mixed = void>(\Throwable $error): self<T> {
-        $promise = new self<T>(fn():T => default(T), true);
+        $promise = new self<T>(fn(): T => default(T), true);
         $promise->state = PromiseState::Pending;
         $promise->doReject($error);
         return $promise;
@@ -328,56 +320,54 @@ final class Promise<TReturn extends void|mixed = mixed> {
      * Creates a Promise that resolves after the specified delay.
      * Supports CancellationToken for cooperative cancellation.
      */
-    public static function delay(int $ms, ?CancellationToken $token = null): self<void> {
-        return new self<void>(function () use ($ms, $token): void {
-            if ($ms < 0) {
-                throw new \InvalidArgumentException('Delay milliseconds must be non-negative.');
-            }
+    async public static function delay(int $ms, ?CancellationToken $token = null): void {
+        if ($ms < 0) {
+            throw new \InvalidArgumentException('Delay milliseconds must be non-negative.');
+        }
 
-            $token?->throwIfCancellationRequested();
+        $token?->throwIfCancellationRequested();
 
-            Deferred<void> $deferred = new Deferred<void>();
-            string $timerId = EventLoop::getInstance()->delay($ms, function () use ($deferred): void {
-                $deferred->resolve();
-            });
-
-            ?\Closure $unregister = null;
-            if ($token !== null) {
-                CancellationToken $ct = $token;
-                $unregister = $ct->register(function () use ($deferred, $timerId, $ct): void {
-                    EventLoop::getInstance()->cancelTimer($timerId);
-                    $deferred->reject(new OperationCancelledException($ct));
-                });
-            }
-
-            try {
-                self::_await<void>($deferred->getPromise());
-            } finally {
-                if ($unregister !== null) {
-                    $unregister();
-                }
-            }
+        Deferred<void> $deferred = new Deferred<void>();
+        string $timerId = EventLoop::getInstance()->delay($ms, function () use ($deferred): void {
+            $deferred->resolve();
         });
+
+        ?\Closure $unregister = null;
+        if ($token !== null) {
+            CancellationToken $ct = $token;
+            $unregister = $ct->register(function () use ($deferred, $timerId, $ct): void {
+                EventLoop::getInstance()->cancelTimer($timerId);
+                $deferred->reject(new OperationCancelledException($ct));
+            });
+        }
+
+        try {
+            await $deferred->getPromise();
+        } finally {
+            if ($unregister !== null) {
+                $unregister();
+            }
+        }
     }
 
     /**
      * Waits for all Promises to resolve and returns their results.
      */
-    public static function all<T extends void|mixed = mixed>(array<Promise<T>> $promises, ?CancellationToken $token = null): self<array<T>> {
-        return self::_async<array<T>>(function () use ($promises, $token) {
-            array<T> $results = [];
-            foreach ($promises as $key => $promise) {
-                $token?->throwIfCancellationRequested();
-                $results[$key] = self::_await($promise);
-            }
-            return $results;
-        });
+    async public static function all<T extends void|mixed = mixed>(array<Promise<T>> $promises, ?CancellationToken $token = null): array<T> {
+        array<T> $results = [];
+        foreach ($promises as $key => $promise) {
+            $token?->throwIfCancellationRequested();
+            $results[$key] = await $promise;
+        }
+        return $results;
     }
 
     /**
      * C# Task.WhenAll-style alias for all().
      */
     public static function whenAll<T extends void|mixed = mixed>(Promise<T> ...$promises): self<array<int|string, T>> {
+        // DEV NOTE: Do not make this method itself `async` — that would wrap an extra
+        // Promise layer. `all` is already async; returning it yields one Promise.
         return self::all<T>($promises);
     }
 
@@ -386,138 +376,134 @@ final class Promise<TReturn extends void|mixed = mixed> {
      * Each outcome has a status property ('fulfilled' or 'rejected') and either
      * a value or reason property. Never rejects.
      */
-    public static function allSettled<T extends void|mixed = mixed>(array<Promise<T>> $promises): self<array<\Tyhp\Promise<T>>> {
-        return self::_async<array<\Tyhp\Promise<T>>>(function () use ($promises) {
-            array<\Tyhp\Promise<T>> $results = [];
-            foreach ($promises as $key => $promise) {
-                try {
-                    ?T $value = self::_await($promise);
-                    $results[$key] = Promise::settled<T>(state: PromiseState::Fulfilled, value: $value);
-                } catch (\Throwable $e) {
-                    $results[$key] = Promise::settled<T>(state: PromiseState::Rejected, error: $e);
-                }
+    async public static function allSettled<T extends void|mixed = mixed>(array<Promise<T>> $promises): array<\Tyhp\Promise<T>> {
+        array<\Tyhp\Promise<T>> $results = [];
+        foreach ($promises as $key => $promise) {
+            try {
+                ?T $value = await $promise;
+                $results[$key] = Promise::resolved<T>($value);
+            } catch (\Throwable $e) {
+                $results[$key] = Promise::rejected<T>($e);
             }
-            return $results;
-        });
+        }
+        return $results;
     }
 
     /**
      * Resolves or rejects with the first Promise to settle.
      */
-    public static function race<T extends void|mixed>(array<Promise<T>> $promises, ?CancellationToken $token = null): self<T> {
-        return self::_async<T>(function () use ($promises, $token) {
-            $token?->throwIfCancellationRequested();
+    async public static function race<T extends void|mixed>(array<Promise<T>> $promises, ?CancellationToken $token = null): T {
+        $token?->throwIfCancellationRequested();
 
-            if (empty($promises)) {
-                throw new \InvalidArgumentException('race() requires at least one Promise; an empty array would produce a Promise that never settles and leaks resources.');
-            }
+        if (empty($promises)) {
+            throw new \InvalidArgumentException('race() requires at least one Promise; an empty array would produce a Promise that never settles and leaks resources.');
+        }
 
-            Deferred<T> $deferred = new Deferred<T>();
-            bool $settled = false;
+        Deferred<T> $deferred = new Deferred<T>();
+        bool $settled = false;
 
-            foreach ($promises as $promise) {
-                $promise->then(
-                    function (?T $value) use ($deferred, &$settled): void {
-                        if (!$settled) {
-                            $settled = true;
-                            $deferred->resolve($value);
-                        }
-                    },
-                    function (\Throwable $error) use ($deferred, &$settled): void {
-                        if (!$settled) {
-                            $settled = true;
-                            $deferred->reject($error);
-                        }
-                    }
-                );
-            }
-
-            ?\Closure $unregister = null;
-            if ($token !== null) {
-                CancellationToken $ct = $token;
-                $unregister = $ct->register(function () use ($deferred, &$settled, $ct): void {
+        foreach ($promises as $promise) {
+            $promise->then(
+                function (?T $value) use ($deferred, &$settled): void {
                     if (!$settled) {
                         $settled = true;
-                        $deferred->reject(new OperationCancelledException($ct));
+                        $deferred->resolve($value);
                     }
-                });
-            }
-
-            try {
-                return self::_await($deferred->getPromise());
-            } finally {
-                if ($unregister !== null) {
-                    $unregister();
+                },
+                function (\Throwable $error) use ($deferred, &$settled): void {
+                    if (!$settled) {
+                        $settled = true;
+                        $deferred->reject($error);
+                    }
                 }
+            );
+        }
+
+        ?\Closure $unregister = null;
+        if ($token !== null) {
+            CancellationToken $ct = $token;
+            $unregister = $ct->register(function () use ($deferred, &$settled, $ct): void {
+                if (!$settled) {
+                    $settled = true;
+                    $deferred->reject(new OperationCancelledException($ct));
+                }
+            });
+        }
+
+        try {
+            return await $deferred->getPromise();
+        } finally {
+            if ($unregister !== null) {
+                $unregister();
             }
-        });
+        }
     }
 
     /**
      * C# Task.WhenAny-style alias for race().
      */
     public static function whenAny<T extends void|mixed>(Promise<T> ...$promises): self<T> {
+        // DEV NOTE: Do not make this method itself `async` — that would wrap an extra
+        // Promise layer. `race` is already async; returning it yields one Promise.
         return self::race<T>($promises);
     }
 
     /**
      * Resolves with the first fulfilled Promise; rejects if all reject.
      */
-    public static function any<T extends void|mixed>(array<Promise<T>> $promises, ?CancellationToken $token = null): self<T> {
-        return self::_async<T>(function () use ($promises, $token) {
-            $token?->throwIfCancellationRequested();
+    async public static function any<T extends void|mixed>(array<Promise<T>> $promises, ?CancellationToken $token = null): T {
+        $token?->throwIfCancellationRequested();
 
-            if (empty($promises)) {
-                throw new AggregateException([], 'All promises were rejected');
-            }
+        if (empty($promises)) {
+            throw new AggregateException([], 'All promises were rejected');
+        }
 
-            Deferred<T> $deferred = new Deferred<T>();
-            array<\Throwable> $errors = [];
-            int $remaining = \count($promises);
-            bool $resolved = false;
+        Deferred<T> $deferred = new Deferred<T>();
+        array<\Throwable> $errors = [];
+        int $remaining = \count($promises);
+        bool $resolved = false;
 
-            foreach ($promises as $key => $promise) {
-                $promise->then(
-                    function (?T $value) use ($deferred, &$resolved): void {
-                        if (!$resolved) {
-                            $resolved = true;
-                            $deferred->resolve($value);
-                        }
-                    },
-                    function (\Throwable $error) use ($key, $deferred, &$errors, &$remaining, &$resolved): void {
-                        if ($resolved) {
-                            return;
-                        }
-                        $errors[$key] = $error;
-                        $remaining--;
-                        if ($remaining === 0) {
-                            $deferred->reject(
-                                new AggregateException($errors, 'All promises were rejected')
-                            );
-                        }
-                    }
-                );
-            }
-
-            ?\Closure $unregister = null;
-            if ($token !== null) {
-                CancellationToken $ct = $token;
-                $unregister = $ct->register(function () use ($deferred, &$resolved, $ct): void {
+        foreach ($promises as $key => $promise) {
+            $promise->then(
+                function (?T $value) use ($deferred, &$resolved): void {
                     if (!$resolved) {
                         $resolved = true;
-                        $deferred->reject(new OperationCancelledException($ct));
+                        $deferred->resolve($value);
                     }
-                });
-            }
-
-            try {
-                return self::_await($deferred->getPromise());
-            } finally {
-                if ($unregister !== null) {
-                    $unregister();
+                },
+                function (\Throwable $error) use ($key, $deferred, &$errors, &$remaining, &$resolved): void {
+                    if ($resolved) {
+                        return;
+                    }
+                    $errors[$key] = $error;
+                    $remaining--;
+                    if ($remaining === 0) {
+                        $deferred->reject(
+                            new AggregateException($errors, 'All promises were rejected')
+                        );
+                    }
                 }
+            );
+        }
+
+        ?\Closure $unregister = null;
+        if ($token !== null) {
+            CancellationToken $ct = $token;
+            $unregister = $ct->register(function () use ($deferred, &$resolved, $ct): void {
+                if (!$resolved) {
+                    $resolved = true;
+                    $deferred->reject(new OperationCancelledException($ct));
+                }
+            });
+        }
+
+        try {
+            return await $deferred->getPromise();
+        } finally {
+            if ($unregister !== null) {
+                $unregister();
             }
-        });
+        }
     }
 
     /**
@@ -525,6 +511,8 @@ final class Promise<TReturn extends void|mixed = mixed> {
      * Implemented as a race between the original Promise and a delay.
      */
     public static function timeout<T extends void|mixed>(Promise<T> $promise, int $ms, ?CancellationToken $token = null): self<T> {
+        // DEV NOTE: Do not make this method itself `async` — that would wrap an extra
+        // Promise layer. `race` is already async; returning it yields one Promise.
         return self::race<T>([
             $promise,
             self::delay($ms, $token)->then(function () use ($ms): T {
@@ -537,61 +525,58 @@ final class Promise<TReturn extends void|mixed = mixed> {
      * Processes items through a callable with bounded concurrency.
      * Results are returned in the original input order.
      */
-    public static function batch<TItem, TBatchReturn>(
+    async public static function batch<TItem, TBatchReturn>(
         array<TItem> $items,
         callable<TItem, Promise<TBatchReturn>> $processor,
         int $concurrency = 5,
         ?CancellationToken $token = null
-    ): self<array<int, TBatchReturn>> {
-        return self::_async<array<int, TBatchReturn>>(function () use ($items, $processor, $concurrency, $token) {
-            array<int, TBatchReturn> $results = [];
-            array<int, Promise<TBatchReturn>> $active = [];
-            array<TItem> $itemQueue = \array_values($items);
-            int $nextIndex = 0;
+    ): array<int, TBatchReturn> {
+        array<int, TBatchReturn> $results = [];
+        array<int, Promise<TBatchReturn>> $active = [];
+        array<TItem> $itemQueue = \array_values($items);
+        int $nextIndex = 0;
 
-            while ($nextIndex < \count($itemQueue) || !empty($active)) {
-                $token?->throwIfCancellationRequested();
+        while ($nextIndex < \count($itemQueue) || !empty($active)) {
+            $token?->throwIfCancellationRequested();
 
-                while (\count($active) < $concurrency && $nextIndex < \count($itemQueue)) {
-                    int $idx = $nextIndex++;
-                    mixed $result = $processor($itemQueue[$idx]);
-                    if (!($result instanceof self)) {
-                        throw new \InvalidArgumentException(
-                            'batch() $processor must return a Promise, got ' . \get_debug_type($result) . ' for item at index ' . $idx
-                        );
-                    }
-                    $active[$idx] = $result;
+            while (\count($active) < $concurrency && $nextIndex < \count($itemQueue)) {
+                int $idx = $nextIndex++;
+                mixed $result = $processor($itemQueue[$idx]);
+                if (!($result instanceof self)) {
+                    throw new \InvalidArgumentException(
+                        'batch() $processor must return a Promise, got ' . \get_debug_type($result) . ' for item at index ' . $idx
+                    );
                 }
+                $active[$idx] = $result;
+            }
 
-                if (!empty($active)) {
-                    array<\Tyhp\Promise<TBatchReturn>> $settledResult =
-                        self::_await<array<\Tyhp\Promise<TBatchReturn>>>(
-                            self::allSettled<TBatchReturn>($active));
-                    foreach ($settledResult as $idx => $outcome) {
-                        if ($outcome->status === 'fulfilled') {
-                            ?TBatchReturn $fulfilledValue = $outcome->value;
-                            if ($fulfilledValue is TBatchReturn) {
-                                $results[$idx] = $fulfilledValue;
-                            } else {
-                                // Fulfilled void-like settlement stores null; accept as TBatchReturn only
-                                // when the type argument admits it — otherwise surface a clear error.
-                                throw new \InvalidArgumentException(
-                                    'batch() settled Promise had a null fulfilled value incompatible with ' . nameof(TBatchReturn));
-                            }
-                            unset($active[$idx]);
-                        } else if ($outcome->reason instanceof \Throwable) {
-                            throw $outcome->reason;
+            if (!empty($active)) {
+                array<\Tyhp\Promise<TBatchReturn>> $settledResult =
+                    await self::allSettled<TBatchReturn>($active);
+                foreach ($settledResult as $idx => $outcome) {
+                    if ($outcome->status === 'fulfilled') {
+                        ?TBatchReturn $fulfilledValue = $outcome->value;
+                        if ($fulfilledValue is TBatchReturn) {
+                            $results[$idx] = $fulfilledValue;
                         } else {
+                            // Fulfilled void-like settlement stores null; accept as TBatchReturn only
+                            // when the type argument admits it — otherwise surface a clear error.
                             throw new \InvalidArgumentException(
-                                'batch() settled Promise was rejected without a Throwable reason');
+                                'batch() settled Promise had a null fulfilled value incompatible with ' . nameof(TBatchReturn));
                         }
+                        unset($active[$idx]);
+                    } else if ($outcome->reason instanceof \Throwable) {
+                        throw $outcome->reason;
+                    } else {
+                        throw new \InvalidArgumentException(
+                            'batch() settled Promise was rejected without a Throwable reason');
                     }
                 }
             }
+        }
 
-            \ksort($results);
-            return $results;
-        });
+        \ksort($results);
+        return $results;
     }
 
     /**
@@ -600,22 +585,20 @@ final class Promise<TReturn extends void|mixed = mixed> {
      *
      * // TODO: need generics for generator to get return type, for now this is typed as mixed
      */
-    public static function fromGenerator(\Generator $generator): self<mixed> {
-        return self::_async(function () use ($generator) {
-            while ($generator->valid()) {
-                mixed $yielded = $generator->current();
-                if ($yielded instanceof self) {
-                    try {
-                        $generator->send(self::_await($yielded));
-                    } catch (\Throwable $e) {
-                        $generator->throw($e);
-                    }
-                } else {
-                    $generator->send($yielded);
+    async public static function fromGenerator(\Generator $generator): mixed {
+        while ($generator->valid()) {
+            mixed $yielded = $generator->current();
+            if ($yielded instanceof self) {
+                try {
+                    $generator->send(await $yielded);
+                } catch (\Throwable $e) {
+                    $generator->throw($e);
                 }
+            } else {
+                $generator->send($yielded);
             }
-            return $generator->getReturn();
-        });
+        }
+        return $generator->getReturn();
     }
 
     /**

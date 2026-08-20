@@ -67,6 +67,9 @@ namespace Tyhp.TyhpLang.Checker
                 case PhpInlineFunctionAst closure:
                     return InferClosure(closure, state);
 
+                case TyhpAsyncBlockAst asyncBlock:
+                    return InferAsyncBlock(asyncBlock, state);
+
                 case TyhpNameofAst nameofExpr:
                     return NameofTypeInferrer.Infer(
                         nameofExpr, state, _symbolTree, _globalScope,
@@ -1159,6 +1162,7 @@ namespace Tyhp.TyhpLang.Checker
             var returnType = func.ReturnType is not null
                 ? ResolveTypeExpression(func.ReturnType, resolveState, isReturnTypePosition: true)
                 : CheckedTypes.Mixed;
+            returnType = WrapIfAsyncCall(returnType, func.IsAsync);
 
             return CallableArityFacetBuilder.BuildFromParameterInfos(func.Parameters, paramTypes, returnType);
         }

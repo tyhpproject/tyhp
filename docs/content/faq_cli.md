@@ -34,7 +34,7 @@ Watch mode is **not** in this alpha. `tyhp build --watch` reports that it is uni
 
 ## How do I debug Tyhp code?
 
-This alpha has no sourcemaps or Xdebug proxy. Debug the compiled PHP under `output.path` (default `build/`), or iterate with `tyhp lint`. Sourcemaps and `tyhp xdebug_proxy` are planned (Stories 17–18).
+Build with `build.generateSourcemap` enabled, then run `tyhp xdebug_proxy` so the IDE talks to the proxy IDE port (default 9003) and XDebug connects to the proxy XDebug port (default 9004). The proxy translates breakpoints and stack frames back to `.tyhp` using the `.php.map` files next to compiled PHP. Without sourcemaps, debug the compiled PHP under `output.path` (default `build/`), or iterate with `tyhp lint`.
 
 ## How do I integrate Tyhp with CI/CD?
 

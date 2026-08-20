@@ -169,7 +169,7 @@ Magic methods are **separate symbol classes** (e.g. `ObjectMagicGetMethodSymbol`
 
 ### `BaseSymbol`
 
-Shared fields: `Name`, `FullyQualifiedName`, `DeclaringAstNode`, `ContainingScope`, `SymbolType`, visibility/deprecation/doc/source location.
+Shared fields: `Name`, `FullyQualifiedName`, `DeclaringAstNode`, `ContainingScope`, `SymbolType`, visibility/deprecation/doc/source location (`Line`, `Column`, `EndLine`, `EndColumn`). `EndLine`/`EndColumn` are copied from the declaring AST node (`IBase2Ast.EndLine` / exclusive `EndColumn`); they are `0` when no declaring node is provided and `-1` when the AST node itself has no end span.
 
 On construction, if a declaring AST node is provided, **`declaringNode.BoundSymbol = this`**.
 

@@ -129,8 +129,8 @@ Sourcemap-related error codes belong in the 5000s range (Emitter). Story 17 is a
 
 ## Phase 1: VLQ Base64 Encoder
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Overview
 
@@ -202,8 +202,8 @@ Internal constants:
 
 ## Phase 2: SourceMapping Data Structure and SourceMapCollector
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Overview
 
@@ -305,8 +305,8 @@ This approach requires no modifications to `EmitItem` — the source file inform
 
 ## Phase 3: Extend EmitItem with Source-Tracking Emission
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Overview
 
@@ -376,8 +376,8 @@ Similarly for the middle (children) and end sections.
 
 ## Phase 4: Source Map v3 JSON Generator
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Overview
 
@@ -487,8 +487,8 @@ Encodes a single segment, updates the `prev*` state, and returns the VLQ string.
 
 ## Phase 5: Implement PHPOutputFile.SourceMap() and Wire into Emission
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Overview
 
@@ -573,8 +573,8 @@ Add corresponding resource strings if the `.resx` infrastructure from Story 01 i
 
 ## Phase 6: Source Map File Writer and Build Pipeline Integration
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Overview
 
@@ -681,8 +681,8 @@ The `.map` extension is appended to the full PHP filename (not replacing `.php`)
 
 ## Phase 7: Validation and End-to-End Verification
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Overview
 

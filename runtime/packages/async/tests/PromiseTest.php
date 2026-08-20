@@ -23,6 +23,11 @@ final class PromiseTest extends TestCase
     public function testResolve(): void
     {
         $promise = Promise::resolve(42);
+
+        $this->assertTrue($promise->isFulfilled());
+        $this->assertSame(PromiseState::Fulfilled, $promise->getState());
+        $this->assertSame(42, $promise->getResult());
+
         $result = $promise->wait();
 
         $this->assertSame(42, $result);
@@ -34,6 +39,10 @@ final class PromiseTest extends TestCase
     {
         $exception = new \RuntimeException('err');
         $promise = Promise::reject($exception);
+
+        $this->assertTrue($promise->isFaulted());
+        $this->assertSame(PromiseState::Rejected, $promise->getState());
+        $this->assertSame($exception, $promise->getError());
 
         try {
             $promise->wait();
@@ -69,10 +78,7 @@ final class PromiseTest extends TestCase
     {
         $result = Promise::run(function () {
             $p = Promise::resolve('immediate');
-            // Tick the loop so the promise fiber runs and resolves
-            $dummy = Promise::resolve(null);
-            Promise::_await($dummy);
-            // Now $p should be fulfilled; _await returns immediately
+            // resolve() is already fulfilled, so _await returns without scheduling a Fiber.
             return Promise::_await($p);
         });
 

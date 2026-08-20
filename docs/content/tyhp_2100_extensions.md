@@ -190,6 +190,8 @@ extension MoneyOperators {
 
 ## Tyhpdef Inline Extensions
 
+For the full tyhpdef reference (inline members, native vs mapped operators, `use extension` on a class, and what tyhpdef cannot declare), see [Extensions in Tyhpdef](tyhpdef_extensions.md).
+
 Inside a tyhpdef class body you can declare extension function, extension fn (expression body), and extension operator members. The compiler treats them as belonging to a synthetic extension for that class: $this in an extension function and self in an inline extension operator resolve to the enclosing tyhpdef class. These members cannot use abstract or final.
 
 ### Operators: native vs mapped

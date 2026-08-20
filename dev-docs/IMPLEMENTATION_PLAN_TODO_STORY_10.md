@@ -95,7 +95,7 @@ tyhp build
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Note on optimizer integration (Story 23) and tyhpdef (Story 20):** The optimizer runs between the error gate and the emitter (step 12.6). Step 12.5 (Tyhpdef Track C: `_tyhpdef/` dot-notation `.tyhpdef` files, `_tyhpdef/support/*.tyhp`, and `package.tyhp.json` in the build output directory with `include` globs) occurs **before** optimization to preserve the stable public API contract. The optimizer receives the fully bound, checked AST and performs transformations such as extension inlining, constant folding, and dead code elimination based on the `build.optimize` level, `build.profile`, and `build.optimizations` configuration. See Story 23 for the full optimizer pipeline and configuration details.
+**Note on optimizer integration (Story 23) and tyhpdef (Story 20):** The optimizer runs between the error gate and the emitter (step 12.6). Step 12.5 (Tyhpdef Track C: `{buildOutputDir}/package.tyhpdef` and, for libraries, `package.tyhp.json` with `include: ["./package.tyhpdef"]`) occurs **before** optimization to preserve the stable public API contract. The optimizer receives the fully bound, checked AST and performs transformations such as extension inlining, constant folding, and dead code elimination based on the `build.optimize` level, `build.profile`, and `build.optimizations` configuration. See Story 23 for the full optimizer pipeline and configuration details.
 
 > **Note:** The pipeline flow diagram uses conceptual step numbers (1-22) for illustration. The implementation in Phase 2 uses sequential code steps (1-10 with sub-steps). These are not meant to correspond 1:1 — the implementation steps represent the actual method code flow, while the diagram shows the logical phase relationships.
 
@@ -174,8 +174,8 @@ The 7000–7999 range is subdivided into 100-code sub-ranges per CLI action to a
 
 ## Phase 1: Expand Configuration Parsing — Output and Build Options
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -354,8 +354,8 @@ Add build action error codes in the 7100s range (7000s range is subdivided per C
 
 ## Phase 2: Implement Full BuildAction Pipeline
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -544,8 +544,8 @@ Pass `this.project` to `BuildAction` so it has access to all configuration. `Bui
 
 ## Phase 3: Output Writer Service
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -656,8 +656,8 @@ Path computation logic:
 
 ## Phase 4: Composer JSON Service
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -751,8 +751,8 @@ Create in namespace `Tyhp.Domain.Services`:
 
 ## Phase 5: Incremental Compilation and Build Performance
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -848,8 +848,8 @@ The `--clean` flag should also delete the build state file (forcing a full rebui
 
 ## Phase 6: Tyhp Runtime Package Distribution Integration
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -923,8 +923,8 @@ The `EmitContext` (Story 11, Phase 1) maintains a `HashSet<string> RequiredPacka
 
 ## Phase 7: End-to-End Validation and Polish
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1083,7 +1083,7 @@ This story introduces placeholders for future work:
 - `// PLACEHOLDER_STORY_12: Auto-fix mode for lint action` — Story 12 lint `--fix`
 - `// PLACEHOLDER_STORY_11: Advanced emitter features` — Story 11 emitter expansion
 - `// PLACEHOLDER_STORY_17: Sourcemap generation integration` — Story 17 sourcemaps
-- `// PLACEHOLDER_STORY_20: Generate tyhpdef for compiled code (Track C: _tyhpdef/*.tyhpdef dot-notation names, _tyhpdef/support/*.tyhp, package.tyhp.json in the build output directory with include globs)` — Story 20 tyhpdef generation
+- `// PLACEHOLDER_STORY_20: Generate tyhpdef for compiled code (Track C: package.tyhpdef + library package.tyhp.json in the build output directory)` — Story 20 tyhpdef generation
 - `// PLACEHOLDER_STORY_19: File watcher for --watch mode` — Story 19 language server / file watching
 - `// PLACEHOLDER_STORY_19: Incremental binding based on dependency graph` — Story 19 incremental binding
 

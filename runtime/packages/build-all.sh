@@ -49,5 +49,8 @@ done
 
 echo "All packages built successfully."
 
+echo "Verifying source maps..."
+python3 "$SCRIPT_DIR/verify-sourcemaps.py"
+
 echo "Running PHPCS..."
 phpcs

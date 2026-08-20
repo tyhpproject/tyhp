@@ -1,0 +1,24 @@
+<idea-plugin>
+    <depends>com.intellij.modules.lsp</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <postStartupActivity implementation="com.tyhp.lang.lsp.TyhpLspStartupActivity"/>
+        <projectService serviceImplementation="com.tyhp.lang.lsp.TyhpLspLifecycle"/>
+        <platform.lsp.integrationProvider implementation="com.tyhp.lang.lsp.TyhpLspIntegrationProvider"/>
+        <toolWindow
+            id="Tyhp Language Server"
+            anchor="bottom"
+            icon="/icons/tyhp-file.svg"
+            factoryClass="com.tyhp.lang.lsp.TyhpLspToolWindowFactory"
+            canCloseContents="false"/>
+    </extensions>
+
+    <actions>
+        <action id="tyhp.restartLanguageServer"
+                class="com.tyhp.lang.lsp.RestartLanguageServerAction"
+                text="Restart Language Server"
+                description="Stop and restart tyhp language_server for this project">
+            <add-to-group group-id="Tyhp.Menu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

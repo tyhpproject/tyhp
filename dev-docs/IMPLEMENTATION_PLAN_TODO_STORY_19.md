@@ -28,6 +28,8 @@ Story 19 depends on:
 
 This plan assumes those stories are complete. Where binder/checker APIs are referenced, the plan uses the interfaces and patterns described in `TODO.md` Stories 01–08 (foundation through checker).
 
+**IDE clients are Story 19.5.** This story delivers the `tyhp language_server` process only (stdio JSON-RPC). The VS Code / Cursor extension (`tyhp-lang/vscode/` — already in the repo as a syntax-only extension; Story 19.5 grows it) and PhpStorm plugin (`tyhp-lang/phpstorm/`) — both branded **Tyhp Language** (`tyhp-lang`) — live in `IMPLEMENTATION_PLAN_TODO_STORY_19.5.md`. Do **not** create a second extension tree here.
+
 ### Key Existing Infrastructure
 
 | Component | Location | Relevance |
@@ -138,8 +140,7 @@ Tyhp/LanguageServer/
 
 ## Phase 1: Project Setup, NuGet Dependencies, and LSP Skeleton
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+> **Status:** Complete (2026-08-18)
 
 ### Phase Overview
 
@@ -158,7 +159,7 @@ Set up the foundational infrastructure for the language server: add the `StreamJ
 - Create `Tyhp/LanguageServer/Configuration/ServerConfiguration.cs` — Configuration options
 - Create `Tyhp/LanguageServer/Configuration/CapabilityRegistration.cs` — Server capabilities
 - Modify `Tyhp/CLI/TyhpHostedService.cs` — Wire up `language_server` action case
-- Modify `Tyhp/Config/DisplayHelp.cs` — Add basic `LanguageServerHelp()` content
+- Modify `Tyhp/Config/DisplayHelp.cs` — Implement `LanguageServerHelp()` with full help text
 
 ### Implementation Details
 
@@ -232,6 +233,16 @@ Adding `EndLine`, `EndColumn`, and `EndIndex` properties to `Base2Ast` gives eve
 - In the `case Tyhp.Config.Action.language_server:` block, instantiate `LanguageServerAction` and call `Start()`
 - The `_isLongRunning` flag is already set to `true`
 
+**`LanguageServerHelp()` in `DisplayHelp.cs`:**
+- Usage: `tyhp language_server [options]`
+- Description: Start the Tyhp Language Server Protocol (LSP) server for IDE integration
+- Options:
+  - `--stdio` — communicate via stdin/stdout (default, and the **only transport implemented in this story**; the skeleton in this phase wires stdin/stdout exclusively)
+  - `--tcp=<port>` — communicate via TCP on specified port *(documented for future use — not yet implemented; mark `// PLACEHOLDER_STORY_30: tcp transport`)*
+  - `--pipe=<name>` — communicate via named pipe *(documented for future use — not yet implemented; mark `// PLACEHOLDER_STORY_30: named-pipe transport`)*
+- Examples: `tyhp language_server` (start in stdio mode for editor integration)
+- Implement using the existing `HelpFormatting` utility (Story 13).
+
 ### Acceptance Criteria
 
 - `Base2Ast` nodes populated via `SetContext(ParserRuleContext)` have correct `EndLine`/`EndColumn`/`EndIndex` values
@@ -241,6 +252,7 @@ Adding `EndLine`, `EndColumn`, and `EndIndex` properties to `Base2Ast` gives eve
 - Sending a properly formatted LSP `initialize` request via stdin produces a valid `InitializeResult` response on stdout
 - Sending `shutdown` followed by `exit` cleanly terminates the process
 - The server reports `textDocumentSync` capability in its `InitializeResult`
+- `tyhp help --subject=language_server` displays complete language server help text
 - No existing functionality is broken (all existing actions still work)
 
 ### Dependencies
@@ -252,8 +264,10 @@ Adding `EndLine`, `EndColumn`, and `EndIndex` properties to `Base2Ast` gives eve
 
 ## Phase 2: Workspace Management and Document Synchronization
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+> **Status:** Complete (2026-08-18)
+
+
+
 
 ### Phase Overview
 
@@ -343,8 +357,10 @@ Implement the document lifecycle: tracking open/modified/closed documents, stori
 
 ## Phase 3: Analysis Service, Position Utilities, and Diagnostic Publishing
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+> **Status:** Complete (2026-08-18)
+
+
+
 
 ### Phase Overview
 
@@ -450,8 +466,10 @@ Build the core analysis pipeline that runs the parser, binder, and checker on op
 
 ## Phase 4: Go-to-Definition and Hover Information
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+> **Status:** Complete (2026-08-18)
+
+
+
 
 ### Phase Overview
 
@@ -538,8 +556,10 @@ Implement the first two semantic LSP features: go-to-definition (navigate to whe
 
 ## Phase 5: Completion (Autocomplete)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+> **Status:** Complete (2026-08-18)
+
+
+
 
 ### Phase Overview
 
@@ -670,8 +690,10 @@ For incomplete syntax (common during typing), fall back to the most recent succe
 
 ## Phase 6: Find References, Rename, and Document Highlights
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+> **Status:** Complete (2026-08-18)
+
+
+
 
 ### Phase Overview
 
@@ -762,8 +784,10 @@ Implement three related features that all depend on finding all usages of a symb
 
 ## Phase 7: Document Symbols, Signature Help, and Folding Ranges
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+> **Status:** Complete (2026-08-18)
+
+
+
 
 ### Phase Overview
 
@@ -853,8 +877,10 @@ Implement secondary LSP features that improve code navigation and editing: docum
 
 ## Phase 8: Code Actions, Formatting, and Selection Range
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+> **Status:** Complete (2026-08-18)
+
+
+
 
 ### Phase Overview
 
@@ -937,8 +963,10 @@ Implement code actions (quick fixes), basic code formatting, and smart selection
 
 ## Phase 9: Semantic Tokens and Workspace Symbols
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+> **Status:** Complete (2026-08-18)
+
+
+
 
 ### Phase Overview
 
@@ -1013,141 +1041,7 @@ Implement semantic token highlighting (richer syntax coloring based on semantic 
 ### Dependencies
 
 - **Requires:** Phase 3 (`AnalysisService` with binder results), Phase 4 (symbol resolution)
-- **Provides for Phase 10:** Complete feature set for the language server
-
----
-
-## Phase 10: VS Code Extension and Integration Testing
-
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
-
-### Phase Overview
-
-Create a VS Code extension that launches the Tyhp language server, provides basic language configuration (file associations, bracket matching, comment toggling), and includes a TextMate grammar for base syntax highlighting. This phase also covers integration testing of the language server.
-
-### Deliverables
-
-- Create `vscode-tyhp/` directory at the project root
-- Create `vscode-tyhp/package.json` — Extension manifest
-- Create `vscode-tyhp/src/extension.ts` — Extension entry point
-- Create `vscode-tyhp/language-configuration.json` — Bracket pairs, comments, auto-closing
-- Create `vscode-tyhp/syntaxes/tyhp.tmLanguage.json` — TextMate grammar for `.tyhp` files
-- Create `vscode-tyhp/syntaxes/tyhpdef.tmLanguage.json` — TextMate grammar for `.tyhpdef` files
-- Create `vscode-tyhp/tsconfig.json` — TypeScript configuration
-- Create `vscode-tyhp/.vscodeignore` — Files to exclude from VSIX package
-- Modify `Tyhp/Config/DisplayHelp.cs` — Implement `LanguageServerHelp()` with full help text
-
-### Implementation Details
-
-**Extension manifest (`package.json`):**
-- Extension ID: `tyhp.tyhp-lang`
-- Display name: `Tyhp Language Support`
-- Activation events: `onLanguage:tyhp`, `onLanguage:tyhpdef`
-- Contributes:
-  - Languages: `tyhp` (extensions: `.tyhp`), `tyhpdef` (extensions: `.tyhpdef`)
-  - Grammars: TextMate grammars for both language IDs
-  - Configuration:
-    - `tyhp.languageServer.path` (string) — Path to the Tyhp compiler binary
-    - `tyhp.languageServer.args` (string[]) — Additional arguments
-    - `tyhp.projectFile` (string) — Path to `tyhp.json` (default: `./tyhp.json`)
-    - `tyhp.diagnostics.enable` (boolean, default true)
-    - `tyhp.completion.autoImport` (boolean, default true)
-
-**Extension entry point (`extension.ts`):**
-- On activation:
-  1. Resolve the Tyhp compiler path from settings or `PATH`
-  2. Create a `LanguageClient` from `vscode-languageclient` package
-  3. Configure it to spawn the Tyhp compiler with `language_server` action: `tyhp language_server`
-  4. Use stdio transport
-  5. Set document selector for `tyhp` and `tyhpdef` languages
-  6. Start the client
-- On deactivation: stop the client
-
-**Language configuration (`language-configuration.json`):**
-- Comments: line `//`, block `/* */`
-- Brackets: `{}`, `[]`, `()`, `<>`
-- Auto-closing pairs: quotes, brackets, parentheses
-- Surrounding pairs: quotes, brackets
-- Folding markers: `#region` / `#endregion` (if supported), or brace-based
-- Word pattern: PHP/Tyhp variable pattern (`\$?[a-zA-Z_]\w*`)
-- Indentation rules: increase after `{`, decrease after `}`
-
-**TextMate grammar (`tyhp.tmLanguage.json`):**
-- Based on PHP grammar but extended for Tyhp syntax:
-  - `<?tyhp` open tag (in addition to `<?php`)
-  - `struct` keyword
-  - `type` keyword (for type aliases)
-  - `extension` keyword
-  - `operator` keyword (for overloads)
-  - `import` / `using` keywords
-  - Generic syntax `<T>` in type positions
-  - Disposable assignment `:=`
-  - `async` / `await` keywords
-  - `with` keyword
-  - `nameof()`, `typeof()`, `default()` compile-time constructs
-  - Type guard return syntax `$param is Type`
-  - Property accessor syntax (`get`, `set` in property declarations)
-- Scopes should follow standard TextMate naming conventions (e.g., `keyword.control.tyhp`, `entity.name.type.class.tyhp`, `variable.other.tyhp`)
-
-**TextMate grammar (`tyhpdef.tmLanguage.json`):**
-- Simpler grammar covering tyhpdef-specific syntax:
-  - `import class`, `import function`, `import const`, `import enum` blocks
-  - `deprecated`, `obsolete` keywords
-  - Type annotations and function signatures
-  - Namespace declarations
-
-**`LanguageServerHelp()` in `DisplayHelp.cs`:**
-- Usage: `tyhp language_server [options]`
-- Description: Start the Tyhp Language Server Protocol (LSP) server for IDE integration
-- Options:
-  - `--stdio` — communicate via stdin/stdout (default, and the **only transport implemented in this story**; the skeleton in Phase 1 wires stdin/stdout exclusively)
-  - `--tcp=<port>` — communicate via TCP on specified port *(documented for future use — not yet implemented; mark `// PLACEHOLDER_STORY_30: tcp transport`)*
-  - `--pipe=<name>` — communicate via named pipe *(documented for future use — not yet implemented; mark `// PLACEHOLDER_STORY_30: named-pipe transport`)*
-- Examples: `tyhp language_server` (start in stdio mode for VS Code/editor integration)
-- Implement `LanguageServerHelp()` using `Message.Info()` and `Message.Display()` directly (without `HelpFormatting` utility). Story 13 will introduce `HelpFormatting` and refactor existing help methods to use it at that time.
-
-**Integration testing approach:**
-- Create test scripts that start the language server and send LSP messages via stdin
-- Verify responses for:
-  - `initialize` returns correct capabilities
-  - `textDocument/didOpen` triggers diagnostics
-  - `textDocument/completion` returns results
-  - `textDocument/definition` returns correct location
-  - `textDocument/hover` returns formatted content
-  - `shutdown`/`exit` cleanly terminates
-- Tests can use the `vscode-languageclient` test utilities or a simple stdin/stdout test harness
-
-### Acceptance Criteria
-
-- Installing the VS Code extension from the VSIX file succeeds
-- Opening a `.tyhp` file activates the extension and starts the language server
-- Basic syntax highlighting works (keywords, strings, numbers, comments, variables are colored)
-- `.tyhpdef` files have syntax highlighting
-- Bracket matching works for `{}`, `[]`, `()`, `<>`
-- Comment toggling (Ctrl+/) works with `//` for line comments
-- All LSP features from previous phases work through the VS Code extension:
-  - Diagnostics appear in the Problems panel
-  - Go-to-definition navigates correctly
-  - Hover shows type information
-  - Autocomplete works with trigger characters
-  - Find references returns results
-  - Rename works across files
-  - Document outline shows symbols
-  - Signature help shows during function calls
-  - Code actions offer quick fixes
-  - Semantic tokens provide richer coloring
-- `tyhp help --subject=language_server` displays complete language server help text
-- The extension gracefully handles the language server not being found (shows error message with setup instructions)
-- The extension recovers if the language server crashes (auto-restart with backoff)
-- `dotnet build` succeeds for the C# project
-- `npm run compile` (or equivalent) succeeds for the VS Code extension
-- `dotnet build` succeeds with no errors for the main project
-
-### Dependencies
-
-- **Requires:** Phases 1-9 (all language server features)
-- **Provides:** Complete, usable VS Code extension for the Tyhp language
+- **Provides for Story 19.5:** Complete language-server feature set for IDE clients to consume
 
 ---
 
@@ -1164,7 +1058,8 @@ Create a VS Code extension that launches the Tyhp language server, provides basi
 | 7 | Document Symbols, Signature Help, Folding | `DocumentSymbolHandler`, `SignatureHelpHandler`, `FoldingRangeHandler` |
 | 8 | Code Actions, Formatting, Selection | `CodeActionHandler`, `FormattingHandler`, `SelectionRangeHandler` |
 | 9 | Semantic Tokens, Workspace Symbols | `SemanticTokensHandler`, `WorkspaceSymbolHandler` |
-| 10 | VS Code Extension, Integration Testing | Extension manifest, TextMate grammar, integration tests |
+
+> **VS Code / PhpStorm clients** (extension scaffold, TextMate grammars, LanguageClient, VSIX) are **Story 19.5**, not a phase of this story.
 
 ---
 
@@ -1197,13 +1092,13 @@ Create a VS Code extension that launches the Tyhp language server, provides basi
 
 ---
 
-*Last updated: 2026-02-16*
+*Last updated: 2026-08-18* (Golden Fixtures / Tests complete — LSP protocol harness + N/A emit fixtures)
 
 ---
 
 ## Human Testing and Verification
 
-> **Note:** These steps are for a human developer to manually verify the LSP implementation. Steps can be skipped, reordered, or modified as appropriate for your environment. You will need a working `dotnet build`, a built `tyhp` binary, and VS Code installed.
+> **Note:** These steps verify the **language server process** (stdio JSON-RPC). Steps can be skipped, reordered, or modified as appropriate. You need a working `dotnet build` and a built `tyhp` binary. **VS Code / PhpStorm UI verification** (extension install, syntax highlighting, Problems panel, F12, lightbulb) is **Story 19.5** — do not treat a missing LSP client in `tyhp-lang/vscode/` as a Story 19 gap (the folder already exists for TextMate highlighting).
 
 ### Step 1: Verify the Build Compiles
 
@@ -1285,9 +1180,9 @@ function greet(string $name): string {
 }
 ```
 
-Open this project in VS Code with the Tyhp extension installed (see Step 8). The missing semicolon on line 4 should produce a diagnostic in the Problems panel.
+Send `textDocument/didOpen` for this file over stdin (after `initialize` / `initialized`). The server should publish `textDocument/publishDiagnostics` with an error on the missing semicolon / unexpected token (around line 4).
 
-**Expected:** A diagnostic error pointing to line 4, indicating the missing semicolon or unexpected token.
+**Expected:** A diagnostic error pointing to line 4. VS Code Problems-panel UX is Story 19.5.
 
 ### Step 5: Verify Go-to-Definition and Hover
 
@@ -1313,12 +1208,12 @@ function createUser(): User {
 }
 ```
 
-Open this file in VS Code:
+Send `textDocument/didOpen` for this file, then protocol requests (editor keybindings / F12 / hover popups are Story 19.5):
 
-- **Go-to-definition:** Place cursor on `User` in the `createUser` function's return type and press F12 (or Ctrl+Click). It should jump to the `class User` declaration.
-- **Go-to-definition:** Place cursor on `$this->name` inside `greet()` and press F12. It should jump to `public string $name`.
-- **Hover:** Hover over `$user` after the `new User()` assignment. It should show the type as `User`.
-- **Hover:** Hover over the `greet` method name. It should show the full method signature: `public function greet(): string`.
+- **Go-to-definition:** `textDocument/definition` on `User` in `createUser`'s return type → `Location` of `class User`.
+- **Go-to-definition:** `textDocument/definition` on `$this->name` inside `greet()` → `Location` of `public string $name`.
+- **Hover:** `textDocument/hover` on `$user` after `new User()` → type `User`.
+- **Hover:** `textDocument/hover` on the `greet` method name → signature `public function greet(): string`.
 
 ### Step 6: Verify Autocomplete
 
@@ -1331,47 +1226,30 @@ function testCompletion(): void {
 }
 ```
 
-- After typing `$user->`, the autocomplete menu should appear showing `name`, `age`, and `greet()`.
-- After typing `$u` at the start of a line, autocomplete should suggest `$user` from the local scope.
-- In a type annotation position (e.g., after `function foo(`), typing should suggest available types like `User`, `string`, `int`, etc.
+- `textDocument/completion` after `$user->` → items for `name`, `age`, and `greet()`.
+- `textDocument/completion` after `$u` at the start of a line → `$user` from local scope.
+- `textDocument/completion` in a type-annotation position → types like `User`, `string`, `int`.
+
+Autocomplete menus in the editor are Story 19.5.
 
 ### Step 7: Verify Find References and Rename
 
 Using the `definitions.tyhp` file from Step 5:
 
-- **Find References:** Right-click on `$name` in the `User` class property and select "Find All References." It should list: the declaration, the usage in `greet()`, and the assignment in `createUser()`.
-- **Rename:** Right-click on `$name` in the `User` class property and select "Rename Symbol." Rename it to `$fullName`. All three usages should update.
-- **Rename rejection:** Try to rename a built-in type (like `string`) — it should refuse.
+- **Find References:** `textDocument/references` on `$name` in the `User` class property → declaration, usage in `greet()`, assignment in `createUser()`.
+- **Rename:** `textDocument/rename` of `$name` to `$fullName` → `WorkspaceEdit` covering all three usages.
+- **Rename rejection:** `textDocument/prepareRename` / `rename` on a built-in type (like `string`) → refuse.
 
-### Step 8: Install and Test the VS Code Extension
+Editor context-menu UX is Story 19.5.
 
-Build and install the VS Code extension:
+### Step 8: Verify Document Symbols and Folding
 
-```bash
-cd vscode-tyhp
-npm install
-npm run compile
-npx vsce package
-code --install-extension tyhp-lang-*.vsix
-```
+Open a `.tyhp` file with classes, methods, and properties (protocol; Outline / breadcrumbs / fold arrows are Story 19.5):
 
-After installing:
+- **Document symbols:** `textDocument/documentSymbol` returns a tree: the class, its methods, and properties with correct kinds.
+- **Folding:** `textDocument/foldingRange` returns ranges for class/function bodies and multi-line doc comments.
 
-1. Open a `.tyhp` file — the extension should activate and the language server should start (check Output panel > "Tyhp Language Server").
-2. Verify syntax highlighting: keywords (`class`, `function`, `if`, `return`) should be colored differently from strings, numbers, and identifiers.
-3. Verify bracket matching: place cursor on `{` and its matching `}` should highlight.
-4. Verify comment toggling: select a line and press Ctrl+/ — it should toggle `//` comments.
-5. Open a `.tyhpdef` file — it should also have basic syntax highlighting.
-
-### Step 9: Verify Document Symbols and Folding
-
-Open a `.tyhp` file with classes, methods, and properties:
-
-- **Outline panel:** The VS Code Outline view (sidebar) should show a tree: the class, its methods, and properties with correct icons.
-- **Breadcrumbs:** The breadcrumb bar at the top of the editor should show `file > namespace > class > method` as you navigate.
-- **Folding:** Click the fold arrow next to a class or function definition — the body should collapse. Multi-line doc comments should also be foldable.
-
-### Step 10: Verify Signature Help
+### Step 9: Verify Signature Help
 
 Create a function with multiple parameters and test signature help:
 
@@ -1385,20 +1263,22 @@ function calculate(int $a, float $b, string $label): string {
 $result = calculate(
 ```
 
-- After typing `(`, a signature help popup should appear showing `calculate(int $a, float $b, string $label): string` with `$a` highlighted as the active parameter.
-- After typing `1, `, the active parameter highlight should move to `$b`.
-- After typing `1, 2.5, `, the active parameter highlight should move to `$label`.
+- `textDocument/signatureHelp` just after `(` → signature `calculate(int $a, float $b, string $label): string` with active parameter `$a`.
+- After `1, ` → active parameter `$b`.
+- After `1, 2.5, ` → active parameter `$label`.
 
-### Step 11: Verify Semantic Tokens
+Signature-help popups in the editor are Story 19.5.
 
-Open a file with various symbol types and check that semantic coloring is richer than basic syntax highlighting:
+### Step 10: Verify Semantic Tokens
 
-- Variables and parameters should have different colors.
-- Type references in annotations (e.g., `User $user`) should be colored as types.
-- Static members should be visually distinct.
-- Deprecated symbols (if any) should show strikethrough.
+`textDocument/semanticTokens/full` encodes distinct token types/modifiers (editor theme coloring is Story 19.5):
 
-### Step 12: Verify Code Actions
+- Variables vs parameters use different token types.
+- Type references in annotations (e.g., `User $user`) are `type`.
+- Static members include the `static` modifier.
+- Deprecated symbols include the `deprecated` modifier.
+
+### Step 11: Verify Code Actions
 
 Create a file that references a type from another namespace without importing it:
 
@@ -1412,28 +1292,30 @@ function getUser(): User {
 }
 ```
 
-If `User` is defined in `App\Models`, the lightbulb icon should appear offering "Import App\Models\User" as a quick fix. Selecting it should add `use App\Models\User;` at the top of the file.
+If `User` is defined in `App\Models`, `textDocument/codeAction` at that diagnostic offers an auto-import whose `WorkspaceEdit` adds `use App\Models\User;` (lightbulb UX is Story 19.5).
 
-### Step 13: Verify Workspace Symbol Search
+### Step 12: Verify Workspace Symbol Search
 
-Press Ctrl+T (Go to Symbol in Workspace) and type a class or function name. Results should appear from across all project files with correct file locations and symbol kinds.
+`workspace/symbol` with a class or function name query returns matches from across project files with correct locations and kinds (Ctrl+T UI is Story 19.5).
 
-### Step 14: Verify Error Recovery
+### Step 13: Verify Error Recovery
 
 The language server should not crash on malformed input:
 
-- Open a `.tyhp` file and type random characters — diagnostics should appear but the server should remain responsive.
-- Delete half a class definition — diagnostics should update and other features (hover on valid symbols) should still work.
-- Save a file with syntax errors — diagnostics should persist; fixing them should clear diagnostics.
+- `didChange` with random characters → diagnostics publish; further requests still succeed.
+- Delete half a class definition → diagnostics update; hover on still-valid symbols still works.
+- `didSave` with syntax errors → diagnostics persist; fixing them clears diagnostics.
 
 ---
 
 ## Golden Fixtures / Tests (Acceptance)
 
+> **Status:** Complete (2026-08-18)
+
 > Standardized testing-first acceptance criteria (uniform across all stories). The golden conformance fixture suite established in **Story 07 (Testing Infrastructure)** is the project backbone; every story contributes fixtures to it. See `CONVENTIONS.md` for fixture layout and canonical paths.
 
-- [ ] **Golden fixtures:** Add `.tyhp → .php` (plus expected-diagnostics) golden fixtures covering this story's features to the conformance suite (Story 07). The committed fixtures are the source of truth for expected compiler output.
-- [ ] **Unit / integration tests:** Cover new components under the relevant test categories defined in Story 07.
-- [ ] **Conformance run green:** The full `tyhp` conformance/test run passes with the new fixtures before this story is considered done.
-- [ ] **Runtime self-host conformance (runtime-affecting stories only):** Recompile the Tyhp runtime sources and diff the generated PHP against the committed `runtime/` PHP to catch drift (the "compiler builds its own runtime" milestone — see Story 07).
-- [ ] **Diagnostics registered centrally:** Any new diagnostic codes are added only in `Tyhp/Domain/Exceptions/MessageCode.cs` (single source of truth — see `CONVENTIONS.md`), never re-declared in this doc.
+- [x] **Golden fixtures:** *N/A for the language server (no emit surface); protocol coverage lives in `tests/Tyhp.Tests/LanguageServer/`.* Add `.tyhp → .php` (plus expected-diagnostics) golden fixtures covering this story's features to the conformance suite (Story 07). The committed fixtures are the source of truth for expected compiler output.
+- [x] **Unit / integration tests:** Cover new components under the relevant test categories defined in Story 07. Include a stdin/stdout LSP harness (or equivalent) that checks `initialize` capabilities, `didOpen` → diagnostics, `completion` / `definition` / `hover`, and `shutdown`/`exit`. Do **not** require growing `tyhp-lang/vscode/` into a full LSP client or a VSIX for this story. *(In-memory Content-Length harness: `LspTestSession` + `LspProtocolHarnessTests`; per-feature tests under `tests/Tyhp.Tests/LanguageServer/` and CLI wiring under `tests/Tyhp.Tests/CLI/`.)*
+- [x] **Conformance run green:** The full `tyhp` conformance/test run passes with the new fixtures before this story is considered done. *(`dotnet test --filter Category=Conformance`: 113 passed, 1 skipped — pre-existing self-host Fact; `Category=LanguageServer`: 191 passed, re-verified after the Phase 9 review added 3 tests.)*
+- [x] **Runtime self-host conformance (runtime-affecting stories only):** *N/A — LSP does not change emitted PHP.* Recompile the Tyhp runtime sources and diff the generated PHP against the committed `runtime/` PHP to catch drift (the "compiler builds its own runtime" milestone — see Story 07).
+- [x] **Diagnostics registered centrally:** Any new diagnostic codes are added only in `Tyhp/Domain/Exceptions/MessageCode.cs` (single source of truth — see `CONVENTIONS.md`), never re-declared in this doc. *(TYHP7300–7303: `LspUnknownError`, `LspServerStartupFailed`, `LspAnalysisError`, `LspSourceMapLoadError`.)*

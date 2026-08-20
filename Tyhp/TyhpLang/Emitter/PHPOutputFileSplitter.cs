@@ -536,6 +536,7 @@ namespace Tyhp.TyhpLang.Emitter
                 return new PHPOutputFile
                 {
                     SourceFileAst = this._srcFile,
+                    SourceFileName = this._srcFile.FileName,
                     OutputFilePath = outputFilePath,
                     FileDeclares = this.GetDeclaresForNamespace(namespaceStatement),
                     FileImports = this.GetImportsForNamespace(namespaceStatement),

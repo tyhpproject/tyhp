@@ -42,5 +42,16 @@ namespace Tyhp.TyhpLang.Binder.Symbols.Interfaces {
         /// Source column of declaration.
         /// </summary>
         int Column { get; }
+
+        /// <summary>
+        /// Ending source line of the declaring AST node, or <c>0</c> when unknown.
+        /// </summary>
+        int EndLine { get; }
+
+        /// <summary>
+        /// Exclusive ending column of the declaring AST node, or <c>0</c> when unknown.
+        /// Matches <see cref="Tyhp.TyhpLang.Ast.Interfaces.IBase2Ast.EndColumn"/>.
+        /// </summary>
+        int EndColumn { get; }
     }
 }

@@ -7,11 +7,11 @@
     "prefer-stable": true,
     "require": {
         "php": ">=8.2",
-        "tyhp/core": "0.0",
-        "tyhp/decimal": "0.0",
-        "tyhp/async": "0.0",
-        "tyhp/lambda": "0.0",
-        "tyhp/php": "0.0"
+        "tyhp/core": "0.1",
+        "tyhp/decimal": "0.1",
+        "tyhp/async": "0.1",
+        "tyhp/lambda": "0.1",
+        "tyhp/php": "0.1"
     },
     "require-dev": {
         "phpunit/phpunit": "^10.0|^11.0",

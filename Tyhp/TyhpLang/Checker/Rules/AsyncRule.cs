@@ -3,6 +3,7 @@ using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Enum;
 using Tyhp.TyhpLang.Parser;
 
@@ -37,7 +38,12 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     CheckAwait(unary, state, diagnostics);
                     break;
                 case PhpFunctionDeclAst function when IsAsyncFunction(function):
-                    ValidateAsyncCallableReturnType(function.ReturnType, function, state, context, diagnostics);
+                    ValidateAsyncCallableReturnType(
+                        function.ReturnType,
+                        function,
+                        StateWithFunctionGenerics(function.BoundSymbol, state),
+                        context,
+                        diagnostics);
                     break;
             }
         }
@@ -95,6 +101,18 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 CheckerHelpers.ReportError(
                     diagnostics, state, returnTypeAst, MessageCode.CheckerGeneratorInvalidReturnType);
             }
+        }
+
+        private static CheckerState StateWithFunctionGenerics(IBaseSymbol? symbol, CheckerState state)
+        {
+            if (symbol is FunctionDeclarationSymbol { GenericParameters.Count: > 0 } function)
+            {
+                var forked = state.Fork();
+                forked.FunctionGenerics = function.GenericParameters;
+                return forked;
+            }
+
+            return state;
         }
 
         private static bool IsAwaitOperator(PhpUnaryOpAst unary) =>

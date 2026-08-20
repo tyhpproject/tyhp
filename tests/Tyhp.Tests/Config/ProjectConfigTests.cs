@@ -24,6 +24,33 @@ public class ProjectConfigTests
         project.Checker.TemplateStringMaxStates.Should().Be(256);
         project.Tagless.Should().BeFalse();
         project.PhpVersion.Should().Be("8.4");
+        project.PidFile.Should().BeNull();
+    }
+
+    [Fact]
+    public void Project_ParsesPidFileFromCliFlag()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["pid-file"] = "/tmp/tyhp.pid",
+            })
+            .Build();
+
+        new Project(configuration).PidFile.Should().Be("/tmp/tyhp.pid");
+    }
+
+    [Fact]
+    public void Project_TreatsBlankPidFileAsUnset()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["pid-file"] = "   ",
+            })
+            .Build();
+
+        new Project(configuration).PidFile.Should().BeNull();
     }
 
     [Fact]
@@ -404,5 +431,64 @@ public class ProjectConfigTests
         var project = new Project(configuration);
 
         project.IncludePaths.Should().Equal("only/**/*.tyhp");
+    }
+
+    [Fact]
+    public void Project_ParsesXDebugProxySection()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["xdebugProxy:idePort"] = "9010",
+                ["xdebugProxy:xdebugPort"] = "9011",
+                ["xdebugProxy:ideListenAddress"] = "0.0.0.0",
+                ["xdebugProxy:xdebugListenAddress"] = "127.0.0.1",
+                ["xdebugProxy:sourceMapDir"] = "maps/",
+                ["xdebugProxy:ideKey"] = "TYHP",
+                ["xdebugProxy:maxSessions"] = "3",
+                ["xdebugProxy:logLevel"] = "debug",
+                ["xdebugProxy:autoReloadSourceMaps"] = "false",
+            })
+            .Build();
+
+        var project = new Project(configuration);
+
+        project.XDebugProxy.IdeListenPort.Should().Be(9010);
+        project.XDebugProxy.XDebugListenPort.Should().Be(9011);
+        project.XDebugProxy.IdeListenAddress.Should().Be("0.0.0.0");
+        project.XDebugProxy.XDebugListenAddress.Should().Be("127.0.0.1");
+        project.XDebugProxy.SourceMapDirectory.Should().Be("maps/");
+        project.XDebugProxy.IdeKey.Should().Be("TYHP");
+        project.XDebugProxy.MaxSessions.Should().Be(3);
+        project.XDebugProxy.LogLevel.Should().Be("debug");
+        project.XDebugProxy.AutoReloadSourceMaps.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Project_CliIdePort_OverridesXDebugProxySection()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["xdebugProxy:idePort"] = "9003",
+                ["xdebugProxy:xdebugPort"] = "9004",
+                ["xdebugProxy:sourceMapDir"] = "from-json/",
+                ["xdebugProxy:ideKey"] = "JSON",
+                ["xdebugProxy:logLevel"] = "info",
+                ["ide-port"] = "9005",
+                ["xdebug-port"] = "9006",
+                ["sourcemap-dir"] = "from-cli/",
+                ["ide-key"] = "CLI",
+                ["log-level"] = "debug",
+            })
+            .Build();
+
+        var project = new Project(configuration);
+
+        project.XDebugProxy.IdeListenPort.Should().Be(9005);
+        project.XDebugProxy.XDebugListenPort.Should().Be(9006);
+        project.XDebugProxy.SourceMapDirectory.Should().Be("from-cli/");
+        project.XDebugProxy.IdeKey.Should().Be("CLI");
+        project.XDebugProxy.LogLevel.Should().Be("debug");
     }
 }

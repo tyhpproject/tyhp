@@ -9,11 +9,11 @@ namespace Tyhp.Domain.Services
     /// </summary>
     internal static class RuntimePackageVersions
     {
-        internal const string Php = "0.0";
-        internal const string Core = "0.0";
-        internal const string Async = "0.0";
-        internal const string Decimal = "0.0";
-        internal const string Lambda = "0.0";
+        internal const string Php = "0.1";
+        internal const string Core = "0.1";
+        internal const string Async = "0.1";
+        internal const string Decimal = "0.1";
+        internal const string Lambda = "0.1";
 
         internal static readonly IReadOnlyDictionary<string, string> Bundled =
             new Dictionary<string, string>(StringComparer.Ordinal)

@@ -100,8 +100,8 @@ Tyhp/TyhpLang/Binder/
 
 ## Phase 1: Add BoundSymbol to AST Infrastructure
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -173,8 +173,8 @@ Set `OwningFile` on each AST node during the bind pass, not at visitor construct
 
 ## Phase 2: Populate BoundSymbol During Binding
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 

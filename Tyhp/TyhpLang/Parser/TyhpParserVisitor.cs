@@ -618,6 +618,12 @@ public interface ITyhpParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitPhpExprAssignmentOpsGrammarAddon([NotNull] TyhpParser.PhpExprAssignmentOpsGrammarAddonContext context);
 	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.phpExprPrecBaseGrammarAddon"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitPhpExprPrecBaseGrammarAddon([NotNull] TyhpParser.PhpExprPrecBaseGrammarAddonContext context);
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpReservedNonModifiers"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
@@ -1806,12 +1812,6 @@ public interface ITyhpParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitPhpExprPrecBaseGrammarAddonHandler([NotNull] TyhpParser.PhpExprPrecBaseGrammarAddonHandlerContext context);
-	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.phpExprPrecBaseGrammarAddon"/>.
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	Result VisitPhpExprPrecBaseGrammarAddon([NotNull] TyhpParser.PhpExprPrecBaseGrammarAddonContext context);
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.optionalExpr"/>.
 	/// </summary>

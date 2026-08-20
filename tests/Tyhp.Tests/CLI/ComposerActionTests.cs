@@ -21,13 +21,13 @@ public class ComposerActionTests
     }
 
     [Fact]
-    public void FilterComposerArgs_StripsSpaceSeparatedTyhpProjectValue()
+    public void FilterComposerArgs_StripsSpaceSeparatedPidFileValue()
     {
         var filtered = ComposerAction.FilterComposerArgs(
         [
             "install",
-            "--tyhp-project",
-            "./custom.json",
+            "--pid-file",
+            "/tmp/tyhp.pid",
             "--no-dev",
         ]);
 

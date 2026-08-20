@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Tyhp.TyhpLang.Emitter.SourceMap;
 
 namespace Tyhp.TyhpLang.Emitter
 {
@@ -125,6 +126,113 @@ namespace Tyhp.TyhpLang.Emitter
                     segments.Add(line.Length == 0 ? "" : indent + line);
                 }
             }
+        }
+
+        /// <summary>
+        /// Render this item the same way as <see cref="emit(int)"/>, while reporting each fragment
+        /// to <paramref name="collector"/> so Source Map v3 mappings can be recorded.
+        /// </summary>
+        /// <remarks>
+        /// Indent whitespace and the newlines that join segments have no source mapping
+        /// (<see langword="null"/> provider). Content lines are reported with
+        /// <see cref="Provider"/>. Skipped whitespace-only children are never reported, so the
+        /// collector's generated position stays aligned with the returned string.
+        /// </remarks>
+        public string emit(int indentLevel, SourceMapCollector collector)
+        {
+            ArgumentNullException.ThrowIfNull(collector);
+
+            string indent = "";
+            for (int i = 0; i < indentLevel; i++) {
+                indent += "    ";
+            }
+
+            var segments = new List<string>();
+
+            AppendTrackedContent(segments, collector, StartContent, indent, this.Provider);
+
+            Enum.EmitType? lastEmittedChildType = null;
+            foreach (var child in this.SortedChildren()) {
+                // Peek with the non-tracking path so children that emit() would drop never touch
+                // the collector (their mappings / column advances would desync from the string).
+                string childText = child.value.emit(indentLevel + 1);
+                if (!String.IsNullOrWhiteSpace(childText)) {
+                    // PSR-12 §4.2: blank line after the trait-use group when more class members follow.
+                    if (segments.Count > 0
+                        && lastEmittedChildType == Enum.EmitType.ObjectTraitUse
+                        && child.value.EmitType != Enum.EmitType.ObjectTraitUse)
+                    {
+                        AppendTrackedSegment(segments, collector, indent: "", line: "", provider: null);
+                    }
+
+                    if (segments.Count > 0)
+                    {
+                        collector.AddContent("\n", null);
+                    }
+
+                    string tracked = child.value.emit(indentLevel + 1, collector);
+                    segments.Add(tracked);
+                    lastEmittedChildType = child.value.EmitType;
+                }
+            }
+
+            AppendTrackedContent(segments, collector, EndContent, indent, this.Provider);
+
+            return String.Join("\n", segments);
+        }
+
+        private static void AppendTrackedContent(
+            List<string> segments,
+            SourceMapCollector collector,
+            IList<string> content,
+            string indent,
+            Ast.Interfaces.IBase2Ast provider)
+        {
+            foreach (var piece in content)
+            {
+                if (piece is null)
+                {
+                    continue;
+                }
+
+                var normalized = piece.Replace("\r\n", "\n").Replace('\r', '\n');
+                if (normalized.Length == 0)
+                {
+                    continue;
+                }
+
+                foreach (var line in normalized.Split('\n'))
+                {
+                    AppendTrackedSegment(segments, collector, indent, line, provider);
+                }
+            }
+        }
+
+        private static void AppendTrackedSegment(
+            List<string> segments,
+            SourceMapCollector collector,
+            string indent,
+            string line,
+            Ast.Interfaces.IBase2Ast? provider)
+        {
+            string segment = line.Length == 0 ? "" : indent + line;
+
+            if (segments.Count > 0)
+            {
+                collector.AddContent("\n", null);
+            }
+
+            if (line.Length > 0)
+            {
+                if (indent.Length > 0)
+                {
+                    collector.AddContent(indent, null);
+                }
+
+                collector.AddContent(line, provider);
+            }
+
+            segments.Add(segment);
         }
 
         /// <summary>

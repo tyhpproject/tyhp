@@ -345,12 +345,41 @@ namespace Tyhp.Domain.Services
             }
 
             // PLACEHOLDER_STORY_09: Emitter reads checker diagnostics for conditional emit paths
-            // PLACEHOLDER_STORY_19: LSP integration — publishDiagnostics from checker
+            // Language-server publishDiagnostics is owned by AnalysisService (Story 19 Phase 3),
+            // not this batch pipeline.
 
             // Final progress report
             ReportProgress(options.Progress, filesProcessed, totalFiles, result, "Parsing complete");
 
             return result;
+        }
+
+        /// <summary>
+        /// Parses in-memory source using the same lexer, parser, visitor, error listeners,
+        /// and language-mode detection as <see cref="ParseFiles"/>, without reading from disk.
+        /// </summary>
+        /// <param name="content">Full document text.</param>
+        /// <param name="filePath">Path used for diagnostics, cache keys, and entry-point selection.</param>
+        /// <param name="diagnostics">Bag that receives parse/lexer/visitor diagnostics.</param>
+        /// <param name="options">Compilation options; cache is off when omitted.</param>
+        /// <returns>The parsed <see cref="SrcFileAst"/>, or null if parsing produced no tree.</returns>
+        public SrcFileAst? ParseFromContent(
+            string content,
+            string filePath,
+            DiagnosticBag? diagnostics = null,
+            CompilationOptions? options = null)
+        {
+            if (this._disposed)
+            {
+                throw new ObjectDisposedException(nameof(CompilationService));
+            }
+
+            ArgumentNullException.ThrowIfNull(content);
+            ArgumentNullException.ThrowIfNull(filePath);
+
+            diagnostics ??= new DiagnosticBag();
+            options ??= new CompilationOptions { EnableAstCache = false };
+            return this.ParseContentCore(content, filePath, diagnostics, options, out _, out _);
         }
 
         /// <summary>
@@ -399,10 +428,96 @@ namespace Tyhp.Domain.Services
                 GC.Collect();
             }
 
-            // Get thread-local lexer and parser instances
-            TyhpLexer? lexer = null;
-            TyhpParser? parser = null;
+            string? fileContent;
+            char[]? fileChars = fileData.Value;
+            if (fileChars == null)
+            {
+                try
+                {
+                    fileContent = File.ReadAllText(fileData.Key);
+                }
+                catch (FileNotFoundException)
+                {
+                    diagnostics.AddError(
+                        MessageCode.ParserCompileAborted,
+                        fileData.Key,
+                        0,
+                        0,
+                        $"File not found: {fileData.Key}");
+                    Interlocked.Increment(ref filesProcessed);
+                    return 0;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    diagnostics.AddError(
+                        MessageCode.ParserCompileAborted,
+                        fileData.Key,
+                        0,
+                        0,
+                        $"Access denied: {fileData.Key}");
+                    Interlocked.Increment(ref filesProcessed);
+                    return 0;
+                }
+                catch (IOException ex)
+                {
+                    diagnostics.AddError(
+                        MessageCode.ParserCompileAborted,
+                        fileData.Key,
+                        0,
+                        0,
+                        $"I/O error reading file: {ex.Message}");
+                    Interlocked.Increment(ref filesProcessed);
+                    return 0;
+                }
+            }
+            else
+            {
+                fileContent = new string(fileChars);
+            }
 
+            SrcFileAst? ast = this.ParseContentCore(
+                fileContent,
+                fileData.Key,
+                diagnostics,
+                options,
+                out bool cacheHit,
+                out bool cacheMiss);
+
+            if (cacheHit)
+            {
+                Interlocked.Increment(ref astCacheHits);
+            }
+
+            if (cacheMiss)
+            {
+                Interlocked.Increment(ref astCacheMisses);
+            }
+
+            if (ast != null)
+            {
+                parsedAsts.Add(ast);
+            }
+
+            Interlocked.Increment(ref filesProcessed);
+            return 0;
+        }
+
+        /// <summary>
+        /// Shared parse pipeline for disk and in-memory content.
+        /// </summary>
+        private SrcFileAst? ParseContentCore(
+            string content,
+            string filePath,
+            DiagnosticBag diagnostics,
+            CompilationOptions options,
+            out bool cacheHit,
+            out bool cacheMiss)
+        {
+            cacheHit = false;
+            cacheMiss = false;
+
+            TyhpLexer? lexer;
+            TyhpParser? parser;
             try
             {
                 lexer = this._threadLexer.Value;
@@ -412,95 +527,43 @@ namespace Tyhp.Domain.Services
             {
                 diagnostics.AddError(
                     MessageCode.ParserCompileAborted,
-                    fileData.Key,
+                    filePath,
                     0,
                     0,
                     "Internal error: compilation service has been disposed");
-                return 0;
+                return null;
             }
 
             if (lexer == null || parser == null)
             {
                 diagnostics.AddError(
                     MessageCode.ParserCompileAborted,
-                    fileData.Key,
+                    filePath,
                     0,
                     0,
                     "Internal error: thread-local lexer or parser is null");
-                return 0;
+                return null;
             }
 
-            // Reset parser state to prevent leakage between files
             parser.Profile = options.EnableProfiling;
-
-            // Reset prediction mode to default before applying options
             parser.Interpreter.PredictionMode = PredictionMode.SLL;
 
-            // Declare error listeners outside try block so they can be disposed in finally
             TyhpAntlrErrorListener<int>? lexerErrorListener = null;
             TyhpAntlrErrorListener<IToken>? parserErrorListener = null;
 
             try
             {
-                // Read file content once if not pre-read - avoid duplicate reads
-                string? fileContent = null;
-                char[]? fileChars = fileData.Value;
-
-                if (fileChars == null)
-                {
-                    // File was not pre-read, read it now
-                    try
-                    {
-                        fileContent = File.ReadAllText(fileData.Key);
-                        fileChars = fileContent.ToCharArray();
-                    }
-                    catch (FileNotFoundException)
-                    {
-                        diagnostics.AddError(
-                            MessageCode.ParserCompileAborted,
-                            fileData.Key,
-                            0,
-                            0,
-                            $"File not found: {fileData.Key}");
-                        return 0;
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                        diagnostics.AddError(
-                            MessageCode.ParserCompileAborted,
-                            fileData.Key,
-                            0,
-                            0,
-                            $"Access denied: {fileData.Key}");
-                        return 0;
-                    }
-                    catch (IOException ex)
-                    {
-                        diagnostics.AddError(
-                            MessageCode.ParserCompileAborted,
-                            fileData.Key,
-                            0,
-                            0,
-                            $"I/O error reading file: {ex.Message}");
-                        return 0;
-                    }
-                }
-                else
-                {
-                    fileContent = new string(fileChars);
-                }
-
-                // Set up input stream using already-read content
+                char[] fileChars = content.ToCharArray();
                 var inputStream = new AntlrInputStream(fileChars, fileChars.Length);
 
                 var taglessEnabled = false;
                 var taglessLanguageMode = string.Empty;
-                if (fileData.Key.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase))
+                if (filePath.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase))
                 {
                     taglessEnabled = options.Tagless;
                     taglessLanguageMode = "tyhpdef";
                 }
-                else if (fileData.Key.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase))
+                else if (filePath.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase))
                 {
                     taglessEnabled = options.Tagless;
                     taglessLanguageMode = "tyhp";
@@ -508,73 +571,58 @@ namespace Tyhp.Domain.Services
 
                 lexer.SetInputStream(inputStream);
                 lexer.Reset();
-                lexer.ConfigureTagless(taglessEnabled, taglessLanguageMode, diagnostics, fileData.Key);
+                lexer.ConfigureTagless(taglessEnabled, taglessLanguageMode, diagnostics, filePath);
                 (parser.TokenStream as CommonTokenStream)?.SetTokenSource(lexer);
                 parser.Reset();
 
-                // Set up error listeners for this file
-                // Create fresh listeners for each file to avoid cross-contamination
                 lexerErrorListener = new TyhpAntlrErrorListener<int>(diagnostics);
                 parserErrorListener = new TyhpAntlrErrorListener<IToken>(diagnostics);
 
                 lexer.RemoveErrorListeners();
                 lexer.AddErrorListener(lexerErrorListener);
-                lexerErrorListener.SetFileName(fileData.Key);
+                lexerErrorListener.SetFileName(filePath);
 
                 parser.RemoveErrorListeners();
                 parser.AddErrorListener(parserErrorListener);
-                parserErrorListener.SetFileName(fileData.Key);
+                parserErrorListener.SetFileName(filePath);
 
-                // Configure ambiguity detection if enabled
                 if (options.ReportAmbiguities)
                 {
                     parser.Interpreter.PredictionMode = PredictionMode.LL_EXACT_AMBIG_DETECTION;
                 }
 
-                // Compute file hash for cache lookup using already-read content.
-                // Include tagless mode so identical bytes lex differently when the setting toggles.
-                string fileDataHash = AstCacheService.ComputeContentHash(fileContent, taglessEnabled);
+                string fileDataHash = AstCacheService.ComputeContentHash(content, taglessEnabled);
 
-                // Try to get from cache if enabled
                 SrcFileAst? ast = null;
                 if (options.EnableAstCache)
                 {
-                    ast = AstCacheService.Get(fileData.Key, fileDataHash);
+                    ast = AstCacheService.Get(filePath, fileDataHash);
                     if (ast != null)
                     {
-                        Interlocked.Increment(ref astCacheHits);
+                        cacheHit = true;
                     }
                 }
 
-                // Parse if not cached
                 if (ast == null)
                 {
                     if (options.EnableAstCache)
                     {
-                        Interlocked.Increment(ref astCacheMisses);
+                        cacheMiss = true;
                     }
 
-                    // Snapshot before lex/parse/visit so we can refuse to cache a recoverable
-                    // error tree (ANTLR still yields a non-null AST; diagnostics are not serialized).
-                    var errorsBeforeParse = diagnostics.CountErrorsForFile(fileData.Key);
+                    var errorsBeforeParse = diagnostics.CountErrorsForFile(filePath);
 
                     ParserRuleContext ctx;
-
-                    // Determine entry point based on file extension (case-insensitive).
-                    // Check .tyhpdef before .tyhp because .tyhpdef ends with .tyhp.
-                    // When source.tagless is enabled, use the dedicated tagless entry rules
-                    // (optional open tag, no inline output / closing tag).
-                    if (fileData.Key.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase))
+                    if (filePath.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase))
                     {
                         ctx = taglessEnabled ? parser.tyhpdefTaglessSrcFile() : parser.tyhpdefSrcFile();
                     }
-                    else if (fileData.Key.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase))
+                    else if (filePath.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase))
                     {
                         ctx = taglessEnabled ? parser.tyhpTaglessSrcFile() : parser.tyhpSrcFile();
                     }
                     else
                     {
-                        // Default to PHP parser for .php files and any other extensions
                         ctx = parser.phpSrcFile();
                     }
 
@@ -583,34 +631,28 @@ namespace Tyhp.Domain.Services
                         taglessTokenStream.Fill();
                     }
 
-                    // Visit the parse tree to build AST
                     var visitor = new TyhpParserAstVisitor(
                         parser.TokenStream as CommonTokenStream,
-                        fileData.Key,
+                        filePath,
                         fileDataHash,
                         diagnostics);
 
-                    // Visit the parse tree - may return null if parsing fails catastrophically
                     var visitResult = visitor.Visit(ctx);
                     ast = visitResult as SrcFileAst;
 
                     if (ast == null && visitResult != null)
                     {
-                        // Visitor returned a non-null result but it's not a SrcFileAst
-                        // This indicates a visitor implementation error
                         diagnostics.AddError(
                             MessageCode.VisitorUnexpectedAlternative,
-                            fileData.Key,
+                            filePath,
                             0,
                             0,
                             "Visitor returned unexpected type",
                             visitResult.GetType().Name);
                     }
 
-                    // Cache only error-free parses. A broken file still produces a partial AST via
-                    // ANTLR recovery; caching it would make the next run a silent success.
                     var parseProducedErrors =
-                        diagnostics.CountErrorsForFile(fileData.Key) > errorsBeforeParse;
+                        diagnostics.CountErrorsForFile(filePath) > errorsBeforeParse;
                     if (options.EnableAstCache && ast != null && !parseProducedErrors)
                     {
                         try
@@ -619,20 +661,18 @@ namespace Tyhp.Domain.Services
                         }
                         catch (IOException ex)
                         {
-                            // Cache write failed - log but continue
                             diagnostics.AddWarning(
                                 MessageCode.ParserUnknownError,
-                                fileData.Key,
+                                filePath,
                                 0,
                                 0,
                                 $"Failed to cache AST: {ex.Message}");
                         }
                         catch (UnauthorizedAccessException ex)
                         {
-                            // Cache write failed due to permissions - log but continue
                             diagnostics.AddWarning(
                                 MessageCode.ParserUnknownError,
-                                fileData.Key,
+                                filePath,
                                 0,
                                 0,
                                 $"Access denied writing AST cache: {ex.Message}");
@@ -645,41 +685,27 @@ namespace Tyhp.Domain.Services
                     cachedTaglessTokenStream.Fill();
                 }
 
-                // Add to results if successfully parsed
-                if (ast != null)
-                {
-                    parsedAsts.Add(ast);
-                }
-                else
-                {
-                    // AST was null - either from cache miss + parse failure or cache hit with null
-                    // Diagnostics should already have been added by parser/visitor
-                    // No need to add another error here
-                }
+                return ast;
             }
             catch (ParseCanceledException)
             {
-                // Parsing was cancelled - ignore
+                return null;
             }
             catch (Exception ex)
             {
                 diagnostics.AddError(
                     MessageCode.ParserCompileAborted,
-                    fileData.Key,
+                    filePath,
                     0,
                     0,
                     $"Error ({ex.GetType().Name}): {ex.Message}");
+                return null;
             }
             finally
             {
-                // Dispose error listeners to clean up ThreadLocal resources
                 lexerErrorListener?.Dispose();
                 parserErrorListener?.Dispose();
-
-                Interlocked.Increment(ref filesProcessed);
             }
-
-            return 0;
         }
 
         /// <summary>

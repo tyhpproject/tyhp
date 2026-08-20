@@ -166,6 +166,8 @@ function toSnakeCase(extends string $str): string;
 function toSlug(extends string $str, string $separator = "-"): string;
 ```
 
+To map operators and methods onto an existing PHP class (inline `extension function` / `extension operator`, or `use extension` on the type), see [Extensions in Tyhpdef](tyhpdef_extensions.md).
+
 ## Summary
 
 - All parameters must be fully typed — no untyped parameters are allowed
@@ -178,3 +180,4 @@ function toSlug(extends string $str, string $separator = "-"): string;
 - Functions can be aliased using `as` to expose them under a different name in Tyhp
 - An imported function can be marked as `deprecated` or `obsolete`
 - Callable parameters use return-last generic convention: `callable<Params..., ReturnType>`
+- Top-level functions can use `extends` on the first parameter to import PHP functions as extension methods; class-body `extension function` / `extension operator` are covered in [Extensions in Tyhpdef](tyhpdef_extensions.md)

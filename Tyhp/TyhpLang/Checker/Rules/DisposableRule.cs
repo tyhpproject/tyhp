@@ -204,7 +204,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             foreach (var child in node.AstChildren)
             {
-                if (child is null || child is PhpStatementBlockAst || child is PhpInlineFunctionAst)
+                if (child is null || child is PhpStatementBlockAst || child is PhpInlineFunctionAst
+                    || child is TyhpAsyncBlockAst)
                 {
                     continue;
                 }
@@ -229,7 +230,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             foreach (var child in node.AstChildren)
             {
-                if (child is null || child is PhpInlineFunctionAst)
+                if (child is null || child is PhpInlineFunctionAst || child is TyhpAsyncBlockAst)
                 {
                     continue;
                 }
@@ -365,7 +366,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             foreach (var child in node.AstChildren)
             {
-                if (child is null || child is PhpInlineFunctionAst)
+                if (child is null || child is PhpInlineFunctionAst || child is TyhpAsyncBlockAst)
                 {
                     continue;
                 }

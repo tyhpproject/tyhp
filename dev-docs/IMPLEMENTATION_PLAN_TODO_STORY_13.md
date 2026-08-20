@@ -71,8 +71,8 @@ Tyhp/Config/
 ## Phase 1: Version Action and Help Infrastructure Foundations
 
 > **Status:** COMPLETED
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -202,8 +202,8 @@ Also accept `--help=true` / `--help=false` forms that result from bare-boolean e
 ## Phase 2: Build and Lint Help Text
 
 > **Status:** COMPLETED
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -289,8 +289,8 @@ This method should document the full `tyhp build` action:
 ## Phase 3: Remaining Help Text (Init, Composer, Language Server, XDebug Proxy, Generate Tyhpdef)
 
 > **Status:** COMPLETED
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -299,7 +299,7 @@ Complete all remaining help text methods in `DisplayHelp.cs`. Several of these a
 ### Deliverables
 
 **Modified files:**
-- `Tyhp/Config/DisplayHelp.cs` — Implement `InitHelp()`, `ComposerHelp()`, `XDebugProxyHelp()`, `GenerateTyhpdefHelp()` (Note: `LanguageServerHelp()` is implemented by Story 19 Phase 10 and should already exist. When `HelpFormatting` is introduced in Phase 1, refactor all existing help methods — including `LanguageServerHelp()` from Story 19 — to use the `HelpFormatting` utility for consistency.)
+- `Tyhp/Config/DisplayHelp.cs` — Implement `InitHelp()`, `ComposerHelp()`, `XDebugProxyHelp()`, `GenerateTyhpdefHelp()` (Note: `LanguageServerHelp()` is implemented by Story 19 Phase 1 and should already exist. When `HelpFormatting` is introduced in Phase 1, refactor all existing help methods — including `LanguageServerHelp()` from Story 19 — to use the `HelpFormatting` utility for consistency.)
 
 ### Implementation Details
 
@@ -337,7 +337,7 @@ Complete all remaining help text methods in `DisplayHelp.cs`. Several of these a
 
 #### `LanguageServerHelp()` — Already implemented by Story 19
 
-`LanguageServerHelp()` is implemented by Story 19 Phase 10 using `Message.Info()` and `Message.Display()` directly (without `HelpFormatting`). Since Story 19 precedes Story 13 in canonical order, this method already exists when Story 13 runs. When `HelpFormatting` is introduced in Phase 1 of this story, refactor `LanguageServerHelp()` along with all other existing help methods (`GeneralHelp()`, etc.) to use the `HelpFormatting` utility for consistent formatting across all help output. This story does **not** re-implement or stub `LanguageServerHelp()` — it only refactors the existing method (no contradictory `PLACEHOLDER_STORY_19`).
+`LanguageServerHelp()` is implemented by Story 19 Phase 1. When `HelpFormatting` is introduced in Phase 1 of this story, refactor `LanguageServerHelp()` along with all other existing help methods (`GeneralHelp()`, etc.) to use the `HelpFormatting` utility for consistent formatting across all help output. This story does **not** re-implement or stub `LanguageServerHelp()` — it only refactors the existing method (no contradictory `PLACEHOLDER_STORY_19`).
 
 #### `XDebugProxyHelp()` Implementation — **placeholder only in Story 13**
 
@@ -391,8 +391,8 @@ Complete all remaining help text methods in `DisplayHelp.cs`. Several of these a
 ## Phase 4: Version Action Enhancements and Config Property Expansion
 
 > **Status:** COMPLETED
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -447,8 +447,8 @@ Parse each property from `IConfiguration` in `ConfigChanged()` using the existin
 ## Phase 5: Init Action Implementation
 
 > **Status:** COMPLETED
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -590,8 +590,8 @@ In the `case Tyhp.Config.Action.init:` block:
 ## Phase 6: Composer Action Implementation
 
 > **Status:** COMPLETED
-> **[Phase Runner] Runtime/Model:** `cursor/grok` | `cursor/grok`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -658,8 +658,8 @@ Add a new `case Tyhp.Config.Action.composer:` block to the switch statement in `
 ## Phase 7: Integrity Check Action Expansion
 
 > **Status:** COMPLETED
-> **[Phase Runner] Runtime/Model:** `cursor/grok` | `cursor/grok`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -789,8 +789,8 @@ Behaviour clarified during review (all four checks re-verified against a temp pr
 ## Phase 8: Integration, Edge Cases, and Final Polish
 
 > **Status:** COMPLETED
-> **[Phase Runner] Runtime/Model:** `cursor/grok` | `cursor/grok`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

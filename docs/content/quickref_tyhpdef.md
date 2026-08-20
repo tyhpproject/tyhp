@@ -44,6 +44,30 @@ function \array_key_exists as keyExists(int|string $key, array $array): bool;
 function toCamelCase(extends string $str): string;
 ```
 
+## Extensions
+
+Attach Tyhp extension methods and operator overloads to PHP types. Inline `extension function` / `extension fn` / `extension operator` members (mapping bodies required) are auto-active. `use extension` on a tyhpdef class auto-activates a standalone Tyhp extension. Bodyless `operator …;` is native PHP passthrough; bodyless `extension operator` is an error.
+
+<a href="tyhpdef_extensions.html">See full documentation →</a>
+
+```tyhp
+class Money {
+    public function plus(Money $other): Money;
+
+    extension operator +(self $left, self $right): self {
+        return $left->plus($right);
+    }
+
+    extension function formatCurrency(string $locale = "en_US"): string {
+        return $locale . " " . $this->__toString();
+    }
+
+    use extension MoneyFormatting {
+        MoneyFormatting::format as formatExtended;
+    };
+}
+```
+
 ## Interfaces
 
 Declare PHP interfaces with fully typed method signatures, constants, inheritance (`extends`), generic type parameters with constraints, method overloads, and async methods.
@@ -63,7 +87,7 @@ interface Stream extends Readable, Writable {
 
 ## Classes
 
-Declare PHP classes with properties, methods, constructors (with parameter promotion), constants, extends/implements, generics, trait usage, operator overloads, and class aliasing with `as`.
+Declare PHP classes with properties, methods, constructors (with parameter promotion), constants, extends/implements, generics, trait usage, native `operator` members, and class aliasing with `as`.
 
 <a href="tyhpdef_classes.html">See full documentation →</a>
 

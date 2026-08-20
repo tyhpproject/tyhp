@@ -330,6 +330,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             IExpression? variable,
             ICheckedType type,
             CheckerState loopState,
+            CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
             if (variable is not PhpVariableAst varAst)
@@ -350,15 +351,33 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (loopState.LookupVariable(name) is not null)
             {
                 loopState.AssignVariable(name, type, diagnostics);
-                return;
+            }
+            else
+            {
+                loopState.DeclareVariable(
+                    name,
+                    new Binder.Symbols.VariableSymbol(name),
+                    type,
+                    isAssigned: true,
+                    diagnostics);
             }
 
-            loopState.DeclareVariable(
-                name,
-                new Binder.Symbols.VariableSymbol(name),
-                type,
-                isAssigned: true,
-                diagnostics);
+            // Record the type on the foreach wrapper and the inner `$var` node. VisitForeachVariable
+            // wraps the real target in an extra PhpVariableAst; hover lands on the inner node.
+            RecordExpressionTypeOnVariable(varAst, loopState, context);
+        }
+
+        private static void RecordExpressionTypeOnVariable(
+            PhpVariableAst variable,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            context.ResolveExpressionType(variable, state);
+            if (variable.VariableExpression is PhpVariableAst inner
+                && !ReferenceEquals(inner, variable))
+            {
+                RecordExpressionTypeOnVariable(inner, state, context);
+            }
         }
     }
 }

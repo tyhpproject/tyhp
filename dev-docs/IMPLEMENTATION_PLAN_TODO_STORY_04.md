@@ -256,8 +256,8 @@ When a runtime package is installed as a Composer dependency, the Tyhp compiler'
 
 ## Phase 1: Module Infrastructure & Directory Structure
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -464,8 +464,8 @@ Create all `src/` and `tests/` directories plus subdirectories (`Concerns/`, `Co
 
 ## Phase 2: Core Module — Type System
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -635,8 +635,8 @@ Thrown when an invalid type construction is attempted (e.g., creating a union wi
 
 ## Phase 3: Core Module — Runtime Traits & Utilities
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -777,8 +777,8 @@ This class lives in `tyhp/core` because it's needed by sync disposable patterns 
 
 ## Phase 4: Decimal Module
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1045,8 +1045,8 @@ Guarded by `function_exists` to prevent redeclaration errors if multiple autoloa
 
 ## Phase 5: Async Module — Promise Foundation
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -1340,8 +1340,8 @@ public static function run(callable $fn): mixed
 
 ## Phase 6: Async Module — Event Loop with I/O
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -1586,8 +1586,8 @@ Fiber operations are queued rather than executed immediately. The `drainFiberQue
 
 ## Phase 7: Async Module — CancellationToken
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1808,8 +1808,8 @@ public static function run(callable $fn, ?CancellationToken $token = null): mixe
 
 ## Phase 8: Async Module — Combinators & Utilities
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -2107,8 +2107,8 @@ final class TimeoutException extends \RuntimeException
 
 ## Phase 9: Async Module — Disposable & Async Iteration
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -2328,8 +2328,8 @@ while (\Tyhp\Promise::_await($__asyncIter->next())) {
 
 ## Phase 10: `using` Block — Grammar, AST, Visitor, Binder (Emitter Spec Only)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -2795,8 +2795,8 @@ No new PHP classes are created for this phase — it uses existing classes from 
 
 ## Phase 11: Lambda Module — PropertyPath & Expression Trees
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -3105,8 +3105,8 @@ Converts expression trees to JSON for passing across API boundaries (e.g., clien
 
 ## Phase 12: Comprehensive Testing
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 

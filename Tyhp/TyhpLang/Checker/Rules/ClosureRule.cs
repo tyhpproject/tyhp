@@ -117,6 +117,38 @@ namespace Tyhp.TyhpLang.Checker.Rules
             context.RecordGenericCallTargetsIn(closure, closureState);
         }
 
+        /// <summary>
+        /// Seeds outer locals and <c>$this</c> into an <c>async { }</c> block's checker state
+        /// (implicit capture, like arrow functions).
+        /// </summary>
+        internal static void PrepareAsyncBlockCaptures(
+            IBase2Ast? body,
+            CheckerState innerState,
+            CheckerState outerState)
+        {
+            BindEnclosingThis(innerState, outerState);
+            if (body is null)
+            {
+                return;
+            }
+
+            foreach (var variable in FindVariables(body))
+            {
+                var name = CheckerHelpers.GetVariableName(variable);
+                if (name is null
+                    || string.Equals(name, "this", StringComparison.OrdinalIgnoreCase)
+                    || innerState.Variables.ContainsKey(name))
+                {
+                    continue;
+                }
+
+                if (outerState.LookupVariable(name) is { } outerVar)
+                {
+                    innerState.Variables[name] = outerVar.Clone();
+                }
+            }
+        }
+
         private static bool IsAsyncClosure(PhpInlineFunctionAst closure)
         {
             if (closure.AstGrammarAddons.ContainsKey("isAsync"))

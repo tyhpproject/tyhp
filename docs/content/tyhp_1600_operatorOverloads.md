@@ -120,8 +120,9 @@ $e = \Money::__add(100, $a);
 
 **Tyhpdef native passthrough:** a bodyless `operator +(…): T;` (no `extension` keyword) on a
 tyhpdef class means the PHP type already supports the operator. Call sites keep the PHP operator —
-they are **not** rewritten to `__add`. Mapped overloads use `extension operator` with a required
-body; see [Tyhpdef classes — Operator Overloads](tyhpdef_classes.md#operator-overloads).
+they are **not** rewritten to `__add`. See [Tyhpdef classes — Operators](tyhpdef_classes.md#operators).
+Mapped overloads use `extension operator` with a required body; see
+[Extensions in Tyhpdef](tyhpdef_extensions.md#native-vs-mapped-operators).
 
 ## Unary Operators
 

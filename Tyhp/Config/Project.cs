@@ -6,6 +6,7 @@ namespace Tyhp.Config
     using Tyhp.CLI;
     using Tyhp.Domain.Exceptions;
     using Tyhp.Extensions;
+    using Tyhp.XDebugProxy.Config;
 
     public sealed class Project
     {
@@ -26,6 +27,13 @@ namespace Tyhp.Config
 
         public string Locale {get; private set;}
         public bool BeQuiet {get; private set;}
+
+        /// <summary>
+        /// Optional process-id file path (<c>--pid-file</c>). Unset by default so Tyhp never
+        /// writes into the user's project. When set, the host writes the current process id at
+        /// start and deletes the file on shutdown.
+        /// </summary>
+        public string? PidFile { get; private set; }
 
         /// <summary>
         /// When true, actions that support it emit machine-readable JSON (<c>--json</c>).
@@ -121,6 +129,11 @@ namespace Tyhp.Config
         /// </summary>
         public bool LintFix { get; private set; }
 
+        /// <summary>
+        /// XDebug proxy settings from <c>tyhp.json</c> <c>xdebugProxy.*</c> and CLI flags.
+        /// </summary>
+        public XDebugProxyConfig XDebugProxy { get; private set; } = new();
+
         #endregion configuration items
 
         private readonly IConfiguration _configuration;
@@ -153,6 +166,9 @@ namespace Tyhp.Config
             // needs to be first
             this.BeQuiet = this._configuration["quiet"].ParseBool();
             this.JsonOutput = this._configuration["json"].ParseBool();
+
+            var pidFile = this._configuration["pid-file"];
+            this.PidFile = string.IsNullOrWhiteSpace(pidFile) ? null : pidFile.Trim();
 
             this.CacheDir = this._configuration["cache-dir"] ?? null;
             this.NoCache = this._configuration["no-cache"].ParseBool();
@@ -193,11 +209,13 @@ namespace Tyhp.Config
             this.Build = new BuildConfig();
             this.Checker = new CheckerConfig();
             this.TyhpdefOptions = new TyhpdefConfig();
+            this.XDebugProxy = new XDebugProxyConfig();
 
             var warn = new Action<MessageCode, object[]>(this.WarnConfig);
             this.Output.ApplyFrom(this._configuration, warn);
             this.Build.ApplyFrom(this._configuration, warn);
             this.Checker.ApplyFrom(this._configuration);
+            this.XDebugProxy.ApplyFrom(this._configuration);
             this.ApplyTyhpdefOptions();
 
             this.Build.GenerateTyhpdef ??= (this.Type == ProjectType.Library);

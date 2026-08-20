@@ -277,8 +277,8 @@ From Story 06:
 
 ## Phase 1: TyhpChecker Core Architecture and CheckerState Operations
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -747,8 +747,8 @@ Add corresponding entries to the `.resx` resource file(s) created in Story 01.
 
 ## Phase 2: VariableState, Type Inference, and Expression Type Resolution
 
-> **[Phase Runner] Runtime/Model:** `claude/opus` | `cursor/opus`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -1022,8 +1022,8 @@ These are called by all subsequent check methods when they need to know the type
 
 ## Phase 3: Type Compatibility Checking (TypeComparer)
 
-> **[Phase Runner] Runtime/Model:** `claude/opus` | `cursor/opus`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -1333,8 +1333,8 @@ Add convenience methods to `TyhpChecker`:
 
 ## Phase 4: Tier 1 — Core PHP Type Checking (Declarations, Statements, Expressions)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -2032,8 +2032,8 @@ Beyond what's in §4.1:
 
 ## Phase 5: Tier 2 — Tyhp-Specific Type Checking
 
-> **[Phase Runner] Runtime/Model:** `claude/opus` | `cursor/opus`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -2540,8 +2540,8 @@ Tyhp requires all parameters to have types. For closure/fn expression parameters
 
 ## Phase 6: Tier 3 — Advanced Tyhp Feature Checks
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -2978,8 +2978,8 @@ Expand the existing restricted feature rule with Tyhp-specific prohibitions:
 
 ## Phase 7: Pipeline Integration, Configuration, and Validation
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

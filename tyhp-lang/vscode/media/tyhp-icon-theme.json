@@ -1,0 +1,48 @@
+{
+  "hidesExplorerArrows": false,
+  "iconDefinitions": {
+    "tyhp-file": {
+      "iconPath": "./tyhp-file.svg"
+    },
+    "tyhp-file-light": {
+      "iconPath": "./tyhp-file-light.svg"
+    },
+    "tyhp-file-dark": {
+      "iconPath": "./tyhp-file-dark.svg"
+    },
+    "tyhpdef-file": {
+      "iconPath": "./tyhpdef-file.svg"
+    },
+    "tyhpdef-file-light": {
+      "iconPath": "./tyhpdef-file-light.svg"
+    },
+    "tyhpdef-file-dark": {
+      "iconPath": "./tyhpdef-file-dark.svg"
+    }
+  },
+  "fileExtensions": {
+    "tyhp": "tyhp-file",
+    "tyhpdef": "tyhpdef-file"
+  },
+  "languageIds": {
+    "tyhp": "tyhp-file"
+  },
+  "light": {
+    "fileExtensions": {
+      "tyhp": "tyhp-file-light",
+      "tyhpdef": "tyhpdef-file-light"
+    },
+    "languageIds": {
+      "tyhp": "tyhp-file-light"
+    }
+  },
+  "highContrast": {
+    "fileExtensions": {
+      "tyhp": "tyhp-file-dark",
+      "tyhpdef": "tyhpdef-file-dark"
+    },
+    "languageIds": {
+      "tyhp": "tyhp-file-dark"
+    }
+  }
+}

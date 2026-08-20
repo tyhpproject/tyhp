@@ -3,7 +3,7 @@
     "description": "Tyhp type definitions for PHP builtins and bundled extensions (PHP 8.2+ baseline)",
     "type": "library",
     "license": "Apache-2.0",
-    "version": "0.0",
+    "version": "0.1",
     "extra": {
         "tyhp": {
             "interopContractVersion": 1

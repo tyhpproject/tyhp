@@ -9,7 +9,11 @@
     ],
     "exclude": [],
     "output": {
-        "path": "../dist/tyhp-lambda/802.0.0/src",
+        "path": "../dist/tyhp-lambda/802.0.1/src",
         "phpVersion": "8.2"
+    },
+    "build": {
+        "generateSourcemap": true,
+        "sourcemapIncludeContent": false
     }
 }

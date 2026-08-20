@@ -15,6 +15,7 @@ Tyhpdef files use the `<?tyhpdef` open tag, have the `.tyhpdef` file extension, 
 Tyhpdef can describe the following PHP constructs to Tyhp:
 
 - Functions (including async, generic, overloaded, and extension functions)
+- Extension members on classes (`extension function`, `extension fn`, `extension operator`, and `use extension`)
 - Classes (including abstract, final, and generic classes)
 - Interfaces (including generic interfaces with extends chains)
 - Traits (including generic traits)

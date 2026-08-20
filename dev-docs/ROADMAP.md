@@ -21,8 +21,10 @@ testing-first, with anti-drift guardrails, deferring breadth:
 - **Tier 1 — Usable:** full emitter feature transformers, lint, CLI polish, plus two new first-class concerns —
   error-message quality and the written interop contract — the **expression-tree wedge showcase**, and
   **callable signature utilities** (Story 16.5) for typed `call_user_func*` / higher-order builtins.
-- **Tier 2 — DX & Ecosystem:** LSP, sourcemaps + xdebug proxy, the new web playground, and tyhpdef generation from
-  PHP reflection + the PHP-version matrix (with the baseline+overlay regeneration pattern).
+- **Tier 2 — DX & Ecosystem:** LSP, sourcemaps + xdebug proxy, first-party IDE clients (VS Code + PhpStorm), and
+  tyhpdef generation from PHP reflection + the PHP-version matrix (with the baseline+overlay regeneration pattern).
+  The web playground (Story 22) stays in this tier numerically but is **deferred** until a compile host exists (docs
+  currently ship on GitHub Pages, which cannot run the thin `tyhp build` backend).
 - **Tier 3 — Advanced:** optimizer passes, remaining advanced language features, the reflection API, and final
   documentation/polish.
 
@@ -102,11 +104,11 @@ Look at FOUND_BUGS.md and fix as many as possible.
 | **17** | Sourcemap generation | 01, 09 |
 | **18** | XDebug proxy | 17 |
 | **19** | Language Server (LSP) | 01, 02, 08, 10 |
-| **19.5** | **VS Code extension (`vscode-tyhp`)** *(additive — TextMate, LSP client, XDebug proxy UX, tasks, icons, status bar, workspace/init)* | 17, 18, 19 |
+| **19.5** | **IDE extensions (`tyhp-lang`)** *(additive — grow existing `tyhp-lang/vscode/` syntax extension; same client surface on VS Code + PhpStorm: TextMate, LSP, XDebug proxy UX, tasks, icons, status bar, workspace/init)* | 17, 18, 19 |
 | **20** | Tyhpdef generator (C# CLI integration) | 01, 02 |
 | **20.5** | **PHP version gating** (`declare(php=…)` + `#[\Tyhp\Php]`) *(additive — enables single-package stubs)* | 04, 06, 08, 09, 10, 11 |
 | **21** | PHP extension Composer packages (`tyhp/php` + `tyhp/php-ext-*`) | 06, 20, **20.5**, 28† |
-| **22** | **Web playground (live `.tyhp` → PHP)** — *NEW* | 10, 12, 17 |
+| **22** | **Web playground (live `.tyhp` → PHP)** — *NEW · **DEFERRED*** (no compile host on GitHub Pages; skip in the sequence) | 10, 12, 17 |
 
 > **Deferred: runtime-package distribution & versioning (→ Story 21).** The **full** Tyhp runtime-package
 > distribution + versioning — publishing `tyhp/core` · `tyhp/decimal` · `tyhp/async` (and the `tyhp/php` /
@@ -132,6 +134,14 @@ Look at FOUND_BUGS.md and fix as many as possible.
 > | **3 — Separate runtime repo / Packagist (~Story 21+)** | Packages published or moved out | **Self-host golden** (“recompile `tyhp_src`, diff committed PHP”) lives in the **runtime** repo (or its CI), pinning a compiler version — not as a forever in-tree compiler-suite check against local `dist/`. Compiler-repo tests consume published or path-installed packages only. |
 >
 > Open tracking: `FOUND_BUGS.md` — `EmittedPhpRunner` path + runtime self-host committed-output layout.
+>
+> **Deferred: web playground (Story 22).** Docs/site hosting is **GitHub Pages** (static). Story 22’s simplest
+> design is a thin backend that shells `tyhp build` / `tyhp lint --format json` — that needs a process host Pages
+> cannot provide. **Skip Story 22** when following this sequence; later Tier 2/3 stories do not depend on it.
+> Revisit when a compile host exists (small VPS, container, Cloudflare Worker+isolate, etc.). Compiling the C# CLI
+> to a browser WASM module is *possible in principle* and would fit Pages, but it is a compiler-port (in-memory
+> API, virtual FS, NativeAOT/WASI, payload size) — not a playground tweak. Decision: **do not take WASM as the v1
+> path**; keep the thin-backend design when the story un-defers. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_22.md`.
 
 ### Tier 3 — Advanced
 
@@ -170,13 +180,13 @@ doc include scalar-conversion contracts, default interface implementations, stat
 (Tyhp/PHP host; Composer packages + `plugin.tyhp.json`; project/global discovery; pre-binder `AstTransform` /
 `Check` / `Emit`; `p'…'` / `p"…"` / `p<<<` islands; backtick ops; process order; options schema; test harness),
 and **Idea 10 — compiler plugins v2**
-(post-binder transform + rebind; TextMate/VS Code island highlighting via Story 19.5; fix-its; statement islands;
+(post-binder transform + rebind; TextMate/VS Code + PhpStorm island highlighting via Story 19.5; fix-its; statement islands;
 sandbox TBD; shared cache; optimizer hooks), and **Idea 11 — pipe-emit chained extension calls** (`$s->a()->b()` →
 PHP 8.5 `|>` when the rewrite is receiver-only), and **Idea 12 — trait-requirement abstract members**
 (emit `abstract` methods for used signatures from a trait’s `extends`/`implements`; PHP still cannot name
 the class/interface on the trait). Detail in `IMPLEMENTATION_PLAN_TODO_STORY_31.md`.
 
-† Idea 10’s IDE/TextMate piece depends on Story 19.5; Idea 9 does not.
+† Idea 10’s IDE/TextMate piece depends on Story 19.5 (both editor clients); Idea 9 does not.
 
 ---
 
@@ -205,11 +215,11 @@ the class/interface on the trait). Detail in `IMPLEMENTATION_PLAN_TODO_STORY_31.
 | 9 | **17** | Sourcemap generation | 2 |
 | 14 | **18** | XDebug proxy | 2 |
 | 12 | **19** | Language Server (LSP) | 2 |
-| — | **19.5** | VS Code extension (`vscode-tyhp`) *(NEW, additive)* | 2 |
+| — | **19.5** | IDE extensions (`tyhp-lang`) *(NEW, additive — grow existing syntax extension)* | 2 |
 | 10 | **20** | Tyhpdef generator | 2 |
 | — | **20.5** | PHP version gating (`declare(php=…)` / `#[\Tyhp\Php]`) *(NEW, additive)* | 2 |
 | 23 | **21** | PHP extension Composer packages (`tyhp/php` + `tyhp/php-ext-*`) | 2 |
-| — | **22** | Web playground *(NEW)* | 2 |
+| — | **22** | Web playground *(NEW · deferred — no GitHub Pages compile host)* | 2 |
 | 4.5 | **23** | Compiler optimizer (MVP) *(moved to Tier 3)* | 3 |
 | 4.6 | **24** | Advanced optimizations *(moved to Tier 3)* | 3 |
 | 17 | **25** | `internal` visibility | 3 |
@@ -276,14 +286,18 @@ the class/interface on the trait). Detail in `IMPLEMENTATION_PLAN_TODO_STORY_31.
 - **Story 15 — Interop contract (Tier 1):** the Tyhp ↔ PHP boundary written down — emitter synthetic-dispatch
   naming, type-erasure/lowering rules, the runtime entry-point surface, versioning, and a machine-checkable
   contract surface that feeds the self-host conformance check.
-- **Story 22 — Web playground (Tier 2):** a two-pane page (editable `.tyhp` left; live PHP + diagnostics right).
-  Simplest implementation: a thin backend that shells `tyhp build` / `tyhp lint --format json` on a sandboxed temp file.
-- **Story 19.5 — VS Code extension (Tier 2, additive — inserted after Story 19):** first-party
-  `vscode-tyhp/` client for Stories 17–19 — TextMate highlighting, LSP client for `tyhp language_server`,
-  XDebug-proxy debug wiring, tasks, file icons, status bar, and workspace/`tyhp.json` awareness (including
-  `tyhp init`). Binary discovery (PATH → setting), download install (global or extension-local), and
-  extension-only auto-update / pin. Packageable VSIX only — **no** Marketplace submit in this story; Cursor
-  compatible but not a separate deliverable. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_19.5.md`.
+- **Story 22 — Web playground (Tier 2, deferred):** a two-pane page (editable `.tyhp` left; live PHP + diagnostics
+  right). Simplest implementation: a thin backend that shells `tyhp build` / `tyhp lint --format json` on a
+  sandboxed temp file. **Deferred** because the public site is GitHub Pages (static) and there is no host for that
+  backend. Browser WASM of the compiler is not the v1 path (see the Tier 2 deferral note). Detail in
+  `IMPLEMENTATION_PLAN_TODO_STORY_22.md`.
+- **Story 19.5 — IDE extensions (Tier 2, additive — inserted after Story 19):** first-party **Tyhp Language** (`tyhp-lang`) clients — **VS Code**
+  (`tyhp-lang/vscode/` — already in-repo as a syntax-only extension; this story grows it) and **PhpStorm** (`tyhp-lang/phpstorm/`) for Stories 17–19 — same surface on both: TextMate
+  highlighting, LSP client for `tyhp language_server`, XDebug-proxy debug wiring, tasks, file icons, status bar,
+  and workspace/`tyhp.json` awareness (including `tyhp init`). Canonical TextMate grammars live in `tyhp-lang/vscode/syntaxes/`; binary discovery
+  (PATH → setting), download install (global or plugin-local), and plugin-only auto-update / pin. Packageable
+  artifacts only (VSIX + PhpStorm plugin ZIP) — **no** Marketplace submit in this story; Cursor is compatible via
+  the same VSIX, not a separate deliverable. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_19.5.md`.
 - **Story 20.5 — PHP version gating (Tier 2, additive — inserted after Story 20):** compile-time
   `declare(php="…")` (Composer constraint strings) and `#[\Tyhp\Php(string $version)]` so Story 21 can ship a
   single `tyhp/php` (+ `tyhp/php-ext-*`) stubs package instead of per-minor forks. Detail in
@@ -348,6 +362,9 @@ top-level story (the sequence stays contiguous `01`–`30`):
   optimize pass that no-ops until 23/24 land. (Judgment call — see below.)
 - **PHP-extension packages (old 23 → new 21) placed in Tier 2** per the DX/ecosystem definition; **Story 20.5**
   (PHP version gating) was added so 21 can ship a single `tyhp/php` package instead of per-minor forks.
+- **Web playground deferred in-place (Story 22 stays numbered in Tier 2).** Hosting is GitHub Pages; the thin
+  compile backend cannot run there. Numbering stays contiguous `01`–`30`; skip 22 until a host exists. WASM-in-
+  browser is recorded as a possible later approach, not the current plan.
 
 ---
 

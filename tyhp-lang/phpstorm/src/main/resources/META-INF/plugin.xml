@@ -1,0 +1,123 @@
+<idea-plugin>
+    <id>com.tyhp.lang</id>
+    <name>Tyhp Language</name>
+    <vendor url="https://github.com/tyhpproject/tyhp">tyhp-lang</vendor>
+    <idea-version since-build="262"/>
+    <version>0.7.0</version>
+
+    <description><![CDATA[
+        <p><b>Tyhp Language</b> (<code>tyhp-lang</code>) — first-party PhpStorm client for the Tyhp toolchain.</p>
+        <p>        This 0.7.0 build starts one language server per owned <code>tyhp.json</code> (include/exclude membership, lazy start)
+        and keeps XDebug-proxy debug, <code>tyhp init</code>,
+        build/lint run configurations, a status bar, TextMate highlighting, file icons, and CLI binary resolution / install / updates.</p>
+        <ul>
+            <li>TextMate highlighting for <code>.tyhp</code> / <code>.tyhpdef</code> (canonical grammars in <code>tyhp-lang/vscode/syntaxes/</code>)</li>
+            <li>CLI PATH probe, <code>tyhp.path</code>, global vs plugin-only install, checksum-verified GitHub Release downloads, plugin-only auto-update / pin</li>
+            <li><code>tyhp language_server</code> over stdin/stdout via <code>LspIntegrationProvider</code> (diagnostics, hover, go-to-definition, …)</li>
+            <li>Detects nested <code>tyhp.json</code> by <code>include</code>/<code>exclude</code> (or forced <code>tyhp.projectPath</code>); offers <b>Tyhp: Initialize Project</b> when a Tyhp file has no owner and no ancestor <code>tyhp.json</code></li>
+            <li>Run configurations for <code>tyhp build</code> and <code>tyhp lint</code> using the resolved CLI</li>
+            <li>Status bar: owner project name or “not in a Tyhp project”, LSP ready/starting/error, CLI health, XDebug proxy listening; click for Restart LSP / Install CLI / Init / Start-Stop-Restart proxy</li>
+            <li>Start/stop <code>tyhp xdebug_proxy</code>; PHP Remote Debug uses PhpStorm’s built-in XDebug on the proxy IDE port (default 9003)</li>
+        </ul>
+        <p>JetBrains Marketplace publish is out of scope. Install locally via <em>Install Plugin from Disk</em>.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.jetbrains.php</depends>
+    <depends>org.jetbrains.plugins.textmate</depends>
+    <!-- LSP is Ultimate-only. Optional so FileType / TextMate still load if the LSP module is absent. -->
+    <depends optional="true" config-file="tyhp-lsp.xml">com.intellij.modules.ultimate</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <postStartupActivity implementation="com.tyhp.lang.TyhpPlugin"/>
+
+        <fileType
+            name="Tyhp"
+            implementationClass="com.tyhp.lang.filetype.TyhpFileType"
+            fieldName="INSTANCE"
+            language="Tyhp"
+            extensions="tyhp"
+            order="first"/>
+        <fileType
+            name="Tyhp Definition"
+            implementationClass="com.tyhp.lang.filetype.TyhpdefFileType"
+            fieldName="INSTANCE"
+            language="Tyhp"
+            extensions="tyhpdef"
+            order="first"/>
+        <fileTypeOverrider implementation="com.tyhp.lang.filetype.TyhpFileTypeOverrider" order="first"/>
+
+        <lang.parserDefinition language="Tyhp"
+                               implementationClass="com.tyhp.lang.filetype.TyhpParserDefinition"/>
+        <lang.syntaxHighlighterFactory language="Tyhp"
+                                       implementationClass="com.tyhp.lang.highlight.TyhpSyntaxHighlighterFactory"/>
+        <lang.commenter language="Tyhp"
+                        implementationClass="com.tyhp.lang.editor.TyhpCommenter"/>
+        <lang.quoteHandler language="Tyhp"
+                           implementationClass="com.tyhp.lang.editor.TyhpQuoteHandler"/>
+        <braceMatcher filetype="Tyhp"
+                      implementationClass="com.tyhp.lang.editor.TyhpBraceMatcher"/>
+        <braceMatcher filetype="Tyhp Definition"
+                      implementationClass="com.tyhp.lang.editor.TyhpBraceMatcher"/>
+
+        <textmate.bundleProvider implementation="com.tyhp.lang.textmate.TyhpTextMateBundleProvider"/>
+
+        <projectConfigurable
+            parentId="tools"
+            instance="com.tyhp.lang.settings.TyhpConfigurable"
+            id="com.tyhp.lang.settings"
+            displayName="Tyhp"/>
+
+        <notificationGroup id="Tyhp Language" displayType="BALLOON" isLogByDefault="true"/>
+
+        <configurationType implementation="com.tyhp.lang.run.TyhpRunConfigurationType"/>
+        <statusBarWidgetFactory
+            id="TyhpStatusBar"
+            implementation="com.tyhp.lang.status.TyhpStatusBarWidgetFactory"
+            order="first"/>
+        <toolWindow
+            id="Tyhp XDebug Proxy"
+            anchor="bottom"
+            icon="/icons/tyhp-file.svg"
+            factoryClass="com.tyhp.lang.debug.XdebugProxyToolWindowFactory"
+            canCloseContents="false"/>
+    </extensions>
+
+    <actions>
+        <group id="Tyhp.Menu" text="Tyhp" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action id="tyhp.refreshBinary"
+                    class="com.tyhp.lang.actions.RefreshBinaryAction"
+                    text="Refresh Tyhp binary"
+                    description="Search PATH when tyhp.path is empty, then re-validate the CLI"/>
+            <action id="tyhp.installCli"
+                    class="com.tyhp.lang.actions.InstallCliAction"
+                    text="Install / Update CLI"
+                    description="Download the Tyhp CLI (global or plugin-only) from GitHub Releases"/>
+            <action id="tyhp.revealBinary"
+                    class="com.tyhp.lang.actions.RevealBinaryAction"
+                    text="Reveal CLI Path"
+                    description="Show the resolved Tyhp CLI path"/>
+            <action id="tyhp.initProject"
+                    class="com.tyhp.lang.workspace.InitAction"
+                    text="Initialize Project"
+                    description="Run tyhp init --yes in the project content root"/>
+            <action id="tyhp.startXdebugProxy"
+                    class="com.tyhp.lang.debug.StartXdebugProxyAction"
+                    text="Start XDebug Proxy"
+                    description="Start tyhp xdebug_proxy using the resolved CLI"/>
+            <action id="tyhp.stopXdebugProxy"
+                    class="com.tyhp.lang.debug.StopXdebugProxyAction"
+                    text="Stop XDebug Proxy"
+                    description="Stop tyhp xdebug_proxy and release listening ports"/>
+            <action id="tyhp.restartXdebugProxy"
+                    class="com.tyhp.lang.debug.RestartXdebugProxyAction"
+                    text="Restart XDebug Proxy"
+                    description="Stop and start tyhp xdebug_proxy"/>
+            <action id="tyhp.createPhpRemoteDebug"
+                    class="com.tyhp.lang.debug.CreatePhpRemoteDebugAction"
+                    text="Create PHP Remote Debug Configuration"
+                    description="Contribute a PHP Remote Debug configuration that listens on the proxy IDE port"/>
+        </group>
+    </actions>
+</idea-plugin>

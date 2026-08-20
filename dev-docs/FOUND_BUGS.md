@@ -14,6 +14,118 @@ Status tags used here:
 
 ---
 
+## Audit: extension operator emit — builtin `self` dispatch guards — 2026-08-20
+
+### 1. Extension `operator *` (and other ops) emit `instanceof string` / `instanceof array` (invalid PHP)
+- **When found:** 2026-08-20 (emitting standalone `extension StringOperators` with two `operator *`
+  forms targeting `string` and `array`; inspected `runtime/packages/dist/tyhp-async/802.0.1/src/StringOperators.php`).
+- **Where:** `Tyhp/TyhpLang/Emitter/TyhpEmitter.OperatorOverloads.cs` —
+  `BuildOperandGuard`. When the operand type is spelled `self`, the guard is always
+  `$var instanceof {selfInstanceType}`. For class operators `selfInstanceType` is `self` (valid).
+  For **extension** operators `SelfTypeText` substitutes the `<Type>` target (`string`, `array`,
+  `int`, …), so the emitter produces `$l instanceof string` and `$l instanceof array`.
+- **Issue:** PHP `instanceof` requires a class/interface name. Scalars and `array` are not legal
+  operands; this is a parse error at runtime (`instanceof string` / `instanceof array`).
+  `TryBuiltinGuard` already maps `string`→`\is_string`, `array`→`\is_array`, `int`→`\is_int`, etc.,
+  but that path is skipped because the parameter AST still says `self`, not the builtin.
+  Collapsing multiple `operator *<T>` forms in one extension into a single `__multiply` with a
+  union-typed `$l` and `if` / `elseif` dispatch **is intended** (docs / emitter guide item 12) and
+  is not the bug — only the builtin `instanceof` guards are.
+- **Repro:**
+
+  ```tyhp
+  extension StringOperators {
+      operator *<string>(self $left, int $right): string {
+          return \str_repeat($left, $right);
+      }
+      operator *<array>(self $left, int $right): string {
+          return \array_merge(...\array_fill(0, $right, $left));
+      }
+  }
+  ```
+
+  Emits (invalid):
+
+  ```php
+  public static function __multiply(string | array $l, int $r): string
+  {
+      if ($l instanceof string && \is_int($r)) { ... }
+      elseif ($l instanceof array && \is_int($r)) { ... }
+  }
+  ```
+
+  Expected guards: `\is_string($l)` / `\is_array($l)` (and `\is_int` / `\is_float` / `\is_bool`
+  when `self` is those builtins). Class-type extension targets (`operator +<Money>(self …)`) can
+  keep `$l instanceof Money`.
+- **Fix sketch:** in the `IsSelfKeyword(part)` branch, run `selfInstanceType` through
+  `TryBuiltinGuard` and only fall back to `instanceof` when that fails.
+- **Status:** Open.
+
+---
+
+## Audit: Story 19.5 Phase 11 review (PhpStorm LSP client) — 2026-08-19
+
+### 1. `verifyPlugin` fails on internal API usage in TextMate/plugin-install path (Phase 9/10, not Phase 11)
+- **When found:** 2026-08-19 (Phase 11 review; ran `./gradlew verifyPlugin` against the real
+  `PS-262.9437.196` platform as an extra check beyond the requested `unitTest` / `buildPlugin`).
+- **Where:** `tyhp-lang/phpstorm/src/main/kotlin/com/tyhp/lang/textmate/TyhpTextMateBundleSupport.kt`
+  — `pluginInstallBundlePath()` calls `com.intellij.ide.plugins.PluginManagerCore.getPlugin(PluginId)`,
+  which is annotated `@ApiStatus.Internal`.
+- **Issue:** `./gradlew verifyPlugin` (Plugin Verifier) reports `Compatible` overall but **fails the
+  task** with `[INTERNAL_API_USAGES]` for this one call (plus unrelated deprecated/experimental
+  `ToolWindowFactory` overrides in `TyhpLspToolWindowFactory` that are warnings only, not failures).
+  `unitTest` and `buildPlugin` (the two tasks this review was asked to run) both succeed — `verifyPlugin`
+  is not wired into either of those and was not requested — but a future CI job that does run
+  `verifyPlugin` (or `check`, if it's ever added there) will fail on this.
+- **Why not fixed now:** `TyhpTextMateBundleSupport` is Phase 9/10 (TextMate bundle registration /
+  plugin-local install path resolution), not Phase 11 (LSP client) — out of scope for this review.
+  The fix is presumably to resolve the plugin's install directory via a public API (e.g. the
+  `PluginDescriptor`/`IdeaPluginDescriptor` already available to the bundle provider instance, or
+  `PluginManager.getInstance().findEnabledPlugin(...)` if that's public in 2026.2) instead of the
+  internal `PluginManagerCore.getPlugin`.
+- **Status:** Open.
+
+---
+
+## Audit: Story 19.5 Phase 4 review (VS Code LSP client) — 2026-08-19
+
+### 1. VSIX packages unbundled per-file `out/**/*.js` alongside the esbuild bundle
+- **When found:** 2026-08-19 (Phase 4 review; inspected `vsce ls`/`npm run package` output).
+- **Where:** `tyhp-lang/vscode/.vscodeignore` — excludes `src/**`, `**/*.ts`, `out/**/*.map`,
+  `out/**/*.test.js`, but not the plain `tsc`-compiled (non-bundled) `.js` files under
+  `out/binary/**`, `out/config/**`, `out/lsp/**`, `out/status/**`.
+- **Issue:** `npm run package` (`vsce package`) ships both the esbuild bundle
+  (`out/extension.js`, ~805 KB, self-contained incl. `vscode-languageclient`) **and** the
+  redundant unbundled per-module compile output (`out/binary/*.js`, `out/config/*.js`,
+  `out/lsp/*.js`, `out/status/*.js`, ~78 KB total) in the VSIX. The extension's `main` is
+  `./out/extension.js` (the bundle), so the extra per-module files are never loaded at
+  runtime — just dead weight in the package.
+- **Why not fixed now:** Predates Phase 4 — the same gap already applies to `out/binary/**`
+  and `out/config/**` since the 0.4.0 (Phase 3) binary-manager work. Fixing `.vscodeignore`
+  (e.g. add `out/binary/**`, `out/config/**`, `out/lsp/**`, `out/status/**` while still
+  shipping `out/extension.js` and `out/extension.js.map`) touches packaging for every
+  phase's compiled output, not just Phase 4, so it's out of this review's scope.
+- **Status:** Open.
+
+---
+
+## Audit: Story 19 Phase 8 review (code actions, formatting, selection range) — 2026-08-18
+
+### 1. `DocumentAnalysisTests.RapidDidChange_DebouncesToSingleSettledAnalysis` is timing-flaky under full-suite load
+- **When found:** 2026-08-18 (Phase 8 review; full-suite regression run after Phase 8 fixes).
+- **Where:** `tests/Tyhp.Tests/LanguageServer/DocumentAnalysisTests.cs:240` — asserts
+  `(afterTyping - afterOpen) >= 1` analysis passes after a debounce window elapses.
+- **Issue:** Failed once during a full-suite run (`afterTyping - afterOpen` was `0`) but passed immediately when
+  re-run in isolation. This is `IncrementalAnalyzer`/`AnalysisService` debounce-timing territory from Phase 3, not
+  Phase 8 — none of the Phase 8 changes (`CodeActionEngine`, `DocumentFormatter`, `SelectionRangeCollector`,
+  `CapabilityRegistration`) touch debounce scheduling. Looks like a fixed-delay timing assumption that can miss under
+  CPU contention from the rest of the suite running in parallel.
+- **Why not fixed now:** Out of scope for the Phase 8 review this entry comes from; needs its own look at whether the
+  test should poll/wait instead of asserting a hard count after a fixed sleep.
+- **Status:** Open.
+
+---
+
 ## Audit: fresh review of Medium #6 (`final` property hooks) — 2026-08-10
 
 > Fresh-agent review of the Medium #6 fix confirmed it correct and not regressed (findings archived

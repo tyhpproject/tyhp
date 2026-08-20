@@ -117,21 +117,22 @@ is OR’d):
 5. `TypeDeclarationValidationRule`
 6. `ReferenceTrackingRule`
 7. `ClosureRule`
-8. `NullSafetyRule`
-9. `UnsetTrackingRule`
-10. `StructRule`
-11. `OperatorOverloadRule`
-12. `ExtensionRule`
-13. `AsyncRule`
-14. `DisposableRule`
-15. `CompileTimeRule`
-16. `DeprecationRule`
-17. `RestrictedFeatureRule`
-18. `OverloadRule`
-19. `AttributeRule`
-20. `ImportRule`
-21. `CodeQualityRule`
-22. `WithKeywordRule`
+8. `AsyncBlockRule`
+9. `NullSafetyRule`
+10. `UnsetTrackingRule`
+11. `StructRule`
+12. `OperatorOverloadRule`
+13. `ExtensionRule`
+14. `AsyncRule`
+15. `DisposableRule`
+16. `CompileTimeRule`
+17. `DeprecationRule`
+18. `RestrictedFeatureRule`
+19. `OverloadRule`
+20. `AttributeRule`
+21. `ImportRule`
+22. `CodeQualityRule`
+23. `WithKeywordRule`
 
 Tests can inject a custom `IEnumerable<ICheckerRule>` to isolate behavior.
 
@@ -859,6 +860,14 @@ narrowing during validation does not leak into the post-if continuation
 
 Logical conditions must be bool-ish (Tyhp differs from PHP truthiness) —
 enforced via helpers used from control-flow checking.
+
+**Foreach / catch variables:** `DeclareForeachVariable` (and catch bindings in
+`CheckTryCatch`) record the loop/catch variable's type on those AST nodes via
+`ResolveExpressionType`, including the inner `$var` under the extra
+`PhpVariableAst` wrapper `VisitForeachVariable` adds. `ControlFlowRule`
+suppresses child traversal on `PhpLoopAst` / `PhpTryCatchAst`, so those binding
+sites would otherwise never enter `InferExpressionType` — language-server hover
+on `as $x` or `catch (E $e)` would have no checker type.
 
 ### 8.2 `TypeNarrowingRule`
 

@@ -308,6 +308,10 @@ async function fetchUser(int $id): User {
     return await $repo->find($id);
 }
 
+Promise<int> $pending = async {
+    return await fetchCount();
+};
+
 array $results = await Promise::all([$fetchA, $fetchB, $fetchC]);
 
 foreach (await $queue->messagesAsync() as Message $msg) {

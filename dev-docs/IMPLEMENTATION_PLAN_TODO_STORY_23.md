@@ -337,8 +337,8 @@ Info-level diagnostics (4701–4706, 4711) are only emitted when `--verbose` is 
 
 ## Phase 1: Optimizer Framework, Configuration, and Build Profiles
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -691,8 +691,8 @@ Add optimizer diagnostic codes as listed in the MessageCode Numbering section ab
 
 ## Phase 2: Extension Operator Inlining Module
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -852,8 +852,8 @@ replacement.OriginalAst = originalCallNode; // provenance for the sourcemap (Sto
 
 ## Phase 3: Extension Method Inlining Module
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -956,8 +956,8 @@ Extension method call sites are identified by walking all AST nodes whose `Bound
 
 ## Phase 4: Synthetic Extension Class Elimination Module
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1005,8 +1005,8 @@ Remove the class declaration AST node from the file's statement list. This preve
 
 ## Phase 5: `#[\Tyhp\Optimize\Inline]` Attribute Support
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1081,8 +1081,8 @@ Applying it to other constructs (class declarations, properties, constants) emit
 
 ## Phase 6: Basic Optimization Modules (Constant Folding and Dead Code Elimination)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1153,8 +1153,8 @@ Removes code that can never execute. Targets:
 
 ## Phase 7: Pipeline Integration
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 

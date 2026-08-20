@@ -1,0 +1,24 @@
+.vscode/**
+.vscode-test/**
+src/**
+samples/**
+scripts/**
+tsconfig.json
+.gitignore
+**/*.map
+**/*.ts
+**/*.vsix
+node_modules/**
+out/**/*.map
+out/**/*.test.js
+out/**/*.test.js.map
+
+# Runtime is the esbuild bundle at out/extension.js (vscode:prepublish).
+# tsc also writes per-module JS under out/<folder>/ that is never loaded.
+out/binary/**
+out/config/**
+out/debug/**
+out/lsp/**
+out/status/**
+out/tasks/**
+out/workspace/**

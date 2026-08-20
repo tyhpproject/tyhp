@@ -5,11 +5,10 @@ namespace Tyhp.CLI
     using Microsoft.Extensions.Configuration;
     using Microsoft.Extensions.Localization;
     using Microsoft.Extensions.Primitives;
+    using Tyhp.LanguageServer;
 
     class TyhpHostedService : IHostedService, IDisposable
     {
-        private const string PidFileName = "tyhp.pid";
-
         private readonly ILogger _logger;
         private readonly IHostApplicationLifetime _appLifetime;
         private readonly IConfiguration _configuration;
@@ -19,6 +18,14 @@ namespace Tyhp.CLI
         private CancellationTokenSource _actionCancelTokenSource;
         private ActionRunnerBase? _actionRunner;
         private bool disposedValue;
+        private string? _pidFilePath;
+
+        /// <summary>
+        /// Tracks a long-running action (<c>xdebug_proxy</c>, <c>language_server</c>) started on a
+        /// background task instead of inline in <see cref="StartAsync"/>. See the comment at
+        /// the <c>xdebug_proxy</c> case for why running it inline would deadlock shutdown.
+        /// </summary>
+        private Task? _longRunningActionTask;
 
         public TyhpHostedService(
             ILogger<TyhpHostedService> logger,
@@ -62,6 +69,7 @@ namespace Tyhp.CLI
             var isMachineOutputAction =
                 rawAction == Tyhp.Config.Action.tokenize.ToString()
                 || rawAction == Tyhp.Config.Action.dump_ast.ToString()
+                || rawAction == Tyhp.Config.Action.language_server.ToString()
                 || (rawAction == Tyhp.Config.Action.lint.ToString()
                     && LintAction.UsesMachineReadableOutput(this.project.LintFormat))
                 || versionJson;
@@ -71,10 +79,10 @@ namespace Tyhp.CLI
                 Message.Banner();
             }
 
-            // write Environment.ProcessId to a file
-            // TODO: make this configurable to not wrote or to write to a different file
-            // TODO: this is especially useful is specified from a CLI argument
-            var pidFileWritten = TryWritePidFile();
+            // Opt-in via --pid-file. Never write tyhp.pid into the working directory by default:
+            // language_server and xdebug_proxy can run concurrently (and soon, one LSP per project),
+            // and a shared cwd file would clobber other processes and pollute the user's project.
+            this._pidFilePath = TryWritePidFile(this.project.PidFile);
             try {
                 Tyhp.Config.Action action = Enum.Parse<Tyhp.Config.Action>(this._configuration["*action"] ?? "invalid");
 
@@ -167,15 +175,53 @@ namespace Tyhp.CLI
 
                         break;
                     case Tyhp.Config.Action.language_server:
-                        // LanguageServerAction lands with Story 19; do not set _isLongRunning here —
-                        // that would leave the host running with no work to cancel.
-                        Message.Error("CLI_LanguageServerNotImplemented");
-                        Environment.ExitCode = (int)Tyhp.Domain.Enums.ExitCode.GenericError;
+                        // Same Generic Host deadlock as xdebug_proxy: calling
+                        // LanguageServerAction.Start() inline would block StartAsync, so
+                        // StopAsync (which cancels the token) would never run. Run it on a
+                        // background task and wait only until JSON-RPC is listening.
+                        // Unlike xdebug_proxy, the LSP session ends when the client sends
+                        // `exit` (or disconnects) — ContinueWith StopApplication so the host
+                        // does not idle forever after the protocol shuts down.
+                        // Stdout is reserved for LSP framing; banner / Ready / Stopping are
+                        // suppressed via isMachineOutputAction and OnStarted/OnStopping.
+                        var languageServerAction = new LanguageServerAction(this.project);
+                        this._actionRunner = languageServerAction;
+                        this._longRunningActionTask = Task.Run(
+                            () => languageServerAction.Start(this._actionCancelTokenSource.Token));
+                        this._isLongRunning = TryWaitForLanguageServerStartup(languageServerAction);
+                        if (this._isLongRunning)
+                        {
+                            _ = this._longRunningActionTask.ContinueWith(
+                                _ => this._appLifetime.StopApplication(),
+                                CancellationToken.None,
+                                TaskContinuationOptions.ExecuteSynchronously,
+                                TaskScheduler.Default);
+                        }
                         break;
                     case Tyhp.Config.Action.xdebug_proxy:
-                        // PLACEHOLDER_STORY_18: XDebugProxyAction
-                        Message.Error("CLI_XDebugProxyNotImplemented");
-                        Environment.ExitCode = (int)Tyhp.Domain.Enums.ExitCode.GenericError;
+                        // XDebugProxyAction.Start() blocks on ProxyServer.StartAsync until
+                        // cancelled. Calling it inline here (as earlier revisions did) would
+                        // block this StartAsync method itself: the .NET Generic Host only
+                        // invokes IHostedService.StopAsync (which is what cancels
+                        // _actionCancelTokenSource) after every hosted service's StartAsync has
+                        // returned. Ctrl+C would fire ApplicationStopping (so "Stopping..."
+                        // still prints), but the token this call blocks on would never actually
+                        // be cancelled — a permanent deadlock verified by running the built CLI
+                        // and observing it hang past its own "Ready!"/"Stopping..." messages.
+                        // Run it on a background task instead so StartAsync can return once
+                        // startup (bind-or-fail) completes; StopAsync cancels the token and
+                        // awaits this task so shutdown still waits for a graceful stop.
+                        var xdebugProxyAction = new XDebugProxyAction(this.project);
+                        this._actionRunner = xdebugProxyAction;
+                        this._longRunningActionTask = Task.Run(
+                            () => xdebugProxyAction.Start(this._actionCancelTokenSource.Token));
+                        // Only block on startup (bind-or-fail), never on the proxy's full
+                        // lifetime. On success this stays running for Ctrl+C; on a validation
+                        // or bind failure (already reported + exit code set inside RunAsync)
+                        // _isLongRunning stays false so the host exits immediately instead of
+                        // idling forever waiting for a Ctrl+C that would never arrive from a
+                        // dead action.
+                        this._isLongRunning = TryWaitForXDebugProxyStartup(xdebugProxyAction);
                         break;
                     case Tyhp.Config.Action.generate_tyhpdef:
                         // generate tyhpdef file(s) for composer package or PHP module
@@ -224,9 +270,13 @@ namespace Tyhp.CLI
                     this._appLifetime.StopApplication();
                 }
             } finally {
-                // TODO: use configuration to get file name
-                if (pidFileWritten) {
-                    TryDeletePidFile();
+            // A long-running action (xdebug_proxy, language_server) keeps running on a background
+            // task after this method returns, so the pid file must stay put until that task
+            // actually finishes (cleaned up from StopAsync instead). Actions that already ran
+            // to completion inline are cleaned up here as before.
+                if (this._pidFilePath is not null && this._longRunningActionTask is null) {
+                    TryDeletePidFile(this._pidFilePath);
+                    this._pidFilePath = null;
                 }
             }
 
@@ -234,32 +284,77 @@ namespace Tyhp.CLI
         }
 
         /// <summary>
-        /// Writes the pid file, tolerating a working directory the user cannot write to.
+        /// Blocks only until <see cref="LanguageServerAction.WhenListening"/> resolves (JSON-RPC
+        /// listening or startup failure), never until the client sends <c>exit</c>.
         /// </summary>
-        /// <remarks>
-        /// The pid file is bookkeeping for long-running actions; failing to create it must not abort
-        /// the run with an unhandled exception (e.g. <c>tyhp version</c> from a read-only directory).
-        /// </remarks>
-        private static bool TryWritePidFile()
+        private static bool TryWaitForLanguageServerStartup(LanguageServerAction action)
         {
             try
             {
-                File.WriteAllText(PidFileName, Environment.ProcessId.ToString());
+                action.WhenListening.GetAwaiter().GetResult();
                 return true;
             }
-            catch (Exception ex) when (ex is IOException
-                or UnauthorizedAccessException
-                or NotSupportedException)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 return false;
             }
         }
 
-        private static void TryDeletePidFile()
+        /// <summary>
+        /// Blocks only until <see cref="XDebugProxyAction.WhenListening"/> resolves (bind
+        /// success/failure), never until the proxy actually stops. Bounded by the same
+        /// validation/bind logic <see cref="XDebugProxyAction.RunAsync"/> already runs before
+        /// entering its long-running accept loops, so this cannot deadlock the way blocking on
+        /// the full action would.
+        /// </summary>
+        private static bool TryWaitForXDebugProxyStartup(XDebugProxyAction action)
         {
             try
             {
-                File.Delete(PidFileName);
+                action.WhenListening.GetAwaiter().GetResult();
+                return true;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // XDebugProxyAction.RunAsync already reported the diagnostic and set
+                // Environment.ExitCode for both validation failures and port-in-use.
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Writes the opt-in pid file, tolerating a path the user cannot write to.
+        /// </summary>
+        /// <remarks>
+        /// The pid file is bookkeeping for process managers; failing to create it must not abort
+        /// the run with an unhandled exception (e.g. <c>tyhp version</c> from a read-only directory).
+        /// </remarks>
+        private static string? TryWritePidFile(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            try
+            {
+                File.WriteAllText(path, Environment.ProcessId.ToString());
+                return path;
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or ArgumentException)
+            {
+                return null;
+            }
+        }
+
+        private static void TryDeletePidFile(string path)
+        {
+            try
+            {
+                File.Delete(path);
             }
             catch (Exception ex) when (ex is IOException
                 or UnauthorizedAccessException
@@ -271,24 +366,46 @@ namespace Tyhp.CLI
 
         public async Task StopAsync(CancellationToken cancellationToken)
         {
-            // TODO: stop running stuff (language server, xdebug proxy, build watch, etc.)
             this._actionCancelTokenSource.Cancel();
-            await Task.CompletedTask;
+
+            if (this._longRunningActionTask is not null)
+            {
+                try
+                {
+                    // cancellationToken here is the host's shutdown-timeout token; bound the
+                    // wait by it instead of hanging past a shutdown that the host has already
+                    // decided to give up on.
+                    await this._longRunningActionTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or TimeoutException)
+                {
+                }
+            }
+
+            if (this._pidFilePath is not null)
+            {
+                TryDeletePidFile(this._pidFilePath);
+                this._pidFilePath = null;
+            }
         }
 
         private void OnStarted()
         {
-            if (this._isLongRunning && !this.project.BeQuiet) {
+            // language_server owns stdout for JSON-RPC; never print Ready/Stopping there.
+            if (this._isLongRunning && !this.project.BeQuiet && !this.IsLanguageServerAction()) {
                 Message.Success("CLI_Ready");
             }
         }
 
         private void OnStopping()
         {
-            if (this._isLongRunning && !this.project.BeQuiet) {
+            if (this._isLongRunning && !this.project.BeQuiet && !this.IsLanguageServerAction()) {
                 Message.Warn("CLI_Stopping");
             }
         }
+
+        private bool IsLanguageServerAction()
+            => this._configuration["*action"] == Tyhp.Config.Action.language_server.ToString();
 
         protected virtual void Dispose(bool disposing)
         {

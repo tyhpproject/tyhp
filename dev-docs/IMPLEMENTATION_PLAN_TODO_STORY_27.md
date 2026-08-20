@@ -247,8 +247,8 @@ noAbstract<AbstractBase>();
 
 ## Phase 1: Grammar — `new` as a Type Keyword
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -365,8 +365,8 @@ This regenerates `TyhpLexer.cs`, `TyhpParser.cs`, `TyhpParserVisitor.cs`, `TyhpP
 
 ## Phase 2: TyhpSpec — Define `new` as a Built-in Type
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -473,8 +473,8 @@ In `TypeComparer.IsAssignableTo()`:
 
 ## Phase 3: Binder — Compute `new<>` Facets for Class Types
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -600,8 +600,8 @@ If the type system already computes intersection types for class instances (e.g.
 
 ## Phase 4: Checker — Validate `new<>` Constraints
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -855,8 +855,8 @@ When the checker encounters `new T($args...)` where `T` is a generic type parame
 
 ## Phase 5: Emitter — Strip `new<>` from PHP Output
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1023,8 +1023,8 @@ Replace the `new<>` component with `object` in the union.
 
 ## Phase 6: LSP — Autocomplete and Hover Support
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1097,8 +1097,8 @@ When a user clicks "Go to Definition" on a `new<>` type:
 
 ## Phase 7: Testing
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

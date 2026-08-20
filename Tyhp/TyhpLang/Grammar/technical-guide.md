@@ -519,7 +519,7 @@ Grounded gaps — do not invent answers:
 
 1. **Should the parser ever set `_languageMode = "tyhpdef"`** for predicates that must not activate Tyhp-mode addons inside tyhpdef? Today entry rules force `"tyhp"`.
 2. **Can `antlr-ng` emit visitor interfaces into `Tyhp.TyhpLang.Parser` reliably?** Parser guide notes visitors currently land in the global namespace despite `--package`.
-3. **`phpExprPrecBaseGrammarAddon`** — still available as a no-op hook in `PhpParser.g4`; confirm intended use before overriding (alternative ordering vs visitor detection for some expression forms has bitten past designs).
+3. **`phpExprPrecBaseGrammarAddon`** — Tyhp overrides this for `async { ... }` block expressions (`TyhpAsyncBlockAst`). `async function` / `async fn` remain `inlineFunction` / `phpExprInlineFunctionShort`, which are predicted before this `phpExprBase` alternative.
 
 ---
 

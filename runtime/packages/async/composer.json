@@ -3,7 +3,7 @@
     "description": "Tyhp runtime async \u2014 Promise, event loop, CancellationToken, async iteration",
     "type": "library",
     "license": "Apache-2.0",
-    "version": "0.0",
+    "version": "0.1",
     "extra": {
         "tyhp": {
             "interopContractVersion": 1
@@ -11,7 +11,7 @@
     },
     "require": {
         "php": ">=8.2",
-        "tyhp/core": "0.0"
+        "tyhp/core": "0.1"
     },
     "autoload": {
         "psr-4": {

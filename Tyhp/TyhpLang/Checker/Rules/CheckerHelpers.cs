@@ -741,6 +741,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 PhpNewAst newExpr => IsConstantNew(newExpr, state),
                 PhpVariableAst => false,
                 PhpInlineFunctionAst => false,
+                TyhpAsyncBlockAst => false,
                 _ => expression.BoundSymbol is ConstantSymbol,
             };
 
@@ -936,10 +937,28 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 // (e.g. `$accessor->get()` must not treat `->get` as private `$get`).
                 case PhpDereferenceableAst deref:
                     context.CheckNode(deref, state);
+                    // `(fn() => $x)()` — the closure is the callee (often wrapped in
+                    // PhpDereferenceableExpressionAst for the parentheses), not a call argument,
+                    // so CheckCall never reaches ClosureRule. Check it with the enclosing
+                    // (possibly narrowed) state so captured variables keep their post-guard types.
+                    if (FindParenthesizedInlineFunction(deref.Base) is { } calleeClosure)
+                    {
+                        CheckCompileTimeConstructsInTree(
+                            calleeClosure, state, context, diagnostics, depth + 1);
+                    }
+
                     if (deref.Suffix is PhpCallAst call && call.Arguments is not null)
                     {
                         foreach (var arg in call.Arguments.GetAllNotNull())
                         {
+                            // Closure arguments are CheckNode'd by CheckCall / CheckNew so they
+                            // get contextual callable typing. Visiting them here would run
+                            // ClosureRule a second time.
+                            if (arg.Expression is PhpInlineFunctionAst)
+                            {
+                                continue;
+                            }
+
                             CheckCompileTimeConstructsInTree(
                                 arg.Expression as IBase2Ast ?? arg,
                                 state,
@@ -1005,9 +1024,18 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     context.CheckNode(otherBinary, state);
                     return;
 
-                // Nested statements / closures are checked through their own ControlFlow /
-                // ClosureRule entry points — do not descend into them from an expression walk.
+                // Nested statements are checked through their own ControlFlow entry points —
+                // do not descend into them from an expression walk. Closures inside
+                // return/echo/if expressions are otherwise skipped (ControlFlowRule suppresses
+                // those statements' children), so ClosureRule must run here.
                 case PhpInlineFunctionAst:
+                    context.CheckNode(node, state);
+                    return;
+
+                case TyhpAsyncBlockAst:
+                    context.CheckNode(node, state);
+                    return;
+
                 case PhpStatementBlockAst:
                 case PhpIfAst:
                 case PhpLoopAst:
@@ -1027,6 +1055,32 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     CheckCompileTimeConstructsInTree(child, state, context, diagnostics, depth + 1);
                 }
             }
+        }
+
+        /// <summary>
+        /// Unwraps <c>(fn() => …)</c> grouping around an immediately-invoked closure.
+        /// </summary>
+        private static PhpInlineFunctionAst? FindParenthesizedInlineFunction(IDereferenceableBase? node)
+        {
+            while (node is not null)
+            {
+                switch (node)
+                {
+                    case PhpInlineFunctionAst closure:
+                        return closure;
+                    case PhpDereferenceableExpressionAst paren
+                        when paren.Expression is PhpInlineFunctionAst innerClosure:
+                        return innerClosure;
+                    case PhpDereferenceableExpressionAst paren
+                        when paren.Expression is IDereferenceableBase inner:
+                        node = inner;
+                        continue;
+                    default:
+                        return null;
+                }
+            }
+
+            return null;
         }
 
         private static bool IsSimpleAssignWrite(PhpBinaryOpAst binary)

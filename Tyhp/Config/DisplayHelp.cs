@@ -388,14 +388,13 @@ namespace Tyhp.Config
             HelpFormatting.Example($"{executable} composer install", "CLI_ComposerHelpExampleInstall");
         }
 
-        private static void LanguageServerHelp()
+        /// <summary>
+        /// Language server help. Also invoked by tests via InternalsVisibleTo.
+        /// </summary>
+        internal static void LanguageServerHelp()
         {
             string executable = HelpFormatting.GetExecutableName();
 
-            // Story 19 owns the language server; Story 13 only formats this help via HelpFormatting.
-            // The action itself is not wired yet — document the planned interface.
-            HelpFormatting.Paragraph("CLI_LanguageServerHelpNotAvailable");
-            Message.Display("");
             HelpFormatting.Paragraph("CLI_LanguageServerHelpDescription");
             HelpFormatting.Section("CLI_LanguageServerHelpUsageHeader");
             HelpFormatting.Usage(executable, "CLI_LanguageServerHelpUsage");
@@ -407,22 +406,62 @@ namespace Tyhp.Config
             HelpFormatting.Option("--tcp=<port>", "CLI_LanguageServerHelpOptionTcp");
             // PLACEHOLDER_STORY_30: named-pipe transport
             HelpFormatting.Option("--pipe=<name>", "CLI_LanguageServerHelpOptionPipe");
+            HelpFormatting.Option("--pid-file=<path>", "CLI_LanguageServerHelpOptionPidFile");
 
             HelpFormatting.Section("CLI_LanguageServerHelpExamplesHeader");
             HelpFormatting.Example($"{executable} language_server", "CLI_LanguageServerHelpExampleStdio");
             HelpFormatting.Example($"{executable} language_server --help", "CLI_LanguageServerHelpExampleHelp");
         }
 
-        private static void XDebugProxyHelp()
+        /// <summary>
+        /// XDebug proxy help. Also invoked by tests via InternalsVisibleTo.
+        /// </summary>
+        internal static void XDebugProxyHelp()
         {
             string executable = HelpFormatting.GetExecutableName();
 
-            // PLACEHOLDER_STORY_18: full xdebug_proxy help delivered by Story 18 Phase 7
-            HelpFormatting.Paragraph("CLI_XDebugProxyHelpPlaceholder");
+            HelpFormatting.Paragraph("CLI_XDebugProxyHelpDescription");
             HelpFormatting.Section("CLI_XDebugProxyHelpUsageHeader");
             HelpFormatting.Usage(executable, "CLI_XDebugProxyHelpUsage");
+
             HelpFormatting.Section("CLI_XDebugProxyHelpOptionsHeader");
+            HelpFormatting.Option("--ide-port=<port>", "CLI_XDebugProxyHelpOptionIdePort");
+            HelpFormatting.Option("--xdebug-port=<port>", "CLI_XDebugProxyHelpOptionXdebugPort");
+            HelpFormatting.Option("--sourcemap-dir=<path>", "CLI_XDebugProxyHelpOptionSourcemapDir");
+            HelpFormatting.Option("--ide-key=<key>", "CLI_XDebugProxyHelpOptionIdeKey");
+            HelpFormatting.Option("--log-level=<debug|info|warn|error>", "CLI_XDebugProxyHelpOptionLogLevel");
+            HelpFormatting.Option("--pid-file=<path>", "CLI_XDebugProxyHelpOptionPidFile");
             HelpFormatting.Option("--help", "CLI_XDebugProxyHelpOptionHelp");
+
+            HelpFormatting.Section("CLI_XDebugProxyHelpXdebugConfigHeader");
+            HelpFormatting.Paragraph("CLI_XDebugProxyHelpXdebugConfigIntro");
+            DisplayPreformatted("CLI_XDebugProxyHelpXdebugIniExample");
+
+            HelpFormatting.Section("CLI_XDebugProxyHelpTyhpJsonHeader");
+            HelpFormatting.Paragraph("CLI_XDebugProxyHelpTyhpJsonIntro");
+            DisplayPreformatted("CLI_XDebugProxyHelpTyhpJsonExample");
+
+            HelpFormatting.Section("CLI_XDebugProxyHelpLaunchJsonHeader");
+            HelpFormatting.Paragraph("CLI_XDebugProxyHelpLaunchJsonIntro");
+            DisplayPreformatted("CLI_XDebugProxyHelpLaunchJsonExample");
+
+            HelpFormatting.Section("CLI_XDebugProxyHelpExamplesHeader");
+            HelpFormatting.Example(
+                $"{executable} xdebug_proxy --sourcemap-dir=./build/",
+                "CLI_XDebugProxyHelpExampleStart");
+            HelpFormatting.Example($"{executable} xdebug_proxy --help", "CLI_XDebugProxyHelpExampleHelp");
+        }
+
+        /// <summary>
+        /// Prints a resx value that may contain braces (JSON/ini samples) without String.Format.
+        /// </summary>
+        private static void DisplayPreformatted(string key)
+        {
+            string text = Message.LocalizeRaw(key);
+            foreach (string line in text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+            {
+                Message.Display("CLI_HelpWrappedLine", line);
+            }
         }
 
         private static void GenerateTyhpdefHelp()

@@ -1,6 +1,7 @@
 using Tyhp.Config;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Checker.Rules;
 using Tyhp.TyhpLang.Enum;
 using Tyhp.TyhpLang.Parser;
 
@@ -154,7 +155,8 @@ namespace Tyhp.TyhpLang.Emitter
 
             // Do not descend into nested function/method/closure declarations — only top-level
             // statements of the entry point should trigger Promise::run wrapping.
-            if (node is PhpFunctionDeclAst or PhpMethodDeclAst or PhpInlineFunctionAst or PhpObjectTypeDeclAst)
+            if (node is PhpFunctionDeclAst or PhpMethodDeclAst or PhpInlineFunctionAst
+                or PhpObjectTypeDeclAst or TyhpAsyncBlockAst)
             {
                 return false;
             }
@@ -169,6 +171,211 @@ namespace Tyhp.TyhpLang.Emitter
 
             return false;
         }
+
+        private string BuildAsyncBlockExpression(TyhpAsyncBlockAst block)
+        {
+            this._context.RequirePackage("tyhp/async");
+
+            var useParts = CollectAsyncBlockUseParts(block);
+            var useClause = useParts.Count > 0 ? " use (" + string.Join(", ", useParts) + ")" : "";
+
+            var body = this.BuildMethodBodyInline(block.Body);
+            var innerBody = body.Trim();
+            if (innerBody.StartsWith("{", StringComparison.Ordinal) && innerBody.EndsWith("}", StringComparison.Ordinal))
+            {
+                innerBody = innerBody[1..^1].Trim();
+            }
+
+            var innerBodyIndented = string.IsNullOrEmpty(innerBody)
+                ? ""
+                : string.Join(
+                    "\n",
+                    innerBody.Replace("\r\n", "\n").Split('\n').Select(l =>
+                        string.IsNullOrEmpty(l) ? "" : "    " + l));
+
+            if (string.IsNullOrEmpty(innerBodyIndented))
+            {
+                return "\\Tyhp\\Promise::_async(function ()" + useClause + " {\n})";
+            }
+
+            return "\\Tyhp\\Promise::_async(function ()" + useClause + " {\n"
+                + innerBodyIndented
+                + "\n})";
+        }
+
+        private static List<string> CollectAsyncBlockUseParts(TyhpAsyncBlockAst block)
+        {
+            var bound = new HashSet<string>(StringComparer.Ordinal);
+            CollectAsyncBlockLocals(block.Body, bound);
+            var captures = new HashSet<string>(StringComparer.Ordinal);
+            if (block.Body is not null)
+            {
+                CollectAsyncBlockCaptures(block.Body, bound, captures);
+            }
+
+            captures.Remove("this");
+            return captures
+                .OrderBy(n => n, StringComparer.Ordinal)
+                .Select(n => n.StartsWith('$') ? n : "$" + n)
+                .ToList();
+        }
+
+        private static void CollectAsyncBlockLocals(IBase2Ast? node, HashSet<string> bound)
+        {
+            if (node is null
+                or PhpInlineFunctionAst
+                or PhpFunctionDeclAst
+                or PhpMethodDeclAst
+                or PhpObjectTypeDeclAst
+                or TyhpAsyncBlockAst)
+            {
+                return;
+            }
+
+            switch (node)
+            {
+                case TyhpTypedVarExprAst typed:
+                    AddBoundName(bound, typed.Variable);
+                    break;
+                case PhpCatchClauseAst catchClause:
+                    AddBoundName(bound, catchClause.Variable);
+                    break;
+                case PhpLoopAst loop:
+                    AddBoundName(bound, loop.KeyVariable as PhpVariableAst);
+                    AddBoundName(bound, loop.ValueVariable as PhpVariableAst);
+                    if (loop.KeyVariable is TyhpTypedVarExprAst keyTyped)
+                    {
+                        AddBoundName(bound, keyTyped.Variable);
+                    }
+
+                    if (loop.ValueVariable is TyhpTypedVarExprAst valueTyped)
+                    {
+                        AddBoundName(bound, valueTyped.Variable);
+                    }
+
+                    break;
+                case PhpBinaryOpAst binary
+                    when IsPlainAssignOp(binary.Operator?.ValueString) && binary.Left is PhpVariableAst assigned:
+                    AddBoundName(bound, assigned);
+                    break;
+            }
+
+            foreach (var child in node.AstChildren)
+            {
+                CollectAsyncBlockLocals(child, bound);
+            }
+        }
+
+        private static void CollectAsyncBlockCaptures(
+            IBase2Ast node,
+            HashSet<string> bound,
+            HashSet<string> captures)
+        {
+            switch (node)
+            {
+                case PhpFunctionDeclAst:
+                case PhpMethodDeclAst:
+                case PhpObjectTypeDeclAst:
+                    return;
+
+                case PhpInlineFunctionAst fn:
+                {
+                    var inner = new HashSet<string>(bound, StringComparer.Ordinal);
+                    foreach (var parameter in fn.Parameters?.GetAllNotNull() ?? [])
+                    {
+                        var paramName = parameter.Name.TrimStart('$');
+                        if (!string.IsNullOrEmpty(paramName))
+                        {
+                            inner.Add(paramName);
+                        }
+                    }
+
+                    foreach (var used in fn.LexicalVars?.GetAllNotNull() ?? [])
+                    {
+                        var name = CheckerHelpers.GetVariableName(used);
+                        if (name is null)
+                        {
+                            continue;
+                        }
+
+                        if (!inner.Contains(name)
+                            && !string.Equals(name, "this", StringComparison.OrdinalIgnoreCase))
+                        {
+                            captures.Add(name);
+                        }
+
+                        inner.Add(name);
+                    }
+
+                    if (fn.Body is not null)
+                    {
+                        CollectAsyncBlockLocals(fn.Body, inner);
+                        CollectAsyncBlockCaptures(fn.Body, inner, captures);
+                    }
+                    else
+                    {
+                        foreach (var child in fn.AstChildren)
+                        {
+                            if (child is not null and not PhpParameterListAst)
+                            {
+                                CollectAsyncBlockLocals(child, inner);
+                                CollectAsyncBlockCaptures(child, inner, captures);
+                            }
+                        }
+                    }
+
+                    return;
+                }
+
+                case TyhpAsyncBlockAst nested:
+                    if (nested.Body is not null)
+                    {
+                        var inner = new HashSet<string>(bound, StringComparer.Ordinal);
+                        CollectAsyncBlockLocals(nested.Body, inner);
+                        CollectAsyncBlockCaptures(nested.Body, inner, captures);
+                    }
+
+                    return;
+
+                case PhpVariableAst variable:
+                {
+                    var name = CheckerHelpers.GetVariableName(variable);
+                    if (name is not null
+                        && !bound.Contains(name)
+                        && !string.Equals(name, "this", StringComparison.OrdinalIgnoreCase)
+                        && !IsPhpSuperglobal(name))
+                    {
+                        captures.Add(name);
+                    }
+
+                    break;
+                }
+            }
+
+            foreach (var child in node.AstChildren)
+            {
+                if (child is not null)
+                {
+                    CollectAsyncBlockCaptures(child, bound, captures);
+                }
+            }
+        }
+
+        private static void AddBoundName(HashSet<string> bound, PhpVariableAst? variable)
+        {
+            var name = variable is null ? null : CheckerHelpers.GetVariableName(variable);
+            if (!string.IsNullOrEmpty(name))
+            {
+                bound.Add(name);
+            }
+        }
+
+        private static bool IsPlainAssignOp(string? op) =>
+            op is "=" or ":=";
+
+        private static bool IsPhpSuperglobal(string name) =>
+            name is "GLOBALS" or "_GET" or "_POST" or "_SERVER" or "_COOKIE"
+                or "_FILES" or "_ENV" or "_REQUEST" or "argc" or "argv";
 
         private bool IsAsyncInlineFunction(PhpInlineFunctionAst inlineFn)
         {

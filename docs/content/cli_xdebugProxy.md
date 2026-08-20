@@ -3,13 +3,8 @@ title: 'CLI: XDebug Proxy'
 status:
   tier: 2
   story: '18'
-  state: planned
+  state: complete
 ---
-
-:::warning Not in this alpha
-This feature is **not included** in Tyhp 805.0.0-alpha.1 (roadmap Tier 2/3). The rest of this page describes the planned design. Do not expect these commands or syntax to work yet.
-:::
-
 
 The xdebug_proxy action starts a proxy server that sits between your IDE's debugger and PHP's XDebug extension. It uses source maps to translate between compiled PHP file paths and line numbers and their corresponding Tyhp source locations, allowing you to debug your original .tyhp source files while PHP executes the compiled output.
 
@@ -42,16 +37,18 @@ Files without source maps (such as third-party PHP libraries) pass through untra
 ## Prerequisites
 
 - XDebug PHP extension installed and configured on your PHP runtime
-- A built Tyhp project with source maps enabled (set build.generateSourcemap to true in tyhp.json, then run tyhp build)
+- A built Tyhp project with source maps enabled (set `build.generateSourcemap` to true in tyhp.json, then run `tyhp build`)
 - An IDE with XDebug debugging support (VS Code with PHP Debug extension, PhpStorm, etc.)
 
 ## Options
 
-- --ide-port=<port> — Port for IDE debug adapter connections (default: 9003).
-- --xdebug-port=<port> — Port for XDebug connections (default: 9004).
-- --sourcemap-dir=<path> — Directory containing .php.map source map files. Defaults to the project's output.path.
-- --ide-key=<key> — Only accept XDebug sessions with this IDE key. If not set, all sessions are accepted.
-- --log-level=<level> — Logging verbosity: debug, info, warn, or error (default: info).
+- `--ide-port=<port>` — Port for IDE debug adapter connections (default: 9003).
+- `--xdebug-port=<port>` — Port for XDebug connections (default: 9004).
+- `--sourcemap-dir=<path>` — Directory containing .php.map source map files. Defaults to the project's `output.path`.
+- `--ide-key=<key>` — Only accept XDebug sessions whose `<init>` idekey matches. If not set, all sessions are accepted.
+- `--log-level=<debug|info|warn|error>` — Logging verbosity (default: info).
+- `--pid-file=<path>` — Write the process id to this file while the proxy is running. Opt-in; nothing is written by default.
+- `--help` — Show help (same as `tyhp help --subject=xdebug_proxy`).
 
 ## Setup
 
@@ -87,7 +84,7 @@ xdebug.idekey = tyhp
 ## Step 3: Start the Proxy
 
 ```
-tyhp xdebug_proxy
+tyhp xdebug_proxy --sourcemap-dir=./build/
 ```
 
 The proxy displays the listening ports and the number of source map files loaded:
@@ -100,6 +97,8 @@ XDebug Proxy started
   Source root:   ./src/
   IDE key:       (any)
 ```
+
+If no sourcemaps are found, the proxy still starts and warns you to build with `build.generateSourcemap` enabled first.
 
 ## Step 4: Configure Your IDE
 
@@ -116,13 +115,16 @@ Configure your IDE's debugger to connect to the proxy's IDE port (9003 by defaul
 
 ## tyhp.json Configuration
 
-Proxy settings can also be configured in the xdebugProxy section of tyhp.json:
+Proxy settings can also be configured in the `xdebugProxy` section of tyhp.json. CLI flags override these keys.
 
 ```json
 {
     "xdebugProxy": {
         "idePort": 9003,
         "xdebugPort": 9004,
+        "ideListenAddress": "127.0.0.1",
+        "xdebugListenAddress": "127.0.0.1",
+        "sourceMapDir": null,
         "ideKey": null,
         "maxSessions": 10,
         "logLevel": "info",
@@ -130,6 +132,8 @@ Proxy settings can also be configured in the xdebugProxy section of tyhp.json:
     }
 }
 ```
+
+When `sourceMapDir` is omitted, the proxy uses the project's `output.path`. When `ideKey` is omitted, every XDebug idekey is accepted.
 
 :::tip
 Set logLevel to "debug" to see every DBGp message flowing through the proxy, including all path translations. This is helpful for troubleshooting breakpoint mapping issues.

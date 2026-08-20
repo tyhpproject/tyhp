@@ -412,9 +412,9 @@ Template string types are **regular languages**; the operators above are exactly
 (concatenation = adjacency, alternation = union, quantifiers = Kleene/bounded repetition). The checker models a
 template string type as a finite automaton (NFA) built from its pattern:
 
-- **Membership** — a string *literal* type `'foo'` is assignable to template `P` iff `'foo' ∈ L(P)`. Cheap (run the
+- **Membership** — a string *literal* type `'foo'` is assignable to template `P` if `'foo' ∈ L(P)`. Cheap (run the
   literal through the NFA).
-- **Subtyping / assignability between templates** — `A <: B` iff `L(A) ⊆ L(B)` (regular-language inclusion). Decidable
+- **Subtyping / assignability between templates** — `A <: B` if `L(A) ⊆ L(B)` (regular-language inclusion). Decidable
   but worst-case expensive, so it is **size-guarded** (below).
 - **`string` ↔ template** — every template is assignable *to* `string` (erasure target); `string` is **not**
   assignable to a non-trivial template (a `string` value is not known to match the pattern) unless narrowed.

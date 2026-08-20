@@ -103,5 +103,5 @@ DO keep your Tyhpdef files organized: one file per library or extension, with a 
 :::
 
 :::danger
-DON'T include implementation code in Tyhpdef files. No function bodies, no property initializers, no executable statements. Tyhpdef is declarations only.
+DON'T include ordinary implementation code in Tyhpdef files. No function bodies, no property initializers, no executable statements. Tyhpdef is declarations only — except inline `extension function` / `extension operator` members, which require mapping bodies. See [Extensions in Tyhpdef](tyhpdef_extensions.md).
 :::

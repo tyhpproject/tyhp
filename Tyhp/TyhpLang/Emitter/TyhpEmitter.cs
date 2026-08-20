@@ -3,6 +3,7 @@ using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Emitter.SourceMap;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Emitter
@@ -288,8 +289,15 @@ namespace Tyhp.TyhpLang.Emitter
 
         private void GenerateAll(IEnumerable<PHPOutputFile> outputFiles)
         {
+            var generateSourcemap = this._context.Project?.Build.GenerateSourcemap == true;
             foreach (var outputFile in outputFiles)
             {
+                if (generateSourcemap)
+                {
+                    outputFile.SourceMapCollector = new SourceMapCollector();
+                    outputFile.SourceRoot ??= SourceMapWriter.SourceRootPrefixFor(outputFile.SourceFileName);
+                }
+
                 outputFile.Generate(this._context);
             }
         }

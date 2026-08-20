@@ -144,8 +144,8 @@ Phase 1 (Grammar Fixes)
 
 ## Phase 1: ANTLR Grammar Fixes for Generic Type Arguments
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -299,8 +299,8 @@ dotnet run --project tyhp.csproj -- lint runtime/php-extensions/php8.2.9/
 
 ## Phase 2: Tyhpdef Validation via Lint Command
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -446,8 +446,8 @@ Use `dotnet run --project Tyhp -- lint <path>` for all lint operations. See `LOC
 
 ## Phase 3: Hardcode Built-in Types, Utility Types, and Compile-Time Constructs
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -605,8 +605,8 @@ Each generic type definition chooses which restricted types to opt in to:
 
 ## Phase 4: Binder Integration — Package Tyhpdef Loading and Symbol Registration
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -754,8 +754,8 @@ Function overloads are stored using an `Overloads` property (`List<FunctionDecla
 
 ## Phase 5: Promise, TaskScheduler, and Async Type Verification
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -907,8 +907,8 @@ Cross-reference with `Examples/AsyncAwait.tyhp` to ensure the type definitions s
 
 ## Phase 6: Tyhpdef Distribution Strategy and Bundling Infrastructure
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1008,8 +1008,8 @@ Skip `package.tyhp.json` generation in this story. The full tyhpdef distribution
 
 ## Phase 7: Optional Open Tags (Extension-Driven Tagless Source Mode)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 

@@ -266,6 +266,9 @@ namespace Tyhp.CLI
                 else
                 {
                     Message.Info("CLI_RunningEmitter");
+                    // When build.generateSourcemap is true, TyhpEmitter.GenerateAll assigns a
+                    // SourceMapCollector (and SourceRoot prefix) before Generate(); OutputWriterService
+                    // then delegates .map writing and sourceMappingURL comments to SourceMapWriter.
                     var emitStopwatch = Stopwatch.StartNew();
                     emitContext = EmitContext.Create(
                         result.GlobalScope,

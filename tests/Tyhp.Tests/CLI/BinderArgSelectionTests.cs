@@ -126,5 +126,11 @@ public class BinderArgSelectionTests
         ActionConfigProvider.ValueTakingFlags.Should().Contain("--max-fix-iterations");
         ActionConfigProvider.ValueTakingFlags.Should().Contain("--tyhp-project");
         ActionConfigProvider.ValueTakingFlags.Should().Contain("--locale");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--pid-file");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--ide-port");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--xdebug-port");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--sourcemap-dir");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--ide-key");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--log-level");
     }
 }

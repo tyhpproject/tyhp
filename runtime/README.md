@@ -55,13 +55,13 @@ The `phpunit.xml` configuration references the schema at `vendor/phpunit/phpunit
 
 ### PHP Stubs with annotations (analyze annotations to build php tyhpdefs)
 
-Layer 2 enrichment inputs for Story 20 / 21 (harvest into native tyhpdef; credit in headers / `SOURCES.md`). Not loaded by the compiler directly:
+Layer 2 enrichment inputs for Story 20 / 21. Harvest into generated overlay tyhpdefs under `_tyhpdef/overlays/stubs/` (listed first in `package.tyhp.json` `"overlay"`). Credit in headers / `SOURCES.md` and in the repo [`THIRD_PARTY.md`](../THIRD_PARTY.md). The raw stub trees are not loaded by the compiler. Track A **prose** for generated extension tyhpdefs comes from the php.net HTML manuals first; stubs fill remaining holes and remain the extra **type** source.
 
 - https://github.com/vimeo/psalm/tree/6.x/stubs
 - https://github.com/phpstan/phpstan-src/tree/2.2.x/stubs
 - https://github.com/phan/phan/tree/v6/internal/stubs
 - https://github.com/jetbrains/phpstorm-stubs
 
-### Hand-enriched overlay baseline (Layer 3)
+### Hand-enriched overlay baseline (backup snapshot)
 
-`runtime/php-extensions/overlays/` holds a full-file snapshot of the current hand-enriched extension tyhpdefs (`php8.2.9/`, `Decimal/`) so regenerators cannot silently destroy that work. See `php-extensions/overlays/README.md`. The harvest tree remains `runtime/php-extensions/php8.2.9/`. The Composer package the compiler and Packagist use is `runtime/packages/php/`.
+`runtime/php-extensions/overlays/` is a full-file **backup** of existing hand-enriched extension tyhpdefs (`php8.2.9/`, `Decimal/`) so a regen cannot silently destroy that work. It is not loaded. Story 21 loads overlays from each package's `_tyhpdef/overlays/` in `package.tyhp.json` `"overlay"` order (stub harvest first, hand-written last; last wins). The harvest tree remains `runtime/php-extensions/php8.2.9/`. PECL Decimal (`Decimal/ExtDecimal.tyhpdef`) becomes `tyhp/php-ext-decimal`, which is not the Tyhp runtime package `tyhp/decimal`. The Composer package the compiler and Packagist use for always-present PHP is `runtime/packages/php/`.

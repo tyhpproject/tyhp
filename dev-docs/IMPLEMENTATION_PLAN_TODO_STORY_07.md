@@ -148,8 +148,8 @@ tests/
 
 ## Phase 1: Test Project Setup and Foundation
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -237,8 +237,8 @@ Create the xUnit test project, add it to the solution, configure project referen
 
 ## Phase 2: Parser Tests — Generated Test Data and Tyhpdef Files
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -339,8 +339,8 @@ Create parser tests that verify Tyhp, PHP, and tyhpdef parsing against generated
 
 ## Phase 3: Parser Tests — Edge Cases, Error Handling, and AST Validation
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -417,8 +417,8 @@ Create parser tests for edge cases (empty files, minimal constructs, syntax erro
 
 ## Phase 4: Diagnostics System Tests
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -500,8 +500,8 @@ Test the diagnostic infrastructure established by Story 01: `DiagnosticBag`, `ID
 
 ## Phase 5: Binder Tests
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -623,8 +623,8 @@ Create minimal `.tyhpdef` files in `TestData/MinimalTyhpdef/`:
 
 ## Phase 5A: Conformance Harness Shell (Wave A capstone)
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -783,8 +783,8 @@ Until then, manifests may include Wave B cases with `"skip": "PLACEHOLDER_STORY_
 
 ## Phase 6: Checker Tests
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -955,8 +955,8 @@ Create tests for the type checker, covering type compatibility, type narrowing, 
 
 ## Phase 7: Emitter Tests and End-to-End Snapshot Tests
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1054,8 +1054,8 @@ Each test file focuses on a single Tyhp feature transformation. Tests use inline
 
 ## Phase 8: Integration Tests
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1145,8 +1145,8 @@ Create minimal project directories in `TestData/IntegrationProjects/`:
 
 ## Phase 9: Tyhp Runtime Package Tests (PHPUnit)
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1264,8 +1264,8 @@ Create a PHPUnit test suite for the Tyhp runtime packages (`runtime/packages/`).
 
 ## Phase 10: CI/CD Pipeline and Test Automation (DEFERRED)
 
-> **[Phase Runner] Runtime/Model:** DEFERRED — not implemented in this story
-> **[Phase Runner] Review Level:** N/A
+
+
 
 ### Phase Overview
 
