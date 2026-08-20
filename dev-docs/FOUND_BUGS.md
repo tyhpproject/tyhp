@@ -14,6 +14,55 @@ Status tags used here:
 
 ---
 
+## Audit: extension operator emit — builtin `self` dispatch guards — 2026-08-20
+
+### 1. Extension `operator *` (and other ops) emit `instanceof string` / `instanceof array` (invalid PHP)
+- **When found:** 2026-08-20 (emitting standalone `extension StringOperators` with two `operator *`
+  forms targeting `string` and `array`; inspected `runtime/packages/dist/tyhp-async/802.0.1/src/StringOperators.php`).
+- **Where:** `Tyhp/TyhpLang/Emitter/TyhpEmitter.OperatorOverloads.cs` —
+  `BuildOperandGuard`. When the operand type is spelled `self`, the guard is always
+  `$var instanceof {selfInstanceType}`. For class operators `selfInstanceType` is `self` (valid).
+  For **extension** operators `SelfTypeText` substitutes the `<Type>` target (`string`, `array`,
+  `int`, …), so the emitter produces `$l instanceof string` and `$l instanceof array`.
+- **Issue:** PHP `instanceof` requires a class/interface name. Scalars and `array` are not legal
+  operands; this is a parse error at runtime (`instanceof string` / `instanceof array`).
+  `TryBuiltinGuard` already maps `string`→`\is_string`, `array`→`\is_array`, `int`→`\is_int`, etc.,
+  but that path is skipped because the parameter AST still says `self`, not the builtin.
+  Collapsing multiple `operator *<T>` forms in one extension into a single `__multiply` with a
+  union-typed `$l` and `if` / `elseif` dispatch **is intended** (docs / emitter guide item 12) and
+  is not the bug — only the builtin `instanceof` guards are.
+- **Repro:**
+
+  ```tyhp
+  extension StringOperators {
+      operator *<string>(self $left, int $right): string {
+          return \str_repeat($left, $right);
+      }
+      operator *<array>(self $left, int $right): string {
+          return \array_merge(...\array_fill(0, $right, $left));
+      }
+  }
+  ```
+
+  Emits (invalid):
+
+  ```php
+  public static function __multiply(string | array $l, int $r): string
+  {
+      if ($l instanceof string && \is_int($r)) { ... }
+      elseif ($l instanceof array && \is_int($r)) { ... }
+  }
+  ```
+
+  Expected guards: `\is_string($l)` / `\is_array($l)` (and `\is_int` / `\is_float` / `\is_bool`
+  when `self` is those builtins). Class-type extension targets (`operator +<Money>(self …)`) can
+  keep `$l instanceof Money`.
+- **Fix sketch:** in the `IsSelfKeyword(part)` branch, run `selfInstanceType` through
+  `TryBuiltinGuard` and only fall back to `instanceof` when that fails.
+- **Status:** Open.
+
+---
+
 ## Audit: Story 19.5 Phase 11 review (PhpStorm LSP client) — 2026-08-19
 
 ### 1. `verifyPlugin` fails on internal API usage in TextMate/plugin-install path (Phase 9/10, not Phase 11)

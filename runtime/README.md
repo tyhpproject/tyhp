@@ -55,7 +55,7 @@ The `phpunit.xml` configuration references the schema at `vendor/phpunit/phpunit
 
 ### PHP Stubs with annotations (analyze annotations to build php tyhpdefs)
 
-Layer 2 enrichment inputs for Story 20 / 21. Harvest into generated overlay tyhpdefs under `_tyhpdef/overlays/stubs/` (listed first in `package.tyhp.json` `"overlay"`). Credit in headers / `SOURCES.md`. The raw stub trees are not loaded by the compiler:
+Layer 2 enrichment inputs for Story 20 / 21. Harvest into generated overlay tyhpdefs under `_tyhpdef/overlays/stubs/` (listed first in `package.tyhp.json` `"overlay"`). Credit in headers / `SOURCES.md` and in the repo [`THIRD_PARTY.md`](../THIRD_PARTY.md). The raw stub trees are not loaded by the compiler. Track A **prose** for generated extension tyhpdefs comes from the php.net HTML manuals first; stubs fill remaining holes and remain the extra **type** source.
 
 - https://github.com/vimeo/psalm/tree/6.x/stubs
 - https://github.com/phpstan/phpstan-src/tree/2.2.x/stubs

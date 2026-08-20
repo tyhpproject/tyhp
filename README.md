@@ -646,6 +646,9 @@ Language Server / VS Code extension, sourcemaps, Xdebug proxy, tyhpdef generator
 - Versioning: [`VERSIONING.md`](VERSIONING.md)
 - Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - License: [Apache License 2.0](LICENSE.txt)
+- Third-party acknowledgments: [`THIRD_PARTY.md`](THIRD_PARTY.md)
 - Alpha release checklist (maintainers): [`dev-docs/ALPHA_RELEASE.md`](dev-docs/ALPHA_RELEASE.md)
 
-Issues and pull requests are welcome.
+## Acknowledgments
+
+Tyhp downloads official PHP Windows builds, StaticPHP (formerly static-php-cli) portable CLIs, and — if those are unavailable — Homebrew bottles, plus community stub corpora for tyhpdef enrichment. Track A may also download php.net HTML manuals (PHP Documentation Group) to build extension doc comments. Those projects remain under their own licenses. Full credits: [`THIRD_PARTY.md`](THIRD_PARTY.md).

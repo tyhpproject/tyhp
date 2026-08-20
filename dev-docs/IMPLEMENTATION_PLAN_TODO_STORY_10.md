@@ -95,7 +95,7 @@ tyhp build
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Note on optimizer integration (Story 23) and tyhpdef (Story 20):** The optimizer runs between the error gate and the emitter (step 12.6). Step 12.5 (Tyhpdef Track C: `_tyhpdef/` dot-notation `.tyhpdef` files, `_tyhpdef/support/*.tyhp`, and `package.tyhp.json` in the build output directory with `include` globs) occurs **before** optimization to preserve the stable public API contract. The optimizer receives the fully bound, checked AST and performs transformations such as extension inlining, constant folding, and dead code elimination based on the `build.optimize` level, `build.profile`, and `build.optimizations` configuration. See Story 23 for the full optimizer pipeline and configuration details.
+**Note on optimizer integration (Story 23) and tyhpdef (Story 20):** The optimizer runs between the error gate and the emitter (step 12.6). Step 12.5 (Tyhpdef Track C: `{buildOutputDir}/package.tyhpdef` and, for libraries, `package.tyhp.json` with `include: ["./package.tyhpdef"]`) occurs **before** optimization to preserve the stable public API contract. The optimizer receives the fully bound, checked AST and performs transformations such as extension inlining, constant folding, and dead code elimination based on the `build.optimize` level, `build.profile`, and `build.optimizations` configuration. See Story 23 for the full optimizer pipeline and configuration details.
 
 > **Note:** The pipeline flow diagram uses conceptual step numbers (1-22) for illustration. The implementation in Phase 2 uses sequential code steps (1-10 with sub-steps). These are not meant to correspond 1:1 — the implementation steps represent the actual method code flow, while the diagram shows the logical phase relationships.
 
@@ -1083,7 +1083,7 @@ This story introduces placeholders for future work:
 - `// PLACEHOLDER_STORY_12: Auto-fix mode for lint action` — Story 12 lint `--fix`
 - `// PLACEHOLDER_STORY_11: Advanced emitter features` — Story 11 emitter expansion
 - `// PLACEHOLDER_STORY_17: Sourcemap generation integration` — Story 17 sourcemaps
-- `// PLACEHOLDER_STORY_20: Generate tyhpdef for compiled code (Track C: _tyhpdef/*.tyhpdef dot-notation names, _tyhpdef/support/*.tyhp, package.tyhp.json in the build output directory with include globs)` — Story 20 tyhpdef generation
+- `// PLACEHOLDER_STORY_20: Generate tyhpdef for compiled code (Track C: package.tyhpdef + library package.tyhp.json in the build output directory)` — Story 20 tyhpdef generation
 - `// PLACEHOLDER_STORY_19: File watcher for --watch mode` — Story 19 language server / file watching
 - `// PLACEHOLDER_STORY_19: Incremental binding based on dependency graph` — Story 19 incremental binding
 
