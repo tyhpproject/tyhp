@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Tyhp.CLI;
@@ -457,7 +458,15 @@ namespace Tyhp.Domain.Services
                 }
             }
 
-            return this.TryMapJson(json, minor, extName, options, result, cancellationToken, out file);
+            if (json is null
+                || !this.TryMapJson(json, minor, extName, options, result, cancellationToken, out var mapped)
+                || mapped is null)
+            {
+                return false;
+            }
+
+            file = mapped;
+            return true;
         }
 
         private bool TryMapJson(
@@ -467,7 +476,7 @@ namespace Tyhp.Domain.Services
             TyhpdefGenerationOptions options,
             TyhpdefGenerationResult result,
             CancellationToken cancellationToken,
-            out TyhpdefFile? file)
+            [NotNullWhen(true)] out TyhpdefFile? file)
         {
             file = null;
             PhpReflectionDumpDto dump;

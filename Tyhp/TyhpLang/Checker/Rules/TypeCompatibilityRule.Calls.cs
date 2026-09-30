@@ -1601,7 +1601,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     if (sawUnpack)
                     {
                         CheckerHelpers.ReportError(
-                            diagnostics, state, arg, MessageCode.CheckerNamedAfterUnpack, arg.Name.ValueString);
+                            diagnostics, state, arg, MessageCode.CheckerNamedAfterUnpack, arg.Name.ValueString ?? string.Empty);
                     }
 
                     sawNamed = true;
@@ -1615,7 +1615,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                             fileName,
                             firstArg,
                             fileName,
-                            arg.Name.ValueString);
+                            arg.Name.ValueString ?? string.Empty);
                     }
                     else
                     {
@@ -1767,7 +1767,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 if (call is not null
                     && (calleeGenerics is { Count: > 0 } || calleeMethod is not null)
                     && context.TryInferGenericBindings(
-                        calleeGenerics,
+                        calleeGenerics ?? [],
                         parameters,
                         call,
                         state,

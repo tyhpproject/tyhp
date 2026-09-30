@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -951,7 +952,8 @@ namespace Tyhp.TyhpLang.Binder.Resolution
             foreach (var child in nsScope.ChildScopes)
             {
                 if (child is NamespaceBlockScope block
-                    && ReferenceEquals(block.DeclarationSymbol.OwningFileScope, fileScope))
+                    && block.DeclarationSymbol is { } declaration
+                    && ReferenceEquals(declaration.OwningFileScope, fileScope))
                 {
                     return block;
                 }
@@ -1335,7 +1337,7 @@ namespace Tyhp.TyhpLang.Binder.Resolution
         /// Symbols that may bind a type-position name. Methods, properties, constants, and
         /// functions are not types even when they share a spelling with a builtin or alias.
         /// </summary>
-        public static bool IsTypePositionSymbol(IBaseSymbol? symbol) =>
+        public static bool IsTypePositionSymbol([NotNullWhen(true)] IBaseSymbol? symbol) =>
             symbol is BuiltInTypeSymbol
                 or BuiltInUtilityTypeSymbol
                 or ObjectDeclarationSymbol

@@ -112,7 +112,7 @@ namespace Tyhp.CLI
                 return;
             }
 
-            var (overlayDir, manifestPath) = ResolveOverlayDestination(symbol.SourceFile);
+            var (overlayDir, manifestPath) = ResolveOverlayDestination(symbol.SourceFile ?? "");
             try
             {
                 Directory.CreateDirectory(overlayDir);

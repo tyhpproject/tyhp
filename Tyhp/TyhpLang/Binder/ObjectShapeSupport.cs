@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
@@ -29,7 +30,7 @@ namespace Tyhp.TyhpLang.Binder
         public static TyhpObjectShapeAst? TryGetObjectShape(IBaseSymbol? symbol) =>
             TyhpObjectShapeAst.Find(GetAliasedType(symbol));
 
-        public static bool IsObjectShapeAlias(IBaseSymbol? symbol) =>
+        public static bool IsObjectShapeAlias([NotNullWhen(true)] IBaseSymbol? symbol) =>
             TryGetObjectShape(symbol) is not null;
 
         public static bool TryResolveObjectShapeAlias(

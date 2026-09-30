@@ -16,9 +16,8 @@ namespace Tyhp.Domain.Services
                 .FirstOrDefault(n => n.EndsWith(ResourceSuffix, StringComparison.OrdinalIgnoreCase));
             if (name is null)
             {
-                var sibling = Path.Combine(
-                    Path.GetDirectoryName(assembly.Location) ?? "",
-                    "PhpReflectionDump.php");
+                // BaseDirectory stays valid for single-file publishes; Assembly.Location is empty there.
+                var sibling = Path.Combine(AppContext.BaseDirectory, "PhpReflectionDump.php");
                 if (File.Exists(sibling))
                 {
                     return File.ReadAllText(sibling);

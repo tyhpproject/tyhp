@@ -94,7 +94,12 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
-            var varName = CheckerHelpers.GetVariableName(typedVar.Variable);
+            if (typedVar.Variable is not { } variable)
+            {
+                return;
+            }
+
+            var varName = CheckerHelpers.GetVariableName(variable);
             if (varName is null)
             {
                 return;
@@ -181,6 +186,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                                 inlineFn, declaredType, state, diagnostics, typedVar));
                     if (!bagChecked
                         && !expressionCapture
+                        && declaredType is not null
                         && !context.IsAssignable(sourceType, declaredType, state)
                         && !CheckerHelpers.IsArrayCallableLiteral(
                             typedVar.AssignedExpression, declaredType!, context, state))

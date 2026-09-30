@@ -9,7 +9,7 @@ namespace Tyhp.TyhpLang.Ast
         public IExpression? Right => Children.ElementAtOrDefault(2) as IExpression;
         public TokenValueAst? Operator => Children.ElementAtOrDefault(0) as TokenValueAst;
 
-        public static PhpBinaryOpAst Create(TokenValueAst op, IExpression left, IExpression right, ParserRuleContext context, string? languageMode = null)
+        public static PhpBinaryOpAst Create(TokenValueAst? op, IExpression left, IExpression right, ParserRuleContext context, string? languageMode = null)
         {
             var result = new PhpBinaryOpAst
             {

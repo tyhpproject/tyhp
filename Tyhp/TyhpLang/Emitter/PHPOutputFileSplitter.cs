@@ -958,7 +958,13 @@ namespace Tyhp.TyhpLang.Emitter
                     continue;
                 }
 
-                return fileScope.DeclarationSymbol.IsPhpVersionGateInactive;
+                var symbol = fileScope.DeclarationSymbol;
+                if (symbol is null)
+                {
+                    continue;
+                }
+
+                return symbol.IsPhpVersionGateInactive;
             }
 
             return false;
@@ -967,6 +973,11 @@ namespace Tyhp.TyhpLang.Emitter
         private static bool FileScopeMatchesSource(FileScope fileScope, SrcFileAst srcFile)
         {
             var symbol = fileScope.DeclarationSymbol;
+            if (symbol is null)
+            {
+                return false;
+            }
+
             return string.Equals(symbol.FileName, srcFile.FileName, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(symbol.SourceFile, srcFile.FileName, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(symbol.FileName, srcFile.Identifier, StringComparison.OrdinalIgnoreCase)

@@ -63,7 +63,7 @@ namespace Tyhp.XDebugProxy.SourceMap
         {
             string conventionMap = phpFilePath + ".map";
             string key = CanonicalKey(conventionMap);
-            if (_cache.TryGetValue(key, out CachedMap cached))
+            if (_cache.TryGetValue(key, out CachedMap? cached) && cached is not null)
             {
                 map = cached.Map;
                 return true;
@@ -110,7 +110,8 @@ namespace Tyhp.XDebugProxy.SourceMap
                 return;
             }
 
-            if (_cache.TryGetValue(path, out CachedMap existing)
+            if (_cache.TryGetValue(path, out CachedMap? existing)
+                && existing is not null
                 && existing.LastWriteUtc == lastWriteUtc
                 && existing.Length == length)
             {

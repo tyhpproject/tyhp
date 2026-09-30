@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
@@ -533,6 +534,11 @@ namespace Tyhp.TyhpLang.Emitter
             while (type is NullableCheckedType nullable)
             {
                 type = nullable.InnerType;
+            }
+
+            if (type is null)
+            {
+                return null;
             }
 
             return TypeComparer.TryGetObjectDeclaration(type) is { IsStruct: true } obj
@@ -2257,7 +2263,7 @@ namespace Tyhp.TyhpLang.Emitter
             IBaseSymbol owningType,
             OverloadableOperator op,
             bool useLateStaticBinding,
-            out string? classFqn,
+            [NotNullWhen(true)] out string? classFqn,
             out string? methodName)
         {
             classFqn = null;

@@ -352,7 +352,7 @@ namespace Tyhp.TyhpLang.Checker
                     : CheckedTypes.Mixed;
             }
 
-            if (IsNominalName(type, "Generator"))
+            if (type is not null && IsNominalName(type, "Generator"))
             {
                 return CheckedTypes.Mixed;
             }

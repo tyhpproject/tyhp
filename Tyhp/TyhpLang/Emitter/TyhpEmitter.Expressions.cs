@@ -1711,9 +1711,9 @@ namespace Tyhp.TyhpLang.Emitter
         /// Returns the bare member name from an instance member access AST node,
         /// without any name resolution or import tracking.
         /// </summary>
-        private string BuildInstanceMemberAccessName(IExpression memberName)
+        private string BuildInstanceMemberAccessName(IExpression? memberName)
         {
-            return memberName.ValueString ?? "";
+            return memberName?.ValueString ?? "";
         }
 
         private string BuildInstanceMemberAccess(PhpInstanceMemberAccessAst instance)

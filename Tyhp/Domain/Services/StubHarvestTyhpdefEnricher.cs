@@ -1504,12 +1504,12 @@ namespace Tyhp.Domain.Services
             return changed;
         }
 
-        private static Dictionary<string, Dictionary<string, string>> CollectInheritanceInstantiations(
+        private static Dictionary<string, Dictionary<string, string?>> CollectInheritanceInstantiations(
             IReadOnlyDictionary<string, StubSymbol> matches,
             IReadOnlyDictionary<string, string> aliases,
             IReadOnlySet<string> tagNames)
         {
-            var byParent = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+            var byParent = new Dictionary<string, Dictionary<string, string?>>(StringComparer.OrdinalIgnoreCase);
             foreach (var (corpus, symbol) in matches)
             {
                 foreach (var tag in symbol.PhpDoc.Tags)
@@ -1537,7 +1537,7 @@ namespace Tyhp.Domain.Services
                         : parentKey + "<" + string.Join(", ", args) + ">";
                     if (!byParent.TryGetValue(parentKey, out var byCorpus))
                     {
-                        byCorpus = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        byCorpus = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
                         byParent[parentKey] = byCorpus;
                     }
 

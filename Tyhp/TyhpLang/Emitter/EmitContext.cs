@@ -784,7 +784,7 @@ namespace Tyhp.TyhpLang.Emitter
                             break;
                         }
 
-                        tyhpdefAliases[useInclude.Name] = useInclude.ImportedName;
+                        tyhpdefAliases[useInclude.Name] = useInclude.ImportedName ?? "";
                         break;
                     }
                     case FunctionDeclarationSymbol { OriginalPhpName: { Length: > 0 } originalFunction }:

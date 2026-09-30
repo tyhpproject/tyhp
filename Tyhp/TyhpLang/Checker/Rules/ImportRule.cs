@@ -410,7 +410,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             bool isUsed)
         {
             public PhpImportDeclAst Declaration { get; } = declaration;
-            public string ImportedName => declaration.NamespaceName ?? string.Empty;
+            public string ImportedName => Declaration.NamespaceName ?? string.Empty;
             public string Alias { get; } = alias;
             public PhpUseType UseType { get; } = useType;
             public bool IsUsed { get; set; } = isUsed;

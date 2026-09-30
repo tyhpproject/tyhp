@@ -118,11 +118,11 @@ namespace Tyhp.TyhpLang.Binder.Scopes {
         void IFunctionDeclarationScopeParent.AddFunctionDeclarationChildScope(FunctionDeclarationScope child)
             => this.AddChildScope(child);
 
-        public string FileName => this.DeclarationSymbol.FileName;
+        public string FileName => this.RequireDeclarationSymbol().FileName;
 
-        public string FileHash => this.DeclarationSymbol.FileHash;
+        public string FileHash => this.RequireDeclarationSymbol().FileHash;
 
-        public string SourceFile => this.DeclarationSymbol.SourceFile;
+        public string SourceFile => this.RequireDeclarationSymbol().SourceFile;
 
         public bool TryAddFileDeclareDirective(
             string key,
@@ -130,18 +130,22 @@ namespace Tyhp.TyhpLang.Binder.Scopes {
             out string? validationMessage
         )
         {
-            return this.DeclarationSymbol.TryAddFileDeclareDirective(key, value, out validationMessage);
+            return this.RequireDeclarationSymbol().TryAddFileDeclareDirective(key, value, out validationMessage);
         }
 
         public FileScope AddFileDeclareDirective(string key, string value)
         {
-            this.DeclarationSymbol.AddFileDeclareDirective(key, value);
+            this.RequireDeclarationSymbol().AddFileDeclareDirective(key, value);
             return this;
         }
 
         public bool TryGetFileDeclareDirective(string key, out string? value)
         {
-            return this.DeclarationSymbol.TryGetFileDeclareDirective(key, out value);
+            return this.RequireDeclarationSymbol().TryGetFileDeclareDirective(key, out value);
         }
+
+        private FileSymbol RequireDeclarationSymbol()
+            => this.DeclarationSymbol
+                ?? throw new InvalidOperationException("File scope is missing its file symbol.");
     }
 }

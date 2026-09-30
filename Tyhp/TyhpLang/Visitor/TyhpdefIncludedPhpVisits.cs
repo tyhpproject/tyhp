@@ -1,5 +1,6 @@
 namespace Tyhp.TyhpLang.Visitor
 {
+    using System.Diagnostics.CodeAnalysis;
     using Antlr4.Runtime;
     using Antlr4.Runtime.Misc;
     using Antlr4.Runtime.Tree;
@@ -252,6 +253,7 @@ namespace Tyhp.TyhpLang.Visitor
         /// keyword where an identifier was expected), unless <paramref name="visitGrammarAddon"/>
         /// supplies an alternate token AST.
         /// </summary>
+        [return: NotNullIfNotNull(nameof(contextToken))]
         protected Ast.TokenValueAst? GetTokenValueAst(ParserRuleContext context, IToken? contextToken, Func<Ast.TokenValueAst?>? visitGrammarAddon = null)
         {
             if (contextToken != null) {

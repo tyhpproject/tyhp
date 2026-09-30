@@ -1110,11 +1110,12 @@ namespace Tyhp.TyhpLang.Checker
             if (method is not null)
             {
                 argumentParameters = Rules.CheckerHelpers.ExcludeExtensionReceiver(parameters, method);
+                var declaredType = parameters[0].DeclaredType;
                 if (argumentParameters.Count < parameters.Count
                     && receiverType is not null
-                    && parameters[0].DeclaredType is not null)
+                    && declaredType is not null)
                 {
-                    var receiverDeclared = ResolveTypeExpression(parameters[0].DeclaredType, resolveState);
+                    var receiverDeclared = ResolveTypeExpression(declaredType, resolveState);
                     CallableGenericInference.CollectGenericBindings(
                         receiverDeclared, receiverType, bindings);
                 }
@@ -1417,6 +1418,11 @@ namespace Tyhp.TyhpLang.Checker
             {
                 if (bound is not CallableCheckedType synthesized
                     || !TypeComparer.IsMixedType(synthesized.ReturnType))
+                {
+                    continue;
+                }
+
+                if (call.Arguments is null)
                 {
                     continue;
                 }

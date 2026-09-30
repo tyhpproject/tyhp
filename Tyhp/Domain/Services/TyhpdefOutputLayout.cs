@@ -122,7 +122,7 @@ namespace Tyhp.Domain.Services
                 var single = CloneWithNamespace(file, ns);
                 if ((file.DeclareBlocks?.Count ?? 0) > 0)
                 {
-                    single = single with { DeclareBlocks = file.DeclareBlocks };
+                    single = single with { DeclareBlocks = file.DeclareBlocks ?? [] };
                 }
 
                 result.Add((Path.Combine(outputDir, NamespaceFileName(ns.Name)), single));
