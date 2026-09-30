@@ -25,6 +25,45 @@ namespace Tyhp.Domain.Services
             ".phpstub",
         };
 
+        // Verbatim MIT permission and warranty text from the upstream LICENSE files.
+        private const string MitTerms =
+            """
+            Permission is hereby granted, free of charge, to any person obtaining a copy
+            of this software and associated documentation files (the "Software"), to deal
+            in the Software without restriction, including without limitation the rights
+            to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+            copies of the Software, and to permit persons to whom the Software is
+            furnished to do so, subject to the following conditions:
+
+            The above copyright notice and this permission notice shall be included in all
+            copies or substantial portions of the Software.
+
+            THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+            IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+            FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+            AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+            LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+            OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+            SOFTWARE.
+            """;
+
+        private const string PhpStormApacheNotice =
+            """
+            Copyright 2010-2023 JetBrains s.r.o.
+
+            Licensed under the Apache License, Version 2.0 (the "License");
+            you may not use this file except in compliance with the License.
+            You may obtain a copy of the License at
+
+                http://www.apache.org/licenses/LICENSE-2.0
+
+            Unless required by applicable law or agreed to in writing, software
+            distributed under the License is distributed on an "AS IS" BASIS,
+            WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+            See the License for the specific language governing permissions and
+            limitations under the License.
+            """;
+
         private static readonly StubCorpusDescriptor[] Corpora =
         [
             new(
@@ -33,28 +72,32 @@ namespace Tyhp.Domain.Services
                 "MIT",
                 "https://github.com/vimeo/psalm/tree/6.x/stubs",
                 "https://github.com/vimeo/psalm/archive/refs/heads/6.x.zip",
-                ["stubs"]),
+                ["stubs"],
+                "MIT License\n\nCopyright (c) 2016 Vimeo\n\n" + MitTerms),
             new(
                 PhpStanId,
                 "PHPStan stubs",
                 "MIT",
                 "https://github.com/phpstan/phpstan-src/tree/2.2.x/stubs",
                 "https://github.com/phpstan/phpstan-src/archive/refs/heads/2.2.x.zip",
-                ["stubs"]),
+                ["stubs"],
+                "MIT License\n\nCopyright (c) 2016 Ondřej Mirtes\nCopyright (c) 2025 PHPStan s.r.o.\n\n" + MitTerms),
             new(
                 PhanId,
                 "Phan stubs",
                 "MIT",
                 "https://github.com/phan/phan/tree/v6/internal/stubs",
                 "https://github.com/phan/phan/archive/refs/heads/v6.zip",
-                ["internal", "stubs"]),
+                ["internal", "stubs"],
+                "The MIT License (MIT)\n\nCopyright (c) 2015 Rasmus Lerdorf\nCopyright (c) 2015 Andrew Morrison\n\n" + MitTerms),
             new(
                 PhpStormId,
                 "PhpStorm stubs",
                 "Apache-2.0",
                 "https://github.com/jetbrains/phpstorm-stubs",
                 "https://github.com/jetbrains/phpstorm-stubs/archive/refs/heads/master.zip",
-                []),
+                [],
+                PhpStormApacheNotice),
         ];
 
         private readonly IPhpRuntimeTransport _transport;
@@ -457,12 +500,17 @@ namespace Tyhp.Domain.Services
         }
     }
 
-    /// <summary>One stub corpus listed in <c>runtime/README.md</c>.</summary>
+    /// <summary>
+    /// One stub corpus listed in <c>runtime/README.md</c>.
+    /// <paramref name="LicenseNotice"/> is the upstream copyright and permission text that
+    /// must accompany material adapted from the corpus; it is written to <c>NOTICE</c>.
+    /// </summary>
     public sealed record StubCorpusDescriptor(
         string Id,
         string Title,
         string License,
         string PageUrl,
         string ZipUrl,
-        IReadOnlyList<string> ZipInnerSegments);
+        IReadOnlyList<string> ZipInnerSegments,
+        string LicenseNotice);
 }

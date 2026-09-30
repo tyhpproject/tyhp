@@ -10,6 +10,11 @@ namespace Tyhp.Domain.Services
         public const string NoticeFileName = "NOTICE";
         public const string StubHeading = "## Stub corpora (Layer 2)";
 
+        internal const string ManualNoticeHeading = "PHP Documentation Group manual (CC BY 3.0)";
+        internal const string StubNoticeHeading = "Stub corpora (Layer 2 tyhpdef harvest)";
+
+        private static readonly string[] NoticeHeadings = [ManualNoticeHeading, StubNoticeHeading];
+
         public static void WriteManualCredit(string outputDirectory, string extName)
         {
             if (string.IsNullOrWhiteSpace(outputDirectory))
@@ -20,6 +25,7 @@ namespace Tyhp.Domain.Services
             try
             {
                 Directory.CreateDirectory(outputDirectory);
+                WriteManualNotice(outputDirectory);
                 var path = Path.Combine(outputDirectory, FileName);
                 var existing = File.Exists(path) ? File.ReadAllText(path) : "";
                 if (existing.Contains("PHP Documentation Group", StringComparison.Ordinal))
@@ -136,7 +142,7 @@ namespace Tyhp.Domain.Services
                 var existing = File.Exists(path) ? File.ReadAllText(path) : "";
                 if (existing.Contains(StubHeading, StringComparison.Ordinal))
                 {
-                    WriteNotice(outputDirectory, corpora);
+                    WriteStubNotice(outputDirectory, corpora);
                     return;
                 }
 
@@ -166,41 +172,137 @@ namespace Tyhp.Domain.Services
 
                 lines.Add("");
                 File.WriteAllText(path, string.Join(Environment.NewLine, lines) + Environment.NewLine);
-                WriteNotice(outputDirectory, corpora);
+                WriteStubNotice(outputDirectory, corpora);
             }
             catch (IOException)
             {
             }
         }
 
-        private static void WriteNotice(string outputDirectory, IReadOnlyList<StubCorpusDescriptor> corpora)
+        /// <summary>
+        /// Writes the attribution required by the PHP manual's CC BY 3.0 license into
+        /// <c>NOTICE</c>. Safe to repeat: the section is replaced, not duplicated.
+        /// </summary>
+        internal static void WriteManualNotice(string outputDirectory)
         {
+            UpsertNoticeSection(
+                outputDirectory,
+                ManualNoticeHeading,
+                [
+                    "Documentation comments in these definitions are adapted from the PHP manual.",
+                    "Copyright © The PHP Documentation Group.",
+                    "Licensed under the Creative Commons Attribution 3.0 License:",
+                    "https://creativecommons.org/licenses/by/3.0/",
+                    "Source: https://www.php.net/manual/en/copyright.php",
+                ]);
+        }
+
+        /// <summary>
+        /// Lists each stub corpus and reproduces its copyright and permission text, which
+        /// the MIT and Apache-2.0 licenses require to accompany adapted material.
+        /// Safe to repeat: the section is replaced, not duplicated.
+        /// </summary>
+        internal static void WriteStubNotice(string outputDirectory, IReadOnlyList<StubCorpusDescriptor> corpora)
+        {
+            var body = new List<string>();
+            foreach (var corpus in corpora)
+            {
+                body.Add($"- {corpus.Title}: {corpus.License} ({corpus.PageUrl})");
+            }
+
+            body.Add("");
+            body.Add("Material adapted from these projects stays under their licenses:");
+            foreach (var corpus in corpora)
+            {
+                body.Add("");
+                body.Add($"{corpus.Title} ({corpus.License})");
+                body.Add("");
+                body.AddRange(corpus.LicenseNotice.Replace("\r\n", "\n").TrimEnd().Split('\n'));
+            }
+
+            UpsertNoticeSection(outputDirectory, StubNoticeHeading, body);
+        }
+
+        /// <summary>
+        /// Replaces the section that starts at <paramref name="heading"/> and keeps every other
+        /// part of <c>NOTICE</c> (hand-written text and the other generated section) as it was.
+        /// Sections are written in a fixed order, so the output does not depend on call order.
+        /// </summary>
+        private static void UpsertNoticeSection(string outputDirectory, string heading, IReadOnlyList<string> bodyLines)
+        {
+            if (string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                return;
+            }
+
             try
             {
+                Directory.CreateDirectory(outputDirectory);
                 var path = Path.Combine(outputDirectory, NoticeFileName);
                 var existing = File.Exists(path) ? File.ReadAllText(path) : "";
-                if (existing.Contains("Stub corpora", StringComparison.Ordinal))
+
+                var prefix = new List<string>();
+                var sections = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+                var current = prefix;
+                foreach (var line in existing.Replace("\r\n", "\n").Split('\n'))
                 {
-                    return;
+                    var trimmedEnd = line.TrimEnd();
+                    if (Array.IndexOf(NoticeHeadings, trimmedEnd) >= 0)
+                    {
+                        current = [];
+                        sections[trimmedEnd] = current;
+                    }
+
+                    current.Add(line);
                 }
 
-                var lines = new List<string>();
-                if (!string.IsNullOrWhiteSpace(existing))
+                List<string> replacement = [heading, .. bodyLines];
+                sections[heading] = replacement;
+
+                var output = new List<string>();
+                AppendNoticeBlock(output, prefix);
+                foreach (var known in NoticeHeadings)
                 {
-                    lines.Add(existing.TrimEnd());
-                    lines.Add("");
+                    if (sections.TryGetValue(known, out var section))
+                    {
+                        AppendNoticeBlock(output, section);
+                    }
                 }
 
-                lines.Add("Stub corpora (Layer 2 tyhpdef harvest)");
-                foreach (var corpus in corpora)
-                {
-                    lines.Add($"- {corpus.Title}: {corpus.License} ({corpus.PageUrl})");
-                }
-
-                File.WriteAllText(path, string.Join(Environment.NewLine, lines) + Environment.NewLine);
+                File.WriteAllText(path, string.Join(Environment.NewLine, output) + Environment.NewLine);
             }
             catch (IOException)
             {
+            }
+        }
+
+        private static void AppendNoticeBlock(List<string> output, List<string> block)
+        {
+            var start = 0;
+            var end = block.Count;
+            while (start < end && string.IsNullOrWhiteSpace(block[start]))
+            {
+                start++;
+            }
+
+            while (end > start && string.IsNullOrWhiteSpace(block[end - 1]))
+            {
+                end--;
+            }
+
+            if (start == end)
+            {
+                return;
+            }
+
+            if (output.Count > 0)
+            {
+                output.Add("");
+            }
+
+            for (var i = start; i < end; i++)
+            {
+                output.Add(block[i].TrimEnd());
             }
         }
     }

@@ -4,7 +4,7 @@ Tyhp is Apache License 2.0 (`LICENSE.txt`). This file credits **upstream project
 
 Using Tyhp does not re-license those works. Their licenses stay with them. If you redistribute a cached PHP runtime or generated overlay tree, follow **their** terms as well as Apache 2.0.
 
-Generated output may also carry a `SOURCES.md` next to stub overlays. Each managed PHP cache directory should contain a short `ATTRIBUTION.txt` naming the provider and artifact URL that produced it.
+Generated output may also carry a `SOURCES.md` next to stub overlays. A `NOTICE` file beside it reproduces the upstream copyright and license text for the stub corpora (MIT, Apache-2.0) and the CC BY 3.0 attribution for PHP manual text, as those licenses require. Each managed PHP cache directory should contain a short `ATTRIBUTION.txt` naming the provider and artifact URL that produced it.
 
 ## PHP runtimes (`generate_tyhpdef --ext-name`)
 
