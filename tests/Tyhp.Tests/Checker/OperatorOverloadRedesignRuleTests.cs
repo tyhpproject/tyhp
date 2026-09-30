@@ -135,6 +135,140 @@ public class OperatorOverloadRedesignRuleTests
     }
 
     [Fact]
+    public void Check_NestedExtensionConvertFrom_SameSource_ReportsAmbiguity()
+    {
+        // Two nested targets share one `__from`. Identical source guards make the second branch dead.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            extension NumOperators {
+                extends string {
+                    operator convert (int $value) {
+                        string $s = "S" . $value;
+                        return $s;
+                    }
+                }
+                extends array {
+                    operator convert (int $value) {
+                        array $a = [$value];
+                        return $a;
+                    }
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerMagicMethodSignature
+            && HasParam(d, "ambiguous"));
+    }
+
+    [Fact]
+    public void Check_NestedExtensionConvertFrom_DistinctSources_NoAmbiguity()
+    {
+        // Distinct sources union into one legal `__from` (`int|bool`).
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            extension NumOperators {
+                extends string {
+                    operator convert (int $value) {
+                        string $s = "S" . $value;
+                        return $s;
+                    }
+                }
+                extends array {
+                    operator convert (bool $value) {
+                        array $a = [$value];
+                        return $a;
+                    }
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerMagicMethodSignature
+            && HasParam(d, "ambiguous"));
+        diagnostics.Errors.Should().BeEmpty(
+            $"unexpected errors: {string.Join(", ", diagnostics.Errors.Select(e => $"{e.Code}: {e.Message}"))}");
+    }
+
+    [Fact]
+    public void Check_NestedExtensionConvertFrom_ShortSyntax_SameSource_NoAmbiguity()
+    {
+        // Short `=> expr` extension operators are erased entirely (never added to the emitted
+        // `__from` dispatcher — see TyhpEmitter.EmitExtensionMembers), so two such forms with the
+        // same source type declared under different nested targets never share a runtime branch
+        // and must not be flagged as ambiguous.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            extension NumOperators {
+                extends string {
+                    operator convert (int $value) => "S" . $value;
+                }
+                extends array {
+                    operator convert (int $value) => [$value];
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerMagicMethodSignature
+            && HasParam(d, "ambiguous"));
+    }
+
+    [Fact]
+    public void Check_NestedExtensionConvertTo_DifferentTargets_NoAmbiguity()
+    {
+        // Convert-to dispatches on the rewritten target (`string` vs `array`), even when both return int.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            extension NumOperators {
+                extends string {
+                    operator convert (self $value): int {
+                        return 1;
+                    }
+                }
+                extends array {
+                    operator convert (self $value): int {
+                        return 2;
+                    }
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerMagicMethodSignature
+            && HasParam(d, "ambiguous"));
+        diagnostics.Errors.Should().BeEmpty(
+            $"unexpected errors: {string.Join(", ", diagnostics.Errors.Select(e => $"{e.Code}: {e.Message}"))}");
+    }
+
+    [Fact]
+    public void Check_NestedExtensionConvertFrom_SharedUnionMember_ReportsAmbiguity()
+    {
+        // `int` and `int|bool` both accept an int at the shared `__from` guard.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            extension NumOperators {
+                extends string {
+                    operator convert (int $value) {
+                        string $s = "S" . $value;
+                        return $s;
+                    }
+                }
+                extends array {
+                    operator convert (int|bool $value) {
+                        array $a = [$value];
+                        return $a;
+                    }
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerMagicMethodSignature
+            && HasParam(d, "ambiguous"));
+    }
+
+    [Fact]
     public void Check_StandaloneExtensionOperator_SelfOperands_NoErrors()
     {
         // ExtensionRule must seed EnclosingObject / EnclosingObjectType before OperatorOverloadRule
@@ -144,8 +278,8 @@ public class OperatorOverloadRedesignRuleTests
             class Money {
                 public int $amount = 0;
             }
-            extension MoneyOperators {
-                operator +<Money>(self $left, self $right): self {
+            extension MoneyOperators extends Money {
+                operator + (self $left, self $right): self {
                     return $left;
                 }
             }
@@ -162,8 +296,8 @@ public class OperatorOverloadRedesignRuleTests
         // targets (not only ObjectDeclarationSymbol) and ExtensionRule must seed self → string.
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            extension StringOperators {
-                operator *<string>(self $left, int $right): string {
+            extension StringOperators extends string {
+                operator * (self $left, int $right): string {
                     return \str_repeat($left, $right);
                 }
             }
@@ -189,14 +323,7 @@ public class OperatorOverloadRedesignRuleTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4", skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

@@ -10,6 +10,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
 {
     /// <summary>
     /// Detects PHP dynamic features and constructs prohibited or restricted in Tyhp.
+    /// Undeclared instance-property writes (TYHP4134) are allowed only when the receiver
+    /// type is exactly the global engine class <c>\stdClass</c> (not a subclass, not a
+    /// generic parameter constrained to it). Composite receivers (nullable, union,
+    /// intersection, generic-parameter constraints) are checked by a dedicated resolver
+    /// in this rule.
     /// </summary>
     public sealed class RestrictedFeatureRule : ICheckerRule
     {
@@ -123,15 +128,12 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             // Resolve the type of the receiver (the object being assigned into), not the
-            // type of the whole property-access expression. If the receiver type cannot be
-            // resolved to a concrete object declaration (unknown/mixed/scalar), we cannot
-            // know whether the property exists, so we must not report a violation.
+            // type of the whole property-access expression. Unknown/mixed/scalar/unconstrained
+            // generic receivers cannot be checked and must not be flagged. Composite receivers
+            // (nullable, union, intersection, generic-parameter constraints) are walked here
+            // rather than through TryGetObjectDeclaration, which only matches a single concrete
+            // object declaration.
             var receiverType = context.ResolveExpressionType(receiver, state);
-            var objectDecl = CheckerHelpers.TryGetObjectDeclaration(receiverType);
-            if (objectDecl is null)
-            {
-                return;
-            }
 
             // Properties are stored in Members under their declared name including the leading
             // '$' (to keep the property namespace distinct from the method namespace, since PHP
@@ -139,17 +141,236 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // yields the bare name, so normalize to the '$'-prefixed key before lookup.
             var propertyKey = memberName.StartsWith('$') ? memberName : "$" + memberName;
 
+            if (ReceiverAllowsUndeclaredWrite(receiverType, propertyKey, state, context))
+            {
+                return;
+            }
+
+            CheckerHelpers.ReportError(
+                context, state, binary, MessageCode.CheckerDynamicPropertyProhibited, memberName);
+        }
+
+        /// <summary>
+        /// Verdict for an undeclared instance-property write on one receiver type.
+        /// </summary>
+        private enum UndeclaredWriteVerdict
+        {
+            /// <summary>
+            /// Not a checkable object (mixed, scalar, unconstrained type parameter). Leave
+            /// TYHP4134 unreported, matching the historical unknown-receiver skip.
+            /// </summary>
+            Unknown,
+
+            /// <summary>Exact engine <c>\stdClass</c> named gate, or a declared property.</summary>
+            Allowed,
+
+            /// <summary>Checkable object that is not exact <c>\stdClass</c> and lacks the property.</summary>
+            Prohibited,
+        }
+
+        /// <summary>
+        /// Suppress TYHP4134 unless some checkable object arm of the receiver would reject the
+        /// write. The exact <c>\stdClass</c> named gate applies only when that type is the
+        /// receiver itself (including nullable wrap); a generic parameter constrained to
+        /// <c>\stdClass</c> is not the named gate, because the bound includes subclasses.
+        /// </summary>
+        private static bool ReceiverAllowsUndeclaredWrite(
+            ICheckedType receiverType,
+            string propertyKey,
+            CheckerState state,
+            CheckerRuleContext context) =>
+            EvaluateUndeclaredWrite(
+                receiverType,
+                propertyKey,
+                state,
+                context,
+                stdClassGateApplies: true,
+                visiting: null) != UndeclaredWriteVerdict.Prohibited;
+
+        private static UndeclaredWriteVerdict EvaluateUndeclaredWrite(
+            ICheckedType type,
+            string propertyKey,
+            CheckerState state,
+            CheckerRuleContext context,
+            bool stdClassGateApplies,
+            HashSet<GenericTypeParameterSymbol>? visiting)
+        {
+            switch (type)
+            {
+                case NullableCheckedType nullable:
+                    return EvaluateUndeclaredWrite(
+                        nullable.InnerType, propertyKey, state, context, stdClassGateApplies, visiting);
+
+                case UnionCheckedType union:
+                    return CombineUnionArms(
+                        union.Members, propertyKey, state, context, stdClassGateApplies, visiting);
+
+                case IntersectionCheckedType intersection:
+                    return CombineIntersectionArms(
+                        intersection.Members, propertyKey, state, context, stdClassGateApplies, visiting);
+
+                case GenericCheckedType generic:
+                    return EvaluateUndeclaredWrite(
+                        generic.BaseType, propertyKey, state, context, stdClassGateApplies, visiting);
+
+                case StaticCheckedType staticType:
+                    return EvaluateUndeclaredWrite(
+                        staticType.DeclaringType, propertyKey, state, context, stdClassGateApplies, visiting);
+
+                case LiteralCheckedType literal:
+                    return EvaluateUndeclaredWrite(
+                        literal.UnderlyingType, propertyKey, state, context, stdClassGateApplies, visiting);
+
+                case SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol typeParam }:
+                    return EvaluateGenericParameterConstraint(
+                        typeParam, propertyKey, state, context, visiting);
+            }
+
+            var objectDecl = CheckerHelpers.TryGetObjectDeclaration(type);
+            if (objectDecl is not null)
+            {
+                return EvaluateObjectDeclarationWrite(
+                    objectDecl, propertyKey, context, stdClassGateApplies);
+            }
+
+            return UndeclaredWriteVerdict.Unknown;
+        }
+
+        private static UndeclaredWriteVerdict EvaluateGenericParameterConstraint(
+            GenericTypeParameterSymbol typeParam,
+            string propertyKey,
+            CheckerState state,
+            CheckerRuleContext context,
+            HashSet<GenericTypeParameterSymbol>? visiting)
+        {
+            visiting ??= [];
+            if (!visiting.Add(typeParam))
+            {
+                return UndeclaredWriteVerdict.Unknown;
+            }
+
+            try
+            {
+                var constraint = typeParam.ResolvedConstraint
+                    ?? GenericConstraintResolver.EnsureResolved(typeParam, state, context);
+                if (constraint is null)
+                {
+                    return UndeclaredWriteVerdict.Unknown;
+                }
+
+                // The bound is an upper bound, not the receiver's exact type. `T extends \stdClass`
+                // includes subclasses, so the named gate must not fire for the parameter.
+                return EvaluateUndeclaredWrite(
+                    constraint,
+                    propertyKey,
+                    state,
+                    context,
+                    stdClassGateApplies: false,
+                    visiting);
+            }
+            finally
+            {
+                visiting.Remove(typeParam);
+            }
+        }
+
+        private static UndeclaredWriteVerdict CombineUnionArms(
+            IReadOnlyList<ICheckedType> members,
+            string propertyKey,
+            CheckerState state,
+            CheckerRuleContext context,
+            bool stdClassGateApplies,
+            HashSet<GenericTypeParameterSymbol>? visiting)
+        {
+            var anyAllowed = false;
+            var anyProhibited = false;
+            foreach (var member in members)
+            {
+                switch (EvaluateUndeclaredWrite(
+                    member, propertyKey, state, context, stdClassGateApplies, visiting))
+                {
+                    case UndeclaredWriteVerdict.Allowed:
+                        anyAllowed = true;
+                        break;
+                    case UndeclaredWriteVerdict.Prohibited:
+                        anyProhibited = true;
+                        break;
+                }
+            }
+
+            // A union value may be any arm: one rejecting arm is enough to TYHP4134.
+            if (anyProhibited)
+            {
+                return UndeclaredWriteVerdict.Prohibited;
+            }
+
+            return anyAllowed ? UndeclaredWriteVerdict.Allowed : UndeclaredWriteVerdict.Unknown;
+        }
+
+        private static UndeclaredWriteVerdict CombineIntersectionArms(
+            IReadOnlyList<ICheckedType> members,
+            string propertyKey,
+            CheckerState state,
+            CheckerRuleContext context,
+            bool stdClassGateApplies,
+            HashSet<GenericTypeParameterSymbol>? visiting)
+        {
+            var anyAllowed = false;
+            var anyProhibited = false;
+            foreach (var member in members)
+            {
+                switch (EvaluateUndeclaredWrite(
+                    member, propertyKey, state, context, stdClassGateApplies, visiting))
+                {
+                    case UndeclaredWriteVerdict.Allowed:
+                        anyAllowed = true;
+                        break;
+                    case UndeclaredWriteVerdict.Prohibited:
+                        anyProhibited = true;
+                        break;
+                }
+            }
+
+            // An intersection value is every arm at once, so a declared property on any arm
+            // is present on the object. Report only when every checkable arm rejects the write.
+            if (anyAllowed)
+            {
+                return UndeclaredWriteVerdict.Allowed;
+            }
+
+            return anyProhibited ? UndeclaredWriteVerdict.Prohibited : UndeclaredWriteVerdict.Unknown;
+        }
+
+        private static UndeclaredWriteVerdict EvaluateObjectDeclarationWrite(
+            ObjectDeclarationSymbol objectDecl,
+            string propertyKey,
+            CheckerRuleContext context,
+            bool stdClassGateApplies)
+        {
+            // Named gate: undeclared writes are legal only on the global engine class
+            // `\stdClass` itself. Subclasses, harvest bags, leftover
+            // `#[\AllowDynamicProperties]` stamps, and generic-parameter bounds are not an opt-in.
+            if (stdClassGateApplies && IsExactEngineStdClass(objectDecl))
+            {
+                return UndeclaredWriteVerdict.Allowed;
+            }
+
+            return HasDeclaredInstanceProperty(objectDecl, propertyKey, context)
+                ? UndeclaredWriteVerdict.Allowed
+                : UndeclaredWriteVerdict.Prohibited;
+        }
+
+        private static bool HasDeclaredInstanceProperty(
+            ObjectDeclarationSymbol objectDecl,
+            string propertyKey,
+            CheckerRuleContext context)
+        {
             foreach (var declInChain in EnumerateClassHierarchy(objectDecl, context))
             {
                 if (declInChain.Members.TryGetValue(propertyKey, out var member)
                     && member is ObjectPropertySymbol)
                 {
-                    return;
-                }
-
-                if (AllowsDynamicProperties(declInChain))
-                {
-                    return;
+                    return true;
                 }
 
                 // Trait members are not flattened onto the class symbol — resolve used traits
@@ -162,18 +383,17 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     if (trait.Members.TryGetValue(propertyKey, out var traitMember)
                         && traitMember is ObjectPropertySymbol)
                     {
-                        return;
+                        return true;
                     }
                 }
 
                 if (hasUnresolvedTrait)
                 {
-                    return;
+                    return true;
                 }
             }
 
-            CheckerHelpers.ReportError(
-                context, state, binary, MessageCode.CheckerDynamicPropertyProhibited, memberName);
+            return false;
         }
 
         private static IEnumerable<ObjectDeclarationSymbol> EnumerateClassHierarchy(
@@ -223,39 +443,21 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 _ => null,
             };
 
-        private static bool AllowsDynamicProperties(ObjectDeclarationSymbol objectDecl)
+        /// <summary>
+        /// PHP's engine <c>\stdClass</c> (global class), not a namespaced lookalike and not
+        /// a subclass. Undeclared property writes are legal only on this type.
+        /// </summary>
+        private static bool IsExactEngineStdClass(ObjectDeclarationSymbol objectDecl)
         {
-            if (objectDecl.DeclaringAstNode is not IBase2Ast declaringNode)
+            if (objectDecl.ObjectKind != PhpTypeDeclType.Class)
             {
                 return false;
             }
 
-            foreach (var attribute in declaringNode.AstAttributes)
-            {
-                if (attribute is PhpAttributeAst attr && IsAllowDynamicPropertiesAttribute(attr))
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            var fqn = string.IsNullOrEmpty(objectDecl.FullyQualifiedName)
+                ? objectDecl.Name
+                : objectDecl.FullyQualifiedName;
+            return string.Equals(fqn.TrimStart('\\'), "stdClass", StringComparison.OrdinalIgnoreCase);
         }
-
-        private static bool IsAllowDynamicPropertiesAttribute(PhpAttributeAst attribute)
-        {
-            var name = GetAttributeName(attribute.Name);
-            return name is not null
-                && (string.Equals(name, "AllowDynamicProperties", StringComparison.OrdinalIgnoreCase)
-                    || name.EndsWith("\\AllowDynamicProperties", StringComparison.OrdinalIgnoreCase));
-        }
-
-        private static string? GetAttributeName(IExpression? expression) =>
-            expression switch
-            {
-                PhpNameAst name => name.ValueString,
-                TokenValueAst token => token.ValueString,
-                IExpression expr => expr.Identifier,
-                _ => null,
-            };
     }
 }

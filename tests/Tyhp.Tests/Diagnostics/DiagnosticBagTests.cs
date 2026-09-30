@@ -102,5 +102,39 @@ public class DiagnosticBagTests
 
         bag.ErrorCount.Should().Be(2);
     }
+
+    [Fact]
+    public void AddWarning_SuppressedCode_IsDropped()
+    {
+        var bag = new DiagnosticBag(new HashSet<MessageCode> { MessageCode.TyhpdefRuntimePackageNotFound });
+        bag.AddWarning(MessageCode.TyhpdefRuntimePackageNotFound, "a.tyhp", 1, 0, "core");
+        bag.AddWarning(MessageCode.TyhpdefPhpExtensionPackageNotFound, "a.tyhp", 2, 0, "widget");
+
+        bag.HasWarnings.Should().BeTrue();
+        bag.WarningCount.Should().Be(1);
+        bag.Warnings.Should().ContainSingle(d => d.Code == MessageCode.TyhpdefPhpExtensionPackageNotFound);
+    }
+
+    [Fact]
+    public void AddError_SuppressedWarningCode_IsKept()
+    {
+        var bag = new DiagnosticBag(new HashSet<MessageCode> { MessageCode.ParserUnknownError });
+        bag.AddError(MessageCode.ParserUnknownError, "a.tyhp", 1, 0);
+        bag.AddWarning(MessageCode.ParserUnknownError, "a.tyhp", 2, 0);
+
+        bag.ErrorCount.Should().Be(1);
+        bag.WarningCount.Should().Be(0);
+        bag.HasErrors.Should().BeTrue();
+        bag.HasWarnings.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AddInfo_SuppressedWarningCode_IsKept()
+    {
+        var bag = new DiagnosticBag(new HashSet<MessageCode> { MessageCode.ParserUnknownError });
+        bag.AddInfo(MessageCode.ParserUnknownError, "a.tyhp", 1, 0);
+
+        bag.InfoCount.Should().Be(1);
+    }
 }
 

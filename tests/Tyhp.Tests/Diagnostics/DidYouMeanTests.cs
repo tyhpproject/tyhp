@@ -6,6 +6,7 @@ using Tyhp.Domain.Exceptions;
 namespace Tyhp.Tests.Diagnostics;
 
 [Trait("Category", "Diagnostics")]
+[Collection("ProcessGlobalState")]
 public class DidYouMeanTests : IDisposable
 {
     private sealed class FakeLocalizer : IStringLocalizer<TyhpHostedService>

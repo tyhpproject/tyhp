@@ -266,7 +266,7 @@ The following require **Story 11** (`PLACEHOLDER_STORY_11` markers in emitter co
 **Deferred to other stories:**
 
 - Authoritative disk writing, clean/dry-run modes → Story 10 (`OutputWriterService`)
-- Source maps → Story 17 (`PLACEHOLDER_STORY_17`)
+- Source maps → Story 17 (`SourceMapWriter` + `OutputWriterService`; validator is a later phase)
 
 **Removed from design:** `@tyhpEmitterStart` / `@tyhpEmitterEnd` emitter template system.
 

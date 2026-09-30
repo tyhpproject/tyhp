@@ -21,8 +21,13 @@ namespace Tyhp.Domain.Diagnostics
             {
                 // AddError + one AddWarning path.
                 MessageCode.BinderUnknownError,
+                // Lexer/parser catch-all is an error; tyhpdef AST cache I/O and pre-read
+                // failures report the same code as a warning so compilation continues.
+                MessageCode.ParserUnknownError,
                 // Explicit-path miss → warning; empty project → info.
                 MessageCode.LintNoSourceFiles,
+                // Overlay stamp mismatch is a warning unless --strict / build.strictMode.
+                MessageCode.TyhpdefOverlayStampMismatch,
             };
 
         private static readonly Regex DiagnosticKeyRegex = new(
@@ -59,6 +64,8 @@ namespace Tyhp.Domain.Diagnostics
             "Tyhpdef",
             "IntegrityCheck",
             "Integrity",
+            "Install",
+            "Init",
         ];
 
         /// <summary>
@@ -84,6 +91,9 @@ namespace Tyhp.Domain.Diagnostics
         /// Keep the alternatives disjoint. A trailing <c>:</c> or <c>—</c> already covers every
         /// "&lt;summary&gt;: &lt;raw detail&gt;" message (exception text, parser detail, signature
         /// digests), so a prefix that ends in one must not be listed again on its own.
+        /// Glued optional suffixes (empty, or <c>: $message</c> / <c>; compiled by …</c> inside
+        /// the interpolated value) are handled by <see cref="IsOptionalGluedSuffix"/> rather than
+        /// a per-phrase prefix.
         /// </remarks>
         private static readonly Regex FreeFormPlaceholderPrefix = new(
             @"(?:"
@@ -92,6 +102,7 @@ namespace Tyhp.Domain.Diagnostics
             + @"—\s*$|"
             // Counts and positions.
             + @"at position\s*$|"
+            + @"parameter index\s*$|"
             + @"expects\s*$|"
             + @"found\s*$|"
             + @"at most\s*$|"
@@ -266,7 +277,7 @@ namespace Tyhp.Domain.Diagnostics
                     $"{MessageCodeCatalog.FormatCode(code)} ({code}) carries multiple severity "
                     + $"catalog entries ({string.Join(", ", keys.Order(StringComparer.Ordinal))}), "
                     + "but it is not on the multi-severity allowlist. Keep only the severity "
-                    + "producers emit (allowlist today: BinderUnknownError / LintNoSourceFiles), "
+                    + "producers emit (allowlist today: BinderUnknownError / ParserUnknownError / LintNoSourceFiles), "
                     + "or extend MessageConsistencyGate.MultiSeverityAllowlist if both are real.");
             }
         }
@@ -314,7 +325,8 @@ namespace Tyhp.Domain.Diagnostics
 
                     var before = message[..placeholder.Index];
                     var prefixWindow = before.Length > 80 ? before[^80..] : before;
-                    if (FreeFormPlaceholderPrefix.IsMatch(prefixWindow))
+                    if (FreeFormPlaceholderPrefix.IsMatch(prefixWindow)
+                        || IsOptionalGluedSuffix(message, placeholder))
                     {
                         continue;
                     }
@@ -632,6 +644,27 @@ namespace Tyhp.Domain.Diagnostics
                 message,
                 @"'[^']*\{\d+(?::[^}]*)?\}[^']*'|""[^""]*\{\d+(?::[^}]*)?\}[^""]*""",
                 RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// Placeholder glued to the last token of the short message with no preceding whitespace —
+        /// an optional empty-or-suffix interpolation (<c>: $message</c>, <c>; compiled by …</c>),
+        /// not an identifier. Mid-message glued placeholders still require backticks.
+        /// </summary>
+        private static bool IsOptionalGluedSuffix(string message, Match placeholder)
+        {
+            if (placeholder.Index == 0)
+            {
+                return false;
+            }
+
+            var after = message[(placeholder.Index + placeholder.Length)..];
+            if (!string.IsNullOrWhiteSpace(after))
+            {
+                return false;
+            }
+
+            return !char.IsWhiteSpace(message[placeholder.Index - 1]);
+        }
 
         private static bool IsInsideBackticks(string message, int index)
         {

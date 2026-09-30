@@ -13,7 +13,7 @@ function takeStructKey(string $k): string
     return $k;
 }
 
-function takeProps(string $p): string
+function takeProps(array $p): array
 {
     return $p;
 }
@@ -36,10 +36,11 @@ function takeStructDef(array $s): array
 function demo(): void
 {
     $key = '$x';
-    $props = '$x';
+    $props = ['x' => 1];
     $ret = 1;
     $plain = $key;
     takeStructKey('$x');
-    takeProps('$x');
+    takeProps(['x' => 1]);
+    takeProps([]);
     takeReturn(1);
 }

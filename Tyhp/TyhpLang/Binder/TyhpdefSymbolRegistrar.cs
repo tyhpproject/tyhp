@@ -32,27 +32,60 @@ namespace Tyhp.TyhpLang.Binder
         /// </summary>
         public void RegisterAll(IEnumerable<TyhpdefSourceFile> sources)
         {
-            foreach (var source in sources.OrderBy(static s => s.LoadOrder).ThenBy(static s => s.Ast.FileName, StringComparer.OrdinalIgnoreCase))
+            var list = sources as IList<TyhpdefSourceFile> ?? sources.ToList();
+            _binder.NoteTyhpdefPackages(list.Select(static source => source.PackageSource));
+            foreach (var source in list
+                .Where(static s => !s.IsOverlay)
+                .OrderBy(static s => s.LoadOrder)
+                .ThenBy(static s => s.Ast.FileName, StringComparer.OrdinalIgnoreCase))
             {
-                try
-                {
-                    _binder.BindTyhpdefSourceFile(source);
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
-                {
-                    _diagnostics.AddError(
-                        MessageCode.TyhpdefBindError,
-                        source.Ast?.FileName ?? "<tyhpdef>",
-                        0,
-                        0,
-                        ex.Message);
-                }
+                BindOne(source);
+            }
+
+            _binder.ResolveFallbackFunctions();
+            _binder.CaptureTyhpdefLayer1Stamps();
+
+            foreach (var source in list
+                .Where(static s => s.IsOverlay)
+                .OrderBy(static s => s.OverlaySequence))
+            {
+                BindOne(source);
+            }
+
+            _binder.ResolveFallbackFunctions();
+        }
+
+        private void BindOne(TyhpdefSourceFile source)
+        {
+            try
+            {
+                _binder.BindTyhpdefSourceFile(source);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                _diagnostics.AddError(
+                    MessageCode.TyhpdefBindError,
+                    source.Ast?.FileName ?? "<tyhpdef>",
+                    0,
+                    0,
+                    ex.Message);
             }
         }
 
         /// <summary>
         /// Records a newly registered tyhpdef symbol and its package source.
         /// </summary>
+        internal bool TryGetPackageSource(IBaseSymbol symbol, out string packageSource)
+        {
+            packageSource = "";
+            if (symbol is not BaseSymbol baseSymbol || string.IsNullOrWhiteSpace(baseSymbol.FullyQualifiedName))
+            {
+                return false;
+            }
+
+            return _fqnPackageSources.TryGetValue(baseSymbol.FullyQualifiedName, out packageSource!);
+        }
+
         internal void TrackSymbol(IBaseSymbol symbol, string packageSource)
         {
             if (symbol is not BaseSymbol baseSymbol || string.IsNullOrWhiteSpace(baseSymbol.FullyQualifiedName))
@@ -64,7 +97,69 @@ namespace Tyhp.TyhpLang.Binder
         }
 
         /// <summary>
+        /// Drops a previously tracked FQN so an overlay replace can re-register it.
+        /// </summary>
+        internal void UntrackFullyQualifiedName(string? fullyQualifiedName)
+        {
+            if (string.IsNullOrWhiteSpace(fullyQualifiedName))
+            {
+                return;
+            }
+
+            _fqnPackageSources.Remove(fullyQualifiedName);
+        }
+
+        /// <summary>
+        /// Drops include-time <see cref="MessageCode.TyhpdefDuplicateFqnAcrossPackages"/>
+        /// diagnostics for <paramref name="omittedSymbol"/> after an overlay
+        /// <c>omit</c> removes that declaration. A class, function, and const may share
+        /// an FQCN; only the diagnostic that labels this declaration is retracted.
+        /// </summary>
+        internal void RetractCrossPackageDuplicate(BaseSymbol omittedSymbol)
+        {
+            var fullyQualifiedName = omittedSymbol.FullyQualifiedName;
+            if (string.IsNullOrWhiteSpace(fullyQualifiedName))
+            {
+                return;
+            }
+
+            var nameComparison = omittedSymbol is ConstantSymbol
+                ? StringComparison.Ordinal
+                : StringComparison.OrdinalIgnoreCase;
+
+            _diagnostics.RetractWhere(diagnostic =>
+                diagnostic.Code == MessageCode.TyhpdefDuplicateFqnAcrossPackages
+                && diagnostic.FormatParams.Length > 0
+                && string.Equals(
+                    Convert.ToString(diagnostic.FormatParams[0]),
+                    fullyQualifiedName,
+                    nameComparison)
+                && LabelsOmittedDeclaration(diagnostic, omittedSymbol));
+        }
+
+        private static bool LabelsOmittedDeclaration(IDiagnostic diagnostic, BaseSymbol omittedSymbol)
+        {
+            var declaringNode = omittedSymbol.DeclaringAstNode;
+            var line = declaringNode != null ? Math.Max(1, declaringNode.Line) : omittedSymbol.Line;
+            var column = declaringNode != null ? Math.Max(0, declaringNode.Column) : omittedSymbol.Column;
+            foreach (var label in diagnostic.Labels)
+            {
+                if (label.Span.Line == line
+                    && label.Span.Column == column
+                    && string.Equals(label.Span.FileName, omittedSymbol.SourceFile, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// When duplicate registration fails, reports a cross-package conflict if applicable.
+        /// Real-wins merge for <c>extern</c> vs a real type of the same FQCN and kind is applied
+        /// in <c>TyhpBinder.TryConsumeTyhpdefExternMerge</c> before this path; those replacements
+        /// never reach <see cref="MessageCode.TyhpdefDuplicateFqnAcrossPackages"/>.
         /// </summary>
         internal bool TryReportCrossPackageConflict(
             IBaseSymbol? existingSymbol,
@@ -95,10 +190,11 @@ namespace Tyhp.TyhpLang.Binder
                 return false;
             }
 
-            _diagnostics.AddErrorFromAst(
+            _diagnostics.AddDuplicateFromAst(
                 MessageCode.TyhpdefDuplicateFqnAcrossPackages,
                 declaringNode,
                 fileName,
+                existingSymbol,
                 fqn,
                 existingSource,
                 currentPackageSource);

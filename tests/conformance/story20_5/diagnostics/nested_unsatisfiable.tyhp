@@ -1,0 +1,7 @@
+<?tyhp
+declare(php=">=8.4") {
+    function outer(): void {}
+    declare(php="<8.3") {
+        function never(): void {}
+    }
+}

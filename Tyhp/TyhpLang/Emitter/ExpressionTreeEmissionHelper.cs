@@ -11,7 +11,7 @@ namespace Tyhp.TyhpLang.Emitter
 {
     /// <summary>
     /// Story 16 Phase 2 — builds <c>new \Tyhp\Expression(...)</c> AST for inline expression-tree
-    /// arrow functions targeting <c>Expression&lt;T, R&gt;</c> parameters.
+    /// arrow functions targeting <c>Expression&lt;TCallableShape&gt;</c> parameters.
     /// </summary>
     internal static class ExpressionTreeEmissionHelper
     {
@@ -260,10 +260,12 @@ namespace Tyhp.TyhpLang.Emitter
             Func<string?, string?, string> formatClassFqn)
         {
             var typeArgs = PropertyPathEmissionHelper.GetGenericTypeArguments(expectedType);
-            if (typeArgs.Count > 0)
+            PropertyPathEmissionHelper.SplitCallableShapeTypeArguments(
+                typeArgs, out _, out var resultTypeExpr);
+            if (resultTypeExpr is not null)
             {
                 return PropertyPathEmissionHelper.SpellTypeAsRuntimeString(
-                    typeArgs[^1],
+                    resultTypeExpr,
                     resolveTypeSymbol,
                     formatClassFqn);
             }
@@ -411,7 +413,7 @@ namespace Tyhp.TyhpLang.Emitter
         {
             var opText = binary.Operator?.ValueString ?? "";
             var token = (int)(binary.Operator?.ValueInt64 ?? -1);
-            if (PhpBinaryOperatorExtensions.FromToken(token) == PhpBinaryOperator.InstanceOf
+            if (PhpBinaryOperatorExtensions.FromToken(token, opText) == PhpBinaryOperator.InstanceOf
                 || IsInstanceOfText(opText))
             {
                 var operand = RewriteNode(
@@ -443,7 +445,7 @@ namespace Tyhp.TyhpLang.Emitter
                 return null;
             }
 
-            if (PhpBinaryOperatorExtensions.FromToken(token) == PhpBinaryOperator.Coalesce
+            if (PhpBinaryOperatorExtensions.FromToken(token, opText) == PhpBinaryOperator.Coalesce
                 || opText == "??")
             {
                 return NewExpressionNode(
@@ -487,12 +489,13 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             var token = (int)(unary.Operator?.ValueInt64 ?? -1);
-            if (IsCastToken(token))
+            var castText = unary.Operator?.ValueString;
+            if (IsCastToken(token, castText))
             {
                 return NewExpressionNode(
                     @"\Tyhp\Expression\CastExpression",
                     [
-                        PhpScalarAst.CreateStringFromContext(context, CastTokenToTypeName(token)),
+                        PhpScalarAst.CreateStringFromContext(context, CastTokenToTypeName(token, castText)),
                         operand,
                     ],
                     context);
@@ -901,17 +904,35 @@ namespace Tyhp.TyhpLang.Emitter
                 _ => typeExpr?.Identifier,
             };
 
-        private static bool IsCastToken(int token) =>
-            token is TyhpParser.T_INT_CAST
+        private static bool IsCastToken(int token, string? text)
+        {
+            if (TrySpellCast(text, out _))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrEmpty(text))
+            {
+                return false;
+            }
+
+            return token is TyhpParser.T_INT_CAST
                 or TyhpParser.T_BOOL_CAST
                 or TyhpParser.T_STRING_CAST
                 or TyhpParser.T_DOUBLE_CAST
                 or TyhpParser.T_DECIMAL_CAST
                 or TyhpParser.T_ARRAY_CAST
                 or TyhpParser.T_OBJECT_CAST;
+        }
 
-        private static string CastTokenToTypeName(int token) =>
-            token switch
+        private static string CastTokenToTypeName(int token, string? text)
+        {
+            if (TrySpellCast(text, out var spelled))
+            {
+                return spelled;
+            }
+
+            return token switch
             {
                 TyhpParser.T_INT_CAST => "int",
                 TyhpParser.T_BOOL_CAST => "bool",
@@ -922,19 +943,54 @@ namespace Tyhp.TyhpLang.Emitter
                 TyhpParser.T_OBJECT_CAST => "object",
                 _ => "mixed",
             };
+        }
 
-        private static string NormalizeUnaryOperator(string opText, int token) =>
-            token switch
+        /// <summary>
+        /// PHP cast tokens spell as <c>(int)</c> (parens included). The spelling is the
+        /// operator; numeric ids differ between <c>TyhpParser</c> and <c>TyhpdefParser</c>.
+        /// </summary>
+        private static bool TrySpellCast(string? text, out string typeName)
+        {
+            typeName = "";
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            var spelled = text.Trim().Trim('(', ')').Trim().ToLowerInvariant();
+            typeName = spelled switch
+            {
+                "int" or "integer" => "int",
+                "bool" or "boolean" => "bool",
+                "string" or "binary" => "string",
+                "float" or "double" or "real" => "float",
+                "decimal" => "decimal",
+                "array" => "array",
+                "object" => "object",
+                _ => "",
+            };
+            return typeName.Length > 0;
+        }
+
+        private static string NormalizeUnaryOperator(string opText, int token)
+        {
+            if (!string.IsNullOrEmpty(opText))
+            {
+                return opText;
+            }
+
+            return token switch
             {
                 TyhpParser.T_SYM_BANG => "!",
                 TyhpParser.T_SYM_MINUS => "-",
                 TyhpParser.T_SYM_PLUS => "+",
                 TyhpParser.T_SYM_TILDE => "~",
-                _ => string.IsNullOrEmpty(opText) ? "!" : opText,
+                _ => "!",
             };
+        }
 
         private static bool IsInstanceOfText(string op) =>
-            op is "instanceof" or "is" or "isa" or "isan" or "is_a" or "is_an";
+            op is "instanceof" or "is";
 
         private static bool IsBuiltinInstanceofTarget(string spelling) =>
             spelling is "string" or "int" or "float" or "bool" or "null" or "void"

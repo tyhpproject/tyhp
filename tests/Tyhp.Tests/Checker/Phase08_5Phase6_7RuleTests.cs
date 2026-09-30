@@ -17,16 +17,9 @@ public class Phase08_5Phase6_7RuleTests
     public void TypeNameAlgebraTypes_AreRegisteredInGlobalScope()
     {
         using var compilationService = new CompilationService();
-        var options = new CompilationOptions
-        {
-            EnableAstCache = false,
-            PhpVersion = "8.2",
-            ProjectPath = TestFileManager.GetRepoRoot(),
-            TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            SkipChecking = true,
-        };
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
+        var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
         var filePath = Path.Combine(tempDir, "test.tyhp");
         File.WriteAllText(filePath, "<?tyhp\nfunction demo(): void {}\n");
 
@@ -333,6 +326,37 @@ public class Phase08_5Phase6_7RuleTests
         diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerTemplateStringMaxStatesExceeded);
     }
 
+    [Fact]
+    public void TemplateStringMaxStates_DoesNotLeakAcrossThreads()
+    {
+        TypeComparer.ConfigureTemplateStringMaxStates(4);
+        var started = new ManualResetEventSlim(false);
+        var release = new ManualResetEventSlim(false);
+        var other = 0;
+        var thread = new Thread(() =>
+        {
+            TypeComparer.ConfigureTemplateStringMaxStates(256);
+            other = TypeComparer.TemplateStringMaxStates;
+            started.Set();
+            release.Wait();
+        });
+
+        try
+        {
+            thread.Start();
+            started.Wait();
+            TypeComparer.TemplateStringMaxStates.Should().Be(4);
+            release.Set();
+            thread.Join();
+            other.Should().Be(256);
+        }
+        finally
+        {
+            release.Set();
+            TypeComparer.ConfigureTemplateStringMaxStates(256);
+        }
+    }
+
     private static DiagnosticBag CompileAndCheck(string content, int? templateStringMaxStates = null)
     {
         var (_, _, _, diagnostics) = CompileForChecker(content, templateStringMaxStates);
@@ -351,14 +375,7 @@ public class Phase08_5Phase6_7RuleTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

@@ -12,6 +12,44 @@ namespace Tyhp.Tests.Emitter;
 public class TypeofEmitterTests
 {
     [Fact]
+    public void Emit_TypeofSelf_InClass_UsesSelfClass()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class A {
+                function demo(): void {
+                    $t = typeof(self);
+                }
+            }
+            """);
+
+        php.Should().Contain("\\Tyhp\\Type::fromClassName(self::class)");
+        php.Should().NotContain("resolvedType(");
+        php.Should().NotContain("'self'");
+        php.Should().NotContain("typeof(");
+    }
+
+    [Fact]
+    public void Emit_TypeofUnboundName_InsideAClass_DoesNotLookupAsGenericParam()
+    {
+        // Parse-only: an unresolved bareword must not be treated as the enclosing class's
+        // generic parameter (FOUND_BUGS #55). Full compile diagnoses TYHP3003.
+        var php = EmitOnly("""
+            <?tyhp
+            class A {
+                function demo(): void {
+                    $t = typeof(TotallyBogusUnresolvedName);
+                }
+            }
+            """);
+
+        php.Should().Contain("\\Tyhp\\Type::mixed()");
+        php.Should().NotContain("resolvedType(");
+        php.Should().NotContain("TotallyBogusUnresolvedName");
+        php.Should().NotContain("typeof(");
+    }
+
+    [Fact]
     public void Emit_TypeofUnboundName_OutsideAClass_ErasesToMixed()
     {
         // Parse-only emit (no binder): class names are unbound barewords, same path as type params.
@@ -57,6 +95,48 @@ public class TypeofEmitterTests
         php.Should().NotContain("typeof(");
     }
 
+    [Fact]
+    public void Emit_TypeofSingleArgArray_LabelsSoleArgumentTValue()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            function f(): void { $t = typeof(array<int>); }
+            """);
+
+        php.Should().Contain(
+            "\\Tyhp\\Type::generic('array', new \\Tyhp\\NamedType('TValue', \\Tyhp\\Type::int()))");
+        php.Should().NotContain("NamedType('TKey'");
+        php.Should().NotContain("typeof(");
+    }
+
+    [Fact]
+    public void Emit_TypeofSingleArgIterable_LabelsSoleArgumentTValue()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            function f(): void { $t = typeof(iterable<string>); }
+            """);
+
+        php.Should().Contain(
+            "\\Tyhp\\Type::generic('iterable', new \\Tyhp\\NamedType('TValue', \\Tyhp\\Type::string()))");
+        php.Should().NotContain("NamedType('TKey'");
+        php.Should().NotContain("typeof(");
+    }
+
+    [Fact]
+    public void Emit_TypeofTwoArgArray_LabelsTKeyAndTValue()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            function f(): void { $t = typeof(array<string, int>); }
+            """);
+
+        php.Should().Contain(
+            "\\Tyhp\\Type::generic('array', new \\Tyhp\\NamedType('TKey', \\Tyhp\\Type::string()), "
+            + "new \\Tyhp\\NamedType('TValue', \\Tyhp\\Type::int()))");
+        php.Should().NotContain("typeof(");
+    }
+
     private static string EmitOnly(string content)
     {
         var parseResult = ParserTestHelper.ParseTyhpContent(content);
@@ -78,13 +158,7 @@ public class TypeofEmitterTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             // The async/package.tyhpdef (and other tyhpdef packages) carry pre-existing unresolved-type
             // diagnostics (ERROR_TYHP3019 \WeakMap, 3020 \Throwable, 8010, 8002, ...) that are

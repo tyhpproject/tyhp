@@ -1,7 +1,7 @@
 # Tyhp — Versioning, PHP Compatibility & Positioning
 
 > **What this is:** the canonical description of how Tyhp is versioned, how it stays compatible with PHP over
-> time, and how it positions itself relative to other "typed PHP" efforts. The public website mirrors this in
+> time, and how it positions itself relative to other typed-superset-of-PHP efforts. The public website mirrors this in
 > `docs/content/release_planning.md`, `docs/content/intro_newSyntaxCreation.md`, and
 > `docs/content/other_hack.md`; **this file is the source of truth** — keep those in sync with it.
 
@@ -10,14 +10,14 @@
 ## Semantic versioning with a PHP-encoded MAJOR
 
 Tyhp uses standard three-part semantic versioning (`MAJOR.MINOR.PATCH`), e.g. the current compiler is
-`805.0.0-alpha.1`.
+`805.1.0-beta.1`.
 
 ### Pre-release (alpha / beta / RC)
 
-A prerelease suffix (`-alpha.N`, `-beta.N`, `-rc.N`) is allowed **before** the first stable `805.0.0`.
+A prerelease suffix (`-alpha.N`, `-beta.N`, `-rc.N`) is allowed **before** the first stable `805.X.X`.
 Prereleases may still break source compatibility. Semver guarantees in this document apply from the first
-stable release of a MAJOR. Composer and Git tags for this alpha use `805.0.0-alpha.1` (GitHub Release tags
-may be `v805.0.0-alpha.1`).
+stable release of a MAJOR. Composer and Git tags for this beta use `805.1.0-beta.1` (GitHub Release tags
+may be `v805.1.0-beta.1`).
 
 ### MAJOR — encodes the highest PHP version supported
 
@@ -55,23 +55,24 @@ new MINOR. An emergency compile-time flag whose **default preserves existing Tyh
 
 ### Runtime Composer packages (PHP-target MAJOR + independent X.Y)
 
-The **compiler** version `805.0.0-alpha.1` means the compiler can emit for PHP up through 8.5. It still emits
+The **compiler** version `805.1.0-beta.1` means the compiler can emit for PHP up through 8.5. It still emits
 for 8.2, 8.3, and 8.4 when `output.phpVersion` says so. That number is **not** the runtime package version.
 
-Each of `tyhp/core`, `tyhp/async`, `tyhp/decimal`, `tyhp/lambda`, and `tyhp/php` has its **own**
-`X.Y` in that package's `composer.json`. Bump a package without bumping the compiler. Published
-artifacts are:
+Each of `tyhp/core`, `tyhp/async`, `tyhp/decimal`, `tyhp/lambda`, and `tyhpdef/php` has its **own**
+version in that package's `composer.json`. Bump a package without bumping the compiler.
 
-`80N.X.Y` where `80N` is the PHP target (`802` … `805`).
+**Compiled** `tyhp/*` helpers (`core`, `async`, `decimal`, `lambda`) publish as `80N.X.Y` where `80N` is
+the PHP target (`802` … `805`). Example: `tyhp/core` source `1.4` → Packagist `802.1.4`, `803.1.4`,
+`804.1.4`, `805.1.4`. Source `0.0` → `802.0.0` … `805.0.0`. A library that supports several PHP versions
+ORs majors and keeps **that package's** X: `803.1.* || 804.1.* || 805.1.*` for core `1.y`.
 
-Example: `tyhp/core` source `1.4` → Packagist `802.1.4`, `803.1.4`, `804.1.4`, `805.1.4`. Source
-`0.0` → `802.0.0` … `805.0.0`.
+**`tyhpdef/*`** packages (`tyhpdef/php`, `tyhpdef/php-ext-*`, Composer-lib wrappers) publish the version
+in that package's `composer.json` as the Packagist / git tag. They are one tree across PHP 8.2–8.5
+(`"php": ">=8.2"`); they do **not** use `80N.X.Y`. Example: source `0.0.1` → tag `0.0.1`.
 
-A library that supports several PHP versions ORs majors and keeps **that package's** X:
-`803.1.* || 804.1.* || 805.1.*` for core `1.y`. `tyhp/lambda` can be `2.y` at the same time.
-
-In-tree path repositories pin the source `X.Y` (one tree, `php: >=8.2`). Packagist consumers
-use the `80N.X.Y` form. See `docs/content/project_composerPackages.md`.
+In-tree path repositories pin the source version (one tree, `php: >=8.2`). Packagist consumers of
+compiled `tyhp/*` helpers use the `80N.X.Y` form; Packagist consumers of `tyhpdef/*` use the source
+version. See `docs/content/project_composerPackages.md`.
 
 ### Interop contract version (separate axis)
 

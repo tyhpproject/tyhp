@@ -10,5 +10,5 @@ namespace App;
 
 function yell(string $s): string
 {
-    return \App\StringExtensions::shout($s);
+    return \strtoupper($s);
 }

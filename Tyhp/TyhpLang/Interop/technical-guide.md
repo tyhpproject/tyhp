@@ -51,7 +51,7 @@ entry appears in the matching package’s committed `package.tyhpdef`.
 | `$expr->callable` when target is `\Closure` | PropertyPath and Expression |
 | `new \Tyhp\Expression\InstanceofExpression($operand, $targetType, $type)` | Phase 3 `is` / `instanceof` in an Expression `fn` body |
 
-`Expression<TArgs…, TReturn>` callable-style arity is a checker convention (last type argument is the return type). Emit still constructs `new \Tyhp\Expression(...)` with N `ParameterExpression` nodes — additive, no contract bump.
+`Expression<TCallableShape extends callable>` / `PropertyPath<TCallableShape extends callable>` take a single callable-shape type argument (`Expression<callable(User): string>`); the checker peels its parameter/return facet rather than treating extra type arguments as params+return. Emit still constructs `new \Tyhp\Expression(...)` with N `ParameterExpression` nodes — additive, no contract bump.
 
 `nameof(fn ($x) => $x->a->b)` folds to a string literal at emit time; it is not a runtime `\Tyhp\*` call.
 
@@ -63,6 +63,12 @@ the optional `$nullSafeFlags` ctor parameter, Phase 2 direct emission of `Expres
 the already-listed `ExpressionNode` family). Renaming the ctor, `$callable`, or the FQN would
 be breaking and must bump the stamp on compiler + packages.
 User-facing ABI detail: `docs/content/cli_interopContract.md` § `tyhp/lambda`.
+
+`\Tyhp\Type::objectShape(name, methods, properties)` is an additive factory on the already-listed
+`\Tyhp\Type` FQN (Story 27 shape guards). `\Tyhp\Type::callableShape(name)` is the same kind of
+additive factory for callable-shape `is` guards (v1 matching is `\is_callable`). Emit calls them
+from source-alias factories and inlined tyhpdef `$x is Shape` sites. No `interopContractVersion`
+bump. The descriptors have no `newInstance` / `new $name` helper.
 
 Checker-only `__CallableReturnType` / `__CallableParametersStruct` /
 `__CallableParametersTuple` / `__CallableParametersRest` erase to a concrete

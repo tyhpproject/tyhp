@@ -1,7 +1,6 @@
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Enum;
-using Tyhp.TyhpLang.Parser;
 
 namespace Tyhp.TyhpLang.Emitter
 {
@@ -33,10 +32,7 @@ namespace Tyhp.TyhpLang.Emitter
                         parent);
                 }
 
-                foreach (var stmt in block.GetAllNotNull())
-                {
-                    this.EmitStatement(stmt, parent, emitType);
-                }
+                this.EmitStatementSequence(block.GetAllNotNull(), parent, emitType);
             }
             finally
             {
@@ -202,7 +198,8 @@ namespace Tyhp.TyhpLang.Emitter
 
             foreach (var child in node.AstChildren)
             {
-                if (child is null || child is PhpStatementBlockAst || child is PhpInlineFunctionAst)
+                if (child is null || child is PhpStatementBlockAst || child is PhpInlineFunctionAst
+                    || child is TyhpAsyncBlockAst)
                 {
                     continue;
                 }
@@ -225,10 +222,8 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         private static bool IsPlainAssignment(PhpBinaryOpAst binary) =>
-            binary.Operator?.ValueString == "="
-            || (binary.Operator?.ValueInt64 is long token && (int)token == TyhpParser.T_SYM_EQUAL)
-            || PhpAssignmentOperatorExtensions.FromToken(
-                    binary.Operator?.ValueInt64 is long t ? (int)t : -1)
-                == PhpAssignmentOperator.Assign;
+            PhpAssignmentOperatorExtensions.FromToken(
+                binary.Operator?.ValueInt64 is long token ? (int)token : -1,
+                binary.Operator?.ValueString) == PhpAssignmentOperator.Assign;
     }
 }

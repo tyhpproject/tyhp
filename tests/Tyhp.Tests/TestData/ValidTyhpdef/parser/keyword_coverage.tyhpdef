@@ -1,0 +1,15 @@
+<?tyhpdef
+
+extern class \Elastica\Document;
+
+deprecated function \old_api(): void;
+
+obsolete function \gone_api(): void;
+
+partial function \array_count_values;
+
+async function fetchAsync(): int;
+
+const string GREETING ?? <<<EOT
+Hello, world!
+EOT;

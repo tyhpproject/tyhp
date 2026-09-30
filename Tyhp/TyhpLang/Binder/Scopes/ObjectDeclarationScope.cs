@@ -14,7 +14,8 @@ namespace Tyhp.TyhpLang.Binder.Scopes {
         >,
         INamespaceBlockScopeChild,
         ICodeBlockScopeChild,
-        IFileScopeChild
+        IFileScopeChild,
+        IObjectDeclarationScopeParent
     {
         NamespaceBlockScope? IBaseScope<NamespaceBlockScope>.Parent {
             get => this.Parent as NamespaceBlockScope;
@@ -33,5 +34,8 @@ namespace Tyhp.TyhpLang.Binder.Scopes {
         {
             // ctor
         }
+
+        void IObjectDeclarationScopeParent.AddObjectDeclarationChildScope(ObjectDeclarationScope child)
+            => this.AddChildScopeFromMarkerInterface(child);
     }
 }

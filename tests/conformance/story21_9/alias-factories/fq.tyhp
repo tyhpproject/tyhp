@@ -1,0 +1,9 @@
+<?tyhp
+declare(strict_types=1);
+namespace Fq;
+
+use App\Types\UserId;
+
+function demo(): mixed {
+    return \App\Types\UserId();
+}

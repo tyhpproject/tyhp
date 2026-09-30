@@ -89,16 +89,13 @@ public static class ConformanceRunner
 
     private static CompilationResult RunLint(string inputPath, IReadOnlyDictionary<string, JsonElement> config)
     {
-        var options = TestFileManager.CreateRepoRootCompilationOptions(
+        return IsolatedCompilation.ParseExistingFiles(
+            [inputPath],
             phpVersion: ReadString(config, "phpVersion") ?? "8.2",
-            enableAstCache: false,
             configure: o =>
             {
                 o.Tagless = ReadBool(config, "source.tagless") ?? false;
             });
-
-        using var compilationService = new CompilationService();
-        return compilationService.ParseFiles(new[] { inputPath }, options);
     }
 
     private static CompilationResult RunBuild(string suiteDirectory, IReadOnlyDictionary<string, JsonElement> config)
@@ -106,19 +103,39 @@ public static class ConformanceRunner
         var projectFile = Path.Combine(suiteDirectory, "tyhp.json");
         File.Exists(projectFile).Should().BeTrue($"build conformance suite must include tyhp.json at {projectFile}");
 
-        var buildStatePath = Path.Combine(suiteDirectory, IncrementalBuildService.BuildStateFileName);
-        if (File.Exists(buildStatePath))
+        var cacheDir = Path.Combine(Path.GetTempPath(), "tyhp-conformance-cache", Guid.NewGuid().ToString("N"));
+        var overrides = BuildConfigOverrides(config, projectFile);
+        var injectedCache = false;
+        if (!overrides.ContainsKey("cache-dir"))
         {
-            File.Delete(buildStatePath);
+            overrides["cache-dir"] = cacheDir;
+            injectedCache = true;
         }
 
         var configuration = new ConfigurationBuilder()
             .AddJsonFile(projectFile, optional: false)
-            .AddInMemoryCollection(BuildConfigOverrides(config, projectFile))
+            .AddInMemoryCollection(overrides)
             .Build();
 
         var project = new Project(configuration);
-        return new BuildAction(project).Start(CancellationToken.None) ?? new CompilationResult();
+        IncrementalBuildService.DeleteBuildState(IncrementalBuildService.GetBuildStatePath(project));
+        var stubDir = InjectMinimalPhpStubs(project);
+        try
+        {
+            return new BuildAction(project).Start(CancellationToken.None) ?? new CompilationResult();
+        }
+        finally
+        {
+            if (stubDir is not null)
+            {
+                try { Directory.Delete(stubDir, recursive: true); } catch { /* best effort */ }
+            }
+
+            if (injectedCache && Directory.Exists(cacheDir))
+            {
+                try { Directory.Delete(cacheDir, recursive: true); } catch { /* best effort */ }
+            }
+        }
     }
 
     private static Dictionary<string, string?> BuildConfigOverrides(
@@ -130,6 +147,8 @@ public static class ConformanceRunner
             ["*project_file_path"] = projectFile,
             ["clean"] = "true",
             ["build:dryRun"] = "false",
+            ["suppressWarnings:0"] = "TYHP8026",
+            ["suppressWarnings:1"] = "TYHP8027",
         };
 
         foreach (var entry in config)
@@ -168,12 +187,51 @@ public static class ConformanceRunner
         var generatedRelative = expectedRelative.StartsWith("expected/", StringComparison.OrdinalIgnoreCase)
             ? expectedRelative["expected/".Length..]
             : Path.GetFileName(expectedRelative);
+        generatedRelative = StripPhpVersionMatrixPrefix(generatedRelative);
         var generatedPath = Path.Combine(outputRoot, generatedRelative.Replace('/', Path.DirectorySeparatorChar));
 
         File.Exists(generatedPath).Should().BeTrue($"generated PHP should exist at {generatedPath}");
         var expected = File.ReadAllText(expectedPath).Replace("\r\n", "\n").TrimEnd() + "\n";
         var actual = File.ReadAllText(generatedPath).Replace("\r\n", "\n").TrimEnd() + "\n";
         actual.Should().Be(expected, $"generated PHP should match golden file {relativePhpPath}");
+    }
+
+    /// <summary>
+    /// Matrix goldens may live at <c>expected/php82/App/…</c> while the compiler still
+    /// writes <c>build/App/…</c>. Strip a leading <c>php82</c>/<c>php8.2</c>-style segment.
+    /// </summary>
+    private static string StripPhpVersionMatrixPrefix(string generatedRelative)
+    {
+        var slash = generatedRelative.IndexOf('/');
+        if (slash <= 0)
+        {
+            return generatedRelative;
+        }
+
+        var head = generatedRelative[..slash];
+        if (head.Length >= 4
+            && head.StartsWith("php", StringComparison.OrdinalIgnoreCase)
+            && char.IsDigit(head[3]))
+        {
+            return generatedRelative[(slash + 1)..];
+        }
+
+        return generatedRelative;
+    }
+
+    private static string? InjectMinimalPhpStubs(Project project)
+    {
+        if (project.TyhpdefIncludePaths.Count > 0)
+        {
+            return null;
+        }
+
+        var stubDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stubDir);
+        var stubPath = Path.Combine(stubDir, "__minimal_php.tyhpdef");
+        File.WriteAllText(stubPath, SyntheticPhpStubs.MinimalPhp);
+        project.TyhpdefIncludePaths.Insert(0, stubPath);
+        return stubDir;
     }
 
     private static Dictionary<string, JsonElement> MergeConfig(

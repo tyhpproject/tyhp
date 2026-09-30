@@ -1,0 +1,148 @@
+<?tyhpdef
+
+namespace App\InlineProbe;
+
+/*
+ * Hand-written stand-in for the package tyhpdef the compiler would generate from
+ * `test.tyhp`, so a consumer of this package splices the same way the library
+ * does internally.
+ *
+ * Shape for each `#[Inline]` member:
+ *   1. the real PHP method, declared under an aliased Tyhp name;
+ *   2. a class-body thin mapping carrying the expression, which is what consumer
+ *      emit splices into call sites.
+ *
+ * The aliased declaration is **required**, not optional. Rule 3 lets a consumer
+ * decline to splice — when the rewrite would drop an argument, make it lazy, or
+ * repeat it with no statement slot to hoist into, the call site keeps a real
+ * call. Without the declaration there is nothing to fall back to. An erased
+ * member has no declaration by definition, which is why the same condition is an
+ * error there rather than a warning.
+ *
+ * `&` is mirrored onto both, because the emitted PHP has it and the mapping needs
+ * it for the checker to reject non-referenceable arguments at consumer call sites.
+ */
+
+class Holder {
+    /*
+     * Hook lists are bodyless, the same way methods are. What a consumer needs
+     * from them is the read path: `{ get; set; }` reads by value, so these two are
+     * rejected as arguments to a `&` parameter and get a read local when passed by
+     * value, while `{ &get; }` is referenceable and is not.
+     */
+    public string $hooked { get; set; }
+    public int $hookedCount { get; set; }
+    public array $refItems { &get; }
+
+    public readonly int $frozenCount;
+
+    public function __get(string $name): mixed;
+    public function __set(string $name, mixed $value): void;
+
+    public function offsetExists(mixed $offset): bool;
+    public function offsetGet(mixed $offset): mixed;
+    public function offsetSet(mixed $offset, mixed $value): void;
+    public function offsetUnset(mixed $offset): void;
+
+    public function readBacking(): string;
+    public function readCounter(): int;
+    public function readMagic(): int;
+    public function readOffset(): int;
+    public function readItems(): array;
+}
+
+class RefAccessors {
+    // `&` on the return is what marks these read paths as referenceable, so a
+    // consumer accepts them as arguments to a `&` parameter.
+    public function &__get(string $name): mixed;
+
+    public function offsetExists(mixed $offset): bool;
+    public function &offsetGet(mixed $offset): mixed;
+    public function offsetSet(mixed $offset, mixed $value): void;
+    public function offsetUnset(mixed $offset): void;
+
+    public function readBag(): array;
+    public function readOffsets(): array;
+}
+
+class Probe {
+    public string $first;
+    public string $last;
+
+    /* ------------------------------------------------------------------ *
+     * GROUP A — nothing written, so no `&` on either side.
+     * ------------------------------------------------------------------ */
+
+    public function doubleTrim as doubleTrim__tyhpInlineBacker(string $s): string;
+    extension fn doubleTrim(string $s): string => \trim($s . $s);
+
+    public function ignoreSecond as ignoreSecond__tyhpInlineBacker(int $a, int $b): int;
+    extension fn ignoreSecond(int $a, int $b): int => $a;
+
+    public function coalesce as coalesce__tyhpInlineBacker(?string $a, string $b): string;
+    extension fn coalesce(?string $a, string $b): string => $a ?? $b;
+
+    public function reversed as reversed__tyhpInlineBacker(string $a, string $b): string;
+    extension fn reversed(string $a, string $b): string => $b . $a;
+
+    // `$this` in a class-body inline member is the enclosing tyhpdef class, and
+    // the mapping may only touch its public API — which is what makes the
+    // spliced expression legal at a consumer call site.
+    public function label as label__tyhpInlineBacker(): string;
+    extension fn label(): string => $this->first . ' ' . $this->last;
+
+    /* ------------------------------------------------------------------ *
+     * GROUP B — written parameters. `&` on the backer declaration matches
+     * the emitted PHP; `&` on the mapping is what lets a consumer's checker
+     * reject a non-referenceable argument before rewriting.
+     * ------------------------------------------------------------------ */
+
+    public function appendTo as appendTo__tyhpInlineBacker(string &$s, string $suffix = '__end'): string;
+    extension fn appendTo(string &$s, string $suffix = '__end'): string
+        => ($s = ($s . $s) . $suffix);
+
+    public function postInc as postInc__tyhpInlineBacker(int &$i): int;
+    extension fn postInc(int &$i): int => $i++;
+
+    public function preInc as preInc__tyhpInlineBacker(int &$i): int;
+    extension fn preInc(int &$i): int => ++$i;
+
+    public function addTwo as addTwo__tyhpInlineBacker(int &$i): int;
+    extension fn addTwo(int &$i): int => $i += 2;
+
+    public function crazy as crazy__tyhpInlineBacker(int &$i): int;
+    extension fn crazy(int &$i): int => $i *= ($i += 2);
+
+    // `$a` is written through `\ksort`'s by-reference parameter, not by direct
+    // assignment, so a consumer's checker has to resolve `\ksort` to see it.
+    public function sortKeys as sortKeys__tyhpInlineBacker(array &$a): bool;
+    extension fn sortKeys(array &$a): bool => \ksort($a);
+
+    public function appendItem as appendItem__tyhpInlineBacker(array &$a, string $item): int;
+    extension fn appendItem(array &$a, string $item): int
+        => (($a[] = $item) !== null ? \count($a) : 0);
+
+    /* ------------------------------------------------------------------ *
+     * GROUP C — a written parameter left by value never reaches tyhpdef,
+     * because rule 1 rejects it in the declaring package. Nothing to mirror.
+     * ------------------------------------------------------------------ */
+
+    /* ------------------------------------------------------------------ *
+     * GROUP D — variadics need no split and no companion. The declaration is
+     * mirrored verbatim, including `&...`.
+     * ------------------------------------------------------------------ */
+
+    public function joinAll as joinAll__tyhpInlineBacker(string $glue, string ...$parts): string;
+    extension fn joinAll(string $glue, string ...$parts): string => \implode($glue, $parts);
+
+    public function upperFirst as upperFirst__tyhpInlineBacker(string &...$parts): string;
+    extension fn upperFirst(string &...$parts): string => ($parts[0] = \strtoupper($parts[0]));
+}
+
+class ProbeFactory {
+    public function make(): Probe;
+}
+
+class Caller {
+    public function callTests(): void;
+}

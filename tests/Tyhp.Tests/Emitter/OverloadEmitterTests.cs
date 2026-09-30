@@ -21,13 +21,7 @@ public class OverloadEmitterTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))
@@ -67,7 +61,7 @@ function convertNumber(string|int|float $value, bool $convertToInt = false): int
 
         php.Should().NotContain("function convertNumber(string|int|float $value, true $convertToInt): int;");
         php.Should().NotContain("function convertNumber(string|int|float $value, false $convertToInt): float;");
-        php.Should().Contain("function convertNumber(string | int | float $value, bool $convertToInt = false): int | float");
+        php.Should().Contain("function convertNumber(string|int|float $value, bool $convertToInt = false): int|float");
         php.Should().Contain("return $convertToInt ? \\intval($value) : \\floatval($value);");
     }
 
@@ -95,7 +89,7 @@ class Calculator
 
         php.Should().NotContain("function add(int $a, int $b): int;");
         php.Should().NotContain("function add(float $a, float $b): float;");
-        php.Should().Contain("function add(int | float $a, int | float $b): int | float");
+        php.Should().Contain("function add(int|float $a, int|float $b): int|float");
         php.Should().Contain("return $a + $b;");
     }
 
@@ -133,8 +127,24 @@ fn convertNumber(string|int|float $value, bool $convertToInt = false): int|float
         php.Should().NotContain("function convertNumber(string|int|float $value, true $convertToInt): int;");
         // PHP has no named arrow functions, so the short-function implementation emits as a normal
         // function whose body returns the expression.
-        php.Should().Contain("function convertNumber(string | int | float $value, bool $convertToInt = false): int | float");
+        php.Should().Contain("function convertNumber(string|int|float $value, bool $convertToInt = false): int|float");
         php.Should().Contain("return $convertToInt ? \\intval($value) : \\floatval($value);");
+    }
+
+    [Fact]
+    public void Emit_ExtensionFunctionOverloads_EraseSignaturesKeepImplementation()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension StringOps extends string {
+                function first(1 $n): string;
+                function first(2 $n): array<int, string>;
+                fn first(int $n = 1): string|array<int, string> => $this;
+            }
+            """);
+
+        php.Should().NotContain("function first(");
+        php.Should().NotContain("class StringOps");
     }
 
 }

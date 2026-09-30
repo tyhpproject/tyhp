@@ -1,0 +1,11 @@
+{
+  "quiet": true,
+  "locale": "en-US",
+  "include": [
+    "./redundant_use.tyhp"
+  ],
+  "output": {
+    "path": "build/",
+    "phpVersion": "8.2"
+  }
+}

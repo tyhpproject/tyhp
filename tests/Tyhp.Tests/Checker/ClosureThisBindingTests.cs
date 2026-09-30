@@ -72,8 +72,8 @@ public class ClosureThisBindingTests
                     });
                 }
 
-                abstract protected function register(callable<string, mixed, bool> $handler): void;
-                abstract protected function registerSet(callable<string, mixed, bool> $handler): void;
+                abstract protected function register(callable(string, mixed): bool $handler): void;
+                abstract protected function registerSet(callable(string, mixed): bool $handler): void;
             }
             """);
 
@@ -109,14 +109,7 @@ public class ClosureThisBindingTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

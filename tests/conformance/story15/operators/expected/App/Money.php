@@ -10,9 +10,7 @@ namespace App;
 
 class Money
 {
-    public function __construct(public readonly int $amount)
-    {
-    }
+    public function __construct(public readonly int $amount) {}
     public static function __add(self $l, self $r): static
     {
         if ($l instanceof self && $r instanceof self) {

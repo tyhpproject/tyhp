@@ -6,7 +6,8 @@ using Tyhp.Domain.Services;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Emitter;
-using Tyhp.Tests.TestHelpers;
+using Tyhp.TyhpLang.Emitter.SourceMap;
+using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.Tests.CLI;
 
@@ -146,11 +147,184 @@ public class OutputWriterServiceTests
             var writtenPath = result.WrittenPaths.Single();
             var content = File.ReadAllText(writtenPath);
 
-            // Source maps are not produced yet (PHPOutputFile.SourceMap() is a Story 17 stub that
-            // throws), so no dangling //# sourceMappingURL= comment should be written and no .map
-            // file should exist.
+            // Source maps are not produced when PHPOutputFile.SourceMapCollector is null
+            // (tracking emit is not enabled), so no dangling //# sourceMappingURL= comment
+            // should be written and no .map file should exist.
             content.Should().NotContain("sourceMappingURL=");
             File.Exists(writtenPath + ".map").Should().BeFalse();
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void WriteAll_WithCollector_WritesMapFileAndSourceMappingUrl()
+    {
+        var tempDir = CreateTempDirectory();
+        var outputPath = Path.Combine(tempDir, "out");
+
+        try
+        {
+            var project = CreateProject(tempDir, outputPath: "out/", generateSourcemap: true);
+            var diagnostics = new DiagnosticBag();
+            var emitContext = new EmitContext(new GlobalScope(), diagnostics, new EmitConfig(outputPath + "/"));
+            var provider = new SourceMapTestAst(1, 0);
+            var outputFile = new PHPOutputFile
+            {
+                OutputFilePath = "out/App/Example.php",
+                IsEntryPoint = true,
+                SourceFileName = "src/Example.tyhp",
+                SourceRoot = "src/",
+                SourceFileAst = TyhpSrcFileAst.Create("src/Example.tyhp", "hash"),
+                SourceMapCollector = new SourceMapCollector(),
+                RootEmitItem = EmitItem.Empty(provider, EmitType.FileHeader),
+            };
+            outputFile.RootEmitItem.Children.Add(
+                EmitItem.Line(provider, EmitType.RootStatement, "echo 'hello';", outputFile.RootEmitItem));
+            outputFile.Generate(emitContext);
+
+            var result = new OutputWriterService(project, diagnostics, emitContext).WriteAll([outputFile]);
+
+            result.FilesWritten.Should().Be(1);
+            var writtenPath = result.WrittenPaths.Single();
+            File.Exists(writtenPath + ".map").Should().BeTrue();
+            File.ReadAllText(writtenPath).Should().Contain("//# sourceMappingURL=Example.php.map");
+
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(writtenPath + ".map"));
+            document.RootElement.GetProperty("version").GetInt32().Should().Be(3);
+            document.RootElement.GetProperty("file").GetString().Should().Be("Example.php");
+            diagnostics.HasErrors.Should().BeFalse();
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void WriteAll_DryRunWithGenerateSourcemap_DoesNotWritePhpOrMapFiles()
+    {
+        var tempDir = CreateTempDirectory();
+        var outputPath = Path.Combine(tempDir, "out");
+
+        try
+        {
+            var project = CreateProject(tempDir, outputPath: "out/", generateSourcemap: true, verbose: true);
+            var diagnostics = new DiagnosticBag();
+            var emitContext = new EmitContext(new GlobalScope(), diagnostics, new EmitConfig(outputPath + "/"));
+            var provider = new SourceMapTestAst(1, 0);
+            var outputFile = new PHPOutputFile
+            {
+                OutputFilePath = "out/App/Example.php",
+                IsEntryPoint = true,
+                SourceFileName = "src/Example.tyhp",
+                SourceRoot = "src/",
+                SourceFileAst = TyhpSrcFileAst.Create("src/Example.tyhp", "hash"),
+                SourceMapCollector = new SourceMapCollector(),
+                RootEmitItem = EmitItem.Empty(provider, EmitType.FileHeader),
+            };
+            outputFile.RootEmitItem.Children.Add(
+                EmitItem.Line(provider, EmitType.RootStatement, "echo 'hello';", outputFile.RootEmitItem));
+            outputFile.Generate(emitContext);
+
+            var result = new OutputWriterService(project, diagnostics, emitContext)
+                .WriteAll([outputFile], dryRun: true);
+
+            result.FilesWritten.Should().Be(1);
+            var writtenPath = result.WrittenPaths.Single();
+
+            // A dry run must never touch disk, even when sourcemap generation is enabled and
+            // would otherwise produce both a `.php` write (with sourceMappingURL appended) and a
+            // companion `.map` write.
+            File.Exists(writtenPath).Should().BeFalse();
+            File.Exists(writtenPath + ".map").Should().BeFalse();
+            Directory.Exists(outputPath).Should().BeFalse();
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void WriteAll_MergeThenRegenerate_DoesNotDuplicateMappings()
+    {
+        var tempDir = CreateTempDirectory();
+        var outputPath = Path.Combine(tempDir, "out");
+
+        try
+        {
+            var project = CreateProject(tempDir, outputPath: "out/", generateSourcemap: true);
+            var diagnostics = new DiagnosticBag();
+            var emitContext = new EmitContext(new GlobalScope(), diagnostics, new EmitConfig(outputPath + "/"));
+            var first = CreateTrackedEchoFile("out/App/Merged.php", "echo 1;", line: 1);
+            first.Generate(emitContext);
+            var second = CreateTrackedEchoFile("out/App/Merged.php", "echo 2;", line: 2);
+            second.Generate(emitContext);
+
+            var result = new OutputWriterService(project, diagnostics, emitContext)
+                .WriteAll([first, second]);
+
+            result.FilesWritten.Should().Be(1);
+            diagnostics.ToList().Should().Contain(d => d.Code == MessageCode.EmitterMergeConflict);
+
+            var writtenPath = result.WrittenPaths.Single();
+            var php = File.ReadAllText(writtenPath);
+            php.Should().Contain("echo 1;");
+            php.Should().Contain("echo 2;");
+            File.Exists(writtenPath + ".map").Should().BeTrue();
+
+            first.SourceMapCollector.Should().NotBeNull();
+            first.SourceMapCollector!.CurrentGeneratedLine.Should().Be(
+                first.GeneratedContent!.Count(c => c == '\n'),
+                "re-Generate after merge must reset the collector; a stale cursor would run past the PHP line count");
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void WriteAll_IncludeSourcesContent_EmbedsOriginalFile()
+    {
+        var tempDir = CreateTempDirectory();
+        var outputPath = Path.Combine(tempDir, "out");
+        var sourceDir = Path.Combine(tempDir, "src");
+        Directory.CreateDirectory(sourceDir);
+        File.WriteAllText(Path.Combine(sourceDir, "Example.tyhp"), "<?tyhp echo 1;\n");
+
+        try
+        {
+            var project = CreateProject(
+                tempDir,
+                outputPath: "out/",
+                generateSourcemap: true,
+                sourceMapIncludeContent: true);
+            var diagnostics = new DiagnosticBag();
+            var emitContext = new EmitContext(new GlobalScope(), diagnostics, new EmitConfig(outputPath + "/"));
+            var provider = new SourceMapTestAst(1, 0);
+            var outputFile = new PHPOutputFile
+            {
+                OutputFilePath = "out/App/Example.php",
+                IsEntryPoint = true,
+                SourceFileName = "src/Example.tyhp",
+                SourceFileAst = TyhpSrcFileAst.Create("src/Example.tyhp", "hash"),
+                SourceMapCollector = new SourceMapCollector(),
+                RootEmitItem = EmitItem.Empty(provider, EmitType.FileHeader),
+            };
+            outputFile.RootEmitItem.Children.Add(
+                EmitItem.Line(provider, EmitType.RootStatement, "echo 1;", outputFile.RootEmitItem));
+            outputFile.Generate(emitContext);
+
+            var result = new OutputWriterService(project, diagnostics, emitContext).WriteAll([outputFile]);
+            var mapJson = File.ReadAllText(result.WrittenPaths.Single() + ".map");
+            using var document = System.Text.Json.JsonDocument.Parse(mapJson);
+            document.RootElement.GetProperty("sourcesContent").EnumerateArray()
+                .Select(e => e.GetString())
+                .Should().Equal("<?tyhp echo 1;\n");
         }
         finally
         {
@@ -162,7 +336,8 @@ public class OutputWriterServiceTests
         string projectPath,
         string outputPath,
         bool verbose = false,
-        bool generateSourcemap = false)
+        bool generateSourcemap = false,
+        bool sourceMapIncludeContent = false)
     {
         var projectFile = Path.Combine(projectPath, "tyhp.json");
         File.WriteAllText(projectFile, "{}");
@@ -174,10 +349,36 @@ public class OutputWriterServiceTests
                 ["output:path"] = outputPath,
                 ["verbose"] = verbose.ToString().ToLowerInvariant(),
                 ["build:generateSourcemap"] = generateSourcemap.ToString().ToLowerInvariant(),
+                ["build:sourcemapIncludeContent"] = sourceMapIncludeContent.ToString().ToLowerInvariant(),
             })
             .Build();
 
         return new Project(configuration);
+    }
+
+    private static PHPOutputFile CreateTrackedEchoFile(string outputFilePath, string echoLine, int line)
+    {
+        var provider = new SourceMapTestAst(line, 0);
+        var file = new PHPOutputFile
+        {
+            OutputFilePath = outputFilePath,
+            IsEntryPoint = true,
+            SourceFileName = "src/Merged.tyhp",
+            SourceMapCollector = new SourceMapCollector(),
+            RootEmitItem = EmitItem.Empty(provider, EmitType.FileHeader),
+        };
+        file.RootEmitItem.Children.Add(
+            EmitItem.Line(provider, EmitType.RootStatement, echoLine, file.RootEmitItem));
+        return file;
+    }
+
+    private sealed class SourceMapTestAst : Base2Ast
+    {
+        public SourceMapTestAst(int line, int column)
+        {
+            Line = line;
+            Column = column;
+        }
     }
 
     private static string CreateTempDirectory()
@@ -337,104 +538,7 @@ public class ComposerJsonServiceTests
         };
 
         ComposerJsonService.DetermineRequiredPackages(outputFiles)
-            .Should().BeEquivalentTo(["tyhp/async", "tyhp/decimal", "tyhp/php"]);
-    }
-
-    [Fact]
-    public void GenerateOrUpdate_RuntimePackages_EmitsPathRepositoriesAndVersionConstraints()
-    {
-        var tempDir = CreateTempDirectory();
-        var outputDir = Path.Combine(tempDir, "build");
-        Directory.CreateDirectory(outputDir);
-
-        try
-        {
-            var project = CreateUpdateComposerProject(tempDir);
-            var outputFiles = new List<PHPOutputFile>
-            {
-                new()
-                {
-                    OutputFilePath = "build/App/UsesAsync.php",
-                    GeneratedContent = "<?php\nuse Tyhp\\Async\\Promise;\n",
-                    IsPSR4ObjectDeclaration = true,
-                },
-                new()
-                {
-                    OutputFilePath = "build/App/UsesDecimal.php",
-                    GeneratedContent = "<?php\n$amount = \\decimal('1.0');\n",
-                },
-            };
-
-            new ComposerJsonService(new DiagnosticBag()).GenerateOrUpdate(outputDir, project, outputFiles);
-
-            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(outputDir, "composer.json")));
-            var root = document.RootElement;
-
-            var require = root.GetProperty("require");
-            require.GetProperty("tyhp/async").GetString().Should().Be("0.0");
-            require.GetProperty("tyhp/decimal").GetString().Should().Be("0.0");
-            require.GetProperty("tyhp/php").GetString().Should().Be("0.0");
-
-            var repositories = root.GetProperty("repositories");
-            repositories.ValueKind.Should().Be(System.Text.Json.JsonValueKind.Array);
-
-            var pathRepoUrls = repositories.EnumerateArray()
-                .Where(repo => repo.GetProperty("type").GetString() == "path")
-                .Select(repo => repo.GetProperty("url").GetString() ?? "")
-                .ToList();
-
-            // Every runtime package on disk is registered so transitive deps (e.g. tyhp/core)
-            // also resolve locally, even though only async + decimal are directly required.
-            pathRepoUrls.Should().Contain(url => url.EndsWith("runtime/packages/async", StringComparison.Ordinal));
-            pathRepoUrls.Should().Contain(url => url.EndsWith("runtime/packages/decimal", StringComparison.Ordinal));
-            pathRepoUrls.Should().Contain(url => url.EndsWith("runtime/packages/core", StringComparison.Ordinal));
-            pathRepoUrls.Should().Contain(url => url.EndsWith("runtime/packages/php", StringComparison.Ordinal));
-            pathRepoUrls.Should().OnlyContain(url => Directory.Exists(url));
-        }
-        finally
-        {
-            TryDeleteDirectory(tempDir);
-        }
-    }
-
-    [Fact]
-    public void GenerateOrUpdate_RuntimePackages_ComposerInstallResolvesLocalPackages()
-    {
-        var tempDir = CreateTempDirectory();
-        var outputDir = Path.Combine(tempDir, "build");
-        Directory.CreateDirectory(outputDir);
-
-        try
-        {
-            var project = CreateUpdateComposerProject(tempDir);
-            var outputFiles = new List<PHPOutputFile>
-            {
-                new()
-                {
-                    OutputFilePath = "build/App/UsesDecimal.php",
-                    GeneratedContent = "<?php\n$amount = \\decimal('1.0');\n",
-                },
-            };
-
-            new ComposerJsonService(new DiagnosticBag()).GenerateOrUpdate(outputDir, project, outputFiles);
-
-            if (!PhpToolchain.IsAvailable())
-            {
-                return;
-            }
-
-            var result = PhpToolchain.RunComposerInstall(outputDir);
-            result.ExitCode.Should().Be(0, $"composer install should resolve path repositories:\n{result.CombinedOutput}");
-
-            // tyhp/decimal is directly required; tyhp/core is its transitive dependency. Both must
-            // resolve from the local path repositories.
-            Directory.Exists(Path.Combine(outputDir, "vendor", "tyhp", "decimal")).Should().BeTrue();
-            Directory.Exists(Path.Combine(outputDir, "vendor", "tyhp", "core")).Should().BeTrue();
-        }
-        finally
-        {
-            TryDeleteDirectory(tempDir);
-        }
+            .Should().BeEquivalentTo(["tyhp/async", "tyhp/decimal", "tyhpdef/php"]);
     }
 
     [Fact]
@@ -449,23 +553,88 @@ public class ComposerJsonServiceTests
         ComposerJsonService.EncodeRuntimePackageVersion("8.5", "0.0")
             .Should().Be("805.0.0");
         ComposerJsonService.PhpConstraintForPhpVersion("8.3").Should().Be("~8.3.0");
+        ComposerJsonService.PhpConstraintForPhpVersion("9.9").Should().Be(">=8.2");
     }
 
-    private static Project CreateUpdateComposerProject(string tempDir)
+    [Fact]
+    public void ResolvePackagistConstraint_TyhpdefUsesSourceVersion_CompiledUsesPhpTarget()
     {
-        var projectFile = Path.Combine(tempDir, "tyhp.json");
-        File.WriteAllText(projectFile, "{}");
+        ComposerJsonService.ResolvePackagistConstraint("tyhpdef/acme-stubs", "8.4", "0.0.1")
+            .Should().Be("0.0.1");
+        ComposerJsonService.ResolvePackagistConstraint("tyhpdef/acme-pack", "8.2", "0.1")
+            .Should().Be("0.1");
+        ComposerJsonService.ResolvePackagistConstraint("tyhp/gadget", "8.4", "0.2")
+            .Should().Be("804.0.2");
+        ComposerJsonService.ResolvePackagistConstraint("tyhp/spark", "8.5", "0.1")
+            .Should().Be("805.0.1");
+    }
 
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["*project_file_path"] = projectFile,
-                ["output:path"] = "build/",
-                ["build:updateComposer"] = "true",
-            })
-            .Build();
+    [Fact]
+    public void EnsureRequireEntries_WritesLiteralGreaterThanInVersionConstraints()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var composerPath = Path.Combine(tempDir, "composer.json");
+            File.WriteAllText(composerPath, """
+                {
+                    "name": "tyhpdef/example",
+                    "require": {
+                        "php": ">=8.2"
+                    }
+                }
+                """);
 
-        return new Project(configuration);
+            ComposerJsonService.EnsureRequireEntries(
+                composerPath,
+                new Dictionary<string, string> { ["tyhpdef/acme-log"] = "^3.0.0" });
+
+            var json = File.ReadAllText(composerPath);
+            json.Should().Contain(">=8.2");
+            json.Should().NotContain("\\u003E");
+            json.Should().Contain("tyhpdef/acme-log");
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void EnsureTyhpdefRequireDevEntries_MovesPhpStubsOutOfRequireOntoDevAndExtras()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var composerPath = Path.Combine(tempDir, "composer.json");
+            File.WriteAllText(composerPath, """
+                {
+                    "name": "tyhpdef/example",
+                    "require": {
+                        "php": ">=8.2",
+                        "tyhpdef/acme-stubs": "0.0.1"
+                    }
+                }
+                """);
+
+            ComposerJsonService.EnsureTyhpdefRequireDevEntries(
+                composerPath,
+                ["tyhpdef/acme-stubs"]);
+
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(composerPath));
+            var root = document.RootElement;
+            var require = root.GetProperty("require");
+            require.GetProperty("php").GetString().Should().Be(">=8.2");
+            require.TryGetProperty("tyhpdef/acme-stubs", out _).Should().BeFalse();
+            root.GetProperty("require-dev").GetProperty("tyhpdef/acme-stubs").GetString().Should().Be("@dev");
+            root.GetProperty("extra").GetProperty("tyhp").GetProperty("require")
+                .GetProperty("tyhpdef/acme-stubs").GetString().Should().Be("@dev");
+            File.ReadAllText(composerPath).Should().NotContain("\\u003E");
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
     }
 
     [Fact]
@@ -489,6 +658,64 @@ public class ComposerJsonServiceTests
             new ComposerJsonService(new DiagnosticBag()).GenerateOrUpdate(outputDir, project, []);
 
             File.Exists(Path.Combine(outputDir, "composer.json")).Should().BeFalse();
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void GenerateOrUpdate_AutoloadPathsAreRelativeToComposerDirectory()
+    {
+        var tempDir = CreateTempDirectory();
+        var publishDir = Path.Combine(tempDir, "publish");
+        Directory.CreateDirectory(Path.Combine(publishDir, "src"));
+
+        try
+        {
+            var projectFile = Path.Combine(tempDir, "tyhp.json");
+            File.WriteAllText(projectFile, "{}");
+
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["*project_file_path"] = projectFile,
+                    ["output:path"] = "publish/src",
+                    ["output:publishPath"] = "publish",
+                    ["build:updateComposer"] = "true",
+                    ["psr4:App\\"] = "src/",
+                })
+                .Build();
+
+            var project = new Project(configuration);
+            var outputFiles = new List<PHPOutputFile>
+            {
+                new()
+                {
+                    OutputFilePath = "publish/src/Models/User.php",
+                    GeneratedContent = "<?php\nnamespace App\\Models;\nclass User {}\n",
+                    IsPSR4ObjectDeclaration = true,
+                },
+                new()
+                {
+                    OutputFilePath = "publish/src/Helpers/_functions.php",
+                    GeneratedContent = "<?php\n",
+                },
+            };
+
+            new ComposerJsonService(new DiagnosticBag()).GenerateOrUpdate(publishDir, project, outputFiles);
+
+            File.Exists(Path.Combine(publishDir, "composer.json")).Should().BeTrue();
+            File.Exists(Path.Combine(publishDir, "src", "composer.json")).Should().BeFalse();
+
+            using var document = System.Text.Json.JsonDocument.Parse(
+                File.ReadAllText(Path.Combine(publishDir, "composer.json")));
+            var autoload = document.RootElement.GetProperty("autoload");
+            autoload.GetProperty("psr-4").GetProperty("App\\").GetString().Should().Be("src/");
+            autoload.GetProperty("files").EnumerateArray()
+                .Select(element => element.GetString())
+                .Should().Contain("src/Helpers/_functions.php");
         }
         finally
         {

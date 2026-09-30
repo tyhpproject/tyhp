@@ -2,9 +2,10 @@ namespace Tyhp.TyhpLang.Checker
 {
     /// <summary>
     /// Per-property definite-initialization and control-flow type narrowing for
-    /// <c>$this->prop</c> (Prop-init #7 + property null/instanceof narrowing).
+    /// <c>$this->prop</c> and enclosing-class <c>self::$prop</c> (Prop-init #7 +
+    /// property null/instanceof narrowing).
     /// Seeded from a property initializer, a promoted constructor parameter, or a direct
-    /// <c>$this->prop = …</c> assignment in the constructor / method body under analysis.
+    /// <c>$this->prop = …</c> / <c>self::$prop = …</c> assignment in the constructor / method body under analysis.
     /// </summary>
     public sealed class PropertyInitializationState
     {
@@ -25,14 +26,24 @@ namespace Tyhp.TyhpLang.Checker
 
         public static PropertyInitializationState Merge(
             PropertyInitializationState left,
-            PropertyInitializationState right) =>
-            new()
+            PropertyInitializationState right)
+        {
+            ICheckedType? narrowed = null;
+            if (left.NarrowedType is { } leftNarrowed && right.NarrowedType is { } rightNarrowed)
+            {
+                // Both paths refined the slot (null-check, assignment, instanceof, …).
+                // Union them the way <see cref="VariableState"/> merge unions EffectiveType:
+                // `if ($p === null) { $p = new T(); }` is non-null on the join (then assigned;
+                // else already non-null). Divergent refinements (T vs null) union to a nullable.
+                narrowed = CheckedTypes.UnionTypes(leftNarrowed, rightNarrowed);
+            }
+
+            return new PropertyInitializationState
             {
                 IsDefinitelyInitialized =
                     left.IsDefinitelyInitialized && right.IsDefinitelyInitialized,
-                // Divergent branches drop property narrowing (same as <see cref="VariableState"/>
-                // merge): subsequent guards must re-narrow.
-                NarrowedType = null,
+                NarrowedType = narrowed,
             };
+        }
     }
 }

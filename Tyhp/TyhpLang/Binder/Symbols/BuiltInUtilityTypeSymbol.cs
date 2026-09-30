@@ -4,7 +4,7 @@ using Tyhp.TyhpLang.Enum;
 namespace Tyhp.TyhpLang.Binder.Symbols
 {
     /// <summary>
-    /// A built-in checker utility type in the <c>\Tyhp</c> namespace (e.g. <c>\Tyhp\Partial&lt;T&gt;</c>).
+    /// A built-in checker utility type in global scope (e.g. <c>__Partial&lt;T&gt;</c>).
     /// </summary>
     public class BuiltInUtilityTypeSymbol :
         BaseSymbol,

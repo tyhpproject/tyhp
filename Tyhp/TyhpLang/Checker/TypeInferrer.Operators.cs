@@ -25,7 +25,7 @@ namespace Tyhp.TyhpLang.Checker
                     or PhpBinaryOperator.LogicalAnd or PhpBinaryOperator.LogicalOr or PhpBinaryOperator.LogicalXor
                     or PhpBinaryOperator.BooleanAnd or PhpBinaryOperator.BooleanOr
                     => CheckedTypes.Bool,
-                PhpBinaryOperator.Spaceship => CheckedTypes.Int,
+                PhpBinaryOperator.Spaceship => CheckedTypes.SpaceshipResult,
                 // Pipe result typing lives in InferBinary (RHS callable return); do not promote here.
                 PhpBinaryOperator.Pipe => CheckedTypes.Unresolved,
                 _ => CheckedTypes.Unresolved,

@@ -22,6 +22,11 @@ namespace Tyhp.TyhpLang.Binder.Symbols
         /// Satisfied by the <c>object</c> built-in, classes, interfaces, enums, and structs.
         /// </summary>
         Object,
+        /// <summary>
+        /// A non-negative integer literal type (<c>0</c>, <c>1</c>, …), same family as
+        /// <c>__IndexValueType&lt;T, 0&gt;</c>'s index argument.
+        /// </summary>
+        NonNegativeIntLiteral,
     }
 
     /// <summary>
@@ -48,7 +53,8 @@ namespace Tyhp.TyhpLang.Binder.Symbols
         public bool SupportsSingleArgumentShorthand { get; init; }
 
         /// <summary>
-        /// When true, the last type argument is the return type (callable return-last convention).
+        /// When true, the last type argument is a return-type slot (void/never allowed).
+        /// No built-in currently sets this; callable shapes use <c>callable(…): R</c>.
         /// </summary>
         public bool UsesReturnLastConvention { get; init; }
 
@@ -66,17 +72,6 @@ namespace Tyhp.TyhpLang.Binder.Symbols
             {
                 new BuiltInGenericParameterSpec("TKey", BuiltInGenericParameterConstraint.KeyIntOrString),
                 new BuiltInGenericParameterSpec("TValue", BuiltInGenericParameterConstraint.None),
-            },
-        };
-
-        public static GenericParameterRequirements Callable() => new()
-        {
-            MinArity = 1,
-            MaxArity = int.MaxValue,
-            UsesReturnLastConvention = true,
-            Parameters = new[]
-            {
-                new BuiltInGenericParameterSpec("TReturn", BuiltInGenericParameterConstraint.ReturnTypeRestricted),
             },
         };
 

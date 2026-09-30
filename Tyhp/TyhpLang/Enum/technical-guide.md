@@ -16,7 +16,7 @@ This guide is grounded in the sources under `Tyhp/TyhpLang/Enum/` and call sites
 | Php\* prefix | Token/AST-oriented classifications that mirror PHP grammar concepts (even when Tyhp extends them). |
 | Non-Php names | Binder/checker/emitter domain concepts (`SymbolType`, `ScopeType`, `EmitType`, `UtilityBehavior`, …). |
 
-**Dual modifier systems:** AST nodes typically store `PhpModifier` (including PHP 8.4 asymmetric visibility `PublicSet` / `ProtectedSet` / `PrivateSet`). Binder symbols and checker state use `[Flags] MemberModifier` (includes Tyhp-only `Async` and `Operator`). Conversion lives in `TyhpBinder.TopStatements.ConvertModifiers` and `CheckerHelpers.ToMemberModifiers`. Tyhp `async` is **not** a `PhpModifier` value — the visitor attaches an `isAsync` grammar addon; the binder ORs `MemberModifier.Async`.
+**Dual modifier systems:** AST nodes typically store `PhpModifier` (including PHP 8.4 asymmetric visibility `PublicSet` / `ProtectedSet` / `PrivateSet`, plus Tyhp `Internal`). Binder symbols and checker state use `[Flags] MemberModifier` (includes Tyhp-only `Async`, `Operator`, and `Internal`). Conversion lives in `TyhpBinder.TopStatements.ConvertModifiers` and `CheckerHelpers.ToMemberModifiers`. Tyhp `async` is **not** a `PhpModifier` value — the visitor attaches an `isAsync` grammar addon; the binder ORs `MemberModifier.Async`. Tyhp `internal` is both a `PhpModifier` and a `MemberModifier`, and may also arrive as an `isInternal` grammar addon.
 
 ---
 
@@ -32,7 +32,7 @@ This guide is grounded in the sources under `Tyhp/TyhpLang/Enum/` and call sites
 
 **Non-obvious:**
 - `AccessorTypeHelper.FromToken` has **all** token arms commented out and always returns `Invalid`. The historical token names (`T_TYHP_PROP_ACCESSOR_*`) are left as comments.
-- Binder currently sets `HasAccessor` from `prop.Hooks != null` (`TyhpBinder.ObjectBody`) but does not appear to construct `ObjectAccessorMethodSymbol` or assign `AccessorKind` from tokens in the current tree.
+- Binder sets `HasAccessor` from `prop.Hooks != null` (`TyhpBinder.ObjectBody`) and derives `AccessorKind` as `Get` or `Set` when exactly one of `HasGetHook` / `HasSetHook` is present. Both hooks leave `AccessorKind` unset. Tyhpdef does not construct `ObjectAccessorMethodSymbol` (bodyless hooks).
 
 ### `AsyncForeachKind`
 
@@ -110,12 +110,13 @@ This guide is grounded in the sources under `Tyhp/TyhpLang/Enum/` and call sites
 | `Async` | 128 | `T_TYHP_ASYNC` |
 | `Operator` | 256 | `T_TYHP_OPERATOR` |
 | `Var` | 512 | `T_VAR` |
+| `Internal` | 1024 | `T_TYHP_INTERNAL` — counted as a visibility for TYHP4002; not emitted to PHP |
 
 **Where used:** Nearly all binder symbols’ `Visibility`, checker modifier validation, `with` / readonly checks, method override rules.
 
 **Non-obvious:**
 - Not a 1:1 map of `PhpModifier` — no asymmetric `*Set` flags here.
-- `MemberModifierHelper.FromToken` can produce `Operator` / `Async`; AST→symbol conversion often goes through `PhpModifier` lists plus the `isAsync` addon instead.
+- `MemberModifierHelper.FromToken` can produce `Operator` / `Async` / `Internal`; AST→symbol conversion often goes through `PhpModifier` lists plus the `isAsync` / `isInternal` addons instead.
 
 ### `ObjectModifier` (+ `ObjectModifierHelper`) `[Flags]`
 
@@ -145,7 +146,7 @@ This guide is grounded in the sources under `Tyhp/TyhpLang/Enum/` and call sites
 
 **Purpose:** Which grammar entry point / language mode to parse: `Php`, `Tyhpdef`, `Tyhp`.
 
-**Where used:** Built-in tyhpdef loading (`Tyhpdef.cs`, package loading), CLI debug/tokenize/integrity (`DebugCommandSupport`, `TokenizeAction`, `DumpAstAction`, `TyhpdefCheck`).
+**Where used:** Built-in tyhpdef loading (`Tyhpdef.cs`, package loading), CLI debug/tokenize/integrity (`DebugCommandSupport`, `TokenizeAction`, `DumpAstAction`, `SymbolTreeAction`, `TyhpdefCheck`).
 
 **Related but distinct:** `SrcFileType` (same three concepts as a `short` enum) — see below; do not assume they are interchangeable in code today.
 
@@ -171,7 +172,7 @@ This guide is grounded in the sources under `Tyhp/TyhpLang/Enum/` and call sites
 
 **Where used:** Expression inferrer / operator checker paths, AST binary ops via token mapping.
 
-**Non-obvious:** `T_TYHP_IS` (`is` / `isa` / … aliases) maps to `InstanceOf`, same as `T_INSTANCEOF` (comment references grammar addon). Returns `null` for unknown tokens (nullable API).
+**Non-obvious:** `T_TYHP_IS` (`is`) maps to `InstanceOf`, same as `T_INSTANCEOF` (comment references grammar addon). Returns `null` for unknown tokens (nullable API).
 
 ### `PhpBuiltinType` (+ `FromString`)
 
@@ -197,7 +198,7 @@ This guide is grounded in the sources under `Tyhp/TyhpLang/Enum/` and call sites
 
 **Where used:** Modifier lists on AST (`PhpModifierListAst`, operator overload AST), emitter spelling (`public(set)` etc.), binder conversion to `MemberModifier` (asymmetric set modifiers currently collapse to `MemberModifier.None` in `ConvertModifiers`’s default arm).
 
-**Non-obvious:** No `Async` / `Operator` values — those are Tyhp-only on `MemberModifier`.
+**Non-obvious:** No `Async` / `Operator` values — those are Tyhp-only on `MemberModifier`. `Internal` exists on both enums (tyhp-mode visibility; emitter strips it).
 
 ### `PhpNameType` (+ extensions)
 
@@ -221,9 +222,9 @@ This guide is grounded in the sources under `Tyhp/TyhpLang/Enum/` and call sites
 
 ### `PhpTypeDeclType` (+ extensions)
 
-**Purpose:** Object declaration kind: `Class`, `Interface`, `Trait`, `Enum`.
+**Purpose:** Object declaration kind: `Class`, `Interface`, `Trait`, `Enum`, plus `Unspecified` for kind-unspecified tyhpdef `extern \Name;` placeholders.
 
-**Where used:** Object symbols (`ObjectKind`), name resolution, declaration rules, nameof / symbol-name existence, generic constraints. Structs are often a **flag** on the class-like symbol (`IsStruct`), not a fifth `PhpTypeDeclType` value.
+**Where used:** Object symbols (`ObjectKind`), name resolution, declaration rules, nameof / symbol-name existence, generic constraints. Structs are often a **flag** on the class-like symbol (`IsStruct`), not a fifth `PhpTypeDeclType` value. `Unspecified` is only for `IsExtern` placeholders and is compatible with a later real class / interface / enum at merge time.
 
 ### `PhpTypeKind` (+ extensions)
 
@@ -270,7 +271,7 @@ This guide is grounded in the sources under `Tyhp/TyhpLang/Enum/` and call sites
 - Imports / emits: `UseInclude`, `IncludeTag` (output_file include tag)
 - Types / builtins: `BuiltInType`, `BuiltInUtilityType`, `BuiltInFunction`, `MagicConstant`, `TypeAlias`, generics (`ClassGenericTypeParameter`, `FunctionGenericTypeParameter`)
 - Callables: `FunctionDeclaration`, `AnonymousFunctionDeclaration`
-- Objects: `ObjectTypeDeclaration`, `AnonymousObjectDeclaration`, members (constants, properties, methods, accessors, ctor/dtor, operator overloads, PHP magic methods)
+- Objects: `ObjectTypeDeclaration` (including nested named structs on a class), `AnonymousObjectDeclaration`, members (constants, properties, methods, accessors, ctor/dtor, operator overloads, PHP magic methods, `ObjectTypeAlias`)
 - `Variable` (locals, params, globals, etc.)
 
 **`SymbolTypeHelper` responsibilities:**
@@ -282,6 +283,7 @@ This guide is grounded in the sources under `Tyhp/TyhpLang/Enum/` and call sites
 **Non-obvious:**
 - Comments on enum members document **identity / uniqueness** conventions (case sensitivity, parent, FQN shape) — treat them as binder design notes, not enforced solely by the enum.
 - `AllowedChildrenByScope` does not list every `ScopeType` (e.g. anonymous object uses method-style fallbacks only when instance/static method predicates match; otherwise empty).
+- `ObjectDeclarationAllowedChildren` includes `ObjectTypeDeclaration` so class-member `type Name = struct { }` can nest as a named struct. Regular nested classes are not a source syntax; only that struct path adds them.
 - `Root` may contain builtins, files, namespaces, anonymous types/functions, variables.
 
 ### `TypeVariance`
@@ -297,15 +299,16 @@ This guide is grounded in the sources under `Tyhp/TyhpLang/Enum/` and call sites
 
 ### `UtilityBehavior`
 
-**Purpose:** Dispatch key for built-in `\Tyhp\…` utility / symbol-name / type-name-algebra types. Values are intended to match utility type names for `UtilityTypeResolver`.
+**Purpose:** Dispatch key for built-in global `__…` utility / symbol-name / type-name-algebra types. User-facing spelling is the `__` name; enum members may keep older identifiers.
 
 **Groups (as commented in source):**
 1. Classic utilities: `Readonly`, `Partial`, `Required`, `Pick`, `Omit`, `Record`, `Exclude`, `Extract`, `NonNullable`, `Nullable`, `ReturnType`, `Parameters`, `Awaited`
 2. Symbol-name brands (erase to string): `TyhpInternal`, `VarName`, `TypedVarName`, `FunctionName`, `ClassName`, …
-3. Struct/type utilities: `StructKey`, `StructRecord`, `Properties`, `TypeDiff`, `AsNotNullable`, `CallableReturnType`, `CallableParametersStruct`, `CallableParametersTuple`, `CallableParametersRest` (Story 16.5; callable-keyed, one type argument)
+3. Struct/type utilities: `StructKey`, `StructRecord`, `Properties` (optional-key property struct), `TypeDiff`, `AsNotNullable`, `CallableReturnType`, `CallableParametersStruct`, `CallableParametersTuple`, `CallableParametersRest` (Story 16.5; callable-keyed, one type argument)
 4. Type-name string algebra: `BaseTypeName`, `UnionTypeName`, `AsType`, …
+5. Closure / indexing utilities: `SuperType`, `SuperTypeName`, `CurrentScope`, `CallableThis`, `CallableScope`, `IndexKeys`, `IndexValueType`, `IndexValueTypes`
 
-**Where used:** Registered in `Binder/BuiltIn/{UtilityTypes,SymbolNameTypes,StructUtilityTypes,TypeNameAlgebraTypes}.cs` onto `BuiltInUtilityTypeSymbol`; resolved in `UtilityTypeResolver`, `TypeNameAlgebraResolver`, `SymbolNameExistenceVerifier`, `NameofTypeInferrer`, `TypeNarrowingRule` (`*_exists` maps), emit spelling (`TypeSpellingHelper`).
+**Where used:** Registered in `Binder/BuiltIn/{SymbolNameTypes,StructUtilityTypes,MagicUtilityTypes,TypeNameAlgebraTypes}.cs` onto `BuiltInUtilityTypeSymbol`; resolved in `UtilityTypeResolver`, `MagicUtilityTypeResolver`, `TypeNameAlgebraResolver`, `SymbolNameExistenceVerifier`, `NameofTypeInferrer`, `TypeNarrowingRule` (`*_exists` maps), emit spelling (`TypeSpellingHelper`).
 
 ---
 
@@ -323,6 +326,8 @@ SymbolType ──GetScopeType──► ScopeType ──CheckerState.Split──�
 
 OverloadableOperator ◄── FromToken(isAlternateKind) / FromAssignmentToken
 PhpBinaryOperator / PhpAssignmentOperator ── expression AST ops (broader than overloads)
+  Token helpers prefer the operator spelling. TyhpParser ids apply only when text is absent,
+  because TyhpdefParser numbers the same spellings differently.
 
 UtilityBehavior ── BuiltInUtilityTypeSymbol ── UtilityTypeResolver
 AsyncForeachKind ── checker classify ── emitter await-foreach

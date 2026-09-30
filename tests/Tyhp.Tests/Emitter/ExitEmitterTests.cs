@@ -18,13 +18,7 @@ public class ExitEmitterTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
 

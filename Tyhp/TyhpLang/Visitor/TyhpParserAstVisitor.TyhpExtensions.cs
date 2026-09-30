@@ -1,158 +1,210 @@
 namespace Tyhp.TyhpLang.Visitor
 {
     using System.Linq;
+    using Antlr4.Runtime;
     using Antlr4.Runtime.Misc;
     using Antlr4.Runtime.Tree;
+    using Tyhp.Domain.Exceptions;
     using Tyhp.TyhpLang.Ast;
     using Tyhp.TyhpLang.Ast.Interfaces;
     using Tyhp.TyhpLang.Parser;
     public partial class TyhpParserAstVisitor : PhpParserAstVisitor
     {
-        /// <summary>
-        /// Visits a Tyhp extension declaration statement.
-        ///
-        /// Grammar:
-        ///   tyhpExtensionDeclarationStatement
-        ///     : T_TYHP_EXTENSION Identifier=T_STRING Extends=extendsFrom
-        ///         FindDocComment=T_OPEN_CURLY_BRACE FunctionList=tyhpExtensionFunctionList
-        ///         T_CLOSE_CURLY_BRACE
-        ///     ;
-        ///
-        /// Creates a TyhpExtensionDeclAst with:
-        ///   - The extension name (Identifier token text)
-        ///   - The extended class/type (from extendsFrom)
-        ///   - The list of extension members (functions and operator overloads)
-        ///   - An optional doc comment found before the opening brace
-        /// </summary>
-        public override TyhpExtensionDeclAst VisitTyhpExtensionDeclarationStatement([NotNull] TyhpParser.TyhpExtensionDeclarationStatementContext context)
+
+
+
+
+
+
+
+        private PhpFunctionDeclAst CreateLiveExtensionFunctionDecl(
+            Antlr4.Runtime.ParserRuleContext context,
+            TyhpParser.TyhpOptionalGenericIdentifierWithoutConstructorContext? identifierCtx,
+            TyhpParser.ReturnsRefContext? returnsRefCtx,
+            TyhpParser.FunctionModifiersGrammarAddonContext? modifiersCtx,
+            TyhpParser.TyhpExtensionCallableParametersContext? parametersCtx,
+            TyhpParser.ReturnTypeContext? returnTypeCtx,
+            PhpStatementBlockAst? body,
+            bool isShortSyntax,
+            string? languageMode,
+            string? docComment)
         {
-            var docComment = this.FindPossibleDocComment(context.FindDocComment);
-
-            // Truncated `extension Foo` at EOF leaves Extends / FunctionList (and sometimes
-            // Identifier) null after ANTLR recovery — same pattern as object-type decls.
-            string name;
-            if (context.Identifier != null)
+            PhpNameAst nameAst;
+            if (identifierCtx != null)
             {
-                name = context.Identifier.Text;
+                nameAst = this.VisitTyhpOptionalGenericIdentifierWithoutConstructor(identifierCtx);
             }
             else
             {
-                this.ReportMissingRequired(context, "tyhpExtensionDeclarationStatement.Identifier");
-                name = "<error>";
+                this.ReportMissingRequired(context, "tyhpExtensionMember.GenericIdentifier");
+                nameAst = PhpNameAst.CreateError(context, languageMode);
             }
 
-            IClassName? extends;
-            if (context.Extends != null)
+            var genericArgs = (nameAst as TyhpGenericIdentifierAst)?.GenericArguments;
+
+            var parameters = this.ReadExtensionCallableParameters(
+                parametersCtx,
+                context,
+                languageMode,
+                out var byRefReceiver);
+
+            ITypeExpression? returnType = null;
+            if (returnTypeCtx != null)
             {
-                extends = this.VisitExtendsFrom(context.Extends);
+                returnType = this.VisitReturnType(returnTypeCtx);
             }
             else
             {
-                this.ReportMissingRequired(context, "tyhpExtensionDeclarationStatement.Extends");
-                extends = null;
+                this.ReportMissingRequired(context, "tyhpExtensionMember.ReturnType");
             }
 
-            TyhpExtensionFunctionListAst functionList;
-            if (context.FunctionList != null)
+            var ast = PhpFunctionDeclAst.Create(
+                    nameAst.ValueString ?? "",
+                    returnsRefCtx != null && this.VisitReturnsRef(returnsRefCtx) != null,
+                    parameters,
+                    returnType,
+                    body,
+                    context,
+                    languageMode,
+                    docComment,
+                    isShortSyntax)
+                .WithGrammarAddon(
+                    "modifiers",
+                    modifiersCtx != null ? this.VisitFunctionModifiersGrammarAddon(modifiersCtx) : null)
+                .WithGrammarAddon("identifier", genericArgs);
+            if (byRefReceiver != null)
             {
-                functionList = this.VisitTyhpExtensionFunctionList(context.FunctionList);
+                ast.AddGrammarAddon(
+                    TyhpExtensionDeclAst.ByRefReceiverAddonKey,
+                    TokenValueAst.Create(byRefReceiver, context, languageMode));
             }
-            else
+
+            return ast;
+        }
+
+
+
+
+
+
+
+
+        internal TyhpExtensionDeclAst CreateExtensionTargetGroup(
+            ParserRuleContext context,
+            TyhpParser.TyhpGenericParameterDeclarationsContext? genericParameters,
+            TyhpParser.TypeExprWithoutStaticContext? targetType,
+            IToken? findDocComment,
+            TyhpExtensionFunctionListAst? functionList)
+        {
+            if (functionList == null)
             {
-                this.ReportMissingRequired(context, "tyhpExtensionDeclarationStatement.FunctionList");
+                this.ReportMissingRequired(context, "tyhpExtensionTargetGroup.FunctionList");
                 functionList = TyhpExtensionFunctionListAst.Create(null, context);
             }
 
-            return TyhpExtensionDeclAst.Create(
-                name,
-                extends,
+            if (targetType == null)
+            {
+                this.ReportMissingRequired(context, "tyhpExtensionTargetGroup.TargetType");
+            }
+
+            var group = TyhpExtensionDeclAst.Create(
+                "",
                 functionList,
-                docComment,
-                context
-            );
+                findDocComment != null ? this.FindPossibleDocComment(findDocComment) : null,
+                context);
+            group.IsTargetGroup = true;
+            this.AttachExtensionBlockTarget(group, genericParameters, targetType);
+            return group;
         }
 
-        /// <summary>
-        /// Visits <see cref="TyhpParser.tyhpExtensionFunctionList"/>.
-        /// </summary>
-        public override TyhpExtensionFunctionListAst VisitTyhpExtensionFunctionList([NotNull] TyhpParser.TyhpExtensionFunctionListContext context)
-            => TyhpExtensionFunctionListAst.Create(
-                (context.tyhpExtensionMember() ?? Enumerable.Empty<TyhpParser.TyhpExtensionMemberContext>())
-                    .Select(this.VisitTyhpExtensionMemberAsExtensionMember),
-                context
-            );
-
-        public override IBase2Ast? VisitTyhpExtensionMember([NotNull] TyhpParser.TyhpExtensionMemberContext context)
-            => this.VisitTyhpExtensionMemberAsExtensionMember(context);
-
-        private IExtensionMemberAst VisitTyhpExtensionMemberAsExtensionMember(TyhpParser.TyhpExtensionMemberContext context)
+        internal void AttachExtensionBlockTarget(
+            TyhpExtensionDeclAst decl,
+            TyhpParser.TyhpGenericParameterDeclarationsContext? genericParameters,
+            TyhpParser.TypeExprWithoutStaticContext? targetType)
         {
-            var fn = context.functionDeclarationStatement();
-            if (fn != null)
+            if (genericParameters != null)
             {
-                return this.VisitFunctionDeclarationStatement(fn);
+                decl.GenericParameters = this.VisitTyhpGenericParameterDeclarations(genericParameters);
             }
 
-            var opOverload = context.tyhpExtensionOperatorOverload();
-            if (opOverload != null)
+            if (targetType != null)
             {
-                return this.VisitTyhpExtensionOperatorOverload(opOverload);
+                decl.TargetType = this.VisitTypeExprWithoutStatic(targetType);
             }
-
-            return ErrorAst.Create(context, GetCurrentLanguageMode(context));
         }
 
-        /// <summary>
-        /// Grammar: tyhpExtensionOperatorOverload — <c>operator</c> with <c>&lt;TargetType&gt;</c> (no abstract/final).
-        /// </summary>
-        public override TyhpOperatorOverloadAst VisitTyhpExtensionOperatorOverload(
-            [NotNull] TyhpParser.TyhpExtensionOperatorOverloadContext context)
+        internal void AttachExtensionBlockTarget(
+            TyhpdefStandaloneExtensionDeclAst decl,
+            TyhpParser.TyhpGenericParameterDeclarationsContext? genericParameters,
+            TyhpParser.TypeExprWithoutStaticContext? targetType)
         {
-            var languageMode = GetCurrentLanguageMode(context);
-            var op = this.VisitTyhpClassOperatorOverloadOp(context.Op);
-            var targetType = this.VisitTypeExprWithoutStatic(context.TargetType);
-            var leftParam = this.VisitParameter(context.LeftParameter);
-            var rightParam = context.RightParameter != null
-                ? this.VisitParameter(context.RightParameter)
-                : null;
-            var returnType = this.VisitReturnType(context.ConvertReturnType);
-
-            PhpStatementBlockAst? body;
-            if (context.StatementList != null)
+            if (genericParameters != null)
             {
-                body = this.VisitMethodBody(context.StatementList);
-            }
-            else if (context.ShorthandExpr != null)
-            {
-                var expr = this.VisitExpr(context.ShorthandExpr);
-                body = PhpStatementBlockAst.Create(
-                    [PhpUnaryOpAst.Create(
-                        TokenValueAst.Create("return", TyhpParser.T_RETURN, context),
-                        expr,
-                        context,
-                        languageMode
-                    )],
-                    context,
-                    languageMode
-                );
-            }
-            else
-            {
-                body = null;
+                decl.GenericParameters = this.VisitTyhpGenericParameterDeclarations(genericParameters);
             }
 
-            var ast = TyhpOperatorOverloadAst.Create(
-                op,
-                leftParam,
-                rightParam,
-                returnType,
-                body,
-                null,
-                context,
-                languageMode);
+            if (targetType != null)
+            {
+                decl.TargetType = this.VisitTypeExprWithoutStatic(targetType);
+            }
+        }
 
-            ast.ExtensionTargetType = targetType;
-            return ast;
+        internal PhpParameterListAst ReadExtensionCallableParameters(
+            TyhpParser.TyhpExtensionCallableParametersContext? parameters,
+            ParserRuleContext owner,
+            string? languageMode,
+            out IToken? byRefReceiver)
+        {
+            byRefReceiver = null;
+            if (parameters == null)
+            {
+                this.ReportMissingRequired(owner, "tyhpExtensionCallableParameters");
+                return PhpParameterListAst.Create([], owner, languageMode);
+            }
+
+            if (parameters.LegacyExtends != null)
+            {
+                this.Diagnostics.AddError(
+                    MessageCode.ParserExtensionLegacyMemberTarget,
+                    this._filename,
+                    parameters.LegacyExtends.Line,
+                    parameters.LegacyExtends.Column);
+            }
+
+            if (parameters.ReceiverVar != null)
+            {
+                byRefReceiver = parameters.ReceiverVar;
+            }
+
+            if (parameters.ParameterList != null)
+            {
+                return this.VisitParameterList(parameters.ParameterList)
+                    ?? PhpParameterListAst.Create([], parameters, languageMode);
+            }
+
+            if (parameters.RestParameters != null)
+            {
+                return this.VisitNonEmptyParameterList(parameters.RestParameters);
+            }
+
+            return PhpParameterListAst.Create([], parameters, languageMode);
+        }
+
+        internal void ReportLegacyOperatorTarget(
+            TyhpParser.TyhpExtensionOperatorLegacyTargetContext? legacy,
+            ParserRuleContext context)
+        {
+            if (legacy == null)
+            {
+                return;
+            }
+
+            var token = legacy.Start ?? context.Start;
+            this.Diagnostics.AddError(
+                MessageCode.ParserExtensionLegacyMemberTarget,
+                this._filename,
+                token?.Line ?? 0,
+                token?.Column ?? 0);
         }
     }
 }

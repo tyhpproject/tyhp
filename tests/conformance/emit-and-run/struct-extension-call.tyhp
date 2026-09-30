@@ -1,0 +1,17 @@
+<?tyhp
+type Money = struct {
+    int $cents = 0;
+};
+
+extension MoneyExt extends Money {
+    function format(): string {
+        return (string)$this->cents;
+    }
+}
+
+function main(): void {
+    $m = new Money() with [cents => 7];
+    echo $m->format();
+}
+
+main();

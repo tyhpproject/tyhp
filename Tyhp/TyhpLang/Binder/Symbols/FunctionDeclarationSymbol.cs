@@ -31,6 +31,12 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         public bool IsAsync { get; internal set; }
 
         /// <summary>
+        /// Tyhpdef <c>fallback function</c>. The binder keeps one package's signatures
+        /// for the name, chosen by Composer <c>autoload.files</c> order.
+        /// </summary>
+        public bool IsFallback { get; internal set; }
+
+        /// <summary>
         /// When set, this tyhpdef free-function was declared as
         /// <c>function php_name as tyhpName(...)</c>. The symbol is registered under
         /// <see cref="BaseSymbol.Name"/> (the Tyhp-facing alias); emit erases calls to

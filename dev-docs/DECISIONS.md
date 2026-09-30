@@ -132,3 +132,100 @@ abandoned.
 `eval`-using code must be written in **PHP** and imported via a `tyhpdef` file — it may not be written directly
 in Tyhp.
 
+### Optional-peer tyhpdefs: split packages and version suffixes — REJECTED
+
+Libraries like `monolog/monolog` type-hint classes from Composer `suggest` / `require-dev` (Elastica, Gelf, AWS, …)
+so apps only install the backers they use. The tyhpdef wrapper must not `require` those PHP packages (that would
+install them for everyone).
+
+**Rejected packaging:**
+
+- **One Composer package per backer** (`tyhpdef/monolog-monolog__gelf`, …). Users would need a Tyhp-specific extra
+  require besides the PHP package they already installed. The right pairing is `monolog/monolog` →
+  `tyhpdef/monolog-monolog` and `ruflin/elastica` → `tyhpdef/ruflin-elastica`.
+- **Version suffixes on the same package** (`3.10.0-base`, `3.10.0-gelf`, `3.10.0-elastica`). Composer installs
+  **one** version of a package; `3.10.0-gelf` is a prerelease of `3.10.0`, not a variant; Gelf+Elastica cannot both
+  be selected.
+
+**Also rejected:** treating every unresolved tyhpdef name as a placeholder (typos go silent); naming the keyword
+`stub` (Layer 2 overlay harvest already uses that word); hollow overlay `class \Foreign\Type {}` (usable empty
+type + `TYHP8002` when the real wrapper arrives).
+
+**Chosen:** Story 21.1 tyhpdef-only `extern` placeholders; a real declaration of the same Tyhp name silently wins.
+Detail in `IMPLEMENTATION_PLAN_TODO_STORY_21.1.md`.
+
+### Ambient vs author-only tyhpdefs (`extra.tyhp.require`) — DECIDED (Story 21.10)
+
+Composer `require` / `require-dev` keep their usual meaning. Tyhpdef packages stay out of `require`. There is no custom `require-tyhp` root key.
+
+A library lists **author** tyhpdefs in `require-dev` and the **ambient** subset (what consumers must install to type-check the public API) in `extra.tyhp.require`. Any Composer name is allowed, not only `tyhpdef/*`. `tyhp/compiler` is not listed in extras on `tyhp/*` packages; the plugin still pins it on the **root** `require-dev`.
+
+Library `package.tyhpdef` generation spells ambient names as real FQNs and emits name-only `extern` (types, `extern function`, `extern const`) plus `@provided-by` for require-dev-only owners. Using those names from `.tyhp` is `TYHP4307`.
+
+A Composer plugin on **`tyhp/core`** (`type: composer-plugin` + `extra.class`, hand-written PHP) walks extras **and** runtime `require` edges from Packagist / `repositories` at `PRE_DEPENDENCIES_SOLVING`, before vendor populate, and writes the merged set in one solve. Composer 2 only activates plugins whose package type is `composer-plugin` or `composer-installer`; `library` + `extra.class` is never registered. `PluginInstaller` still installs the package like a library. Cycles skip that branch. `--no-dev` is a no-op. The first `composer require tyhp/core` often misses that transaction; CLI check / `tyhp composer sync` recovers.
+
+`internal` is parsed in 21.10 and omitted from the public `package.tyhpdef`. Story 25 still owns checker enforcement and the internals overlay.
+
+Detail in `IMPLEMENTATION_PLAN_TODO_STORY_21.10.md`.
+
+### Fiber `suspend` return is `mixed` — DECIDED (Story 21.6, confirmed 21.8)
+
+`Fiber::suspend()` is a static method on whatever fiber is running. Typing its return as that
+fiber’s `TResume` would require call-stack tracing (which helper called `suspend`, which `new Fiber`
+it belongs to, whether one helper serves many fibers).
+
+**Decision:** `TResume` is only the **argument** of `$fiber->resume($value)`. `start` / `throw` /
+`suspend` **returns** stay `mixed|null`. No CFA, no `__CurrentFiber`, no special case for `suspend`
+inside the `new Fiber` callback. Narrow from `mixed` before use. Confirmed again in the Story 21.8
+Layer 3 overlay audit — do not reopen for tyhpdef or checker work.
+
+Detail in `IMPLEMENTATION_PLAN_TODO_STORY_21.6.md` Decision 10.
+
+### No tyhpdef `operator []` / `operator count()` for engine hooks — DECIDED (Story 21.8)
+
+`\ArrayAccess` indexing and `\Countable` `count()` are Zend engine hooks. The checker already
+implements `$obj[$k]` via `ArrayAccess<TKey, TValue>` / `ArrayAccessShape` and `count($x)` via the
+`count` stub (`Countable|array` → `int`).
+
+**Do not** add bodyless `operator []` or `operator count()` on those types in Layer 3. They would
+fight `InferArrayAccess` and duplicate `count()`. DateTime is a different case: comparisons are
+native PHP operators on the values, and `+`/`-` are mapped because PHP TypeErrors on
+`DateTime + DateInterval` — that mapping is Story 21.8, not this rejection.
+
+---
+
+## Language-assessment locks (2026-09-15)
+
+Firmly decided while planning Story 21.12 / 31. Do not reopen as taste questions.
+
+### `isa` / `isan` / `is_a` / `is_an` operator aliases — REMOVED (Story 21.12 G)
+
+Greenfield. Keep `is` and PHP `instanceof`. Delete the other spellings from the lexer (they were one
+`T_TYHP_IS` alternative list). No deprecation warning. `is_a` as a keyword also shadowed PHP’s
+`\is_a()` function; the function stays.
+
+### Omitted constructor return type = `: void` — DECIDED (Story 21.12 H)
+
+`function __construct(int $x) {}` is legal and means no `parent::__construct` insertion. Written
+`: void` remains allowed. `: parent(...)` remains the only new form. Tyhp does **not** gain PHP’s
+implicit parent-constructor call.
+
+### `with` on structs vs objects — KEEP (Story 21.12 E)
+
+Same keyword, different identity, matching PHP: passing an array copies, passing an object shares
+the instance. Document that analogy. Do not rename.
+
+### Public tagline “typed superset” — DECIDED (Story 21.12 E)
+
+User-facing prose says Tyhp is a **typed superset** of PHP, not “strongly typed.” The checker is
+strict *inside Tyhp*; erased contracts are advisory at the PHP boundary (Idea 4 / Idea 15).
+
+### Emitter as a transformer pipeline — REJECTED for now (DOQ §18)
+
+Do not rewrite the `EmitNode` walk for maintainability. Story 21.12 D (emit-and-run corpus) is the
+substitute. Revisit only if that corpus keeps finding interaction bugs after 21.12 A–C.
+
+Detail: `IMPLEMENTATION_PLAN_TODO_STORY_21.12.md`; leftover open questions in
+`DESIGN_OPEN_QUESTIONS.md` §16 (PHP-boundary guarantees, throwing `default` on exhaustive `match`).
+
+

@@ -48,11 +48,53 @@ namespace Tyhp.CLI
             }
 
             // Step 1: Configuration validation and setup
-            var result = new CompilationResult();
+            var result = new CompilationResult(this._project.SuppressedWarnings);
+            if (this._project.HasPendingConfigErrors)
+            {
+                this._project.TransferPendingConfigWarningsTo(result.Diagnostics);
+                this.DisplaySummary(result, filesWritten: 0, directoriesCreated: 0);
+                return result;
+            }
+
             if (!this.ValidateOutputPath(result))
             {
                 this.DisplaySummary(result, filesWritten: 0, directoriesCreated: 0);
                 return result;
+            }
+
+            var extrasDiagnostics = new DiagnosticBag(this._project.SuppressedWarnings);
+            if (!new ComposerExtraRequireCheck().TryApply(
+                    this._project,
+                    extrasDiagnostics,
+                    fix: this._project.Build.Fix,
+                    dryRun: this._project.Build.DryRun))
+            {
+                result.Diagnostics.AddRange(extrasDiagnostics);
+                this.DisplaySummary(result, filesWritten: 0, directoriesCreated: 0);
+                return result;
+            }
+
+            result.Diagnostics.AddRange(extrasDiagnostics);
+
+            if (this._project.Output.PublishClean)
+            {
+                if (this._project.Build.DryRun)
+                {
+                    Message.Info("CLI_DryRunCleaningPublishDirectory");
+                }
+                else
+                {
+                    Message.Info("CLI_CleaningPublishDirectory");
+                    if (!BuildOutputCleaner.TryCleanPublish(this._project, result.Diagnostics))
+                    {
+                        Message.Error("CLI_CleanPublishFailed");
+                        this.DisplaySummary(result, filesWritten: 0, directoriesCreated: 0);
+                        return result;
+                    }
+
+                    Message.Success("CLI_CleanPublishComplete");
+                    this.EnsureOutputDirectoryExists();
+                }
             }
 
             if (this._project.Build.CleanBeforeBuild)
@@ -118,8 +160,16 @@ namespace Tyhp.CLI
                 && incrementalService.IsStateValid(previousState, this._project)
                 && incrementalService.AllOutputFilesExist(previousState)
                 && !this._project.Build.CleanBeforeBuild
+                && !this._project.Output.PublishClean
                 && !this._project.Build.DryRun)
             {
+                this.CopyPublishContent(result);
+                if (result.Diagnostics.HasErrors)
+                {
+                    this.DisplaySummary(result, filesWritten: 0, directoriesCreated: 0);
+                    return result;
+                }
+
                 Message.Info("CLI_NothingToBuild");
                 result.IncrementalBuildSkipped = true;
                 this.DisplaySummary(result, filesWritten: 0, directoriesCreated: 0);
@@ -176,6 +226,7 @@ namespace Tyhp.CLI
             // silently drop them. Doing it now — rather than only in DisplaySummary — lets
             // ShouldContinueToEmit see them for the --strict emit-skip gate below.
             this._project.TransferPendingConfigWarningsTo(result.Diagnostics);
+            result.Diagnostics.AddRange(extrasDiagnostics);
 
             Message.Success(
                 "CLI_ParsedFilesInSeconds",
@@ -243,10 +294,12 @@ namespace Tyhp.CLI
             }
             else
             {
-                // Step 6.5: Tyhpdef Track C (Story 20)
-                if (this._project.Build.GenerateTyhpdef == true)
+                // Step 6.5: library package.tyhpdef from compiled Tyhp
+                var generateTyhpdef = this._project.Type == ProjectType.Library
+                    || this._project.Build.GenerateTyhpdef == true;
+                if (generateTyhpdef && result.GlobalScope != null)
                 {
-                    // PLACEHOLDER_STORY_20: Generate tyhpdef for compiled code (Track C)
+                    this.GenerateTrackCTyhpdef(result);
                 }
 
                 // Step 7: Optimizer (Story 23) — no-op until TyhpOptimizer is available
@@ -266,6 +319,9 @@ namespace Tyhp.CLI
                 else
                 {
                     Message.Info("CLI_RunningEmitter");
+                    // When build.generateSourcemap is true, TyhpEmitter.GenerateAll assigns a
+                    // SourceMapCollector (and SourceRoot prefix) before Generate(); OutputWriterService
+                    // then delegates .map writing and sourceMappingURL comments to SourceMapWriter.
                     var emitStopwatch = Stopwatch.StartNew();
                     emitContext = EmitContext.Create(
                         result.GlobalScope,
@@ -278,7 +334,8 @@ namespace Tyhp.CLI
                         result.RequiresGenericVariant,
                         result.GenericCallTargets,
                         result.InferredClosureSignatures,
-                        result.ExpressionTypes);
+                        result.ExpressionTypes,
+                        result.NativeTypeTests);
                     var emitter = new TyhpEmitter(emitContext);
                     result.OutputFiles = emitter.Emit(result.ParsedFiles);
                     emitStopwatch.Stop();
@@ -326,11 +383,8 @@ namespace Tyhp.CLI
 
                     if (this._project.Build.UpdateComposer)
                     {
-                        var outputDir = BuildOutputCleaner.ResolveOutputDirectory(
-                            Path.GetFullPath(this._project.GetProjectPath()),
-                            this._project.Output.Path);
                         new ComposerJsonService(result.Diagnostics).GenerateOrUpdate(
-                            outputDir,
+                            this.ResolvePublishDirectory(),
                             this._project,
                             outputFilesToWrite,
                             dryRun: this._project.Build.DryRun,
@@ -341,11 +395,8 @@ namespace Tyhp.CLI
                         && !result.Diagnostics.HasErrors
                         && !(this._project.Build.StrictMode && result.Diagnostics.HasWarnings))
                     {
-                        var outputDir = BuildOutputCleaner.ResolveOutputDirectory(
-                            Path.GetFullPath(this._project.GetProjectPath()),
-                            this._project.Output.Path);
                         new TyhpLibDistributionService(result.Diagnostics).AddRuntimePackageDependencies(
-                            outputDir,
+                            this.ResolvePublishDirectory(),
                             this._project,
                             outputFilesToWrite,
                             emitContext,
@@ -354,9 +405,7 @@ namespace Tyhp.CLI
                     else if (this._project.Build.DryRun && emitContext != null)
                     {
                         new TyhpLibDistributionService(result.Diagnostics).AddRuntimePackageDependencies(
-                            BuildOutputCleaner.ResolveOutputDirectory(
-                                Path.GetFullPath(this._project.GetProjectPath()),
-                                this._project.Output.Path),
+                            this.ResolvePublishDirectory(),
                             this._project,
                             outputFilesToWrite,
                             emitContext,
@@ -387,6 +436,11 @@ namespace Tyhp.CLI
                         }
                     }
                 }
+
+                if (!result.Diagnostics.HasErrors)
+                {
+                    this.CopyPublishContent(result);
+                }
             }
 
             if (result.Diagnostics.HasErrors)
@@ -404,6 +458,52 @@ namespace Tyhp.CLI
             return result;
         }
 
+        private void GenerateTrackCTyhpdef(CompilationResult result)
+        {
+            Message.Info("CLI_BuildGeneratingTyhpdef");
+
+            var outputDir = this.ResolvePublishDirectory();
+            var options = new TyhpdefGenerationOptions
+            {
+                Mode = TyhpdefGenerationMode.TyhpCode,
+                OutputDirectory = outputDir,
+                IncludeDocComments = true,
+                Overwrite = true,
+            };
+
+            var generator = new TyhpCodeTyhpdefGenerator(
+                result.GlobalScope!,
+                options,
+                result.Diagnostics,
+                isLibrary: this._project.Type == ProjectType.Library,
+                isTagless: this._project.Tagless,
+                dryRun: this._project.Build.DryRun,
+                requiresGenericVariant: result.RequiresGenericVariant,
+                requiresRuntimeGenericTracking: result.RequiresRuntimeGenericTracking,
+                parsedFiles: result.ParsedFiles);
+            var generated = generator.Generate();
+
+            if (this._project.BeQuiet)
+            {
+                return;
+            }
+
+            foreach (var file in generated.GeneratedFiles)
+            {
+                Message.Display("CLI_TyhpdefGeneratedFile", file);
+            }
+
+            if (generated.GeneratedFiles.Count > 0 || generated.TotalDeclarations > 0)
+            {
+                Message.Display(
+                    "CLI_TyhpdefDeclarationCounts",
+                    generated.TotalDeclarations,
+                    generated.ClassCount,
+                    generated.FunctionCount,
+                    generated.ConstantCount);
+            }
+        }
+
         private bool ShouldContinueToEmit(CompilationResult result)
         {
             if (result.Diagnostics.HasErrors)
@@ -417,6 +517,52 @@ namespace Tyhp.CLI
             }
 
             return true;
+        }
+
+        private string ResolvePublishDirectory()
+        {
+            return BuildOutputCleaner.ResolvePublishDirectory(
+                Path.GetFullPath(this._project.GetProjectPath()),
+                this._project.Output.PublishPath);
+        }
+
+        private void EnsureOutputDirectoryExists()
+        {
+            var projectPath = Path.GetFullPath(this._project.GetProjectPath());
+            var outputPath = BuildOutputCleaner.ResolveOutputDirectory(projectPath, this._project.Output.Path);
+            Directory.CreateDirectory(outputPath);
+        }
+
+        private void CopyPublishContent(CompilationResult result)
+        {
+            if (this._project.Output.PublishContent.Count == 0)
+            {
+                return;
+            }
+
+            if (this._project.Build.DryRun)
+            {
+                Message.Info("CLI_DryRunCopyingPublishContent");
+            }
+            else
+            {
+                Message.Info("CLI_CopyingPublishContent");
+            }
+
+            Action<string, string>? logCopy = this._project.Build.Verbose
+                ? (src, dest) => this.LogVerbose("CLI_VerbosePublishContentCopied", src, dest)
+                : null;
+
+            var copied = PublishContentService.TryCopy(
+                this._project,
+                result.Diagnostics,
+                dryRun: this._project.Build.DryRun,
+                logCopy);
+
+            if (copied && !this._project.Build.DryRun)
+            {
+                Message.Success("CLI_PublishContentCopyComplete");
+            }
         }
 
         private bool ValidateOutputPath(CompilationResult result)

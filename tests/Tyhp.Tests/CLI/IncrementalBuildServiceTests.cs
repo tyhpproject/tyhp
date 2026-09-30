@@ -64,8 +64,11 @@ public class IncrementalBuildServiceTests
         var tempDir = CreateTempDirectory();
         var sourceFile = Path.Combine(tempDir, "App.tyhp");
         File.WriteAllText(sourceFile, "<?tyhp\nclass App {}");
-        var project = CreateProject(tempDir);
-        var statePath = Path.Combine(tempDir, IncrementalBuildService.BuildStateFileName);
+        var cacheDir = Path.Combine(tempDir, ".tyhp-cache");
+        var project = CreateProject(tempDir, cacheDir);
+        var statePath = IncrementalBuildService.GetBuildStatePath(project);
+        Path.GetFileName(statePath).Should().Be(IncrementalBuildService.BuildStateFileName);
+        statePath.Should().StartWith(cacheDir + Path.DirectorySeparatorChar);
         var service = new IncrementalBuildService();
 
         service.SaveBuildState(statePath, [sourceFile], project);
@@ -87,11 +90,15 @@ public class IncrementalBuildServiceTests
         Directory.CreateDirectory(Path.GetDirectoryName(outputFile)!);
         File.WriteAllText(sourceFile, "<?tyhp\nclass App {}");
         File.WriteAllText(outputFile, "<?php\nclass App {}");
-        var project = CreateProject(tempDir);
-        var statePath = Path.Combine(tempDir, IncrementalBuildService.BuildStateFileName);
+        var cacheDir = Path.Combine(tempDir, ".tyhp-cache");
+        var project = CreateProject(tempDir, cacheDir);
+        var statePath = IncrementalBuildService.GetBuildStatePath(project);
+        statePath.Should().StartWith(cacheDir + Path.DirectorySeparatorChar);
+        var outputStatePath = Path.Combine(tempDir, "build", IncrementalBuildService.BuildStateFileName);
         var service = new IncrementalBuildService();
 
         service.SaveBuildState(statePath, [sourceFile], project, [outputFile]);
+        File.Exists(outputStatePath).Should().BeFalse();
         var loaded = service.LoadBuildState(statePath);
 
         loaded.Should().NotBeNull();
@@ -145,7 +152,10 @@ public class IncrementalBuildServiceTests
     public void DeleteBuildState_RemovesStateFile()
     {
         var tempDir = CreateTempDirectory();
-        var statePath = Path.Combine(tempDir, IncrementalBuildService.BuildStateFileName);
+        var cacheDir = Path.Combine(tempDir, ".tyhp-cache");
+        var project = CreateProject(tempDir, cacheDir);
+        var statePath = IncrementalBuildService.GetBuildStatePath(project);
+        Directory.CreateDirectory(Path.GetDirectoryName(statePath)!);
         File.WriteAllText(statePath, "{}");
 
         IncrementalBuildService.DeleteBuildState(statePath);
@@ -153,8 +163,43 @@ public class IncrementalBuildServiceTests
         File.Exists(statePath).Should().BeFalse();
     }
 
-    private static Project CreateProject(string projectPath)
+    [Fact]
+    public void GetBuildStatePath_SeparatesProjectsThatShareACacheDirectory()
     {
+        var root = CreateTempDirectory();
+        var cacheDir = Path.Combine(root, "cache");
+        var projectA = CreateProject(Path.Combine(root, "a"), cacheDir);
+        var projectB = CreateProject(Path.Combine(root, "b"), cacheDir);
+
+        var pathA = IncrementalBuildService.GetBuildStatePath(projectA);
+        var pathB = IncrementalBuildService.GetBuildStatePath(projectB);
+
+        pathA.Should().NotBe(pathB);
+        Path.GetFileName(pathA).Should().Be(IncrementalBuildService.BuildStateFileName);
+        Path.GetFileName(pathB).Should().Be(IncrementalBuildService.BuildStateFileName);
+        pathA.Should().StartWith(cacheDir + Path.DirectorySeparatorChar);
+        pathB.Should().StartWith(cacheDir + Path.DirectorySeparatorChar);
+    }
+
+    [Fact]
+    public void GetBuildStatePath_UsesAstCacheRootWhenCacheDirUnset()
+    {
+        var tempDir = CreateTempDirectory();
+        var project = CreateProject(tempDir);
+        var statePath = IncrementalBuildService.GetBuildStatePath(project);
+        var cacheRoot = AstCacheService.ResolveCacheRootDirectory(null);
+        var outputDir = BuildOutputCleaner.ResolveOutputDirectory(
+            PathCanonicalizer.GetCanonicalFullPath(project.GetProjectPath()),
+            project.Output.Path);
+
+        statePath.Should().StartWith(cacheRoot + Path.DirectorySeparatorChar);
+        Path.GetFileName(statePath).Should().Be(IncrementalBuildService.BuildStateFileName);
+        Path.GetDirectoryName(statePath).Should().NotBe(outputDir);
+    }
+
+    private static Project CreateProject(string projectPath, string? cacheDir = null)
+    {
+        Directory.CreateDirectory(projectPath);
         var projectFile = Path.Combine(projectPath, "tyhp.json");
         File.WriteAllText(projectFile, """
             {
@@ -163,11 +208,17 @@ public class IncrementalBuildServiceTests
             }
             """);
 
+        var values = new Dictionary<string, string?>
+        {
+            ["*project_file_path"] = projectFile,
+        };
+        if (cacheDir != null)
+        {
+            values["cache-dir"] = cacheDir;
+        }
+
         var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["*project_file_path"] = projectFile,
-            })
+            .AddInMemoryCollection(values)
             .Build();
 
         return new Project(configuration);
@@ -285,7 +336,7 @@ public class TyhpLibDistributionServiceTests
 
         var packages = TyhpLibDistributionService.DetermineRequiredPackages([], emitContext);
 
-        packages.Should().BeEquivalentTo(["tyhp/async", "tyhp/core", "tyhp/php"]);
+        packages.Should().BeEquivalentTo(["tyhp/async", "tyhp/core", "tyhpdef/php"]);
     }
 
     [Fact]

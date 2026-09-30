@@ -15,6 +15,11 @@ namespace Tyhp.TyhpLang.Emitter
     public sealed class EmitConfig
     {
         public string OutputPath { get; }
+        /// <summary>
+        /// Published package root (<c>output.publishPath</c>). Autoloader paths such as
+        /// <c>vendor/autoload.php</c> are relative to this directory.
+        /// </summary>
+        public string PublishPath { get; }
         public string? NamespacePrefix { get; }
         public bool StrictTypes { get; }
         public bool IncludeComments { get; }
@@ -29,6 +34,7 @@ namespace Tyhp.TyhpLang.Emitter
         public EmitConfig()
         {
             this.OutputPath = "build/";
+            this.PublishPath = ".";
             this.NamespacePrefix = null;
             this.StrictTypes = true;
             this.IncludeComments = true;
@@ -41,20 +47,23 @@ namespace Tyhp.TyhpLang.Emitter
         public EmitConfig(Project project) : this()
         {
             this.OutputPath = project.Output.Path;
+            this.PublishPath = string.IsNullOrWhiteSpace(project.Output.PublishPath)
+                ? "."
+                : project.Output.PublishPath;
             this.NamespacePrefix = project.Output.NamespacePrefix;
             this.StrictTypes = project.Output.StrictTypes;
             this.IncludeComments = project.Output.IncludeComments;
             this.TargetPhpVersion = project.PhpVersion;
             this.SourceRoot = project.GetProjectPath();
 
-            // Default: Composer autoload under the output directory. An empty/"none" configured
+            // Default: Composer autoload under the published package root. An empty/"none" configured
             // value disables injection; any other non-empty `composer` (or first) entry overrides.
             this.EntryPointAutoloaderMap = project.Build.EntryPointAutoloader;
             this.EntryPointAutoloader = ResolveEntryPointAutoloader(project.Build.EntryPointAutoloader);
         }
 
         /// <summary>
-        /// Default Composer autoloader path relative to the output directory.
+        /// Default Composer autoloader path relative to the published package root.
         /// </summary>
         public const string DefaultComposerAutoloaderPath = "vendor/autoload.php";
 
@@ -75,7 +84,7 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         /// <summary>
-        /// Resolves a <c>declare(autoload="…")</c> value to an output-relative path, or
+        /// Resolves a <c>declare(autoload="…")</c> value to a publish-root-relative path, or
         /// <c>null</c> to disable injection for that file.
         /// </summary>
         /// <remarks>
@@ -152,9 +161,11 @@ namespace Tyhp.TyhpLang.Emitter
             string targetPhpVersion = "8.4",
             string? entryPointAutoloader = null,
             string? sourceRoot = null,
-            IReadOnlyDictionary<string, string>? entryPointAutoloaderMap = null)
+            IReadOnlyDictionary<string, string>? entryPointAutoloaderMap = null,
+            string? publishPath = null)
         {
             this.OutputPath = outputPath;
+            this.PublishPath = string.IsNullOrWhiteSpace(publishPath) ? "." : publishPath;
             this.NamespacePrefix = namespacePrefix;
             this.StrictTypes = strictTypes;
             this.IncludeComments = includeComments;
@@ -327,6 +338,12 @@ namespace Tyhp.TyhpLang.Emitter
         public IReadOnlyDictionary<IBase2Ast, ICheckedType> ExpressionTypes { get; private set; }
 
         /// <summary>
+        /// <c>T →</c> NativeTypeTest function or concrete static method for <c>$x is T</c> emit
+        /// (empty when none were indexed).
+        /// </summary>
+        public IReadOnlyDictionary<string, IBaseSymbol> NativeTypeTests { get; private set; }
+
+        /// <summary>
         /// Disposable scopes flagged for try/finally fallback.
         /// </summary>
         public IReadOnlySet<PhpStatementBlockAst> RequiresDisposableTryFinally { get; private set; }
@@ -383,7 +400,8 @@ namespace Tyhp.TyhpLang.Emitter
             IReadOnlySet<IBaseSymbol>? requiresGenericVariant = null,
             IReadOnlyDictionary<PhpCallAst, IBaseSymbol>? genericCallTargets = null,
             IReadOnlyDictionary<PhpInlineFunctionAst, InferredClosureSignature>? inferredClosureSignatures = null,
-            IReadOnlyDictionary<IBase2Ast, ICheckedType>? expressionTypes = null)
+            IReadOnlyDictionary<IBase2Ast, ICheckedType>? expressionTypes = null,
+            IReadOnlyDictionary<string, IBaseSymbol>? nativeTypeTests = null)
         {
             this.GlobalScope = globalScope;
             this.Diagnostics = diagnostics;
@@ -411,6 +429,9 @@ namespace Tyhp.TyhpLang.Emitter
             this.ExpressionTypes = expressionTypes
                 ?? (IReadOnlyDictionary<IBase2Ast, ICheckedType>)
                     new Dictionary<IBase2Ast, ICheckedType>();
+            this.NativeTypeTests = nativeTypeTests
+                ?? (IReadOnlyDictionary<string, IBaseSymbol>)
+                    new Dictionary<string, IBaseSymbol>(StringComparer.OrdinalIgnoreCase);
         }
 
         public static EmitContext Create(
@@ -424,7 +445,8 @@ namespace Tyhp.TyhpLang.Emitter
             IReadOnlySet<IBaseSymbol>? requiresGenericVariant = null,
             IReadOnlyDictionary<PhpCallAst, IBaseSymbol>? genericCallTargets = null,
             IReadOnlyDictionary<PhpInlineFunctionAst, InferredClosureSignature>? inferredClosureSignatures = null,
-            IReadOnlyDictionary<IBase2Ast, ICheckedType>? expressionTypes = null)
+            IReadOnlyDictionary<IBase2Ast, ICheckedType>? expressionTypes = null,
+            IReadOnlyDictionary<string, IBaseSymbol>? nativeTypeTests = null)
         {
             var scope = globalScope ?? new GlobalScope();
             var config = project != null ? new EmitConfig(project) : new EmitConfig();
@@ -445,21 +467,35 @@ namespace Tyhp.TyhpLang.Emitter
                 requiresGenericVariant,
                 genericCallTargets,
                 inferredClosureSignatures,
-                expressionTypes);
+                expressionTypes,
+                nativeTypeTests);
         }
 
         /// <summary>
-        /// True when <paramref name="objectDecl"/> was flagged for <c>GenericObject</c> emission.
+        /// True when <paramref name="objectDecl"/> was flagged for Mechanism C plumbing on
+        /// <em>this</em> class body (runtime use and/or non-erased generic-typed properties).
+        /// Does not mean "has <c>GenericRuntime</c>" — foreign compiled-library sites use
+        /// <see cref="HasForeignGenericRuntime"/>.
         /// </summary>
         public bool RequiresRuntimeGenericTrackingFor(ObjectDeclarationSymbol? objectDecl)
             => objectDecl is not null && this.RequiresRuntimeGenericTracking.Contains(objectDecl);
 
         /// <summary>
         /// True when <paramref name="callable"/> was flagged for Mechanism D binder emission
-        /// (declared name + <c>__tyhpGeneric</c> Closure binder pair).
+        /// on <em>this</em> callable (declared name + <c>__tyhpGeneric</c> Closure pair).
+        /// Foreign compiled-library sites use <see cref="HasForeignGenericRuntime"/>.
         /// </summary>
         public bool RequiresGenericVariantFor(IBaseSymbol? callable)
             => callable is not null && this.RequiresGenericVariant.Contains(callable);
+
+        /// <summary>
+        /// True when the target is a tyhpdef symbol stamped with <c>#[\Tyhp\GenericRuntime]</c>
+        /// (erased or not). Consumer emit routes those sites through <c>\Tyhp\Generic::bind</c>.
+        /// </summary>
+        public bool HasForeignGenericRuntime(IBaseSymbol? symbol)
+            => symbol is not null
+                && GenericRuntimeAttributeSupport.IsTyhpdefSymbol(symbol)
+                && GenericRuntimeAttributeSupport.TryRead(symbol) is not null;
 
         public bool RequiresWeakReferenceCaptureFor(PhpInlineFunctionAst? closure)
             => closure is not null && this.RequiresWeakReferenceCapture.Contains(closure);
@@ -606,7 +642,15 @@ namespace Tyhp.TyhpLang.Emitter
             var typeAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var tyhpdefAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var tyhpdefMemberAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            CollectAliasMaps(globalScope, typeAliases, tyhpdefAliases, tyhpdefMemberAliases, namespacePrefix);
+            var sourceAliasFqns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            CollectSourceTypeAliasFqns(globalScope, sourceAliasFqns);
+            CollectAliasMaps(
+                globalScope,
+                typeAliases,
+                tyhpdefAliases,
+                tyhpdefMemberAliases,
+                namespacePrefix,
+                sourceAliasFqns);
             return (typeAliases, tyhpdefAliases, tyhpdefMemberAliases);
         }
 
@@ -654,12 +698,52 @@ namespace Tyhp.TyhpLang.Emitter
         public bool IsCurrentScopeDisposableTryFinallyFallback =>
             this._tryFinallyFallbackScopeDepths.Contains(this._scopeDepth);
 
+        private static void CollectSourceTypeAliasFqns(IBaseScope scope, HashSet<string> fqns)
+        {
+            foreach (var symbol in scope.GetAllChildSymbols())
+            {
+                if (symbol is not TypeAliasSymbol alias
+                    || (IsTyhpdefAliasSymbol(alias)
+                        && GenericRuntimeAttributeSupport.TryRead(alias)?.HasAliasFactory != true))
+                {
+                    continue;
+                }
+
+                var fqn = (alias.FullyQualifiedName ?? alias.Name).TrimStart('\\');
+                if (!string.IsNullOrEmpty(fqn))
+                {
+                    fqns.Add(fqn);
+                }
+            }
+
+            foreach (var childScope in scope.GetAllChildScopes())
+            {
+                if (childScope is not null)
+                {
+                    CollectSourceTypeAliasFqns(childScope, fqns);
+                }
+            }
+        }
+
+        private static bool IsTyhpdefAliasSymbol(IBaseSymbol symbol)
+        {
+            var file = symbol.SourceFile ?? "";
+            if (file.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase)
+                || file.Contains("<tyhpdef:", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return symbol is BaseSymbol { DeclaringAstNode.LanguageMode: "tyhpdef" };
+        }
+
         private static void CollectAliasMaps(
             IBaseScope scope,
             Dictionary<string, string> typeAliases,
             Dictionary<string, string> tyhpdefAliases,
             Dictionary<string, string> tyhpdefMemberAliases,
-            string? namespacePrefix)
+            string? namespacePrefix,
+            HashSet<string> sourceAliasFqns)
         {
             foreach (var symbol in scope.GetAllChildSymbols())
             {
@@ -690,14 +774,34 @@ namespace Tyhp.TyhpLang.Emitter
                         break;
                     }
                     case UseIncludeSymbol useInclude:
+                    {
+                        // Class-kind `use App\Types\UserId` must not rewrite short `UserId` to a
+                        // relative FQN. The factory is a PHP function; emit keeps the short name so
+                        // `use function` can apply. Hints still expand via TypeAliasMap.
+                        var imported = (useInclude.ImportedName ?? "").TrimStart('\\');
+                        if (!string.IsNullOrEmpty(imported) && sourceAliasFqns.Contains(imported))
+                        {
+                            break;
+                        }
+
                         tyhpdefAliases[useInclude.Name] = useInclude.ImportedName;
                         break;
+                    }
                     case FunctionDeclarationSymbol { OriginalPhpName: { Length: > 0 } originalFunction }:
                         // Tyhpdef `function php_name as tyhpName` — symbol lives under tyhpName.
                         tyhpdefAliases[symbol.Name] = originalFunction;
                         break;
+                    case ObjectDeclarationSymbol { OriginalPhpName: { Length: > 0 } originalType }:
+                        // Tyhpdef `class php_name as tyhpName` — symbol lives under tyhpName.
+                        tyhpdefAliases[symbol.Name] = originalType;
+                        break;
                     case ObjectMethodSymbol { OriginalPhpName: { Length: > 0 } originalMethod }:
                         tyhpdefMemberAliases[symbol.Name] = originalMethod;
+                        break;
+                    case ObjectConstantSymbol { OriginalPhpName: { Length: > 0 } originalConstant }:
+                        // Class-const `IS as IS_OP` is a free name (`Type::IS_OP`), not an
+                        // instance member, so it shares the free-name alias map.
+                        tyhpdefAliases[symbol.Name] = originalConstant;
                         break;
                 }
             }
@@ -710,7 +814,12 @@ namespace Tyhp.TyhpLang.Emitter
                 }
 
                 CollectAliasMaps(
-                    childScope, typeAliases, tyhpdefAliases, tyhpdefMemberAliases, namespacePrefix);
+                    childScope,
+                    typeAliases,
+                    tyhpdefAliases,
+                    tyhpdefMemberAliases,
+                    namespacePrefix,
+                    sourceAliasFqns);
             }
         }
     }

@@ -135,17 +135,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 CheckerHelpers.ReportError(diagnostics, state, node, MessageCode.CheckerUseBoolInsteadOfTrueFalse);
             }
 
-            for (var i = 0; i < members.Count; i++)
-            {
-                for (var j = i + 1; j < members.Count; j++)
-                {
-                    if (CheckedTypes.AreTypesEqual(members[i], members[j]))
-                    {
-                        CheckerHelpers.ReportError(
-                            diagnostics, state, node, MessageCode.CheckerDuplicateTypeInComposite, members[i].DisplayName);
-                    }
-                }
-            }
+            ReportDuplicateCompositeMembers(members, node, state, diagnostics);
 
             if (members.Any(m => CheckerHelpers.IsBuiltInName(m, "bool"))
                 && members.Any(m => IsLiteralBool(m) || CheckerHelpers.IsBuiltInName(m, "false")))
@@ -190,15 +180,34 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 }
             }
 
+            ReportDuplicateCompositeMembers(members, node, state, diagnostics);
+        }
+
+        private static void ReportDuplicateCompositeMembers(
+            IReadOnlyList<ICheckedType> members,
+            PhpTypeExpressionAst node,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            var astMembers = node.Types?.GetAllNotNull().ToList() ?? [];
+            var fileName = CheckerHelpers.ResolveDiagnosticFileName(state, node);
             for (var i = 0; i < members.Count; i++)
             {
                 for (var j = i + 1; j < members.Count; j++)
                 {
-                    if (CheckedTypes.AreTypesEqual(members[i], members[j]))
+                    if (!CheckedTypes.AreTypesEqual(members[i], members[j]))
                     {
-                        CheckerHelpers.ReportError(
-                            diagnostics, state, node, MessageCode.CheckerDuplicateTypeInComposite, members[i].DisplayName);
+                        continue;
                     }
+
+                    IBase2Ast? first = i < astMembers.Count ? astMembers[i] : null;
+                    diagnostics.AddDuplicateFromAst(
+                        MessageCode.CheckerDuplicateTypeInComposite,
+                        node,
+                        fileName,
+                        first,
+                        fileName,
+                        members[i].DisplayName);
                 }
             }
         }
@@ -272,6 +281,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
             || type is IntersectionCheckedType
             || type is CallableCheckedType
             || IsCallableOrClosureType(type)
+            // Object shapes are the structural half of a nominal-parent intersection
+            // (`\Psr\Log\LoggerInterface & object { … }`, Story 27 Phase 3). They already imply
+            // `object`, so they belong in an intersection alongside a class/interface member.
+            || TypeComparer.TryAsObjectShape(type) is not null
             || string.Equals(type.DisplayName, "self", StringComparison.OrdinalIgnoreCase)
             || string.Equals(type.DisplayName, "parent", StringComparison.OrdinalIgnoreCase)
             || string.Equals(type.DisplayName, "static", StringComparison.OrdinalIgnoreCase);

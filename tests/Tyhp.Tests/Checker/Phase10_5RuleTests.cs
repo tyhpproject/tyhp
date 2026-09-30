@@ -43,18 +43,18 @@ public class Phase10_5RuleTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(\Tyhp\Pick<int, 'x'> $picked): void {}
+            function demo(__Pick<int, 'x'> $picked): void {}
             """);
 
         diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied);
     }
 
     [Fact]
-    public void Check_ReadonlyWithPrimitiveType_ReportsGenericConstraintNotSatisfied()
+    public void Check_PartialWithPrimitiveType_ReportsGenericConstraintNotSatisfied()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(\Tyhp\Readonly<int> $value): void {}
+            function demo(__Partial<int> $value): void {}
             """);
 
         diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied);
@@ -114,7 +114,7 @@ public class Phase10_5RuleTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(\Tyhp\Pick<int> $picked): void {}
+            function demo(__Pick<int> $picked): void {}
             """);
 
         diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerGenericArgumentCountMismatch);
@@ -126,7 +126,7 @@ public class Phase10_5RuleTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(\Tyhp\ReturnType<int> $t): void {}
+            function demo(__CallableReturnType<int> $t): void {}
             """);
 
         diagnostics.Errors.Should().ContainSingle(d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied);
@@ -138,7 +138,7 @@ public class Phase10_5RuleTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(\Tyhp\Parameters<string> $params): void {}
+            function demo(__CallableParametersTuple<string> $params): void {}
             """);
 
         diagnostics.Errors.Should().ContainSingle(d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied);
@@ -150,7 +150,7 @@ public class Phase10_5RuleTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(\Tyhp\ReturnType<callable<string, int>> $t): void {}
+            function demo(__CallableReturnType<callable(string): int> $t): void {}
             """);
 
         diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied);
@@ -158,20 +158,21 @@ public class Phase10_5RuleTests
     }
 
     [Fact]
-    public void SatisfiesCallableConstraint_RejectsEmptyCallableGeneric()
+    public void SatisfiesCallableConstraint_RejectsGenericCallableConstruction()
     {
-        // Theoretical edge case from the Phase 2 audit: GenericCheckedType callable<> with
-        // zero type args must not satisfy Callable (otherwise ResolveReturnType would silently
-        // accept after dropping the ad-hoc 4051 report).
+        // `callable` is not a generic type. Leftover `GenericCheckedType` wrappers must not
+        // satisfy Callable; shapes use `CallableCheckedType`.
         var emptyCallable = new GenericCheckedType(
             CheckedTypes.FromSymbol(new BuiltInTypeSymbol("callable")),
             []);
         var typedCallable = new GenericCheckedType(
             CheckedTypes.FromSymbol(new BuiltInTypeSymbol("callable")),
             [CheckedTypes.Int]);
+        var shape = new CallableCheckedType([CheckedTypes.Int], CheckedTypes.String);
 
         GenericTypeArgumentValidator.SatisfiesCallableConstraint(emptyCallable).Should().BeFalse();
-        GenericTypeArgumentValidator.SatisfiesCallableConstraint(typedCallable).Should().BeTrue();
+        GenericTypeArgumentValidator.SatisfiesCallableConstraint(typedCallable).Should().BeFalse();
+        GenericTypeArgumentValidator.SatisfiesCallableConstraint(shape).Should().BeTrue();
         GenericTypeArgumentValidator.SatisfiesCallableConstraint(
             CheckedTypes.FromSymbol(new BuiltInTypeSymbol("callable"))).Should().BeTrue();
         GenericTypeArgumentValidator.SatisfiesCallableConstraint(CheckedTypes.Int).Should().BeFalse();
@@ -182,12 +183,12 @@ public class Phase10_5RuleTests
     {
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x = 0;
                 string $y = '';
-            }
+            };
 
-            function demo(\Tyhp\Readonly<Point> $point): void {}
+            function demo(__AsReadOnly<Point> $point): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -206,18 +207,18 @@ public class Phase10_5RuleTests
         // Story 11 struct #1/#6: `extends` is parsed as a raw `IClassName`, not an `ITypeExpression`,
         // so `ObjectDeclarationSymbol.ExtendsType` is null for a normal struct declaration and the
         // parent must be resolved via `TypeComparer.TryGetParentDeclaration`'s AST fallback. Without
-        // walking that chain, `\Tyhp\Readonly<ChildShape>` (and `Pick`/`Omit`/`Partial`/`keyof`) only
+        // walking that chain, `__AsReadOnly<ChildShape>` (and `Pick`/`Omit`/`Partial`/`keyof`) only
         // saw the child's own properties, silently dropping every inherited one.
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            struct ParentShape {
+            type ParentShape = struct {
                 int $count = 0;
-            }
-            struct ChildShape extends ParentShape {
+            };
+            type ChildShape = struct extends ParentShape  {
                 string $name = '';
-            }
+            };
 
-            function demo(\Tyhp\Readonly<ChildShape> $value): void {}
+            function demo(__AsReadOnly<ChildShape> $value): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -241,7 +242,7 @@ public class Phase10_5RuleTests
                 public int $age;
             }
 
-            function demo(\Tyhp\Readonly<Widget> $value): void {}
+            function demo(__AsReadOnly<Widget> $value): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -258,12 +259,12 @@ public class Phase10_5RuleTests
     {
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x = 0;
                 string $y = '';
-            }
+            };
 
-            function demo(\Tyhp\Partial<Point> $point): void {}
+            function demo(__Partial<Point> $point): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -281,13 +282,13 @@ public class Phase10_5RuleTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x = 0;
                 string $y = '';
-            }
+            };
 
             function demo(): void {
-                \Tyhp\Partial<Point> $point = ['x' => 1];
+                __Partial<Point> $point = ['x' => 1];
             }
             """);
 
@@ -299,12 +300,12 @@ public class Phase10_5RuleTests
     {
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 ?int $x = null;
                 ?string $y = null;
-            }
+            };
 
-            function demo(\Tyhp\Required<Point> $point): void {}
+            function demo(__Required<Point> $point): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -322,12 +323,12 @@ public class Phase10_5RuleTests
     {
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x = 0;
                 string $y = '';
-            }
+            };
 
-            function demo(\Tyhp\Pick<Point, 'x'> $picked): void {}
+            function demo(__Pick<Point, 'x'> $picked): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -344,12 +345,12 @@ public class Phase10_5RuleTests
     {
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x = 0;
                 string $y = '';
-            }
+            };
 
-            function demo(\Tyhp\Omit<Point, 'y'> $omitted): void {}
+            function demo(__Omit<Point, 'y'> $omitted): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -366,9 +367,9 @@ public class Phase10_5RuleTests
     {
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x = 0;
-            }
+            };
 
             function demo(__StructKey<Point> $key): void {}
             """);
@@ -437,14 +438,7 @@ public class Phase10_5RuleTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

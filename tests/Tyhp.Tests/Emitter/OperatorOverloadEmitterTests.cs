@@ -11,9 +11,10 @@ using Tyhp.Tests.TestHelpers;
 namespace Tyhp.Tests.Emitter;
 
 // Story 11 §8 redesign: every operator overload collapses into a single STATIC method (except
-// convert's instance to-forms). Call sites become static calls (`\Type::__add($a, $b)`), casts
-// become instance convert-to calls (`$a->__toInt()`), and convert-to overloads auto-add the
-// matching `\Tyhp\Contracts\*Convertible` interface.
+// class-owned convert's instance to-forms). Call sites become static calls (`\Type::__add($a, $b)`),
+// class-owned casts become instance convert-to calls (`$a->__toInt()`), standalone extension
+// convert rewrites to `E::__toInt($a)` / `E::__from($a)`, and class-owned convert-to overloads
+// auto-add the matching `\Tyhp\Contracts\*Convertible` interface.
 [Trait("Category", "Emitter")]
 public class OperatorOverloadEmitterTests
 {
@@ -25,7 +26,8 @@ public class OperatorOverloadEmitterTests
 
     private static (string Php, DiagnosticBag Diagnostics) CompileAndEmitWithDiagnostics(
         string tyhp,
-        bool allowEmitterPostfixSplitErrors = true)
+        bool allowEmitterPostfixSplitErrors = true,
+        params MessageCode[] extraAllowedErrors)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
@@ -36,13 +38,7 @@ public class OperatorOverloadEmitterTests
         {
             var project = CreateProject();
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
 
@@ -56,6 +52,7 @@ public class OperatorOverloadEmitterTests
                 // Compound-assign type checking does not yet model operator-overload expansion for
                 // every LHS shape; it is irrelevant to what the emitter produces.
                 .Where(d => d.Code != MessageCode.CheckerTypeMismatch)
+                .Where(d => extraAllowedErrors.Length == 0 || !extraAllowedErrors.Contains(d.Code))
                 .Where(d => !allowEmitterPostfixSplitErrors
                     || d.Code != MessageCode.EmitterPostfixOperatorOverloadRequiresStatementSplit)
                 .ToList();
@@ -675,6 +672,66 @@ public class OperatorOverloadEmitterTests
     }
 
     [Fact]
+    public void Emit_ImplicitConvertTo_NullableUnion_DoesNotPeelFirstArm()
+    {
+        // `?string` is one member and still unwraps to a convert-to target.
+        // `?(string|int)` keeps both arms; peeling the first would emit `__toString`.
+        // The checker rejects convert-to of one arm as a match for the union.
+        // Emit still runs; that rejection is not the rewrite under test.
+        var (php, _) = CompileAndEmitWithDiagnostics("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+                operator convert(self $value): string {
+                    return "m";
+                }
+            }
+            function takeString(?string $s): void {}
+            function takeEither(?(string|int) $x): void {}
+            function pass(Money $a): void {
+                takeString($a);
+                takeEither($a);
+            }
+            """,
+            allowEmitterPostfixSplitErrors: false,
+            MessageCode.CheckerIncompatibleArgumentType);
+
+        php.Should().Contain("takeString($a->__toString())");
+        php.Should().NotContain("takeEither($a->__toString())");
+        php.Should().Contain("takeEither($a);");
+    }
+
+    [Fact]
+    public void Emit_ImplicitConvertTo_NullableIntersection_DoesNotPeelFirstArm()
+    {
+        // `?Alpha` still unwraps. `?(Alpha&Beta)` keeps both arms; peeling the
+        // first would emit `__toAlpha` at the intersection parameter.
+        var (php, _) = CompileAndEmitWithDiagnostics("""
+            <?tyhp
+            interface Alpha {}
+            interface Beta {}
+            class AlphaImpl implements Alpha {}
+            class Box {
+                operator convert(self $value): Alpha {
+                    return new AlphaImpl();
+                }
+            }
+            function takeAlpha(?Alpha $x): void {}
+            function takeBoth(?(Alpha&Beta) $x): void {}
+            function pass(Box $b): void {
+                takeAlpha($b);
+                takeBoth($b);
+            }
+            """,
+            allowEmitterPostfixSplitErrors: false,
+            MessageCode.CheckerIncompatibleArgumentType);
+
+        php.Should().Contain("takeAlpha($b->__toAlpha())");
+        php.Should().NotContain("takeBoth($b->__toAlpha())");
+        php.Should().Contain("takeBoth($b);");
+    }
+
+    [Fact]
     public void Emit_ImplicitConvertTo_NamedCallArgument_RewritesToInstanceToInt()
     {
         var php = CompileAndEmit("""
@@ -830,8 +887,8 @@ public class OperatorOverloadEmitterTests
                     return $value->amount;
                 }
             }
-            extension StringExtensions {
-                function repeat(extends string $this, int $times): string {
+            extension StringExtensions extends string {
+                function repeat(int $times): string {
                     return \str_repeat($this, $times);
                 }
             }
@@ -840,8 +897,11 @@ public class OperatorOverloadEmitterTests
             }
             """);
 
-        php.Should().Contain("\\StringExtensions::repeat($s, $m->__toInt())");
+        // `repeat`'s body is a single `return \str_repeat($this, $times);` — Phase 3/4 splices it
+        // directly at the call site instead of emitting a static call to the (still-declared) backer.
+        php.Should().Contain("\\str_repeat($s, $m->__toInt())");
         php.Should().NotContain("\\StringExtensions::repeat($s, $m)");
+        php.Should().NotContain("\\StringExtensions::repeat($s, $m->__toInt())");
     }
 
     [Fact]
@@ -857,8 +917,8 @@ public class OperatorOverloadEmitterTests
                     return $value->amount;
                 }
             }
-            extension StringExtensions {
-                function repeat(extends string $this, int $times): string {
+            extension StringExtensions extends string {
+                function repeat(int $times): string {
                     return \str_repeat($this, $times);
                 }
             }
@@ -1117,8 +1177,8 @@ public class OperatorOverloadEmitterTests
             class Money {
                 public int $amount = 0;
             }
-            extension MoneyOperators {
-                operator +<Money>(self $left, self $right): self {
+            extension MoneyOperators extends Money {
+                operator + (self $left, self $right): self {
                     return $left;
                 }
             }
@@ -1127,9 +1187,13 @@ public class OperatorOverloadEmitterTests
             }
             """);
 
+        // The operator body is a single `return $left;` — Phase 3/4 splices the call site to just
+        // the (renamed) left operand instead of a static call, even though the backer is still
+        // declared on MoneyOperators (Phase 5 — omitting that backer — is not implemented).
         php.Should().Contain("class MoneyOperators");
         php.Should().Contain("function __add");
-        php.Should().Contain("\\MoneyOperators::__add($a, $b)");
+        php.Should().Contain("return $a;");
+        php.Should().NotContain("\\MoneyOperators::__add($a, $b)");
     }
 
     [Fact]
@@ -1139,8 +1203,8 @@ public class OperatorOverloadEmitterTests
         // and `'-' * 40` must rewrite to \StringOperators::__mul('-', 40).
         var php = CompileAndEmit("""
             <?tyhp
-            extension StringOperators {
-                operator *<string>(self $left, int $right): string {
+            extension StringOperators extends string {
+                operator * (self $left, int $right): string {
                     return \str_repeat($left, $right);
                 }
             }
@@ -1149,9 +1213,12 @@ public class OperatorOverloadEmitterTests
             }
             """);
 
+        // The operator body is a single `return \str_repeat($left, $right);` — Phase 3/4 splices
+        // the call site directly instead of a static call, even though the backer is still declared.
         php.Should().Contain("class StringOperators");
         php.Should().Contain("function __multiply");
-        php.Should().Contain("\\StringOperators::__multiply('-', $n)");
+        php.Should().Contain("\\str_repeat('-', $n)");
+        php.Should().NotContain("\\StringOperators::__multiply('-', $n)");
     }
 
     [Fact]
@@ -1161,8 +1228,8 @@ public class OperatorOverloadEmitterTests
         // static call, exercising AliasConverter.TryFindMatchingUnaryOverload's builtin branch.
         var php = CompileAndEmit("""
             <?tyhp
-            extension IntOperators {
-                operator -<int>(self $v): int {
+            extension IntOperators extends int {
+                operator - (self $v): int {
                     return 0 - $v;
                 }
             }
@@ -1171,9 +1238,12 @@ public class OperatorOverloadEmitterTests
             }
             """);
 
+        // The operator body is a single `return 0 - $v;` — Phase 3/4 splices the call site directly
+        // instead of a static call, even though the backer is still declared.
         php.Should().Contain("class IntOperators");
         php.Should().Contain("function __negate");
-        php.Should().Contain("\\IntOperators::__negate($n)");
+        php.Should().Contain("return (0 - $n);");
+        php.Should().NotContain("\\IntOperators::__negate($n)");
     }
 
     [Fact]
@@ -1183,8 +1253,8 @@ public class OperatorOverloadEmitterTests
         // int operands must not accidentally pick up a `<string>`-targeted overload.
         var php = CompileAndEmit("""
             <?tyhp
-            extension StringOperators {
-                operator *<string>(self $left, int $right): string {
+            extension StringOperators extends string {
+                operator * (self $left, int $right): string {
                     return \str_repeat($left, $right);
                 }
             }
@@ -1195,6 +1265,70 @@ public class OperatorOverloadEmitterTests
 
         php.Should().Contain("$a * $b");
         php.Should().NotContain("StringOperators::__multiply");
+    }
+
+    [Fact]
+    public void Emit_StandaloneExtensionOperator_MultiStatementBody_CallsBackerInsteadOfSplicing()
+    {
+        // Phase 5: only a single-`return` brace body splices at the call site. A multi-statement
+        // body keeps the real static call, since the splice engine only extracts a lone `return`.
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension StringOperators extends string {
+                operator * (self $left, int $right): string {
+                    string $result = \str_repeat($left, $right);
+                    return $result;
+                }
+            }
+            function dashes(int $n): string {
+                return '-' * $n;
+            }
+            """);
+
+        php.Should().Contain("class StringOperators");
+        php.Should().Contain("function __multiply");
+        php.Should().Contain(@"\StringOperators::__multiply('-', $n)");
+        // Builtin `self` dispatch must use `\is_string`, not illegal `instanceof string`.
+        php.Should().Contain(@"\is_string($l)");
+        php.Should().Contain(@"\is_int($r)");
+        php.Should().NotContain("$l instanceof string");
+    }
+
+    [Fact]
+    public void Emit_StandaloneExtensionOperator_MultiBuiltinTargets_UsesIsBuiltinGuardsNotInstanceof()
+    {
+        // Collapsing `operator *<string>` + `operator *<array>` into one `__multiply` must guard
+        // with `\is_string` / `\is_array` — PHP `instanceof string` / `instanceof array` is a
+        // parse error (FOUND_BUGS: extension operator builtin self dispatch guards).
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension StringOperators {
+                extends string {
+                    operator * (self $left, int $right): string {
+                        string $result = \str_repeat($left, $right);
+                        return $result;
+                    }
+                }
+
+                extends array {
+                    operator * (self $left, int $right): string {
+                        string $result = \implode('', $left);
+                        return $result;
+                    }
+                }
+            }
+            function dashes(int $n): string {
+                return '-' * $n;
+            }
+            """);
+
+        php.Should().Contain("function __multiply");
+        php.Should().Contain("string|array $l");
+        php.Should().Contain(@"\is_string($l)");
+        php.Should().Contain(@"\is_array($l)");
+        php.Should().Contain(@"\is_int($r)");
+        php.Should().NotContain("$l instanceof string");
+        php.Should().NotContain("$l instanceof array");
     }
 
     [Fact]
@@ -1437,5 +1571,262 @@ public class OperatorOverloadEmitterTests
 
         php.Should().Contain("static::__add($this, $n)");
         php.Should().NotContain("return $this + $n");
+    }
+
+    [Fact]
+    public void Emit_StandaloneExtensionConvertTo_EmitsStaticToIntOnExtensionAndRewritesCast()
+    {
+        // FOUND_BUGS #37: convert-to on a standalone extension is a static method on the
+        // backer class. Rewrite must call that class, not `$m->__toInt()` on the target.
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+            }
+            extension MoneyOperators extends Money {
+                operator convert (self $value): int {
+                    int $n = $value->amount;
+                    return $n;
+                }
+            }
+            function asInt(Money $m): int {
+                return (int)$m;
+            }
+            """);
+
+        php.Should().Contain("class MoneyOperators");
+        php.Should().Contain("public static function __toInt(");
+        php.Should().Contain("\\MoneyOperators::__toInt($m)");
+        php.Should().NotContain("$m->__toInt()");
+        php.Should().NotContain("function convert(");
+        php.Should().NotContain("(int)$m");
+        php.Should().NotContain("implements \\Tyhp\\Contracts\\IntConvertible");
+    }
+
+    [Fact]
+    public void Emit_StandaloneExtensionConvertFrom_EmitsStaticFromOnExtensionAndRewritesCall()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+            }
+            extension MoneyOperators extends Money {
+                operator convert (int $value) {
+                    Money $m = new Money();
+                    $m->amount = $value;
+                    return $m;
+                }
+            }
+            function takeMoney(Money $m): void {}
+            function pass(int $n): void {
+                takeMoney($n);
+            }
+            """);
+
+        php.Should().Contain("class MoneyOperators");
+        php.Should().Contain("public static function __from(");
+        php.Should().Contain("takeMoney(\\MoneyOperators::__from($n))");
+        php.Should().NotContain("\\Money::__from(");
+        php.Should().NotContain("function convert(");
+        php.Should().NotContain("takeMoney($n);");
+    }
+
+    [Fact]
+    public void Emit_StandaloneExtensionConvert_FromAndTo_EmitsSeparateToMethods()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+                public function __construct(int $amount = 0) {
+                    $this->amount = $amount;
+                }
+            }
+            extension MoneyOperators extends Money {
+                operator convert (int $value) {
+                    Money $m = new Money();
+                    $m->amount = $value;
+                    return $m;
+                }
+                operator convert (self $value): int {
+                    int $n = $value->amount;
+                    return $n;
+                }
+                operator convert (self $value): string {
+                    string $s = (string)$value->amount;
+                    return $s;
+                }
+            }
+            """);
+
+        php.Should().Contain("public static function __from(");
+        php.Should().Contain("public static function __toInt(");
+        php.Should().Contain("public static function __toString(");
+        php.Should().NotContain("function __toInt():");
+        php.Should().NotContain("function convert(");
+    }
+
+    [Fact]
+    public void Emit_StandaloneExtensionConvertTo_ParameterNamedThis_AliasesThis()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+            }
+            extension MoneyOperators extends Money {
+                operator convert (self $this): int {
+                    int $n = $this->amount;
+                    return $n;
+                }
+            }
+            """);
+
+        php.Should().Contain("public static function __toInt(");
+        php.Should().Contain("$this_ = $o;");
+        php.Should().NotContain("$this = $this;");
+        php.Should().NotContain("$this = $o;");
+    }
+
+    [Fact]
+    public void Emit_MultiTargetExtensionConvertTo_SameReturnType_DispatchesBothTargetsInOneMethod()
+    {
+        // Regression: two nested `extends` blocks in one standalone extension share a single PHP
+        // backer. Two `operator convert(self $v): int` forms — one per target — must NOT collapse
+        // onto the first target's method and silently drop the second (both declare `__toInt`,
+        // the collapsed-method name derived only from the return type).
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension NumOperators {
+                extends string {
+                    operator convert (self $value): int {
+                        return 1;
+                    }
+                }
+                extends array {
+                    operator convert (self $value): int {
+                        return 2;
+                    }
+                }
+            }
+            """);
+
+        php.Should().Contain("public static function __toInt(string|array $o): int");
+        php.Should().Contain("\\is_string($o)");
+        php.Should().Contain("\\is_array($o)");
+        php.Should().Contain("return 1;");
+        php.Should().Contain("return 2;");
+        // Exactly one __toInt method — not two, and not silently dropping the second target's form.
+        System.Text.RegularExpressions.Regex.Matches(php, "function __toInt\\(").Count.Should().Be(1);
+    }
+
+    [Fact]
+    public void Emit_MultiTargetExtensionConvertFrom_DistinctSources_UnionsReturnTypeAcrossTargets()
+    {
+        // Regression: convert-from forms across different nested `extends` targets share one
+        // `__from` method (fixed name, no per-target suffix). The declared return type must union
+        // every target actually constructed — not just the first target's, which previously left
+        // the second target's branch returning a value the signature disagreed with.
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension NumOperators {
+                extends string {
+                    operator convert (int $value) {
+                        string $s = "S" . $value;
+                        return $s;
+                    }
+                }
+                extends array {
+                    operator convert (bool $value) {
+                        array $a = [$value];
+                        return $a;
+                    }
+                }
+            }
+            """);
+
+        php.Should().Contain("public static function __from(int|bool $from): string|array");
+        php.Should().Contain("\\is_int($from)");
+        php.Should().Contain("\\is_bool($from)");
+    }
+
+    [Fact]
+    public void Emit_MultiTargetExtensionConvertTo_ThreeTargets_DispatchesAllInOneMethod()
+    {
+        // Regression: the elseif dispatch chain built by EmitConvertTo must scale past two forms
+        // (three nested `extends` blocks sharing the same `__toInt` name) without dropping any
+        // target or mis-ordering the guard chain.
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension NumOperators {
+                extends string {
+                    operator convert (self $value): int {
+                        return 1;
+                    }
+                }
+                extends array {
+                    operator convert (self $value): int {
+                        return 2;
+                    }
+                }
+                extends bool {
+                    operator convert (self $value): int {
+                        return 3;
+                    }
+                }
+            }
+            """);
+
+        php.Should().Contain("public static function __toInt(string|array|bool $o): int");
+        php.Should().Contain("\\is_string($o)");
+        php.Should().Contain("\\is_array($o)");
+        php.Should().Contain("\\is_bool($o)");
+        php.Should().Contain("return 1;");
+        php.Should().Contain("return 2;");
+        php.Should().Contain("return 3;");
+        System.Text.RegularExpressions.Regex.Matches(php, "function __toInt\\(").Count.Should().Be(1);
+    }
+
+    [Fact]
+    public void Emit_MultiTargetExtensionConvertTo_ClassTargets_CallSitesDispatchToCorrectBranch()
+    {
+        // Regression: with two distinct class targets sharing `__toInt`, each target's own call
+        // site (`(int)$foo`, `(int)$bar`) must still resolve through AliasConverter/
+        // OperatorOverloadResolver to the single collapsed dispatch method — the grouping change
+        // in EmitConvertTo must not desync from how the resolver finds the matching form.
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Foo {
+                public int $a = 0;
+            }
+            class Bar {
+                public int $b = 0;
+            }
+            extension NumOperators {
+                extends Foo {
+                    operator convert (self $value): int {
+                        return $value->a;
+                    }
+                }
+                extends Bar {
+                    operator convert (self $value): int {
+                        return $value->b;
+                    }
+                }
+            }
+            function asIntFoo(Foo $f): int {
+                return (int)$f;
+            }
+            function asIntBar(Bar $b): int {
+                return (int)$b;
+            }
+            """);
+
+        php.Should().Contain("\\NumOperators::__toInt($f)");
+        php.Should().Contain("\\NumOperators::__toInt($b)");
+        php.Should().NotContain("(int) $f");
+        php.Should().NotContain("(int) $b");
+        System.Text.RegularExpressions.Regex.Matches(php, "function __toInt\\(").Count.Should().Be(1);
     }
 }

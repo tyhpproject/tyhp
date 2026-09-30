@@ -13,10 +13,11 @@ namespace Tyhp.TyhpLang.Ast
     ///         CoalesceExpr=expr)? FindDocComment=T_SYM_SEMICOLON
     ///     ;
     /// </summary>
-    public class TyhpdefImportVariableAst : Base2Ast, ITopStatement
+    public class TyhpdefImportVariableAst : Base2Ast, IStatement
     {
         private const short IS_DEPRECATED_FLAG = -20;
         private const short IS_OBSOLETE_FLAG = -21;
+        private const short IS_OMIT_FLAG = -22;
 
         public ITypeExpression? TypeExpr => Children.ElementAtOrDefault(0) as ITypeExpression;
         public IExpression? CoalesceExpr => Children.ElementAtOrDefault(1) as IExpression;
@@ -33,6 +34,7 @@ namespace Tyhp.TyhpLang.Ast
 
         public bool IsDeprecated => HasFlag(IS_DEPRECATED_FLAG);
         public bool IsObsolete => HasFlag(IS_OBSOLETE_FLAG);
+        public bool IsOmit => HasFlag(IS_OMIT_FLAG);
 
         public static TyhpdefImportVariableAst Create(
             ITypeExpression typeExpr,
@@ -43,7 +45,8 @@ namespace Tyhp.TyhpLang.Ast
             bool isObsolete,
             string? docComment,
             ParserRuleContext context,
-            string? languageMode = null)
+            string? languageMode = null,
+            bool isOmit = false)
         {
             var result = new TyhpdefImportVariableAst
             {
@@ -55,6 +58,7 @@ namespace Tyhp.TyhpLang.Ast
 
             result.SetFlag(IS_DEPRECATED_FLAG, isDeprecated);
             result.SetFlag(IS_OBSOLETE_FLAG, isObsolete);
+            result.SetFlag(IS_OMIT_FLAG, isOmit);
             result.SetContext(context, languageMode);
             return result;
         }

@@ -1,3 +1,5 @@
+using Tyhp.Domain.Diagnostics;
+using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Checker.Rules;
@@ -7,7 +9,7 @@ using Tyhp.TyhpLang.Parser;
 namespace Tyhp.TyhpLang.Checker
 {
     /// <summary>
-    /// Story 16 Phase 2 helpers for <c>\Tyhp\Expression&lt;TArgs…, TReturn&gt;</c>:
+    /// Story 16 Phase 2 helpers for <c>\Tyhp\Expression&lt;TCallableShape&gt;</c>:
     /// type recognition, body validation, and capture collection.
     /// </summary>
     internal static class ExpressionTreeSupport
@@ -20,8 +22,9 @@ namespace Tyhp.TyhpLang.Checker
             => TryGetExpressionTypeArgs(type, out _, out _);
 
         /// <summary>
-        /// Extracts parameter types (all but last type argument) and return type (last).
-        /// Bare <c>Expression</c> without type args is still recognized (empty params, mixed return).
+        /// Extracts parameter types and return type from <c>TCallableShape</c> (the single
+        /// type argument). Bare <c>Expression</c> without type args is still recognized
+        /// (empty params, mixed return).
         /// </summary>
         public static bool TryGetExpressionTypeArgs(
             ICheckedType? type,
@@ -46,36 +49,104 @@ namespace Tyhp.TyhpLang.Checker
                 return false;
             }
 
-            if (type is GenericCheckedType { TypeArguments.Count: > 0 } generic)
+            if (PropertyPathSupport.TryGetCallableShapeArgument(type, out var shape)
+                && PropertyPathSupport.TryMapCallableShape(shape, out var mapped))
             {
-                if (generic.TypeArguments.Count == 1)
-                {
-                    parameterTypes = [];
-                    returnType = generic.TypeArguments[0];
-                    return true;
-                }
-
-                parameterTypes = generic.TypeArguments.Take(generic.TypeArguments.Count - 1).ToList();
-                returnType = generic.TypeArguments[^1];
-                return true;
+                parameterTypes = mapped.ParameterTypes;
+                returnType = mapped.ReturnType;
             }
 
             return true;
         }
 
         /// <summary>
-        /// Maps <c>Expression&lt;TArgs…, TReturn&gt;</c> to <c>callable&lt;TArgs…, TReturn&gt;</c>
-        /// for contextual closure typing at call sites (same arity convention as callable).
+        /// Maps <c>Expression&lt;TCallableShape&gt;</c> to the callable facet of
+        /// <c>TCallableShape</c> for contextual closure typing at call sites.
         /// </summary>
         public static bool TryMapToCallable(ICheckedType type, out CallableCheckedType callable)
         {
             callable = null!;
-            if (!TryGetExpressionTypeArgs(type, out var parameters, out var result))
+            if (!IsExpressionType(type))
             {
                 return false;
             }
 
-            callable = new CallableCheckedType(parameters, result);
+            if (PropertyPathSupport.TryGetCallableShapeArgument(type, out var shape)
+                && PropertyPathSupport.TryMapCallableShape(shape, out callable))
+            {
+                return true;
+            }
+
+            callable = new CallableCheckedType([], CheckedTypes.Mixed);
+            return true;
+        }
+
+        /// <summary>
+        /// After an inline <c>fn</c> has been checked against an <c>Expression&lt;…&gt;</c>
+        /// annotation, reports arrow / body / capture diagnostics. Returns true when
+        /// <paramref name="targetType"/> is Expression so the caller must not compare the
+        /// inferred <c>\Closure</c> to the Expression class.
+        /// </summary>
+        public static bool TryValidateInlineFnCapture(
+            PhpInlineFunctionAst closure,
+            ICheckedType targetType,
+            CheckerState outerState,
+            DiagnosticBag diagnostics,
+            IBase2Ast reportNode)
+        {
+            if (!IsExpressionType(targetType))
+            {
+                return false;
+            }
+
+            if (!closure.IsArrowFunction)
+            {
+                TryGetExpressionTypeArgs(targetType, out var paramTypes, out var returnType);
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    outerState,
+                    reportNode,
+                    MessageCode.CheckerExpressionRequiresInlineFn,
+                    DisplayFirstParamArg(paramTypes),
+                    DisplayReturnArg(returnType));
+                return true;
+            }
+
+            if (!PropertyPathSupport.TryGetArrowBodyExpression(closure, out var body))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    outerState,
+                    closure,
+                    MessageCode.CheckerExpressionUnsupportedNode,
+                    "statement body");
+                return true;
+            }
+
+            if (!TryValidateSupportedBody(body, closure, out var unsupportedKind)
+                && unsupportedKind is not null)
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    outerState,
+                    body is IBase2Ast bodyNode ? bodyNode : closure,
+                    MessageCode.CheckerExpressionUnsupportedNode,
+                    unsupportedKind);
+                return true;
+            }
+
+            var captures = CollectCapturedVariables(body, closure);
+            if (!TryValidateCapturesAssigned(captures, outerState, out var undefinedName)
+                && undefinedName is not null)
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    outerState,
+                    body is IBase2Ast captureSite ? captureSite : closure,
+                    MessageCode.CheckerExpressionCapturedVarUndefined,
+                    undefinedName);
+            }
+
             return true;
         }
 
@@ -202,6 +273,10 @@ namespace Tyhp.TyhpLang.Checker
                     unsupportedKind = "nested fn";
                     return false;
 
+                case TyhpAsyncBlockAst:
+                    unsupportedKind = "async block";
+                    return false;
+
                 case PhpYieldAst:
                     unsupportedKind = "yield";
                     return false;
@@ -257,14 +332,13 @@ namespace Tyhp.TyhpLang.Checker
             var token = binary.Operator?.ValueInt64 ?? -1;
             var opText = binary.Operator?.ValueString ?? "";
 
-            if (PhpAssignmentOperatorExtensions.FromToken((int)token) is not null
-                || IsAssignmentOperatorText(opText))
+            if (PhpAssignmentOperatorExtensions.FromToken((int)token, opText) is not null)
             {
                 unsupportedKind = "assignment";
                 return false;
             }
 
-            var binaryOp = PhpBinaryOperatorExtensions.FromToken((int)token);
+            var binaryOp = PhpBinaryOperatorExtensions.FromToken((int)token, opText);
             if (binaryOp == PhpBinaryOperator.InstanceOf
                 || IsInstanceOfText(opText))
             {
@@ -516,7 +590,7 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             // Nested fn bodies are unsupported; still avoid descending into them for captures.
-            if (node is PhpInlineFunctionAst)
+            if (node is PhpInlineFunctionAst or TyhpAsyncBlockAst)
             {
                 return;
             }
@@ -539,24 +613,30 @@ namespace Tyhp.TyhpLang.Checker
                 or TyhpParser.T_ARRAY_CAST
                 or TyhpParser.T_OBJECT_CAST;
 
-        private static bool IsAssignmentOperatorText(string op) =>
-            op is "=" or "+=" or "-=" or "*=" or "/=" or ".=" or "%=" or "**="
-                or "&=" or "|=" or "^=" or "<<=" or ">>=" or "??=" or ":=";
-
         private static bool IsInstanceOfText(string op) =>
-            op is "instanceof" or "is" or "isa" or "isan" or "is_a" or "is_an";
+            op is "instanceof" or "is";
 
         /// <summary>
         /// RHS of <c>instanceof</c>/<c>is</c>: a type name, builtin, or a variable holding a
         /// class-name string. Nested expressions (calls, operators) are not a type target.
+        /// `$x is ?T` wraps the real target in a synthetic prefix `?` unary
+        /// (<see cref="Rules.CheckerHelpers.IsNullableInstanceofMarker"/>, FOUND_BUGS #21); unwrap
+        /// it before checking the underlying shape.
         /// </summary>
-        private static bool IsSupportedInstanceofTarget(IExpression? right) =>
-            right is PhpNameAst
+        private static bool IsSupportedInstanceofTarget(IExpression? right)
+        {
+            if (Rules.CheckerHelpers.IsNullableInstanceofMarker(right, out var nullableOperand))
+            {
+                right = nullableOperand as IExpression;
+            }
+
+            return right is PhpNameAst
                 or PhpBuiltinTypeAst
                 or PhpNamedTypeAst
                 or PhpVariableAst
                 or ITypeExpression
                 or PhpDereferenceableAst { Suffix: PhpClassConstantAccessAst or PhpStaticMemberAccessAst };
+        }
 
         private static bool IsIncludeText(string op) =>
             op is "include" or "include_once" or "require" or "require_once";

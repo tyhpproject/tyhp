@@ -1,7 +1,10 @@
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Checker;
+using Tyhp.TyhpLang.Checker.Rules;
+using Tyhp.TyhpLang.Emitter.Splice;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Emitter
@@ -38,7 +41,7 @@ namespace Tyhp.TyhpLang.Emitter
                 return EmitItem.Empty(importList, EmitType.ImportUse, parent);
             }
 
-            // PSR-12: one import per `use` statement (no comma-grouped clauses).
+            // PER-CS: one import per `use` statement (no comma-grouped clauses).
             EmitItem? last = null;
             foreach (var import in imports)
             {
@@ -74,8 +77,13 @@ namespace Tyhp.TyhpLang.Emitter
 
         private EmitItem EmitObjectDeclaration(PhpObjectTypeDeclAst objectDecl, EmitItem parent)
         {
+            if (NoEmitAttributeSupport.ShouldOmitDeclaration(objectDecl))
+            {
+                return EmitItem.Empty(objectDecl, EmitType.ObjectDeclaration, parent);
+            }
+
             var declType = objectDecl.DeclType?.ValueString ?? "class";
-            var modifiers = this.FormatModifiers(objectDecl.Modifiers);
+            var modifiers = this.FormatTypeDeclarationModifiers(objectDecl.Modifiers);
             var namePart = objectDecl.IsAnonymousClass ? "" : " " + this.StripGenericsFromName(objectDecl.Identifier);
             var hasParentList = objectDecl.Implements?.GetAllNotNull().Any() == true;
             string extends;
@@ -122,8 +130,9 @@ namespace Tyhp.TyhpLang.Emitter
             var backedType = objectDecl.BackingType != null
                 ? ": " + this.BuildTypeExpression(objectDecl.BackingType)
                 : "";
-            // Named classes/interfaces/traits/enums: brace on next line (PSR-12 §4.1).
-            // Anonymous classes: brace may stay on the same line (PSR-12 §8).
+            // PER-CS 3.0: named classes/interfaces/traits/enums use brace-next-line when the
+            // body has members; empty types compact to `class Foo {}` in EmitItem.emit.
+            // Anonymous classes: brace may stay on the same line (PER-CS §8).
             var signature = $"{modifiers}{declType}{namePart}{extends}{implements}{backedType}";
             var block = this.ApplyDocComment(
                 objectDecl,
@@ -154,6 +163,7 @@ namespace Tyhp.TyhpLang.Emitter
             this.BeginPropertyAccessorObjectScope(objectDecl);
             this.CollectFreeGenericSetCheckProperties(objectDecl);
             this.AttachPropertyAccessorMagicPropertyDocs(objectDecl, block);
+            this.AttachGenericTemplatePhpDocIfNeeded(objectDecl, block);
             this._pendingOperatorOverloads.Clear();
             if (objectDecl.Body != null)
             {
@@ -211,6 +221,11 @@ namespace Tyhp.TyhpLang.Emitter
 
         private EmitItem EmitExtensionDeclaration(TyhpExtensionDeclAst extensionDecl, EmitItem parent)
         {
+            if (!SpliceAst.ExtensionDeclEmitsPhpBackerClass(extensionDecl))
+            {
+                return EmitItem.Empty(extensionDecl, EmitType.ObjectDeclaration, parent);
+            }
+
             var name = this.StripGenericsFromName(extensionDecl.Identifier);
             var block = this.ApplyDocComment(
                 extensionDecl,
@@ -218,17 +233,7 @@ namespace Tyhp.TyhpLang.Emitter
             this.AttachAttributes(extensionDecl, block);
 
             var extensionOperators = new List<TyhpOperatorOverloadAst>();
-            foreach (var member in extensionDecl.FunctionList?.GetAllNotNull() ?? [])
-            {
-                if (member is PhpFunctionDeclAst function)
-                {
-                    this.EmitExtensionMethod(function, block);
-                }
-                else if (member is TyhpOperatorOverloadAst overload)
-                {
-                    extensionOperators.Add(overload);
-                }
-            }
+            this.EmitExtensionMembers(extensionDecl, block, extensionOperators);
 
             if (extensionOperators.Count > 0)
             {
@@ -238,12 +243,60 @@ namespace Tyhp.TyhpLang.Emitter
             return block;
         }
 
+        private void EmitExtensionMembers(
+            TyhpExtensionDeclAst extensionDecl,
+            EmitItem block,
+            List<TyhpOperatorOverloadAst> extensionOperators)
+        {
+            var implementedFunctionNames = OverloadSignatureHelper.CollectImplementedExtensionFunctionNames(
+                extensionDecl.FunctionList?.GetAllNotNull() ?? []);
+            foreach (var member in extensionDecl.FunctionList?.GetAllNotNull() ?? [])
+            {
+                switch (member)
+                {
+                    case TyhpExtensionDeclAst group:
+                        this.EmitExtensionMembers(group, block, extensionOperators);
+                        break;
+                    case PhpFunctionDeclAst function:
+                        if (function.IsShortSyntax
+                            || OverloadSignatureHelper.IsExtensionFunctionOverloadSignature(
+                                function, implementedFunctionNames))
+                        {
+                            continue;
+                        }
+
+                        this.EmitExtensionMethod(function, block);
+                        break;
+                    case TyhpOperatorOverloadAst overload:
+                        if (overload.IsShortSyntax)
+                        {
+                            continue;
+                        }
+
+                        extensionOperators.Add(overload);
+                        break;
+                }
+            }
+        }
+
         private void EmitExtensionMethod(PhpFunctionDeclAst function, EmitItem parent)
         {
             var previousAlias = this._context.ExtensionReceiverThisAlias;
+            var previousReceiver = this._extensionReceiverParameterText;
+            var previousIsStatic = this._currentMemberIsStatic;
+            var previousCallableGenerics = this._currentCallableGenericParamNames.ToHashSet(StringComparer.Ordinal);
+            this._currentMemberIsStatic = true;
+            this.PushCallableGenericParamNames(function.BoundSymbol as ObjectMethodSymbol);
             try
             {
-                this.BeginExtensionReceiverThisRenameIfNeeded(function.Parameters);
+                this.ActivateExtensionReceiverEmit(function);
+
+                var variantGenerics = this.ResolveVariantGenericParams(function);
+                if (variantGenerics.Count > 0)
+                {
+                    this.EmitExtensionGenericVariantPair(function, parent, variantGenerics);
+                    return;
+                }
 
                 if (this.IsAsyncModifiers(function))
                 {
@@ -262,7 +315,14 @@ namespace Tyhp.TyhpLang.Emitter
             }
             finally
             {
+                this._currentMemberIsStatic = previousIsStatic;
                 this._context.ExtensionReceiverThisAlias = previousAlias;
+                this._extensionReceiverParameterText = previousReceiver;
+                this._currentCallableGenericParamNames.Clear();
+                foreach (var n in previousCallableGenerics)
+                {
+                    this._currentCallableGenericParamNames.Add(n);
+                }
             }
         }
 
@@ -280,6 +340,8 @@ namespace Tyhp.TyhpLang.Emitter
 
             var previousCallableGenerics = this._currentCallableGenericParamNames.ToHashSet(StringComparer.Ordinal);
             this.PushCallableGenericParamNames(functionDecl.BoundSymbol as FunctionDeclarationSymbol);
+            var previousEmittingCallable = this._currentEmittingCallable;
+            this._currentEmittingCallable = functionDecl.BoundSymbol as IBaseSymbol;
             try
             {
                 return this.EmitFunctionDeclarationCore(functionDecl, parent);
@@ -291,6 +353,8 @@ namespace Tyhp.TyhpLang.Emitter
                 {
                     this._currentCallableGenericParamNames.Add(n);
                 }
+
+                this._currentEmittingCallable = previousEmittingCallable;
             }
         }
 
@@ -333,11 +397,29 @@ namespace Tyhp.TyhpLang.Emitter
             // and warn (TYHP5017) because Reflection would no longer see them.
             // Attributes live on the enclosing list (comma decls share one attribute group), so
             // repeat them once per emitted line — same as modifiers/types.
+            var source = attributeSource ?? constDecl;
             var modifiers = this.FormatModifiers(constDecl.Modifiers);
-            var type = constDecl.Type != null ? this.BuildTypeExpression(constDecl.Type) + " " : "";
+            if (emitType == EmitType.ObjectConstantDeclaration)
+            {
+                modifiers = this.EnsureClassMemberVisibility(modifiers);
+            }
+            // File-level `const` has no PHP type in current emit. PhpType only replaces a type
+            // when one would be written (class/interface/trait/enum constants, or a future
+            // typed file-level const). Injecting `const mixed TAG` at file scope is invalid PHP.
+            //
+            // Class/interface/trait/enum constants: when this declaration omits its own type but
+            // the checker inferred one from a typed ancestor (FOUND_BUGS #52), the *emitted* PHP
+            // must still carry that type. PHP 8.3+ requires every override of a typed constant to
+            // redeclare a compatible type — omitting it is a fatal error, not merely untyped.
+            var inheritedConstantType = emitType == EmitType.ObjectConstantDeclaration && constDecl.Type is null
+                ? this.FindInheritedConstantPhpTypeHint(constDecl.Identifier)
+                : null;
+            var spelled = emitType == EmitType.RootStatement && constDecl.Type is null
+                ? ""
+                : this.SpellEmittedType(constDecl.Type, source, inheritedHint: inheritedConstantType);
+            var type = string.IsNullOrWhiteSpace(spelled) ? "" : spelled + " ";
             var line = modifiers + "const " + type + constDecl.Identifier + " = " + this.BuildExpression(constDecl.Value) + ";";
             var item = this.ApplyDocComment(constDecl, EmitItem.Line(constDecl, emitType, line, parent));
-            var source = attributeSource ?? constDecl;
             if (emitType == EmitType.ObjectConstantDeclaration)
             {
                 this.AttachAttributes(source, item);
@@ -373,6 +455,35 @@ namespace Tyhp.TyhpLang.Emitter
 
         private EmitItem EmitDeclareStatement(PhpDeclareAst declareAst, EmitItem parent, EmitType emitType = EmitType.FileDeclare)
         {
+            // `declare(php=…)` is compile-time only (same family as `output_file` / `autoload`).
+            // Inactive blocks emit nothing; active blocks unwrap so the body is ordinary PHP.
+            if (IsPhpVersionGateInactive(declareAst))
+            {
+                return EmitItem.Empty(declareAst, emitType, parent);
+            }
+
+            if (IsPhpOnlyDeclare(declareAst) && !IsEmptyDeclareBody(declareAst.Body))
+            {
+                // Inside a function body nothing carries the block's gate, so it becomes a runtime `if`.
+                if (emitType is EmitType.FunctionStatement or EmitType.SubBlockStatement
+                    && declareAst.BoundSymbol is DeclareBlockSymbol blockSymbol)
+                {
+                    var conditions = RuntimeGateEmission.GetBlockConditions(blockSymbol, this._context.Config.TargetPhpVersion);
+                    if (conditions.Count > 0)
+                    {
+                        return this.EmitNestedConditions(
+                            declareAst,
+                            parent,
+                            emitType,
+                            conditions,
+                            0,
+                            block => this.EmitDeclareBodyUnwrapped(declareAst, block, EmitType.SubBlockStatement));
+                    }
+                }
+
+                return this.EmitDeclareBodyUnwrapped(declareAst, parent, emitType);
+            }
+
             if (!this.ShouldEmitFileDeclare(declareAst))
             {
                 return EmitItem.Empty(declareAst, emitType, parent);
@@ -414,13 +525,115 @@ namespace Tyhp.TyhpLang.Emitter
             return block;
         }
 
+        /// <summary>
+        /// Emits the statements of an active <c>declare(php=…) { … }</c> without a PHP
+        /// <c>declare</c> wrapper. Nested statements go onto <paramref name="parent"/> so
+        /// file-level gates hoist into the same output item as siblings.
+        /// </summary>
+        private EmitItem EmitDeclareBodyUnwrapped(
+            PhpDeclareAst declareAst,
+            EmitItem parent,
+            EmitType emitType)
+        {
+            var bodyEmitType = emitType == EmitType.FileDeclare
+                ? EmitType.RootStatement
+                : emitType;
+            EmitItem? last = null;
+            if (declareAst.Body is PhpStatementBlockAst bodyBlock)
+            {
+                last = this.EmitStatementSequence(bodyBlock.GetAllNotNull(), parent, bodyEmitType);
+            }
+            else if (declareAst.Body != null)
+            {
+                last = this.EmitStatement(declareAst.Body, parent, bodyEmitType);
+            }
+
+            return last ?? EmitItem.Empty(declareAst, emitType, parent);
+        }
+
+        /// <summary>
+        /// Emits a statement list. Two adjacent blocks <c>declare(ext="x") { … }</c> and
+        /// <c>declare(ext="!x") { … }</c> share one <c>if (…) { … } else { … }</c> instead of two
+        /// separate <c>\extension_loaded</c> checks.
+        /// </summary>
+        private EmitItem? EmitStatementSequence(IEnumerable<IStatement> statements, EmitItem parent, EmitType emitType)
+        {
+            var list = statements as IList<IStatement> ?? statements.ToList();
+            EmitItem? last = null;
+            for (var index = 0; index < list.Count; index++)
+            {
+                if (index + 1 < list.Count
+                    && this.TryEmitComplementaryExtBlocks(list[index], list[index + 1], parent, emitType, out var pair))
+                {
+                    last = pair;
+                    index++;
+                    continue;
+                }
+
+                last = this.EmitStatement(list[index], parent, emitType);
+            }
+
+            return last;
+        }
+
+        private bool TryEmitComplementaryExtBlocks(
+            IStatement first,
+            IStatement second,
+            EmitItem parent,
+            EmitType emitType,
+            out EmitItem emitted)
+        {
+            emitted = null!;
+            if (emitType is not (EmitType.FunctionStatement or EmitType.SubBlockStatement)
+                || first is not PhpDeclareAst { BoundSymbol: DeclareBlockSymbol firstSymbol } firstDeclare
+                || second is not PhpDeclareAst { BoundSymbol: DeclareBlockSymbol secondSymbol } secondDeclare
+                || firstSymbol.IsPhpVersionGateInactive
+                || secondSymbol.IsPhpVersionGateInactive
+                || !IsPhpOnlyDeclare(firstDeclare)
+                || !IsPhpOnlyDeclare(secondDeclare)
+                || IsEmptyDeclareBody(firstDeclare.Body)
+                || IsEmptyDeclareBody(secondDeclare.Body)
+                || !RuntimeGateEmission.AreComplementaryExtGates(firstSymbol, secondSymbol))
+            {
+                return false;
+            }
+
+            var conditions = RuntimeGateEmission.GetBlockConditions(firstSymbol, this._context.Config.TargetPhpVersion);
+            if (conditions.Count != 1)
+            {
+                return false;
+            }
+
+            emitted = this.EmitBraceSegments(
+                firstDeclare,
+                parent,
+                emitType,
+                [
+                    (
+                        FormatControlStructureOpen("if", conditions[0]),
+                        block => this.EmitDeclareBodyUnwrapped(firstDeclare, block, EmitType.SubBlockStatement)
+                    ),
+                    (
+                        "else {",
+                        block => this.EmitDeclareBodyUnwrapped(secondDeclare, block, EmitType.SubBlockStatement)
+                    ),
+                ]);
+            return true;
+        }
+
         private static bool IsEmptyDeclareBody(IStatement? body)
             => body == null
                 || body is PhpNopStatementAst
                 || (body is PhpStatementBlockAst block && !block.GetAllNotNull().Any());
 
         private EmitItem EmitClassMember(IClassMember member, EmitItem parent, bool isInterface = false)
-            => member switch
+        {
+            if (member is IBase2Ast gated && !ShouldEmitPhpVersionGatedDeclaration(gated))
+            {
+                return EmitItem.Empty(gated, EmitType.ObjectInstanceMethods, parent);
+            }
+
+            return member switch
             {
                 PhpMethodDeclAst method => this.EmitMethodDeclaration(method, parent, isInterface),
                 PhpPropertyDeclAst property => this.EmitPropertyDeclaration(property, parent),
@@ -429,14 +642,20 @@ namespace Tyhp.TyhpLang.Emitter
                 PhpConstDeclAst constDecl => this.EmitConstDeclaration(constDecl, parent, EmitType.ObjectConstantDeclaration),
                 PhpConstDeclListAst constList => this.EmitConstDeclarationList(constList, parent, EmitType.ObjectConstantDeclaration),
                 TyhpOperatorOverloadAst overload => this.EmitClassOperatorOverload(overload, parent),
+                TyhpTypeAliasAst typeAlias => this.EmitTypeAliasFactory(typeAlias, parent, classLevel: true),
                 _ => EmitItem.Empty(member, EmitType.ObjectInstanceMethods, parent),
             };
+        }
 
         private EmitItem EmitMethodDeclaration(PhpMethodDeclAst method, EmitItem parent, bool isInterface = false)
         {
             var previousIsStatic = this._currentMemberIsStatic;
             var previousCallableGenerics = this._currentCallableGenericParamNames.ToHashSet(StringComparer.Ordinal);
+            var previousArrayAccessMixed = this._emitNativeArrayAccessOffsetAsMixed;
+            var previousEmittingCallable = this._currentEmittingCallable;
             this._currentMemberIsStatic = method.Modifiers?.Modifiers.Contains(PhpModifier.Static) == true;
+            this._emitNativeArrayAccessOffsetAsMixed = this.IsNativeArrayAccessOffsetMethod(method);
+            this._currentEmittingCallable = method.BoundSymbol as IBaseSymbol;
             this.PushCallableGenericParamNames(method.BoundSymbol as ObjectMethodSymbol);
             try
             {
@@ -445,6 +664,8 @@ namespace Tyhp.TyhpLang.Emitter
             finally
             {
                 this._currentMemberIsStatic = previousIsStatic;
+                this._emitNativeArrayAccessOffsetAsMixed = previousArrayAccessMixed;
+                this._currentEmittingCallable = previousEmittingCallable;
                 this._currentCallableGenericParamNames.Clear();
                 foreach (var n in previousCallableGenerics)
                 {
@@ -572,7 +793,8 @@ namespace Tyhp.TyhpLang.Emitter
         // A Tyhp constructor may delegate to its parent via `): parent(args)`. That delegation is
         // captured as a `ctorReturnType` grammar addon and must be emitted as the first body
         // statement (`parent::__construct(args);`); otherwise the parent constructor is never
-        // invoked and the call is silently dropped.
+        // invoked and the call is silently dropped. The addon is absent when the author omitted
+        // the ctor return type (≡ `: void`), so no parent call is inserted in that case either.
         private void EmitConstructorParentCall(PhpMethodDeclAst method, EmitItem parent)
         {
             if (!method.AstGrammarAddons.TryGetValue("ctorReturnType", out var addon)
@@ -641,8 +863,10 @@ namespace Tyhp.TyhpLang.Emitter
 
         private string BuildPropertyLine(PhpPropertyDeclAst decl, PhpPropertyAst property)
         {
-            var modifiers = this.FormatModifiers(decl.Modifiers);
-            var type = decl.Type != null ? this.BuildTypeExpression(decl.Type) + " " : "";
+            var modifiers = this.EnsureClassMemberVisibility(this.FormatModifiers(decl.Modifiers));
+            var inherited = this.FindInheritedPropertyPhpTypeHint(property.Identifier);
+            var spelled = CoerceIllegalPhpPropertyTypeHint(this.SpellEmittedType(decl.Type, decl, inherited));
+            var type = string.IsNullOrWhiteSpace(spelled) ? "" : spelled + " ";
             var defaultValue = property.DefaultValue != null
                 ? " = " + this.BuildExpression(property.DefaultValue)
                 : "";
@@ -682,7 +906,7 @@ namespace Tyhp.TyhpLang.Emitter
                 return "";
             }
 
-            // Multiline hook blocks (PSR-12 / PHPCS): each hook and each body statement on its own
+            // Multiline hook blocks (PER-CS 3.0): each hook and each body statement on its own
             // line. Compact single-line hooks trip DisallowMultipleStatements and confuse several
             // brace / type-spacing sniffs.
             var indentedHooks = hookTexts.Select(h => IndentPhpBlock(h, 4));
@@ -735,7 +959,7 @@ namespace Tyhp.TyhpLang.Emitter
             var adaptations = traitUse.Adaptations?.GetAllNotNull().Select(this.BuildTraitAdaptation).ToList()
                 ?? [];
 
-            // PSR-12 §4.2: one trait per `use` statement. When adaptations are present with multiple
+            // PER-CS §4.2: one trait per `use` statement. When adaptations are present with multiple
             // traits, PHP requires those traits to appear together for `insteadof` — keep them on one
             // statement in that case and format the adaptation block multiline.
             if (adaptations.Count == 0)
@@ -824,9 +1048,7 @@ namespace Tyhp.TyhpLang.Emitter
             var refPrefix = function.ReturnsRef ? "&" : "";
             var name = this.ApplyVariantNaming(function.Identifier);
             var paramsText = this.BuildDeclarationParameterList(function.Parameters);
-            var returnType = function.ReturnType != null
-                ? ": " + this.BuildTypeExpression(function.ReturnType)
-                : "";
+            var returnType = this.SpellFunctionReturnPhpType(function);
             return $"{refPrefix}{name}({paramsText}){returnType}";
         }
 
@@ -862,6 +1084,12 @@ namespace Tyhp.TyhpLang.Emitter
         {
             this._context.RequirePackage("tyhp/async");
             var useParts = new List<string>();
+            if (!string.IsNullOrEmpty(this._extensionReceiverParameterText)
+                && this._context.ExtensionReceiverThisAlias is { } receiverAlias)
+            {
+                useParts.Add(receiverAlias);
+            }
+
             if (function.Parameters != null)
             {
                 foreach (var parameter in function.Parameters.GetAllNotNull())
@@ -876,9 +1104,17 @@ namespace Tyhp.TyhpLang.Emitter
             _ = captureThis;
             useParts.AddRange(this.BuildVariantCaptureNames());
             var useClause = useParts.Count > 0 ? " use (" + string.Join(", ", useParts) + ")" : "";
-            var innerReturn = function.ReturnType != null
-                ? ": " + this.BuildTypeExpression(function.ReturnType)
-                : "";
+            var innerReturn = this.SpellFunctionReturnPhpType(function);
+            if (IsEmptyPhpStatementBlock(function.Body))
+            {
+                EmitItem.Line(
+                    function,
+                    EmitType.FunctionStatement,
+                    $"return \\Tyhp\\Promise::_async(function (){useClause}{innerReturn} {{}});",
+                    parent);
+                return;
+            }
+
             var open = $"return \\Tyhp\\Promise::_async(function (){useClause}{innerReturn} {{";
             var block = EmitItem.Block(function, EmitType.FunctionStatement, open, "});", parent);
             this.EmitFunctionBody(function.Body, block);
@@ -902,9 +1138,17 @@ namespace Tyhp.TyhpLang.Emitter
 
             useParts.AddRange(this.BuildVariantCaptureNames());
             var useClause = useParts.Count > 0 ? " use (" + string.Join(", ", useParts) + ")" : "";
-            var innerReturn = method.ReturnType != null
-                ? ": " + this.BuildTypeExpression(method.ReturnType)
-                : "";
+            var innerReturn = this.SpellMethodReturnPhpType(method);
+            if (IsEmptyPhpStatementBlock(method.Body))
+            {
+                EmitItem.Line(
+                    method,
+                    EmitType.FunctionStatement,
+                    $"return \\Tyhp\\Promise::_async(function (){useClause}{innerReturn} {{}});",
+                    parent);
+                return;
+            }
+
             var open = $"return \\Tyhp\\Promise::_async(function (){useClause}{innerReturn} {{";
             var block = EmitItem.Block(method, EmitType.FunctionStatement, open, "});", parent);
             this.EmitFunctionBody(method.Body, block);
@@ -916,22 +1160,27 @@ namespace Tyhp.TyhpLang.Emitter
             var refPrefix = method.ReturnsRef ? "&" : "";
             var declaredName = this.StripGenericsFromName(method.Identifier);
             var name = this.ApplyVariantNaming(method.Identifier);
-            var paramsText = string.Equals(declaredName, "__construct", StringComparison.OrdinalIgnoreCase)
-                ? this.BuildConstructorParameterList(method.Parameters)
-                : this.BuildDeclarationParameterList(method.Parameters);
+            var previousCallable = this._phpTypeCallableName;
+            this._phpTypeCallableName = declaredName;
+            string paramsText;
+            string returnType;
+            try
+            {
+                paramsText = string.Equals(declaredName, "__construct", StringComparison.OrdinalIgnoreCase)
+                    ? this.BuildConstructorParameterList(method.Parameters)
+                    : this.BuildDeclarationParameterList(method.Parameters);
+                returnType = this.SpellMethodReturnPhpType(method);
+            }
+            finally
+            {
+                this._phpTypeCallableName = previousCallable;
+            }
 
-            // PHP rejects return type declarations on __construct / __destruct. Tyhp requires
-            // `: void` (or `): parent(...)`) at the source level; erase it for PHP output.
-            var omitReturnType = string.Equals(declaredName, "__construct", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(declaredName, "__destruct", StringComparison.OrdinalIgnoreCase);
-            var returnType = !omitReturnType && method.ReturnType != null
-                ? ": " + this.BuildTypeExpression(method.ReturnType)
-                : "";
             return $"{modifiers}function {refPrefix}{name}({paramsText}){returnType}";
         }
 
         /// <summary>
-        /// PSR-12 §4.4: visibility MUST be declared on all methods. Tyhp allows omitting it
+        /// PER-CS 2.0 §4.4: visibility MUST be declared on all methods. Tyhp allows omitting it
         /// (PHP defaults to public); emit an explicit <c>public</c>, keeping <c>abstract</c>/<c>final</c>
         /// before visibility per §4.6.
         /// </summary>
@@ -959,12 +1208,13 @@ namespace Tyhp.TyhpLang.Emitter
 
         private string FormatParameterList(PhpParameterListAst? parameters)
         {
-            if (parameters == null)
+            var formatted = parameters?.GetAllNotNull().Select(p => this.FormatParameter(p)).ToList()
+                ?? [];
+            if (!string.IsNullOrEmpty(this._extensionReceiverParameterText))
             {
-                return "";
+                formatted.Insert(0, this._extensionReceiverParameterText);
             }
 
-            var formatted = parameters.GetAllNotNull().Select(p => this.FormatParameter(p)).ToList();
             if (formatted.Count == 0)
             {
                 return "";
@@ -973,13 +1223,7 @@ namespace Tyhp.TyhpLang.Emitter
             // Promoted ctor params with property hooks (or any other multiline parameter text) must
             // break the signature onto multiple lines; a one-line signature with nested `{ … }`
             // bodies confuses PHPCS return-type / statement sniffs.
-            if (formatted.Any(p => p.Contains('\n')))
-            {
-                var inner = string.Join(",\n", formatted.Select(p => IndentPhpBlock(p, 4)));
-                return "\n" + inner + "\n";
-            }
-
-            return string.Join(", ", formatted);
+            return JoinPhpCommaList(formatted);
         }
 
         /// <summary>
@@ -992,6 +1236,48 @@ namespace Tyhp.TyhpLang.Emitter
             return string.Join(
                 "\n",
                 text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').Select(l => pad + l));
+        }
+
+        /// <summary>
+        /// PER-CS 2.0 §2.6: single-line lists have no trailing comma; a list split across
+        /// lines MUST have a trailing comma after the last item.
+        /// </summary>
+        private static string JoinPhpCommaList(IReadOnlyList<string> items)
+        {
+            if (items.Count == 0)
+            {
+                return "";
+            }
+
+            if (!items.Any(p => p.Contains('\n')))
+            {
+                return string.Join(", ", items);
+            }
+
+            var inner = string.Join(",\n", items.Select(p => IndentPhpBlock(p, 4))) + ",";
+            return "\n" + inner + "\n";
+        }
+
+        /// <summary>
+        /// PER-CS 2.0 §11: single-line arrays have no trailing comma; multiline arrays MUST.
+        /// </summary>
+        private static string JoinPhpArrayLiteral(IReadOnlyList<string> items, bool shortSyntax)
+        {
+            if (items.Count == 0)
+            {
+                return shortSyntax ? "[]" : "array()";
+            }
+
+            if (!items.Any(p => p.Contains('\n')))
+            {
+                var inner = string.Join(", ", items);
+                return shortSyntax ? "[" + inner + "]" : "array(" + inner + ")";
+            }
+
+            var multiline = string.Join(",\n", items.Select(p => IndentPhpBlock(p, 4))) + ",";
+            return shortSyntax
+                ? "[\n" + multiline + "\n]"
+                : "array(\n" + multiline + "\n)";
         }
 
         /// <summary>
@@ -1023,11 +1309,26 @@ namespace Tyhp.TyhpLang.Emitter
                 }
             }
 
-            if (parameter.Type != null)
+            if (this._emitNativeArrayAccessOffsetAsMixed)
             {
-                var type = this.BuildTypeExpression(parameter.Type);
+                parts.Add("mixed");
+            }
+            else if (parameter.Type != null
+                || PhpTypeAttributeSupport.TryGetHint(parameter, out _)
+                || !string.IsNullOrEmpty(this._phpTypeCallableName))
+            {
+                var inherited = this._phpTypeCallableName is { } callableName
+                    ? this.FindInheritedMethodPhpTypeHint(callableName, parameter.Name)
+                    : null;
+                var type = this.SpellEmittedType(parameter.Type, parameter, inherited);
                 if (!string.IsNullOrWhiteSpace(type))
                 {
+                    // Promoted params are properties; PHP forbids `callable`/`void`/`never` there.
+                    if (parameter.Modifiers is { } promotion && promotion.Modifiers.Any())
+                    {
+                        type = CoerceIllegalPhpPropertyTypeHint(type);
+                    }
+
                     parts.Add(type);
                 }
             }
@@ -1085,21 +1386,51 @@ namespace Tyhp.TyhpLang.Emitter
                 hooksText = this.BuildSyntheticGenericSetHookBlock(paramName);
             }
 
-            return string.Join(" ", parts) + hooksText;
+            return this.FormatInlineAttributes(parameter) + string.Join(" ", parts) + hooksText;
         }
+
+        /// <summary>
+        /// PHP typed properties cannot be <c>callable</c>, <c>void</c>, or <c>never</c>
+        /// (including constructor promotion). Spell <c>mixed</c> instead so the file is valid
+        /// PHP and style tools can tokenize it.
+        /// </summary>
+        private static string CoerceIllegalPhpPropertyTypeHint(string type)
+        {
+            var trimmed = type.Trim();
+            var core = trimmed.StartsWith('?') ? trimmed[1..] : trimmed;
+            return core.Equals("callable", StringComparison.OrdinalIgnoreCase)
+                || core.Equals("void", StringComparison.OrdinalIgnoreCase)
+                || core.Equals("never", StringComparison.OrdinalIgnoreCase)
+                ? "mixed"
+                : type;
+        }
+
+        private static bool IsEmptyPhpStatementBlock(PhpStatementBlockAst? body)
+            => body == null || !body.GetAllNotNull().Any();
 
         /// <summary>
         /// Same as <see cref="FormatParameter"/> minus any promotion modifiers, for a signature that
         /// only forwards the parameter on. Promotion belongs to the constructor that declared it;
-        /// repeating it on a forwarding signature would redeclare the property.
+        /// repeating it on a forwarding signature would redeclare the property. Parameter <c>#[…]</c>
+        /// attributes are kept — they belong to the parameter, not to promotion.
         /// </summary>
         private string FormatParameterWithoutPromotion(PhpParameterAst parameter)
         {
+            var attrPrefix = this.FormatInlineAttributes(parameter);
             var parts = new List<string>();
 
-            if (parameter.Type != null)
+            if (this._emitNativeArrayAccessOffsetAsMixed)
             {
-                var type = this.BuildTypeExpression(parameter.Type);
+                parts.Add("mixed");
+            }
+            else if (parameter.Type != null
+                || PhpTypeAttributeSupport.TryGetHint(parameter, out _)
+                || !string.IsNullOrEmpty(this._phpTypeCallableName))
+            {
+                var inherited = this._phpTypeCallableName is { } callableName
+                    ? this.FindInheritedMethodPhpTypeHint(callableName, parameter.Name)
+                    : null;
+                var type = this.SpellEmittedType(parameter.Type, parameter, inherited);
                 if (!string.IsNullOrWhiteSpace(type))
                 {
                     parts.Add(type);
@@ -1115,7 +1446,7 @@ namespace Tyhp.TyhpLang.Emitter
                 parts.Add("= " + this.BuildExpression(parameter.DefaultValue));
             }
 
-            return string.Join(" ", parts);
+            return attrPrefix + string.Join(" ", parts);
         }
 
         private void EmitFunctionBody(PhpStatementBlockAst? body, EmitItem parent)
@@ -1125,8 +1456,57 @@ namespace Tyhp.TyhpLang.Emitter
                 return;
             }
 
-            this.EmitBlockContents(body, parent, EmitType.FunctionStatement);
+            // The synthesized receiver belongs on this extension method's signature only.
+            // Nested functions and closures emitted from the body keep their own parameters.
+            // `$this` → `$this_` stays active via ExtensionReceiverThisAlias.
+            var previousReceiver = this._extensionReceiverParameterText;
+            this._extensionReceiverParameterText = null;
+            try
+            {
+                this.EmitBlockContents(body, parent, EmitType.FunctionStatement);
+            }
+            finally
+            {
+                this._extensionReceiverParameterText = previousReceiver;
+            }
         }
+
+        private bool IsNativeArrayAccessOffsetMethod(PhpMethodDeclAst method)
+        {
+            var name = method.BoundSymbol is ObjectMethodSymbol bound
+                ? bound.OriginalPhpName ?? bound.Name
+                : method.Identifier;
+            if (!IsArrayAccessOffsetName(name))
+            {
+                return false;
+            }
+
+            if (this._currentObjectSymbol is null)
+            {
+                return false;
+            }
+
+            var symbolTree = this._context.GetSymbolTree();
+            var arrayAccess = CheckerHelpers.ResolveNamedType(
+                "ArrayAccess", symbolTree, this._context.GlobalScope);
+            if (arrayAccess is UnresolvedCheckedType)
+            {
+                return false;
+            }
+
+            return TypeComparer.IsSubtypeOf(
+                CheckedTypes.FromSymbol(this._currentObjectSymbol),
+                arrayAccess,
+                symbolTree,
+                this._context.GlobalScope);
+        }
+
+        private static bool IsArrayAccessOffsetName(string? name) =>
+            name is not null
+            && (string.Equals(name, "offsetExists", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "offsetGet", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "offsetSet", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "offsetUnset", StringComparison.OrdinalIgnoreCase));
 
         private string StripGenericsFromName(string? name)
             => name ?? "";

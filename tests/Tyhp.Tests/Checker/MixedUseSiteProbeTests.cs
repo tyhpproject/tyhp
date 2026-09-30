@@ -104,21 +104,18 @@ public class MixedUseSiteProbeTests
     }
 
     [Fact]
-    public void Probe_OrOperator_RightSideNotNegativelyNarrowed_StillRejectsMixed()
+    public void Probe_OrOperator_RightSideNegativelyNarrowed_AllowsStringUse()
     {
-        // `||`/`or` do not get progressive negative-narrowing (unlike `&&`'s positive narrowing in
-        // `TypeCompatibilityRule.CheckBinaryOp`), so the right operand still sees `$value` as
-        // unnarrowed `mixed` here even though the left operand's negation implies `is_string`.
-        // This is conservative (over-restrictive), not unsound, so it is documented as expected
-        // current behavior rather than filed as a bug.
+        // Dual of `&&` progressive narrowing: `||`/`or` type-check the right operand under the
+        // left's negative narrowing, so `!\is_string($value) || …` sees `$value` as `string`.
         var diagnostics = CompileAndCheck("""
             <?tyhp
             function demo(mixed $value): bool {
-                return !\is_string($value) || $value->bar();
+                return !\is_string($value) || \strlen($value) > 0;
             }
             """);
 
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerMixedRequiresNarrowing);
+        diagnostics.Errors.Should().BeEmpty();
     }
 
     [Fact]
@@ -300,14 +297,7 @@ public class MixedUseSiteProbeTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

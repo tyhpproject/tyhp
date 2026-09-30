@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.FileSystemGlobbing;
 using Tyhp.Config;
 using Tyhp.Domain.Diagnostics;
+using Tyhp.Domain.Services;
 
 namespace Tyhp.CLI.IntegrityChecks
 {
@@ -85,6 +86,15 @@ namespace Tyhp.CLI.IntegrityChecks
 
             ValidateGlobPatterns(this._project.IncludePaths, "include", errors, details);
             ValidateGlobPatterns(this._project.ExcludePaths, "exclude", errors, details);
+            foreach (var entry in this._project.Output.PublishContent)
+            {
+                ValidateGlobPatterns(
+                    entry.Src.Where(PublishContentService.IsGlobPattern),
+                    "output.publishContent.src",
+                    errors,
+                    details);
+                ValidateGlobPatterns(entry.Exclude, "output.publishContent.exclude", errors, details);
+            }
 
             var outputPath = this._project.Output.Path;
             if (string.IsNullOrWhiteSpace(outputPath)

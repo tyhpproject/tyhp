@@ -24,7 +24,7 @@ public class PropertyPathEmitterTests
             class User {
                 public string $name;
             }
-            function take(\Tyhp\PropertyPath<User, string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
                 take(fn ($u) => $u->name);
             }
@@ -46,7 +46,7 @@ public class PropertyPathEmitterTests
             class User {
                 public Address $address;
             }
-            function take(\Tyhp\PropertyPath<User, string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
                 take(fn ($u) => $u->address->city);
             }
@@ -68,7 +68,7 @@ public class PropertyPathEmitterTests
             class User {
                 public ?Address $address;
             }
-            function take(\Tyhp\PropertyPath<User, ?string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): ?string> $path): void {}
             function demo(): void {
                 take(fn ($u) => $u?->address?->city);
             }
@@ -91,7 +91,7 @@ public class PropertyPathEmitterTests
             class User {
                 public string $name;
             }
-            function pick<T>(\Tyhp\PropertyPath<T, string> $path): void {}
+            function pick<T>(\Tyhp\PropertyPath<callable(T): string> $path): void {}
             function demo(): void {
                 pick<User>(fn ($u) => $u->name);
             }
@@ -110,7 +110,7 @@ public class PropertyPathEmitterTests
             class User {
                 public string $name;
             }
-            function take(\Tyhp\PropertyPath<User, string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
                 take(fn ($u) => $u->name);
             }
@@ -127,9 +127,9 @@ public class PropertyPathEmitterTests
             class User {
                 public string $name;
             }
-            function takePath(\Tyhp\PropertyPath<User, string> $path): void {}
+            function takePath(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function takeClosure(\Closure $c): void {}
-            function demo(\Tyhp\PropertyPath<User, string> $path): void {
+            function demo(\Tyhp\PropertyPath<callable(User): string> $path): void {
                 takeClosure($path);
             }
             """);
@@ -152,13 +152,7 @@ public class PropertyPathEmitterTests
         {
             var project = CreateProject();
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

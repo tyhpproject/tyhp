@@ -13,9 +13,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             typeof(PhpNamespaceDeclAst),
             typeof(PhpBlockNamespaceDeclAst),
             typeof(PhpObjectTypeDeclAst),
+            typeof(TyhpdefImportObjectDeclAst),
             typeof(PhpFunctionDeclAst),
             typeof(PhpMethodDeclAst),
             typeof(PhpPropertyDeclAst),
+            typeof(TyhpTypeAliasAst),
         ];
 
         public bool SuppressChildTraversal(IBase2Ast node) => true;
@@ -33,6 +35,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 case PhpObjectTypeDeclAst objectType:
                     CheckObjectType(objectType, state, context, diagnostics);
                     break;
+                case TyhpdefImportObjectDeclAst tyhpdefObject:
+                    CheckTyhpdefImportObject(tyhpdefObject, state, context, diagnostics);
+                    break;
                 case PhpFunctionDeclAst function:
                     CheckFunction(function, state, context, diagnostics);
                     break;
@@ -41,6 +46,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     break;
                 case PhpPropertyDeclAst property:
                     CheckProperty(property, state, context, diagnostics);
+                    break;
+                case TyhpTypeAliasAst alias:
+                    CheckTypeAlias(alias, state, context, diagnostics);
                     break;
             }
         }

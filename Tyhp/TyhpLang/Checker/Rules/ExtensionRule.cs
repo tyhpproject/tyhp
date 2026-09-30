@@ -14,6 +14,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
         public IEnumerable<Type> HandledNodeTypes =>
         [
             typeof(TyhpExtensionDeclAst),
+            typeof(TyhpdefStandaloneExtensionDeclAst),
             typeof(TyhpImportExtensionAst),
         ];
 
@@ -25,6 +26,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 case TyhpExtensionDeclAst extension:
                     CheckExtensionDeclaration(extension, state, context, diagnostics);
+                    break;
+                case TyhpdefStandaloneExtensionDeclAst tyhpdefExt:
+                    CheckStandaloneTyhpdefExtension(tyhpdefExt, state, context, diagnostics);
                     break;
                 case TyhpImportExtensionAst importExtension:
                     CheckImportExtension(importExtension, state, diagnostics);
@@ -38,61 +42,207 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
-            if (extension.Extends is ITypeExpression extendsType)
+            var extensionSymbol = extension.BoundSymbol as ObjectDeclarationSymbol;
+            var members = extension.FunctionList?.GetAllNotNull().ToList() ?? [];
+            CheckAuthoredExtension(
+                extension,
+                extension.Identifier ?? "",
+                extension.TargetType,
+                extension.GenericParameters,
+                extensionSymbol,
+                members,
+                ExtensionMemberKind.Source,
+                state,
+                context,
+                diagnostics);
+        }
+
+        private static void CheckStandaloneTyhpdefExtension(
+            TyhpdefStandaloneExtensionDeclAst extension,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var extensionSymbol = extension.BoundSymbol as ObjectDeclarationSymbol;
+            var members = extension.FunctionList?.GetAllNotNull().ToList() ?? [];
+            CheckAuthoredExtension(
+                extension,
+                extension.Identifier ?? "",
+                extension.TargetType,
+                extension.GenericParameters,
+                extensionSymbol,
+                members,
+                ExtensionMemberKind.Tyhpdef,
+                state,
+                context,
+                diagnostics);
+        }
+
+        private enum ExtensionMemberKind
+        {
+            Source,
+            Tyhpdef,
+        }
+
+        private static void CheckAuthoredExtension(
+            IBase2Ast declaration,
+            string name,
+            ITypeExpression? headerTarget,
+            TyhpGenericsTypeArgumentListAst? headerGenerics,
+            ObjectDeclarationSymbol? extensionSymbol,
+            IReadOnlyList<IBase2Ast> members,
+            ExtensionMemberKind kind,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (members.Count == 0)
             {
-                context.ResolveTypeAnnotation(extendsType, state);
-                // ExtensionRule suppresses child traversal, so the extended type is never
-                // CheckNode'd — still count import usage for TYHP4130.
-                context.MarkImportNames(extendsType, state);
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    declaration,
+                    MessageCode.CheckerEmptyExtension,
+                    name);
             }
 
-            var extensionSymbol = extension.BoundSymbol as ObjectDeclarationSymbol;
+            ExtensionBlockTargetChecks.CheckSurface(
+                declaration,
+                name,
+                headerTarget,
+                headerGenerics,
+                extensionSymbol,
+                members,
+                state,
+                context,
+                diagnostics);
 
-            foreach (var member in extension.FunctionList?.GetAllNotNull() ?? [])
+            var memberGatingState = PhpVersionRule.PushExtensionContainer(state, name, extensionSymbol);
+            CheckMemberList(
+                members,
+                extensionSymbol,
+                extensionSymbol,
+                memberGatingState,
+                kind,
+                state,
+                context,
+                diagnostics);
+        }
+
+        private static void CheckMemberList(
+            IReadOnlyList<IBase2Ast> members,
+            ObjectDeclarationSymbol? blockSymbol,
+            ObjectDeclarationSymbol? extensionSymbol,
+            CheckerState memberGatingState,
+            ExtensionMemberKind kind,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var implementedFunctionNames = OverloadSignatureHelper.CollectImplementedExtensionFunctionNames(
+                members.OfType<IExtensionMemberAst>());
+            foreach (var member in members)
             {
                 switch (member)
                 {
-                    case PhpFunctionDeclAst function:
-                        CheckExtensionFunction(function, extensionSymbol, state, context, diagnostics);
+                    case PhpFunctionDeclAst function
+                        when OverloadSignatureHelper.IsExtensionFunctionOverloadSignature(
+                            function, implementedFunctionNames):
                         break;
+
+                    case PhpFunctionDeclAst function:
+                        context.ValidatePhpVersionMember(function, memberGatingState);
+                        if (kind == ExtensionMemberKind.Source)
+                        {
+                            CheckExtensionFunction(
+                                function, extensionSymbol, blockSymbol, state, context, diagnostics);
+                        }
+                        else
+                        {
+                            InlineSpliceRule.CheckMemberDeclaration(function, state, context, diagnostics);
+                            ExtensionBlockTargetChecks.CheckMember(
+                                function, blockSymbol, extensionSymbol, state, context, diagnostics);
+                        }
+
+                        break;
+
+                    case TyhpdefInlineExtensionFunctionAst inline:
+                        context.ValidatePhpVersionMember(inline, memberGatingState);
+                        InlineSpliceRule.CheckMemberDeclaration(inline, state, context, diagnostics);
+                        ExtensionBlockTargetChecks.CheckMember(
+                            inline, blockSymbol, extensionSymbol, state, context, diagnostics);
+                        break;
+
                     case TyhpOperatorOverloadAst operatorOverload:
-                        CheckExtensionOperatorOverload(operatorOverload, extensionSymbol, state, context);
+                        // `.tyhp` and standalone `.tyhpdef` operators share this seed.
+                        // A thin tyhpdef signature (`operator convert(self $value): int => …`)
+                        // is not inside a class, so `self` is CheckerRelativeTypeOutsideClass
+                        // unless EnclosingObject / EnclosingObjectType are set to the block
+                        // target before OperatorOverloadRule and splice checks resolve it.
+                        CheckExtensionOperatorOverload(
+                            operatorOverload, extensionSymbol, blockSymbol, state, context, diagnostics);
+                        break;
+
+                    case TyhpExtensionDeclAst { IsTargetGroup: true } group:
+                        CheckMemberList(
+                            group.FunctionList?.GetAllNotNull().ToList() ?? [],
+                            group.BoundSymbol as ObjectDeclarationSymbol,
+                            extensionSymbol,
+                            memberGatingState,
+                            kind,
+                            state,
+                            context,
+                            diagnostics);
                         break;
                 }
             }
         }
 
         /// <summary>
-        /// Seeds <see cref="CheckerState.EnclosingObject"/> (and the <c>&lt;Type&gt;</c> target as
-        /// <see cref="CheckerState.EnclosingObjectType"/>) before <see cref="OperatorOverloadRule"/>
-        /// runs, so <c>self</c>/<c>static</c> resolve to the extended type and
-        /// <see cref="CheckerHelpers.IsExtensionReceiverThis"/> can see <c>IsExtension</c>.
-        /// Without this, every standalone <c>extension { operator +&lt;T&gt;(self …): self }</c>
-        /// fails with <c>CheckerRelativeTypeOutsideClass</c> (4064).
+        /// Seeds <see cref="CheckerState.EnclosingObject"/> (the extension) and
+        /// <see cref="CheckerState.EnclosingObjectType"/> (the block target) before
+        /// <see cref="OperatorOverloadRule"/> and splice-member checks run, so
+        /// <c>self</c> in a <c>.tyhp</c> or standalone <c>.tyhpdef</c> extension
+        /// operator signature means the block target.
         /// </summary>
         private static void CheckExtensionOperatorOverload(
             TyhpOperatorOverloadAst operatorOverload,
             ObjectDeclarationSymbol? extensionSymbol,
+            ObjectDeclarationSymbol? blockSymbol,
             CheckerState state,
-            CheckerRuleContext context)
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
         {
             var opState = state.Split(ScopeType.ObjectTypeDeclaration);
             opState.EnclosingObject = extensionSymbol;
+            opState.ObjectGenerics = ExtensionBlockTargetChecks.InScopeTypeParameters(blockSymbol, extensionSymbol);
+            GenericConstraintResolver.ResolveAll(opState.ObjectGenerics, opState, context);
 
-            if (operatorOverload.ExtensionTargetType is not null)
+            var legacyTarget = operatorOverload.ExtensionTargetType;
+            var targetAst = legacyTarget ?? blockSymbol?.PendingExtensionBlockTarget;
+            if (targetAst is not null)
             {
-                // Resolve the target against the outer state (concrete type name / builtin — no
-                // relative keywords). Seed EnclosingObjectType so `self` means Money / string / …,
-                // not the extension declaration symbol itself.
-                var targetType = context.ResolveTypeAnnotation(operatorOverload.ExtensionTargetType, state);
-                if (!TypeComparer.IsUnresolvedType(targetType))
+                var targetType = context.ResolveTypeAnnotation(targetAst, opState);
+                if (legacyTarget is not null && IsNonInstantiableExtensionOperatorTarget(targetType))
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        targetAst,
+                        MessageCode.ExtensionOperatorTargetNotInstantiable,
+                        targetType.DisplayName);
+                }
+                else if (!TypeComparer.IsUnresolvedType(targetType)
+                    && !IsNonInstantiableExtensionOperatorTarget(targetType))
                 {
                     opState.EnclosingObjectType = targetType;
                 }
 
-                // ExtensionRule suppresses child traversal, so the <Type> target is never
-                // CheckNode'd — still count import usage for TYHP4130.
-                context.MarkImportNames(operatorOverload.ExtensionTargetType, state);
+                if (legacyTarget is not null)
+                {
+                    context.CheckNode(targetAst, state);
+                    context.MarkImportNames(targetAst, state);
+                }
             }
             else if (extensionSymbol is not null)
             {
@@ -100,11 +250,14 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             context.CheckNode(operatorOverload, opState);
+            ExtensionBlockTargetChecks.CheckMember(
+                operatorOverload, blockSymbol, extensionSymbol, opState, context, diagnostics);
         }
 
         private static void CheckExtensionFunction(
             PhpFunctionDeclAst function,
             ObjectDeclarationSymbol? extensionSymbol,
+            ObjectDeclarationSymbol? blockSymbol,
             CheckerState state,
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
@@ -114,24 +267,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // Extension functions carry no visibility/static modifiers: the Tyhp grammar override of
             // functionModifiersGrammarAddon only exposes an optional `async`, so public/protected/private/static
             // cannot be written here. They are always emitted as `public static`; nothing to validate.
-            if (!HasExtendsKeyword(function))
-            {
-                CheckerHelpers.ReportError(
-                    diagnostics,
-                    state,
-                    function,
-                    MessageCode.CheckerExtensionMissingExtends,
-                    name);
-            }
+            InlineSpliceRule.CheckMemberDeclaration(function, state, context, diagnostics);
 
-            if (function.Body is null)
-            {
-                return;
-            }
-
-            // Extension methods lower to static PHP methods, but `extends T $this` makes `$this` a
-            // real receiver parameter — not PHP's special instance `$this`. Seed EnclosingObject /
-            // parameters so CheckVariable can allow that receiver and type inference sees its type.
             var methodSymbol = function.BoundSymbol as ObjectMethodSymbol
                 ?? FindExtensionMethod(extensionSymbol, name);
             var owningExtension = extensionSymbol
@@ -140,12 +277,32 @@ namespace Tyhp.TyhpLang.Checker.Rules
             var funcState = state.Split(ScopeType.StaticMethodDeclaration);
             funcState.EnclosingObject = owningExtension;
             funcState.EnclosingCallable = methodSymbol;
+            funcState.ObjectGenerics = ExtensionBlockTargetChecks.InScopeTypeParameters(
+                blockSymbol, extensionSymbol);
+            GenericConstraintResolver.ResolveAll(funcState.ObjectGenerics, funcState, context);
+            if (blockSymbol?.PendingExtensionBlockTarget is { } blockTarget)
+            {
+                var targetType = context.ResolveTypeAnnotation(blockTarget, funcState);
+                if (!TypeComparer.IsUnresolvedType(targetType)
+                    && !IsNonInstantiableExtensionOperatorTarget(targetType))
+                {
+                    funcState.EnclosingObjectType = targetType;
+                }
+            }
+
             if (methodSymbol is not null)
             {
                 funcState.FunctionGenerics = methodSymbol.GenericParameters;
                 GenericConstraintResolver.ResolveAll(methodSymbol.GenericParameters, funcState, context);
                 funcState.IsInAsyncContext = methodSymbol.IsAsync;
                 funcState.IsInGeneratorContext = methodSymbol.IsGenerator;
+                if (methodSymbol.IsGenerator)
+                {
+                    funcState.GeneratorInference = GeneratorBodyCollector.ForDeclaredReturn(
+                        function.ReturnType ?? methodSymbol.ReturnType);
+                }
+
+                SeedExtensionReceiver(methodSymbol, funcState, context);
             }
 
             var returnTypeAst = function.ReturnType ?? methodSymbol?.ReturnType;
@@ -162,16 +319,69 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 context,
                 diagnostics);
 
+            if (function.Body is null)
+            {
+                ExtensionBlockTargetChecks.CheckMember(
+                    function, blockSymbol, extensionSymbol, funcState, context, diagnostics);
+                return;
+            }
+
+            if (methodSymbol is not null)
+            {
+                CheckerHelpers.FlagGenericVariantIfNeeded(
+                    function.Body, methodSymbol, methodSymbol.GenericParameters, context);
+            }
+
             funcState.HasReturnedOnAllPaths = false;
             context.CheckStatementBlock(function.Body, funcState);
 
-            if (!IsEffectivelyVoid(funcState.ExpectedReturnType) && !funcState.HasReturnedOnAllPaths)
+            if (methodSymbol?.IsGenerator != true
+                && !IsEffectivelyVoid(funcState.ExpectedReturnType) && !funcState.HasReturnedOnAllPaths)
             {
+                // See the matching generator exemption in DeclarationRule.Callable.CheckFunction —
+                // falling off the end of a generator extension method is not a missing return.
                 CheckerHelpers.ReportError(
                     diagnostics, state, function, MessageCode.CheckerMissingReturnStatement, name);
             }
 
             context.RecordGenericCallTargetsIn(function.Body, funcState);
+
+            if (methodSymbol?.IsGenerator == true)
+            {
+                GeneratorBodyInference.FinishAfterBody(
+                    function,
+                    function.ReturnType ?? methodSymbol.ReturnType,
+                    methodSymbol,
+                    closure: null,
+                    funcState,
+                    context,
+                    diagnostics);
+            }
+
+            ExtensionBlockTargetChecks.CheckMember(
+                function, blockSymbol, extensionSymbol, funcState, context, diagnostics);
+        }
+
+        private static void SeedExtensionReceiver(
+            ObjectMethodSymbol methodSymbol,
+            CheckerState funcState,
+            CheckerRuleContext context)
+        {
+            var receiver = methodSymbol.Parameters.FirstOrDefault(parameter =>
+                string.Equals(parameter.Name, "$this", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(parameter.Name, "this", StringComparison.OrdinalIgnoreCase));
+            if (receiver is null)
+            {
+                return;
+            }
+
+            var receiverType = receiver.DeclaredType is not null
+                ? context.ResolveTypeAnnotation(receiver.DeclaredType, funcState)
+                : funcState.EnclosingObjectType ?? CheckedTypes.Mixed;
+            funcState.Variables["this"] = VariableState.ForParameter(
+                new VariableSymbol("this") { IsParameter = true, IsRef = receiver.IsByReference },
+                receiverType,
+                receiver.IsByReference);
         }
 
         private static ObjectMethodSymbol? FindExtensionMethod(
@@ -215,7 +425,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 else
                 {
                     CheckerHelpers.ReportError(
-                        diagnostics, outerState, paramAst, MessageCode.CheckerVariableTypeRequired, paramAst.Name);
+                        diagnostics, outerState, paramAst, MessageCode.CheckerVariableTypeRequired,
+                        CheckerHelpers.FormatTypeRequiredName(paramAst.Name));
                 }
 
                 var variable = new VariableSymbol(paramAst.Name) { IsParameter = true, IsRef = paramAst.IsRef };
@@ -233,6 +444,34 @@ namespace Tyhp.TyhpLang.Checker.Rules
             || type.Kind == CheckedTypeKind.Void
             || CheckerHelpers.IsBuiltInName(type, "void");
 
+        /// <summary>
+        /// Builtins that cannot be a value-bearing extension-operator <c>self</c>. Matches
+        /// <see cref="BuiltInTypeSymbol.IsNonInstantiableExtensionOperatorTarget"/>.
+        /// </summary>
+        private static bool IsNonInstantiableExtensionOperatorTarget(ICheckedType type)
+        {
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            if (TypeComparer.IsVoidType(type)
+                || TypeComparer.IsNeverType(type)
+                || TypeComparer.IsMixedType(type)
+                || TypeComparer.IsNullLiteral(type))
+            {
+                return true;
+            }
+
+            return CheckerHelpers.IsBuiltInName(type, "void")
+                || CheckerHelpers.IsBuiltInName(type, "never")
+                || CheckerHelpers.IsBuiltInName(type, "null")
+                || CheckerHelpers.IsBuiltInName(type, "mixed")
+                || CheckerHelpers.IsBuiltInName(type, "resource")
+                || CheckerHelpers.IsBuiltInName(type, "true")
+                || CheckerHelpers.IsBuiltInName(type, "false");
+        }
+
         private static void CheckImportExtension(
             TyhpImportExtensionAst importExtension,
             CheckerState state,
@@ -245,9 +484,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     continue;
                 }
 
-                var originalName = alias.MethodReference?.MemberName?.Identifier
-                    ?? alias.MethodReference?.MemberName?.ValueString
-                    ?? string.Empty;
+                var memberName = alias.MethodReference?.MemberName;
+                var originalName = (string.IsNullOrEmpty(memberName?.Identifier)
+                    ? memberName?.ValueString
+                    : memberName.Identifier) ?? string.Empty;
                 var aliasName = alias.Identifier;
 
                 if (string.IsNullOrEmpty(aliasName)
@@ -262,17 +502,5 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
         }
 
-        private static bool HasExtendsKeyword(PhpFunctionDeclAst function)
-        {
-            if (function.AstGrammarAddons.TryGetValue("parameters", out var addon)
-                && addon is TokenValueAst token
-                && (token.ValueInt64 == TyhpLang.Parser.TyhpParser.T_EXTENDS
-                    || string.Equals(token.ValueString, "extends", StringComparison.OrdinalIgnoreCase)))
-            {
-                return true;
-            }
-
-            return false;
-        }
     }
 }

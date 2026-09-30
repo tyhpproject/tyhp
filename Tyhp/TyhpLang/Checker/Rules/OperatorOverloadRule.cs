@@ -2,6 +2,7 @@ using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Enum;
 using Tyhp.TyhpLang.Parser;
 
@@ -49,6 +50,19 @@ namespace Tyhp.TyhpLang.Checker.Rules
             ValidateSelfParameter(overload, opEnum, state, diagnostics);
             ValidateConvertNotSelfToSelf(overload, opEnum, state, diagnostics);
 
+            // SuppressChildTraversal means CheckNode never reaches LeftParameter/RightParameter, so
+            // #[…] on an operand (attributedParameter operands) would otherwise never be validated —
+            // same explicit-call pattern DeclarationRule.Members uses for ordinary parameter lists.
+            if (overload.LeftParameter is not null)
+            {
+                AttributeRule.ValidateDeclarationAttributes(overload.LeftParameter, state, context, diagnostics);
+            }
+
+            if (overload.RightParameter is not null)
+            {
+                AttributeRule.ValidateDeclarationAttributes(overload.RightParameter, state, context, diagnostics);
+            }
+
             if (overload.ReturnType is not null)
             {
                 var returnType = context.ResolveTypeAnnotation(overload.ReturnType, state, isReturnTypePosition: true);
@@ -69,8 +83,40 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (overload.Body is not null)
             {
                 var bodyState = state.Split(ScopeType.StaticMethodDeclaration);
+                // Same seed as DeclarationRule.CheckMethod / ExtensionRule.RegisterExtensionParameters:
+                // Split(StaticMethodDeclaration) starts with an empty Variables map, so $value
+                // would otherwise be unresolved and (float)$value->value would TYHP4205.
+                RegisterOperatorParameter(overload.LeftParameter, bodyState, context);
+                RegisterOperatorParameter(overload.RightParameter, bodyState, context);
                 context.CheckStatementBlock(overload.Body, bodyState);
             }
+        }
+
+        private static void RegisterOperatorParameter(
+            PhpParameterAst? paramAst,
+            CheckerState bodyState,
+            CheckerRuleContext context)
+        {
+            if (paramAst is null || string.IsNullOrEmpty(paramAst.Name))
+            {
+                return;
+            }
+
+            ICheckedType paramType = CheckedTypes.Mixed;
+            if (paramAst.Type is not null)
+            {
+                bodyState.IsParameterTypePosition = true;
+                paramType = context.ResolveTypeAnnotation(paramAst.Type, bodyState);
+                bodyState.IsParameterTypePosition = false;
+            }
+
+            var variable = new VariableSymbol(paramAst.Name) { IsParameter = true, IsRef = paramAst.IsRef };
+            var variableType = paramAst.IsVariadic
+                ? CallableSignatureReflection.VariadicParameterStorageType(paramType)
+                : paramType;
+
+            bodyState.Variables[paramAst.Name.TrimStart('$')] =
+                VariableState.ForParameter(variable, variableType, paramAst.IsRef);
         }
 
         private static void ValidateExtensionTarget(

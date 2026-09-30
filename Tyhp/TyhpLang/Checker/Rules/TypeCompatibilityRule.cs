@@ -19,12 +19,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
             typeof(PhpVariableAst),
             typeof(PhpArrayAst),
             typeof(PhpArrayPairListAst),
+            typeof(PhpEncapsListAst),
         ];
 
         public bool SuppressChildTraversal(IBase2Ast node) =>
             node is PhpDereferenceableAst
             || (node is PhpBinaryOpAst binary
-                && TypeNarrowingRule.IsLogicalAnd(binary.Operator?.ValueString ?? string.Empty));
+                && TypeNarrowingRule.IsShortCircuitLogical(binary.Operator?.ValueString ?? string.Empty));
 
         public void Check(IBase2Ast node, CheckerState state, CheckerRuleContext context, DiagnosticBag diagnostics)
         {
@@ -53,6 +54,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     break;
                 case PhpArrayPairListAst pairList:
                     CheckArrayPairList(pairList, state, context, diagnostics);
+                    break;
+                case PhpEncapsListAst encaps:
+                    CheckerHelpers.CheckEncapsListStringable(encaps, state, context, diagnostics);
                     break;
             }
         }

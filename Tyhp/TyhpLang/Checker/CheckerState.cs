@@ -22,6 +22,7 @@ namespace Tyhp.TyhpLang.Checker
             PropertyInit = new Dictionary<string, PropertyInitializationState>(StringComparer.Ordinal);
             IndexAccessNarrowing = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
             MemberAccessNarrowing = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
+            PhpVersionConstraintStack = [];
             ScopeType = ScopeType.Root;
         }
 
@@ -35,14 +36,20 @@ namespace Tyhp.TyhpLang.Checker
             EnclosingFunction = source.EnclosingFunction;
             EnclosingCallable = source.EnclosingCallable;
             ExpectedReturnType = source.ExpectedReturnType;
+            ExpectedExpressionType = source.ExpectedExpressionType;
             IsTypeGuardFunction = source.IsTypeGuardFunction;
             ScopeType = source.ScopeType;
             IsInAsyncContext = source.IsInAsyncContext;
             IsInGeneratorContext = source.IsInGeneratorContext;
+            GeneratorInference = source.GeneratorInference;
             IsInLoopContext = source.IsInLoopContext;
             LoopDepth = source.LoopDepth;
             IsInSwitchContext = source.IsInSwitchContext;
             HasReturnedOnAllPaths = source.HasReturnedOnAllPaths;
+            TrackArrayAccessShapeOffsetGetCoverage = source.TrackArrayAccessShapeOffsetGetCoverage;
+            TrackArrayAccessShapeOffsetSetCoverage = source.TrackArrayAccessShapeOffsetSetCoverage;
+            HasArrayAccessShapeCoverage = source.HasArrayAccessShapeCoverage;
+            ArrayAccessShapeValueParameterName = source.ArrayAccessShapeValueParameterName;
             EnclosingObjectType = source.EnclosingObjectType;
             IsInsideFinally = source.IsInsideFinally;
             IsInsideClosure = source.IsInsideClosure;
@@ -67,6 +74,7 @@ namespace Tyhp.TyhpLang.Checker
                 source.IndexAccessNarrowing, StringComparer.Ordinal);
             MemberAccessNarrowing = new Dictionary<string, ICheckedType>(
                 source.MemberAccessNarrowing, StringComparer.Ordinal);
+            PhpVersionConstraintStack = [.. source.PhpVersionConstraintStack];
         }
 
         public CheckerState? Parent { get; private set; }
@@ -93,6 +101,14 @@ namespace Tyhp.TyhpLang.Checker
 
         public ICheckedType? ExpectedReturnType { get; set; }
 
+        /// <summary>
+        /// Expected type of the expression currently being checked or inferred
+        /// (return operand, typed-var initializer, assignment RHS, call argument).
+        /// Used to instantiate a bare <c>new Generic()</c> from context; not a
+        /// fallback of <see cref="ExpectedReturnType"/> onto every nested <c>new</c>.
+        /// </summary>
+        public ICheckedType? ExpectedExpressionType { get; set; }
+
         /// <summary>True while checking a callable whose return type is a <c>$param is Type</c> guard.</summary>
         public bool IsTypeGuardFunction { get; set; }
 
@@ -102,8 +118,9 @@ namespace Tyhp.TyhpLang.Checker
             new(StringComparer.Ordinal);
 
         /// <summary>
-        /// Per-property initialization state for the enclosing object's instance properties
-        /// (Prop-init #7). Keys use the binder property member name including the leading <c>$</c>.
+        /// Per-property initialization / narrowing for the enclosing object's instance properties
+        /// and enclosing-class static properties (Prop-init #7). Keys use the binder property
+        /// member name including the leading <c>$</c>.
         /// </summary>
         public Dictionary<string, PropertyInitializationState> PropertyInit { get; set; } =
             new(StringComparer.Ordinal);
@@ -148,6 +165,13 @@ namespace Tyhp.TyhpLang.Checker
 
         public bool IsInGeneratorContext { get; set; }
 
+        /// <summary>
+        /// Yield / return evidence for the current generator callable. Shared across
+        /// code-block splits of the same body; function / method / closure scopes start
+        /// with <see langword="null"/> so nested generators do not pollute the outer.
+        /// </summary>
+        internal GeneratorBodyCollector? GeneratorInference { get; set; }
+
         public bool IsInLoopContext { get; set; }
 
         public int LoopDepth { get; set; }
@@ -156,10 +180,33 @@ namespace Tyhp.TyhpLang.Checker
 
         /// <summary>
         /// True when every path through the current block exits abruptly — via <c>return</c>,
-        /// <c>throw</c>, <c>break</c>, or <c>continue</c>. Used by <c>CheckIf</c> for early-exit
-        /// guard narrowing (absorb only the negative arm) and by callable checks for missing returns.
+        /// <c>throw</c>, <c>break</c>, <c>continue</c>, <c>exit</c>/<c>die</c>, or a never-typed
+        /// expression statement. Used by <c>CheckIf</c> for early-exit guard narrowing (absorb only
+        /// the negative arm), by callable checks for missing returns, and by statement-list
+        /// walking to warn TYHP4012 on the first following unreachable statement.
         /// </summary>
         public bool HasReturnedOnAllPaths { get; set; }
+
+        /// <summary>
+        /// When set, a reachable value <c>return</c> assignable to the per-key field type
+        /// covers that <c>ArrayAccessShape</c> key (<c>offsetGet</c>).
+        /// </summary>
+        public bool TrackArrayAccessShapeOffsetGetCoverage { get; set; }
+
+        /// <summary>
+        /// When set, a reachable assignment of the <c>$value</c> parameter covers that
+        /// <c>ArrayAccessShape</c> key (<c>offsetSet</c>).
+        /// </summary>
+        public bool TrackArrayAccessShapeOffsetSetCoverage { get; set; }
+
+        /// <summary>
+        /// True when the current per-key instantiation has a covering return or write.
+        /// <c>throw</c> / <c>never</c> do not set this.
+        /// </summary>
+        public bool HasArrayAccessShapeCoverage { get; set; }
+
+        /// <summary>Bare parameter name of <c>offsetSet</c>'s value argument, without <c>$</c>.</summary>
+        public string? ArrayAccessShapeValueParameterName { get; set; }
 
         public ICheckedType? EnclosingObjectType { get; set; }
 
@@ -184,6 +231,13 @@ namespace Tyhp.TyhpLang.Checker
             /// </summary>
             public string? CurrentNamespaceName { get; set; }
 
+        /// <summary>
+        /// AND-ed enclosing <c>declare(php=…)</c> constraints (file-level plus nested blocks)
+        /// used by <c>PhpVersionRule</c> for 4302 nested-unsatisfiable checks. Copied on
+        /// <see cref="Split"/> so a nested declare can push without mutating the parent.
+        /// </summary>
+        public List<string> PhpVersionConstraintStack { get; set; } = [];
+
             /// <summary>
             /// When set, <see cref="TypeInferrer.GetResolutionScope"/> returns this scope instead of
             /// deriving one from the access-site enclosing function/object. Used so type annotations
@@ -206,7 +260,7 @@ namespace Tyhp.TyhpLang.Checker
 
         /// <summary>
         /// True while resolving a type argument inside a generic instantiation (e.g.
-        /// <c>TResult</c> in <c>callable&lt;?TResult, int&gt;</c> or <c>array&lt;Unknown&gt;</c>).
+        /// <c>TResult</c> in <c>callable(?TResult): int</c> or <c>array&lt;Unknown&gt;</c>).
         /// Unresolved named types in this position are diagnosed; top-level parameter/return
         /// names stay binder-owned (TYHP3019/3020) to avoid duplicate diagnostics.
         /// </summary>
@@ -268,6 +322,7 @@ namespace Tyhp.TyhpLang.Checker
                     child.EnclosingFunction = null;
                     child.EnclosingCallable = null;
                     child.ExpectedReturnType = null;
+                    child.ExpectedExpressionType = null;
                     child.EnclosingObjectType = null;
                     child.Variables = new Dictionary<string, VariableState>(StringComparer.Ordinal);
                     child.PropertyInit = new Dictionary<string, PropertyInitializationState>(StringComparer.Ordinal);
@@ -282,6 +337,7 @@ namespace Tyhp.TyhpLang.Checker
                     child.EnclosingFunction = null;
                     child.EnclosingCallable = null;
                     child.ExpectedReturnType = null;
+                    child.ExpectedExpressionType = null;
                     child.Variables = new Dictionary<string, VariableState>(StringComparer.Ordinal);
                     child.PropertyInit = new Dictionary<string, PropertyInitializationState>(StringComparer.Ordinal);
                     child.IndexAccessNarrowing = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
@@ -294,6 +350,7 @@ namespace Tyhp.TyhpLang.Checker
                     child.EnclosingFunction = null;
                     child.EnclosingCallable = null;
                     child.ExpectedReturnType = null;
+                    child.ExpectedExpressionType = null;
                     child.Variables = new Dictionary<string, VariableState>(StringComparer.Ordinal);
                     child.PropertyInit = new Dictionary<string, PropertyInitializationState>(StringComparer.Ordinal);
                     child.IndexAccessNarrowing = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
@@ -304,6 +361,15 @@ namespace Tyhp.TyhpLang.Checker
                 case ScopeType.InstanceMethodDeclaration:
                 case ScopeType.StaticMethodDeclaration:
                 case ScopeType.AnonymousFunctionDeclaration:
+                    // A return inside a nested callable belongs to that callable, not to a
+                    // finally the callable was written in.
+                    child.IsInsideFinally = false;
+                    child.ExpectedExpressionType = null;
+                    child.GeneratorInference = null;
+                    child.TrackArrayAccessShapeOffsetGetCoverage = false;
+                    child.TrackArrayAccessShapeOffsetSetCoverage = false;
+                    child.HasArrayAccessShapeCoverage = false;
+                    child.ArrayAccessShapeValueParameterName = null;
                     child.Variables = new Dictionary<string, VariableState>(StringComparer.Ordinal);
                     // Fresh map — CheckMethod seeds from declaration / post-construction guarantees.
                     child.PropertyInit = new Dictionary<string, PropertyInitializationState>(StringComparer.Ordinal);
@@ -403,6 +469,7 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             HasReturnedOnAllPaths = HasReturnedOnAllPaths && branchState.HasReturnedOnAllPaths;
+            HasArrayAccessShapeCoverage = HasArrayAccessShapeCoverage || branchState.HasArrayAccessShapeCoverage;
             MergeReferenceGroups(branchState);
             MergePropertyInitMaps(branchState);
             MergeIndexAccessNarrowingMaps(branchState);
@@ -425,6 +492,7 @@ namespace Tyhp.TyhpLang.Checker
             AbsorbJoinedPropertyInit(joined);
             AbsorbJoinedIndexAccessNarrowing(joined);
             AbsorbJoinedMemberAccessNarrowing(joined);
+            HasArrayAccessShapeCoverage = HasArrayAccessShapeCoverage || joined.HasArrayAccessShapeCoverage;
         }
 
         /// <summary>
@@ -463,8 +531,8 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// Control-flow type narrowing for a constant-index array access
-        /// (<c>$arr[0]</c>, <c>$arr['k']</c>).
+        /// Control-flow type narrowing for an index-access key
+        /// (<c>$arr[0]</c>, <c>$arr['k']</c>, <c>$arr[$k]</c>).
         /// </summary>
         public void NarrowIndexAccess(string indexKey, ICheckedType narrowedType)
         {
@@ -483,7 +551,7 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// Looks up control-flow narrowing for a constant-index array access key.
+        /// Looks up control-flow narrowing for an index-access key.
         /// </summary>
         public ICheckedType? LookupIndexAccess(string indexKey)
         {
@@ -525,16 +593,20 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// Clears all index-access narrowing entries for <paramref name="variableName"/>
-        /// (with or without a leading <c>$</c>) after the array variable is reassigned.
+        /// Clears index-access narrowing entries that mention <paramref name="variableName"/>
+        /// (with or without a leading <c>$</c>) after that variable is reassigned: either as
+        /// the array (<c>$arr[…]</c>) or as a variable index (<c>…[$k]</c>).
         /// </summary>
         public void ResetIndexAccessNarrowingForVariable(string variableName)
         {
             ThrowIfLocked();
             var bare = variableName.TrimStart('$');
             var prefix = "$" + bare + "[";
+            var indexSuffix = "[$" + bare + "]";
             var toRemove = IndexAccessNarrowing.Keys
-                .Where(k => k.StartsWith(prefix, StringComparison.Ordinal))
+                .Where(k =>
+                    k.StartsWith(prefix, StringComparison.Ordinal)
+                    || k.EndsWith(indexSuffix, StringComparison.Ordinal))
                 .ToList();
             foreach (var key in toRemove)
             {
@@ -609,7 +681,7 @@ namespace Tyhp.TyhpLang.Checker
             }
             else
             {
-                // Not a tracked property (untyped, static, hooked, inherited-only, etc.).
+                // Not a tracked property (untyped, hooked, inherited-private, etc.).
                 return;
             }
 
@@ -623,7 +695,8 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// Records the post-assignment type for a tracked <c>$this->prop</c> (mirrors
+        /// Records the post-assignment type for a tracked <c>$this->prop</c> /
+        /// <c>self::$prop</c> (mirrors
         /// <see cref="AssignVariable"/> setting <see cref="VariableState.NarrowedType"/>).
         /// Also marks the property definitely initialized.
         /// </summary>
@@ -651,7 +724,8 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// Control-flow type narrowing for <c>$this->prop</c> (null-check, instanceof, type guards).
+        /// Control-flow type narrowing for <c>$this->prop</c> / <c>self::$prop</c>
+        /// (null-check, instanceof, type guards).
         /// Clone-on-write into this scope, mirroring <see cref="NarrowVariable"/>.
         /// </summary>
         public void NarrowProperty(string propertyKey, ICheckedType narrowedType)
@@ -945,12 +1019,30 @@ namespace Tyhp.TyhpLang.Checker
 
                 if (isStillVisibleDeclaration)
                 {
-                    diagnostics.AddError(
-                        MessageCode.BinderDuplicateSymbolDeclaration,
-                        CurrentFileName ?? symbol.SourceFile,
-                        symbol.Line,
-                        symbol.Column,
-                        name);
+                    var fileName = CurrentFileName ?? symbol.SourceFile;
+                    if (symbol.DeclaringAstNode is { } duplicateNode)
+                    {
+                        // Recovers the first declaration's symbol (when the caller attached one)
+                        // so the duplicate carries a "declared here" label, same as the binder's
+                        // AddDuplicateFromAst call sites (Workstream F.1).
+                        diagnostics.AddDuplicateFromAst(
+                            MessageCode.BinderDuplicateSymbolDeclaration,
+                            duplicateNode,
+                            fileName,
+                            existing.Symbol,
+                            name);
+                    }
+                    else
+                    {
+                        // No AST node on the synthetic duplicate symbol: still emit the error,
+                        // just without a label (Workstream F.1 "unknown original" rule).
+                        diagnostics.AddError(
+                            MessageCode.BinderDuplicateSymbolDeclaration,
+                            fileName,
+                            symbol.Line,
+                            symbol.Column,
+                            name);
+                    }
                     return;
                 }
             }
@@ -1039,6 +1131,30 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             BindLocally(location.Value.scope, location.Value.variable, name).NarrowedType = narrowedType;
+        }
+
+        /// <summary>
+        /// Updates an open array local after <c>$arr[] = $v</c>. Reads use the new list type.
+        /// Inferred locals also lock <see cref="VariableState.DeclaredType"/> so a later append
+        /// is not checked against placeholder <c>never</c> / unresolved <c>TValue</c>. Annotated
+        /// <c>array $x</c> keeps its declared gradual <c>array</c> so reassignment of any array
+        /// remains legal.
+        /// </summary>
+        public void RefineArrayLocal(string name, ICheckedType arrayType)
+        {
+            ThrowIfLocked();
+            var location = FindVariableLocation(name);
+            if (location is null)
+            {
+                return;
+            }
+
+            var variable = BindLocally(location.Value.scope, location.Value.variable, name);
+            variable.NarrowedType = arrayType;
+            if (variable.IsInferred)
+            {
+                variable.DeclaredType = arrayType;
+            }
         }
 
         public void ResetNarrowing(string name)

@@ -7,9 +7,9 @@ class User {
     public mixed $value;
 }
 
-function sortBy(\Tyhp\Expression<User, User, int> $cmp): void {}
+function sortBy(\Tyhp\Expression<callable(User, User): int> $cmp): void {}
 
-function take(\Tyhp\Expression<User, bool> $pred): void {}
+function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
 
 function demo(): void {
     sortBy(fn ($a, $b) => $a->lastName <=> $b->lastName);

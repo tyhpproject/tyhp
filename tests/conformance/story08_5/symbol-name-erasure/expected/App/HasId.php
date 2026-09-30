@@ -8,6 +8,4 @@ declare(strict_types=1);
 
 namespace App;
 
-trait HasId
-{
-}
+trait HasId {}

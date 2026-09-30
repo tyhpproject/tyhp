@@ -1,0 +1,11 @@
+<?tyhp
+declare(strict_types=1);
+
+function always_present(): void {}
+
+declare(php=">=8.4") {
+    function block_84(): void {}
+}
+
+#[\Tyhp\Php(">=8.4")]
+function attr_84(): void {}

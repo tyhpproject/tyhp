@@ -1,10 +1,12 @@
 # Contributing to Tyhp
 
-Tyhp is in **alpha** (`805.0.0-alpha.1`). Issues and pull requests are welcome. Read this before opening either.
+Tyhp is in **beta** (`805.1.0-beta.1`). Issues and pull requests are welcome. Read this before opening either.
 
 ## Legal
 
 You will need to complete a Contributor License Agreement (CLA). Briefly, this agreement testifies that you are granting us permission to use the submitted change according to the terms of the project's license, and that the work being submitted is under appropriate copyright. Upon submitting a pull request, you will automatically be given instructions on how to sign the CLA.
+
+User-facing names, taglines, and claims follow [`BRANDING.md`](BRANDING.md). The Apache license covers the code, not the Tyhp name or logo.
 
 ## Reporting issues
 
@@ -12,7 +14,7 @@ You will need to complete a Contributor License Agreement (CLA). Briefly, this a
 2. Include:
    - Compiler version (`tyhp version`)
    - PHP version (`php --version`)
-   - A small `.tyhp` repro if possible
+   - A small `.tyhp`/`.tyhpdef` repro if possible
    - What you expected vs what happened
 
 Questions about language design belong in an issue labeled as a question or discussion, not as a bug.
@@ -50,7 +52,7 @@ dotnet run --project tyhp.csproj -- version
 - Target `main` once that is the default public branch.
 - Keep changes focused. Do not mix unrelated refactors with a bug fix.
 - Add or update tests under `tests/Tyhp.Tests/` when behavior changes.
-- Do not hand-edit generated PHP under `runtime/packages/*/src` or `runtime/packages/dist/`. Fix Tyhp source (`tyhp_src`) or the compiler and re-emit with `runtime/packages/build-all.sh`.
+- Do not hand-edit generated PHP. Fix Tyhp first (compiler, checker, emitter, or tyhpdefs) and re-emit. Package sources live in [tyhp-runtime-src](https://github.com/tyhpproject/tyhp-runtime-src) (`TYHP_RUNTIME_SRC`, or a sibling `../tyhp-runtime-src`).
 - User-facing CLI strings go through the localization `.resx` files (`Resources/CLI.TyhpHostedService.en-US.resx` and the culture-neutral sibling).
 
 ## Code of conduct

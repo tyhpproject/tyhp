@@ -21,12 +21,12 @@ namespace Tyhp.CLI
 
         protected static void DisplayCheckerSummary(CompilationResult result)
         {
-            // The checker only runs when parsing and binding completed without errors, in
-            // which case CompilationService records a positive CheckDuration. When the check
-            // phase is skipped (earlier pipeline errors, no scope tree, or SkipChecking),
-            // CheckDuration is left at TimeSpan.Zero. Use that as the authoritative "did the
-            // checker run" signal — a non-null GlobalScope is NOT sufficient, because the
-            // binder still produces a scope tree even when it reports errors.
+            // CompilationService records a positive CheckDuration when the checker ran.
+            // Check is skipped (duration stays TimeSpan.Zero) when no files remained to bind,
+            // bind produced no scope tree, or SkipChecking is set. Parse errors in other files
+            // do not skip check of files that parsed. Use CheckDuration as the "did the checker
+            // run" signal — a non-null GlobalScope is NOT sufficient, because the binder still
+            // produces a scope tree even when it reports errors.
             if (result.CheckDuration > TimeSpan.Zero)
             {
                 Message.Success(

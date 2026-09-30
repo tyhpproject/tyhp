@@ -11,8 +11,8 @@ public class MessageConsistencyGateTests
     /// <summary>A code that is guaranteed not to exist in <see cref="MessageCode"/>.</summary>
     private const int UnallocatedCode = 9999;
 
-    /// <summary>An allocated code the mutation tests rewrite (<c>ParserUnknownError</c>).</summary>
-    private const int SampleCode = 1001;
+    /// <summary>An allocated error-only code the mutation tests rewrite (<c>ParserUnexpectedError</c>).</summary>
+    private const int SampleCode = 1002;
 
     private static string NeutralResxPath
         => Path.Combine(TestFileManager.GetRepoRoot(), "Resources", "CLI.TyhpHostedService.resx");
@@ -39,7 +39,9 @@ public class MessageConsistencyGateTests
         MessageConsistencyGate.MultiSeverityAllowlist.Should().BeEquivalentTo(
         [
             MessageCode.BinderUnknownError,
+            MessageCode.ParserUnknownError,
             MessageCode.LintNoSourceFiles,
+            MessageCode.TyhpdefOverlayStampMismatch,
         ]);
 
         foreach (var code in MessageConsistencyGate.MultiSeverityAllowlist)
@@ -58,7 +60,7 @@ public class MessageConsistencyGateTests
         var violations = RunAgainstMutatedCatalog(doc => RemoveEntry(doc, $"ERROR_TYHP{SampleCode}"));
 
         violations.Should().ContainSingle()
-            .Which.Should().Contain($"MessageCode.{MessageCode.ParserUnknownError}")
+            .Which.Should().Contain($"MessageCode.{MessageCode.ParserUnexpectedError}")
             .And.Contain("has no");
     }
 
@@ -116,6 +118,36 @@ public class MessageConsistencyGateTests
             doc => SetEntry(doc, $"ERROR_TYHP{SampleCode}", "Symbol `{0}` is not found"));
 
         violations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ConsistencyGate_AllowsUnquotedParameterIndexCount()
+    {
+        var violations = RunAgainstMutatedCatalog(
+            doc => SetEntry(
+                doc,
+                $"ERROR_TYHP{SampleCode}",
+                "Slices of `{0}` overlap at parameter index {1}"));
+
+        violations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ConsistencyGate_AllowsGluedOptionalFreeFormSuffix()
+    {
+        var violations = RunAgainstMutatedCatalog(
+            doc => SetEntry(doc, $"ERROR_TYHP{SampleCode}", "`{0}` is deprecated{1}"));
+
+        violations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ConsistencyGate_DetectsGluedUnquotedIdentifierNotAtEnd()
+    {
+        var violations = RunAgainstMutatedCatalog(
+            doc => SetEntry(doc, $"ERROR_TYHP{SampleCode}", "Symbol{0} is not found"));
+
+        violations.Should().ContainSingle().Which.Should().Contain("without backticks");
     }
 
     [Fact]

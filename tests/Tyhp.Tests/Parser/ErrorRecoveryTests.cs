@@ -51,28 +51,23 @@ public class ErrorRecoveryTests
     [InlineData("trait Struct {}")]
     [InlineData("interface Struct {}")]
     [InlineData("enum Struct {}")]
-    public void Parse_ReservedKeywordAsTypeName_DoesNotAbortWithNullReference(string declaration)
+    public void Parse_StructAsTypeName_ParsesAsOrdinaryDeclaration(string declaration)
     {
-        // generic-structs #3: reserved keyword as a type name must yield parse/visitor
-        // diagnostics, never TYHP1003 NullReferenceException abort.
+        // `struct` is a contextual keyword (#57), matching `object`: it never becomes a
+        // dedicated token, so "Struct" as a class/trait/interface/enum name is an ordinary
+        // identifier and must not surface any parse/visitor diagnostic — never mind abort
+        // with TYHP1003 NullReferenceException.
         var result = ParserTestHelper.ParseTyhpContent($"<?tyhp\n{declaration}\n");
 
-        result.Diagnostics.HasErrors.Should().BeTrue();
-        result.Diagnostics.Errors.Should().NotContain(
-            d => d.Code == MessageCode.ParserCompileAborted,
-            "reserved-keyword type names must not escape as NullReferenceException / TYHP1003");
-        result.Diagnostics.Errors.Select(d => d.Code).Should().Contain(
-            code => code == MessageCode.TyhpdefParseError
-                || code == MessageCode.ParserUnexpectedError
-                || code == MessageCode.VisitorMissingRequiredNode,
-            "recovery should still surface a real parse/visitor diagnostic");
-        result.Ast.Should().NotBeNull("ANTLR recovery should still produce a partial AST");
+        result.Diagnostics.Errors.Should().BeEmpty(
+            $"'Struct' is an ordinary identifier, not a reserved keyword: {Describe(result)}");
+        result.Ast.Should().NotBeNull();
     }
 
     [Fact]
-    public void CompilationService_ReservedKeywordAsTypeName_DoesNotAbortWithNullReference()
+    public void CompilationService_StructAsTypeName_ParsesAsOrdinaryDeclaration()
     {
-        // Same recovery path as CLI lint / CompilationService.ParseFile (not only Tyhpdef.ParseContent).
+        // Same path as CLI lint / CompilationService.ParseFile (not only Tyhpdef.ParseContent).
         var path = Path.Combine(Path.GetTempPath(), $"tyhp_reserved_struct_{Guid.NewGuid():N}.tyhp");
         File.WriteAllText(path, "<?tyhp\nclass Struct { public int $x = 1; }\n");
         try
@@ -84,11 +79,9 @@ public class ErrorRecoveryTests
                 SkipChecking = true,
             });
 
-            result.Diagnostics.HasErrors.Should().BeTrue();
-            result.Diagnostics.Errors.Should().NotContain(
-                d => d.Code == MessageCode.ParserCompileAborted,
-                "CompilationService must not convert reserved-keyword recovery into TYHP1003");
-            result.ParsedFiles.Should().NotBeEmpty("partial AST should still be collected");
+            result.Diagnostics.HasErrors.Should().BeFalse(
+                "'Struct' is an ordinary identifier and must parse cleanly through CompilationService");
+            result.ParsedFiles.Should().NotBeEmpty("the class declaration should still be collected");
         }
         finally
         {
@@ -385,6 +378,31 @@ public class ErrorRecoveryTests
     }
 
     [Theory]
+    [InlineData("class Widget { public function __construct(int $n): int {} }")]
+    [InlineData("class Widget { public function __construct(int $n): string {} }")]
+    public void Parse_InvalidCtorReturnType_DoesNotAbortWithNullReference(string declaration)
+    {
+        // Workstream H: `tyhpCtorReturnType` became optional (`ReturnType=tyhpCtorReturnType?`)
+        // so `: void` / `: parent(...)` may be omitted. An invalid token after the ctor's `:`
+        // (neither `void` nor `parent`) can still let ANTLR error recovery enter the optional
+        // sub-rule with a null `TokenValue`; visiting that recovery stub used to dereference the
+        // null token and abort with TYHP1003 (NullReferenceException) instead of surfacing the
+        // real syntax diagnostic.
+        var result = ParserTestHelper.ParseTyhpContent($"<?tyhp\n{declaration}\n");
+
+        result.Diagnostics.HasErrors.Should().BeTrue();
+        result.Diagnostics.Errors.Should().NotContain(
+            d => d.Code == MessageCode.ParserCompileAborted,
+            "an invalid constructor return type must not escape as NullReferenceException / TYHP1003");
+        result.Diagnostics.Errors.Select(d => d.Code).Should().Contain(
+            code => code == MessageCode.TyhpdefParseError
+                || code == MessageCode.ParserUnexpectedError
+                || code == MessageCode.VisitorMissingRequiredNode,
+            "recovery should still surface a real parse/visitor diagnostic");
+        result.Ast.Should().NotBeNull("ANTLR recovery should still produce a partial AST");
+    }
+
+    [Theory]
     [InlineData("function demo(): Foo| {}")]
     [InlineData("function demo(): Foo& {}")]
     [InlineData("function demo(): & {}")]
@@ -416,4 +434,7 @@ public class ErrorRecoveryTests
             "recovery should still surface a real parse/visitor diagnostic");
         result.Ast.Should().NotBeNull("ANTLR recovery should still produce a partial AST");
     }
+
+    private static string Describe(ParseResult result)
+        => string.Join("; ", result.Diagnostics.Errors.Select(e => $"{e.Code}: {e.Message}"));
 }

@@ -6,15 +6,19 @@ using Tyhp.TyhpLang.Binder.Resolution;
 using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
+using Tyhp.TyhpLang.Checker.Rules;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Checker
 {
     /// <summary>
-    /// Resolves built-in <c>\Tyhp</c> utility types at compile time into concrete checked types.
+    /// Resolves built-in global <c>__</c> utility types at compile time into concrete checked types.
     /// </summary>
     internal static class UtilityTypeResolver
     {
+        private static readonly DiagnosticBag ExpandDiagnostics = new();
+
         public static ICheckedType Resolve(
             BuiltInUtilityTypeSymbol utility,
             IReadOnlyList<ICheckedType> typeArguments,
@@ -44,7 +48,7 @@ namespace Tyhp.TyhpLang.Checker
                 UtilityBehavior.Record => ResolveRecord(typeArguments, reportNode, state, diagnostics),
                 UtilityBehavior.Exclude => ResolveExclude(typeArguments, symbolTree, globalScope),
                 UtilityBehavior.Extract => ResolveExtract(typeArguments, symbolTree, globalScope),
-                UtilityBehavior.NonNullable => ResolveNonNullable(typeArguments),
+                UtilityBehavior.NonNullable => ResolveAsNotNullable(typeArguments),
                 UtilityBehavior.Nullable => ResolveNullable(typeArguments),
                 UtilityBehavior.ReturnType => ResolveReturnType(utility, typeArguments),
                 UtilityBehavior.Parameters => ResolveParameters(typeArguments),
@@ -52,12 +56,14 @@ namespace Tyhp.TyhpLang.Checker
                 UtilityBehavior.CallableParametersStruct => ResolveCallableParametersStruct(utility, typeArguments),
                 UtilityBehavior.CallableParametersTuple => ResolveCallableParametersTuple(utility, typeArguments),
                 UtilityBehavior.CallableParametersRest => ResolveCallableParametersRest(utility, typeArguments),
+                UtilityBehavior.CallableParametersSlice => ResolveCallableParametersSlice(utility, typeArguments),
                 UtilityBehavior.Awaited => ResolveAwaited(typeArguments, symbolTree, globalScope),
                 UtilityBehavior.StructKey => ResolveStructKey(typeArguments, state, symbolTree, globalScope, resolveType),
                 UtilityBehavior.StructRecord => ResolveStructRecord(utility, typeArguments),
                 UtilityBehavior.StructDef => ResolveStructDef(typeArguments, state, symbolTree, globalScope, resolveType),
                 UtilityBehavior.StructPartial => ResolveStructPartial(typeArguments, state, symbolTree, globalScope, resolveType),
-                UtilityBehavior.Properties => ResolveProperties(typeArguments, symbolTree, globalScope, state, resolveType),
+                UtilityBehavior.Properties => ResolveProperties(
+                    utility, typeArguments, symbolTree, globalScope, state, resolveType),
                 UtilityBehavior.FunctionReturnType => ResolveFunctionReturnTypeByName(
                     typeArguments, state, symbolTree, globalScope, resolveType),
                 UtilityBehavior.MethodReturnType => ResolveMethodReturnTypeByName(
@@ -67,6 +73,10 @@ namespace Tyhp.TyhpLang.Checker
                 UtilityBehavior.AsNullable => ResolveNullable(typeArguments),
                 UtilityBehavior.AsReadOnly => ResolveReadonly(
                     typeArguments, reportNode, state, symbolTree, globalScope, diagnostics, resolveType),
+                UtilityBehavior.New => ResolveNew(utility, typeArguments, reportNode, state, diagnostics),
+                _ when MagicUtilityTypeResolver.IsMagicBehavior(utility.Behavior) =>
+                    MagicUtilityTypeResolver.Resolve(
+                        utility, typeArguments, state, symbolTree, globalScope, resolveType),
                 _ when TypeNameAlgebraResolver.IsTypeNameAlgebraBehavior(utility.Behavior) =>
                     TypeNameAlgebraResolver.Resolve(utility.Behavior, typeArguments, globalScope),
                 _ when SymbolNameTypeHelper.IsSymbolNameBehavior(utility.Behavior) =>
@@ -88,6 +98,36 @@ namespace Tyhp.TyhpLang.Checker
             // Delegate to MakeSymbolNameType so optional-single brands normalize bare → <object>.
             return SymbolNameTypeHelper.MakeSymbolNameType(
                 utility.Behavior, globalScope, typeArguments.Count == 0 ? null : typeArguments);
+        }
+
+        /// <summary>
+        /// <c>__New&lt;T&gt;</c> stays a wrapper: values are instances of the shape whose class is
+        /// constructable as the shape. <c>T</c> must be an object-shape alias (TYHP4351).
+        /// </summary>
+        private static ICheckedType ResolveNew(
+            BuiltInUtilityTypeSymbol utility,
+            IReadOnlyList<ICheckedType> typeArguments,
+            IBase2Ast reportNode,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (typeArguments.Count == 0)
+            {
+                return CheckedTypes.Unresolved;
+            }
+
+            var arg = typeArguments[0];
+            if (!TypeComparer.IsUnresolvedType(arg) && !TypeComparer.IsObjectShapeTypeArgument(arg))
+            {
+                Report(
+                    reportNode,
+                    state,
+                    diagnostics,
+                    MessageCode.CheckerNewTypeArgumentNotObjectShape,
+                    arg.DisplayName);
+            }
+
+            return new GenericCheckedType(CheckedTypes.FromSymbol(utility), typeArguments);
         }
 
         private static ICheckedType ResolveReadonly(
@@ -338,16 +378,6 @@ namespace Tyhp.TyhpLang.Checker
             return matching.Count == 0 ? CheckedTypes.Never : CheckedTypes.UnionTypes(matching);
         }
 
-        private static ICheckedType ResolveNonNullable(IReadOnlyList<ICheckedType> args)
-        {
-            if (args.Count == 0)
-            {
-                return CheckedTypes.Unresolved;
-            }
-
-            return RemoveNull(args[0]);
-        }
-
         private static ICheckedType ResolveNullable(IReadOnlyList<ICheckedType> args)
         {
             if (args.Count == 0)
@@ -356,17 +386,22 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             var inner = args[0];
+            if (ParameterPack.IsPack(inner) || inner is ParameterPackCheckedType)
+            {
+                return ParameterPack.ApplyNullable(inner);
+            }
+
             return inner.IsNullable ? inner : new NullableCheckedType(inner);
         }
 
         /// <summary>
-        /// Shared by <c>\Tyhp\ReturnType</c> and <c>__CallableReturnType</c>. Concrete callables
-        /// collapse to the reflected return type. An unbound <c>TCallable</c> stays a
-        /// <see cref="GenericCheckedType"/> of this utility so call-site substitution can fill
-        /// the argument and <see cref="ExpandAfterSubstitution"/> can re-resolve. Shapes that
-        /// cannot be reflected (a non-callable already reported as TYHP4035) resolve to the
-        /// unresolved recovery type rather than <c>mixed</c>, so narrowing diagnostics do not
-        /// pile on top of the original failure.
+        /// Shared by <c>__CallableReturnType</c> and the internal <see cref="UtilityBehavior.ReturnType"/>
+        /// dispatch. Concrete callables collapse to the reflected return type. An unbound
+        /// <c>TCallable</c> stays a <see cref="GenericCheckedType"/> of this utility so call-site
+        /// substitution can fill the argument and <see cref="ExpandAfterSubstitution"/> can
+        /// re-resolve. Shapes that cannot be reflected (a non-callable already reported as
+        /// TYHP4035) resolve to the unresolved recovery type rather than <c>mixed</c>, so
+        /// narrowing diagnostics do not pile on top of the original failure.
         /// </summary>
         private static ICheckedType ResolveReturnType(
             BuiltInUtilityTypeSymbol utility,
@@ -393,12 +428,60 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// Re-resolves a deferred <c>\Tyhp\ReturnType</c> / <c>__CallableReturnType</c> wrapper
-        /// after generic substitution has filled <c>TCallable</c>. Unbound wrappers are left
-        /// intact. Called from <see cref="TypeComparer"/> substitution so every binding path
-        /// (call-site inference, explicit type arguments, facet substitution) expands.
+        /// True when a parameter type should receive call-site generic bindings so a deferred
+        /// wrapper can expand once the sibling argument has filled the type parameter.
         /// </summary>
-        internal static ICheckedType ExpandAfterSubstitution(ICheckedType type)
+        /// <summary>
+        /// True when a parameter type should receive call-site generic bindings so a deferred
+        /// wrapper can expand once the sibling argument has filled the type parameter.
+        /// Rest / Tuple / Struct / return-type / Properties skip argument-driven binding of
+        /// <c>TCallable</c> (the callback argument fills it). Slice is not in this set:
+        /// <c>TZip</c> is inferred from array element types.
+        /// </summary>
+        internal static bool IsCallSiteExpandingUtility(UtilityBehavior behavior) =>
+            behavior is UtilityBehavior.CallableParametersStruct
+                or UtilityBehavior.CallableParametersTuple
+                or UtilityBehavior.CallableParametersRest
+                or UtilityBehavior.CallableReturnType
+                or UtilityBehavior.ReturnType
+                or UtilityBehavior.Properties;
+
+        /// <summary>
+        /// Utilities that stay deferred until substitution fills their type argument, including
+        /// Slice (so <c>array&lt;Slice&lt;TZip, 0&gt;&gt;</c> expands after inference).
+        /// </summary>
+        internal static bool IsDeferredExpandingUtility(UtilityBehavior behavior) =>
+            IsCallSiteExpandingUtility(behavior)
+            || behavior == UtilityBehavior.CallableParametersSlice;
+
+        /// <summary>
+        /// True when <paramref name="type"/> is still the deferred <c>__Properties&lt;T&gt;</c>
+        /// wrapper (T not yet a concrete object/struct).
+        /// </summary>
+        internal static bool IsDeferredPropertiesType(ICheckedType type) =>
+            type is GenericCheckedType
+            && SymbolNameTypeHelper.TryGetUtilitySymbol(type, out var utility)
+            && utility.Behavior == UtilityBehavior.Properties;
+
+        /// <summary>
+        /// Re-resolves a deferred <c>__CallableReturnType</c> /
+        /// <c>__Properties</c> wrapper after generic substitution has filled the type argument.
+        /// Unbound wrappers are left intact. Called from <see cref="TypeComparer"/> substitution
+        /// so every binding path (call-site inference, explicit type arguments, facet
+        /// substitution) expands.
+        /// </summary>
+        internal static ICheckedType ExpandAfterSubstitution(ICheckedType type) =>
+            ExpandAfterSubstitution(type, symbolTree: null, globalScope: null);
+
+        /// <summary>
+        /// Same as <see cref="ExpandAfterSubstitution(ICheckedType)"/>, with a symbol tree so
+        /// <c>__SuperType</c> / index utilities can walk parents and struct members after
+        /// substitution.
+        /// </summary>
+        internal static ICheckedType ExpandAfterSubstitution(
+            ICheckedType type,
+            SymbolTree? symbolTree,
+            GlobalScope? globalScope)
         {
             if (type is not GenericCheckedType { TypeArguments.Count: > 0 } generic
                 || !SymbolNameTypeHelper.TryGetUtilitySymbol(type, out var utility))
@@ -416,8 +499,58 @@ namespace Tyhp.TyhpLang.Checker
                     ExpandCallableParametersTupleAfterSubstitution(generic),
                 UtilityBehavior.CallableParametersRest =>
                     ExpandCallableParametersRestAfterSubstitution(generic),
+                UtilityBehavior.CallableParametersSlice =>
+                    ExpandCallableParametersSliceAfterSubstitution(generic),
+                UtilityBehavior.Properties =>
+                    ExpandPropertiesAfterSubstitution(generic, utility, symbolTree, globalScope),
+                _ when MagicUtilityTypeResolver.IsMagicBehavior(utility.Behavior) =>
+                    MagicUtilityTypeResolver.ExpandAfterSubstitution(generic, utility, symbolTree, globalScope),
                 _ => type,
             };
+        }
+
+        private static ICheckedType ExpandPropertiesAfterSubstitution(
+            GenericCheckedType generic,
+            BuiltInUtilityTypeSymbol utility,
+            SymbolTree? symbolTree,
+            GlobalScope? globalScope)
+        {
+            if (globalScope is null)
+            {
+                return generic;
+            }
+
+            var tree = symbolTree ?? new SymbolTree(globalScope);
+            return ResolveProperties(
+                utility,
+                generic.TypeArguments,
+                tree,
+                globalScope,
+                new CheckerState(),
+                (typeExpr, state, _, _) => ResolveTypeFromBoundSymbol(typeExpr, state, tree, globalScope));
+        }
+
+        private static ICheckedType ResolveTypeFromBoundSymbol(
+            ITypeExpression typeExpr,
+            CheckerState state,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            if (typeExpr.BoundSymbol is BuiltInTypeSymbol builtin)
+            {
+                return CheckedTypes.FromSymbol(builtin);
+            }
+
+            if (typeExpr.BoundSymbol is IBaseSymbol bound)
+            {
+                return CheckedTypes.FromSymbol(bound);
+            }
+
+            var scope = state.NameResolutionScope
+                ?? state.EnclosingObject?.ContainingScope
+                ?? globalScope;
+            var resolved = symbolTree.ResolveType(typeExpr, scope, ExpandDiagnostics);
+            return resolved is null ? CheckedTypes.Mixed : CheckedTypes.FromSymbol(resolved);
         }
 
         private static ICheckedType ExpandReturnTypeAfterSubstitution(GenericCheckedType generic)
@@ -655,6 +788,63 @@ namespace Tyhp.TyhpLang.Checker
             return CheckedTypes.Unresolved;
         }
 
+        private static ICheckedType ExpandCallableParametersSliceAfterSubstitution(
+            GenericCheckedType generic)
+        {
+            var callableArg = generic.TypeArguments[0];
+            if (CallableSignatureReflection.IsUnboundTypeParameter(callableArg)
+                || TypeComparer.IsUnresolvedType(callableArg)
+                || CallableSignatureReflection.TryReflect(callableArg, out _)
+                || CallableSignatureReflection.TryGetReturnType(callableArg, out _))
+            {
+                return generic;
+            }
+
+            return CheckedTypes.Unresolved;
+        }
+
+        /// <summary>
+        /// True when <paramref name="type"/> is (or unwraps to) a
+        /// <c>__CallableParametersSlice&lt;TCallable, …&gt;</c> wrapper.
+        /// </summary>
+        internal static bool TryGetCallableParametersSlice(
+            ICheckedType type,
+            out ICheckedType callableArg)
+        {
+            callableArg = type;
+            if (!ParameterPack.TryGetSlice(type, out var info))
+            {
+                return false;
+            }
+
+            callableArg = info.CallableArg;
+            return true;
+        }
+
+        /// <summary>
+        /// Slice-unpack marker. Stays a <see cref="GenericCheckedType"/> of this utility for
+        /// unbound <c>TCallable</c> and concrete callables so call-site unpack can see
+        /// <c>TStart</c> / <c>TMin</c>. Non-callables recover to unresolved.
+        /// </summary>
+        private static ICheckedType ResolveCallableParametersSlice(
+            BuiltInUtilityTypeSymbol utility,
+            IReadOnlyList<ICheckedType> args)
+        {
+            if (args.Count == 0)
+            {
+                return CheckedTypes.Unresolved;
+            }
+
+            if (CallableSignatureReflection.IsUnboundTypeParameter(args[0])
+                || CallableSignatureReflection.TryReflect(args[0], out _)
+                || CallableSignatureReflection.TryGetReturnType(args[0], out _))
+            {
+                return new GenericCheckedType(CheckedTypes.FromSymbol(utility), args);
+            }
+
+            return CheckedTypes.Unresolved;
+        }
+
         private static ICheckedType ResolveAwaited(
             IReadOnlyList<ICheckedType> args,
             SymbolTree symbolTree,
@@ -779,6 +969,7 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         private static ICheckedType ResolveProperties(
+            BuiltInUtilityTypeSymbol utility,
             IReadOnlyList<ICheckedType> args,
             SymbolTree symbolTree,
             GlobalScope globalScope,
@@ -791,10 +982,42 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             var owner = args[0];
-            var propertyName = SymbolNameTypeHelper.MakeSymbolNameType(
-                UtilityBehavior.PropertyName, globalScope, [owner]);
-            var structKey = ResolveStructKey(args, state, symbolTree, globalScope, resolveType);
-            return CheckedTypes.UnionTypes([propertyName, structKey]);
+            while (owner is NullableCheckedType nullable)
+            {
+                owner = nullable.InnerType;
+            }
+
+            if (CallableSignatureReflection.IsUnboundTypeParameter(owner)
+                || TypeComparer.IsUnresolvedType(owner))
+            {
+                return new GenericCheckedType(CheckedTypes.FromSymbol(utility), args);
+            }
+
+            if (owner is UnionCheckedType union)
+            {
+                return CheckedTypes.UnionTypes(
+                    union.Members
+                        .Select(member => ResolveProperties(
+                            utility, [member], symbolTree, globalScope, state, resolveType))
+                        .ToList());
+            }
+
+            var structShape = StructTypeHelper.TryGetPropertyShape(
+                owner,
+                state,
+                symbolTree,
+                globalScope,
+                resolveType,
+                instancePropertiesOnly: true);
+            if (structShape is null)
+            {
+                return CheckedTypes.Unresolved;
+            }
+
+            var optional = structShape.Properties.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value with { IsOptional = true });
+            return new StructCheckedType(optional);
         }
 
         private static ICheckedType ResolveFunctionReturnTypeByName(
@@ -932,6 +1155,15 @@ namespace Tyhp.TyhpLang.Checker
                 return CheckedTypes.Void;
             }
 
+            if (ParameterPack.IsPack(input) || input is ParameterPackCheckedType)
+            {
+                var mapped = ParameterPack.ApplyNonNullable(input);
+                if (mapped is not null)
+                {
+                    return mapped;
+                }
+            }
+
             return RemoveNull(input);
         }
 
@@ -1047,7 +1279,7 @@ namespace Tyhp.TyhpLang.Checker
 
         /// <summary>
         /// Struct properties are keyed <c>$name</c>; utility type arguments are written as
-        /// <c>'name'</c>. Accept either spelling so <c>Pick&lt;Point, 'x'&gt;</c> matches
+        /// <c>'name'</c>. Accept either spelling so <c>__Pick&lt;Point, 'x'&gt;</c> matches
         /// <c>$x</c>.
         /// </summary>
         private static bool TryResolveStructProperty(
@@ -1121,7 +1353,7 @@ namespace Tyhp.TyhpLang.Checker
             diagnostics.AddErrorFromAst(
                 code,
                 node,
-                state.CurrentFileName ?? node.OwningFile?.FileName ?? string.Empty,
+                CheckerHelpers.ResolveDiagnosticFileName(state, node),
                 args);
         }
     }

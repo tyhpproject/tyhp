@@ -9,7 +9,7 @@ using Tyhp.Tests.TestHelpers;
 namespace Tyhp.Tests.Checker;
 
 /// <summary>
-/// Story 16 Phase 2 — <c>Expression&lt;T, R&gt;</c> call-argument validation (TYHP4322–4324).
+/// Story 16 Phase 2 — <c>Expression&lt;TCallableShape&gt;</c> call-argument validation (TYHP4322–4324).
 /// </summary>
 [Trait("Category", "Checker")]
 public class ExpressionCheckerTests
@@ -22,7 +22,7 @@ public class ExpressionCheckerTests
             class User {
                 public int $age;
             }
-            function take(\Tyhp\Expression<User, bool> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
                 take(fn ($u) => $u->age > 18);
             }
@@ -43,7 +43,7 @@ public class ExpressionCheckerTests
             class User {
                 public function getFullName(): string { return ""; }
             }
-            function take(\Tyhp\Expression<User, string> $sel): void {}
+            function take(\Tyhp\Expression<callable(User): string> $sel): void {}
             function demo(): void {
                 take(fn ($u) => $u->getFullName());
             }
@@ -64,8 +64,8 @@ public class ExpressionCheckerTests
             class User {
                 public int $age;
             }
-            function take(\Tyhp\Expression<User, bool> $pred): void {}
-            function forward(\Tyhp\Expression<User, bool> $pred): void {
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
+            function forward(\Tyhp\Expression<callable(User): bool> $pred): void {
                 take($pred);
             }
             """);
@@ -105,14 +105,17 @@ public class ExpressionCheckerTests
             class User {
                 public int $age;
             }
-            function take(\Tyhp\Expression<User, bool> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(\Closure $c): void {
                 take($c);
             }
             """);
 
         diagnostics.Errors.Should().Contain(
-            d => d.Code == MessageCode.CheckerExpressionRequiresInlineFn);
+            d => d.Code == MessageCode.CheckerExpressionRequiresInlineFn
+                && d.Message.Contains("callable(", StringComparison.Ordinal)
+                && d.Message.Contains("): ", StringComparison.Ordinal)
+                && !d.Message.Contains("callable<", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -123,7 +126,7 @@ public class ExpressionCheckerTests
             class User {
                 public int $age;
             }
-            function take(\Tyhp\Expression<User, bool> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
                 take(function ($u) { return $u->age > 18; });
             }
@@ -141,7 +144,7 @@ public class ExpressionCheckerTests
             class User {
                 public async function load(): \Tyhp\Promise<User> { return $this; }
             }
-            function take(\Tyhp\Expression<User, mixed> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): mixed> $pred): void {}
             function demo(): void {
                 take(fn ($u) => await $u->load());
             }
@@ -159,7 +162,7 @@ public class ExpressionCheckerTests
             class User {
                 public int $age;
             }
-            function take(\Tyhp\Expression<User, mixed> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): mixed> $pred): void {}
             function demo(): void {
                 take(fn ($u) => (fn ($x) => $x->age)($u));
             }
@@ -177,7 +180,7 @@ public class ExpressionCheckerTests
             class User {
                 public int $age;
             }
-            function take(\Tyhp\Expression<User, int> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): int> $pred): void {}
             function demo(): void {
                 take(fn ($u) => $u->age = 18);
             }
@@ -195,7 +198,7 @@ public class ExpressionCheckerTests
             class User {
                 public int $age;
             }
-            function take(\Tyhp\Expression<User, bool> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
                 int $minAge;
                 take(fn ($u) => $u->age > $minAge);
@@ -214,7 +217,7 @@ public class ExpressionCheckerTests
             class User {
                 public static function create(): User { return new User(); }
             }
-            function take(\Tyhp\Expression<User, User> $sel): void {}
+            function take(\Tyhp\Expression<callable(User): User> $sel): void {}
             function demo(): void {
                 take(fn ($u) => User::create());
             }
@@ -233,7 +236,7 @@ public class ExpressionCheckerTests
             class User {
                 public const int FLAG = 1;
             }
-            function take(\Tyhp\Expression<User, int> $sel): void {}
+            function take(\Tyhp\Expression<callable(User): int> $sel): void {}
             function demo(): void {
                 take(fn ($u) => User::FLAG);
             }
@@ -252,7 +255,7 @@ public class ExpressionCheckerTests
             class User {
                 public function name(): string { return ""; }
             }
-            function take(\Tyhp\Expression<?User, ?string> $sel): void {}
+            function take(\Tyhp\Expression<callable(?User): ?string> $sel): void {}
             function demo(): void {
                 take(fn ($u) => $u?->name());
             }
@@ -270,7 +273,7 @@ public class ExpressionCheckerTests
             class User {
                 public string $lastName;
             }
-            function sortBy(\Tyhp\Expression<User, User, int> $cmp): void {}
+            function sortBy(\Tyhp\Expression<callable(User, User): int> $cmp): void {}
             function demo(): void {
                 sortBy(fn ($a, $b) => $a->lastName <=> $b->lastName);
             }
@@ -288,7 +291,7 @@ public class ExpressionCheckerTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function take(\Tyhp\Expression<int> $expr): void {}
+            function take(\Tyhp\Expression<callable(): int> $expr): void {}
             function demo(): void {
                 take(fn () => 42);
             }
@@ -301,6 +304,24 @@ public class ExpressionCheckerTests
     }
 
     [Fact]
+    public void Check_OldTwoArgReturnLast_ReportsArity()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class User {
+                public string $name;
+            }
+            function take(\Tyhp\Expression<User, string> $sel): void {}
+            function demo(): void {
+                take(fn ($u) => $u->name);
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(
+            d => d.Code == MessageCode.CheckerGenericArgumentCountMismatch);
+    }
+
+    [Fact]
     public void Check_InstanceofBody_NoError()
     {
         var diagnostics = CompileAndCheck("""
@@ -308,7 +329,7 @@ public class ExpressionCheckerTests
             class User {
                 public mixed $value;
             }
-            function take(\Tyhp\Expression<User, bool> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
                 take(fn ($u) => $u->value is int);
             }
@@ -328,7 +349,7 @@ public class ExpressionCheckerTests
                 public string $firstName;
             }
             class QueryBuilder<T> {
-                public function select<R>(\Tyhp\Expression<T, R> $selector): static {
+                public function select<R>(\Tyhp\Expression<callable(T): R> $selector): static {
                     return $this;
                 }
             }
@@ -356,10 +377,10 @@ public class ExpressionCheckerTests
                 public string $firstName;
             }
             class QueryBuilder<T> {
-                public function where(Expression<T, bool> $predicate): static {
+                public function where(Expression<callable(T): bool> $predicate): static {
                     return $this;
                 }
-                public function select<R>(Expression<T, R> $selector): static {
+                public function select<R>(Expression<callable(T): R> $selector): static {
                     return $this;
                 }
             }
@@ -389,15 +410,15 @@ public class ExpressionCheckerTests
                 public string $lastName;
             }
             class QueryBuilder<T> {
-                public function where(Expression<T, bool> $predicate): static {
+                public function where(Expression<callable(T): bool> $predicate): static {
                     return $this;
                 }
-                public function select<R>(Expression<T, R> $selector): static {
+                public function select<R>(Expression<callable(T): R> $selector): static {
                     mixed $visited = (new SqlWhereVisitor())->visit($selector->body);
                     $this->selectColumn = $visited is string ? $visited : null;
                     return $this;
                 }
-                public function sortBy(Expression<T, T, int> $comparator): static {
+                public function sortBy(Expression<callable(T, T): int> $comparator): static {
                     return $this;
                 }
                 private ?string $selectColumn = null;
@@ -429,7 +450,7 @@ public class ExpressionCheckerTests
                 public mixed $value;
             }
             class Address {}
-            function take(\Tyhp\Expression<User, bool> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
                 take(fn ($u) => $u->value instanceof Address);
             }
@@ -468,14 +489,7 @@ public class ExpressionCheckerTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4", skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

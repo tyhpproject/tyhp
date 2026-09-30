@@ -31,8 +31,9 @@ namespace Tyhp.TyhpLang.Binder.Scopes {
         /// blocks — check siblings before accepting the symbol, ignoring file-local hits such as
         /// <c>use</c> aliases that share the class-like name index.
         /// </summary>
-        public override bool AddChildSymbol(INamespaceBlockScopeSymbol child)
+        public override bool TryAddChildSymbol(INamespaceBlockScopeSymbol child, out INamespaceBlockScopeSymbol? existing)
         {
+            existing = null;
             if (child is BaseSymbol baseSymbol
                 && baseSymbol.HasDeclaredName
                 && IsCrossFileUniqueDeclaration(baseSymbol.SymbolType)
@@ -48,17 +49,46 @@ namespace Tyhp.TyhpLang.Binder.Scopes {
                     if (other.TryGetChildInPhpSymbolNamespace(
                             baseSymbol.Name,
                             baseSymbol.SymbolType,
-                            out var existing)
-                        && IsCrossFileDuplicateHit(existing))
+                            out var found)
+                        && IsCrossFileDuplicateHit(found))
                     {
+                        existing = found;
                         var computedFqn = GetFullyQualifiedNameFor(this, baseSymbol.Name);
-                        this.OnDuplicateChildSymbol(existing, child, computedFqn);
+                        this.OnDuplicateChildSymbol(found, child, computedFqn);
                         return false;
                     }
                 }
             }
 
-            return base.AddChildSymbol(child);
+            return base.TryAddChildSymbol(child, out existing);
+        }
+
+        /// <inheritdoc />
+        public override bool TryOccupyFunctionNamespace(IBaseSymbol symbol)
+        {
+            if (symbol is BaseSymbol baseSymbol
+                && baseSymbol.HasDeclaredName
+                && this.Parent is NamespaceScope nsParent)
+            {
+                foreach (var sibling in nsParent.ChildScopes)
+                {
+                    if (sibling is not NamespaceBlockScope other || ReferenceEquals(other, this))
+                    {
+                        continue;
+                    }
+
+                    if (other.TryGetChildInPhpSymbolNamespace(
+                            baseSymbol.Name,
+                            SymbolType.FunctionDeclaration,
+                            out var existing)
+                        && !ReferenceEquals(existing, symbol))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return base.TryOccupyFunctionNamespace(symbol);
         }
 
         void ICodeBlockScopeParent.AddCodeBlockChildScope(ICodeBlockScopeChild child)

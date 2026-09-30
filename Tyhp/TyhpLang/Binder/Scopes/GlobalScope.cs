@@ -98,6 +98,26 @@ namespace Tyhp.TyhpLang.Binder.Scopes {
             return scope;
         }
 
+        /// <summary>
+        /// Compilation-wide <c>global use</c> / <c>global use function</c> / <c>global use const</c>
+        /// imports (C# <c>global using</c>). Consulted after file-local <c>use</c> during resolution.
+        /// </summary>
+        public List<UseIncludeSymbol> GlobalImports { get; } = [];
+
+        /// <summary>
+        /// Compilation-wide <c>global use extension</c> activations.
+        /// </summary>
+        public List<ObjectDeclarationSymbol> GloballyActivatedExtensions { get; } = [];
+
+        /// <summary>Compilation-wide postfix <c>hide</c> from <c>global use extension</c>.</summary>
+        public HashSet<string>? ExtensionUseHiddenMembers { get; set; }
+
+        /// <summary>Compilation-wide <c>insteadof</c> from <c>global use extension</c>.</summary>
+        public Dictionary<string, string>? ExtensionUseMethodPrecedence { get; set; }
+
+        /// <summary>Compilation-wide <c>as</c> aliases from <c>global use extension</c>.</summary>
+        public Dictionary<string, (string?, string)>? ExtensionUseMethodAliases { get; set; }
+
         /// <remarks>This method only suppresses <see cref="System.ArgumentException"/>. Other exception types may propagate to the caller.</remarks>
         public bool TryAddFileScope(
             string fileName,

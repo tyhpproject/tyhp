@@ -1,0 +1,9 @@
+<?tyhp
+class User {}
+
+function main(): void {
+    mixed $x = new User();
+    echo ($x is User) ? "yes" : "no";
+}
+
+main();

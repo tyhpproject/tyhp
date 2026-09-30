@@ -3,6 +3,8 @@ using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
+using Tyhp.TyhpLang.Emitter.SourceMap;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Emitter
@@ -15,6 +17,14 @@ namespace Tyhp.TyhpLang.Emitter
         // resolve `self`-typed operator operands to the concrete type key that call-site rewriting
         // produces. Null outside an object body.
         private string? _currentObjectShortName;
+
+        /// <summary>
+        /// PHP text of the synthesized extension receiver (`string $this_`, or
+        /// <c>\App\Money &amp;$this_</c> when the member is annotated <c>&amp;$this</c>)
+        /// while an extension method signature is being built.
+        /// Null outside that method. Prepended by <c>FormatParameterList</c>.
+        /// </summary>
+        private string? _extensionReceiverParameterText;
 
         // Object currently being emitted (for GenericObject injection).
         private PhpObjectTypeDeclAst? _currentObjectDecl;
@@ -77,6 +87,22 @@ namespace Tyhp.TyhpLang.Emitter
         private bool _currentMemberIsStatic;
 
         /// <summary>
+        /// Bound symbol of the free function or method currently being emitted, or null outside a
+        /// callable body. When an <c>is</c>/<c>instanceof</c> RHS inside that body would otherwise
+        /// lower to a call back into this same <c>#[\Tyhp\NativeTypeTest]</c> host, emit falls back
+        /// to the real native check instead of a self-call (<c>TryBuildReifiedInstanceofCheck</c>).
+        /// </summary>
+        private IBaseSymbol? _currentEmittingCallable;
+
+        /// <summary>
+        /// True while emitting a method that implements
+        /// <c>\ArrayAccess::{offsetExists,offsetGet,offsetSet,offsetUnset}</c>. Native PHP
+        /// <c>ArrayAccess</c> spells those parameters (and <c>offsetGet</c>'s return) as
+        /// <c>mixed</c> for contravariance; Tyhp types stay <c>TKey</c>/<c>TValue</c>.
+        /// </summary>
+        private bool _emitNativeArrayAccessOffsetAsMixed;
+
+        /// <summary>
         /// Generic parameters of the Mechanism D binder currently being emitted, or empty while
         /// emitting an ordinary declaration or the delegating wrapper. While non-empty the signature
         /// builders append the <c>__tyhpGeneric</c> suffix and emit type-arg-only binder parameters
@@ -92,6 +118,34 @@ namespace Tyhp.TyhpLang.Emitter
         // members. Method names are deterministic (no `_N` collision suffix); reserved-name conflicts
         // are reported by the checker, not resolved here.
         private readonly List<TyhpOperatorOverloadAst> _pendingOperatorOverloads = new();
+
+        /// <summary>
+        /// Struct FQNs currently being materialized into <c>\Tyhp\Type::struct(...)</c>, so a
+        /// recursive struct field falls back to <c>Type::array()</c> instead of overflowing.
+        /// </summary>
+        private readonly HashSet<string> _structTypeEmitStack = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// While emitting a source type-alias Type factory, each of that alias's generic
+        /// parameter names maps to a PHP <c>\Tyhp\Type</c> expression (the factory's
+        /// <c>$T</c> parameter, or a substituted argument while inlining a tyhpdef alias).
+        /// Empty outside a factory body.
+        /// </summary>
+        private readonly Dictionary<string, string> _aliasFactoryGenericParamExprs =
+            new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The source alias whose factory body is currently being emitted, or null. Nested
+        /// source aliases in the body call helpers; this symbol is not called recursively.
+        /// </summary>
+        private IBaseSymbol? _emittingAliasFactorySymbol;
+
+        /// <summary>
+        /// Alias name to stamp on <c>Type::objectShape</c> / <c>Type::callableShape</c>
+        /// while inlining a tyhpdef body (source factories already have
+        /// <see cref="_emittingAliasFactorySymbol"/>).
+        /// </summary>
+        private string? _objectShapeDescriptorName;
 
         public TyhpEmitter(EmitContext context)
         {
@@ -111,6 +165,9 @@ namespace Tyhp.TyhpLang.Emitter
                 outputFiles.AddRange(splitFiles);
             }
 
+            // Block-target `self` must already be the target's PHP spelling before splice
+            // clones a member body into a call site.
+            ExtensionBlockSelfRewriter.Rewrite(files, this._context);
             this.ConvertAliasesForAll(outputFiles);
             this.MergeOutputFiles(outputFiles);
             this.BuildEmitTrees(outputFiles);
@@ -288,8 +345,28 @@ namespace Tyhp.TyhpLang.Emitter
 
         private void GenerateAll(IEnumerable<PHPOutputFile> outputFiles)
         {
+            var generateSourcemap = this._context.Project?.Build.GenerateSourcemap == true;
             foreach (var outputFile in outputFiles)
             {
+                if (generateSourcemap)
+                {
+                    outputFile.SourceMapCollector = new SourceMapCollector
+                    {
+                        ProjectRoot = this._context.Config.SourceRoot,
+                    };
+                    // FileName follows Project.Singleton (or CWD). Sourcemap paths follow this
+                    // compilation's project directory, so a deep temp project still records "src/".
+                    var projectRelative = SourceMapWriter.TryProjectRelativeSourcePath(
+                        outputFile.SourceFileAst?.Identifier,
+                        this._context.Config.SourceRoot);
+                    if (!string.IsNullOrWhiteSpace(projectRelative))
+                    {
+                        outputFile.SourceFileName = projectRelative;
+                    }
+
+                    outputFile.SourceRoot ??= SourceMapWriter.SourceRootPrefixFor(outputFile.SourceFileName);
+                }
+
                 outputFile.Generate(this._context);
             }
         }
@@ -301,26 +378,44 @@ namespace Tyhp.TyhpLang.Emitter
                 return EmitItem.Empty(node, EmitType.RootStatement, parent);
             }
 
+            if (this.TryEmitConditionalDeclaration(node, parent, out var fallbackEmitted))
+            {
+                return fallbackEmitted;
+            }
+
             EmitItem? emitted = node switch
             {
                 PhpNamespaceDeclAst namespaceDecl => this.EmitNamespaceDeclaration(namespaceDecl, parent),
                 PhpBlockNamespaceDeclAst blockNamespace => this.EmitBlockNamespaceDeclaration(blockNamespace, parent),
                 PhpImportDeclListAst importList => this.EmitImportList(importList, parent),
                 PhpImportDeclAst importDecl => this.EmitImportDeclaration(importDecl, parent),
-                PhpObjectTypeDeclAst objectDecl => this.EmitObjectDeclaration(objectDecl, parent),
-                TyhpExtensionDeclAst extensionDecl => this.EmitExtensionDeclaration(extensionDecl, parent),
-                PhpFunctionDeclAst functionDecl => this.EmitFunctionDeclaration(functionDecl, parent),
+                PhpObjectTypeDeclAst objectDecl => ShouldEmitPhpVersionGatedDeclaration(objectDecl)
+                    && !NoEmitAttributeSupport.ShouldOmitDeclaration(objectDecl)
+                    ? this.EmitObjectDeclaration(objectDecl, parent)
+                    : EmitItem.Empty(objectDecl, EmitType.ObjectDeclaration, parent),
+                TyhpExtensionDeclAst extensionDecl => ShouldEmitPhpVersionGatedDeclaration(extensionDecl)
+                    && !NoEmitAttributeSupport.ShouldOmitDeclaration(extensionDecl)
+                    ? this.EmitExtensionDeclaration(extensionDecl, parent)
+                    : EmitItem.Empty(extensionDecl, EmitType.ObjectDeclaration, parent),
+                PhpFunctionDeclAst functionDecl => ShouldEmitPhpVersionGatedDeclaration(functionDecl)
+                    ? this.EmitFunctionDeclaration(functionDecl, parent)
+                    : EmitItem.Empty(functionDecl, EmitType.RootStatement, parent),
                 // File-scope `const` — attributes emit natively for PHP ≥ 8.5; lower targets strip
                 // (see EmitConstDeclaration) with TYHP5017 when attributes were present.
-                PhpConstDeclAst constDecl => this.EmitConstDeclaration(constDecl, parent, EmitType.RootStatement),
-                PhpConstDeclListAst constList => this.EmitConstDeclarationList(constList, parent, EmitType.RootStatement),
+                PhpConstDeclAst constDecl => ShouldEmitPhpVersionGatedDeclaration(constDecl)
+                    ? this.EmitConstDeclaration(constDecl, parent, EmitType.RootStatement)
+                    : EmitItem.Empty(constDecl, EmitType.RootStatement, parent),
+                PhpConstDeclListAst constList => ShouldEmitPhpVersionGatedDeclaration(constList)
+                    ? this.EmitConstDeclarationList(constList, parent, EmitType.RootStatement)
+                    : EmitItem.Empty(constList, EmitType.RootStatement, parent),
                 PhpDeclareAst declareAst => this.EmitDeclareStatement(declareAst, parent),
                 PhpMethodDeclAst method => this.EmitMethodDeclaration(method, parent),
                 PhpPropertyDeclAst property => this.EmitPropertyDeclaration(property, parent),
                 PhpTraitUseAst traitUse => this.EmitTraitUse(traitUse, parent),
                 PhpEnumCaseAst enumCase => this.EmitEnumCase(enumCase, parent),
                 TyhpStructDeclAst => EmitItem.Empty(node, EmitType.RootStatement, parent),
-                TyhpTypeAliasAst => EmitItem.Empty(node, EmitType.RootStatement, parent),
+                TyhpTypeAliasAst typeAlias => this.EmitTypeAliasFactory(
+                    typeAlias, parent, classLevel: false),
                 _ => null,
             };
 

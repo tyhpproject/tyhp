@@ -15,7 +15,8 @@ namespace Tyhp.TyhpLang.Enum
         Var,
         PublicSet,
         ProtectedSet,
-        PrivateSet
+        PrivateSet,
+        Internal
     }
     
     public static class PhpModifierExtensions
@@ -37,6 +38,7 @@ namespace Tyhp.TyhpLang.Enum
                 TyhpLang.Parser.TyhpParser.T_PUBLIC_SET => PhpModifier.PublicSet,
                 TyhpLang.Parser.TyhpParser.T_PROTECTED_SET => PhpModifier.ProtectedSet,
                 TyhpLang.Parser.TyhpParser.T_PRIVATE_SET => PhpModifier.PrivateSet,
+                TyhpLang.Parser.TyhpParser.T_TYHP_INTERNAL => PhpModifier.Internal,
                 _ => PhpModifier.None
             };
     }

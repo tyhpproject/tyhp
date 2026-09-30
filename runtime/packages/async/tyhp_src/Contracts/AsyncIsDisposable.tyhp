@@ -1,9 +1,0 @@
-<?tyhp
-
-namespace Tyhp\Contracts;
-
-use Tyhp\Promise;
-
-interface AsyncIsDisposable {
-    public function disposeAsync(): Promise<void>;
-}

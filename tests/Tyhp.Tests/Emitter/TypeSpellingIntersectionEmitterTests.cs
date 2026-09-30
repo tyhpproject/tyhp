@@ -79,7 +79,7 @@ public class TypeSpellingIntersectionEmitterTests
             }
             """);
 
-        php.Should().Contain("function take(\\Probe\\A & \\Probe\\B $value): \\Probe\\A & \\Probe\\B");
+        php.Should().Contain("function take(\\Probe\\A&\\Probe\\B $value): \\Probe\\A&\\Probe\\B");
         php.Should().NotContain("mixed $value");
     }
 
@@ -96,13 +96,7 @@ public class TypeSpellingIntersectionEmitterTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

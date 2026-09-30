@@ -752,6 +752,7 @@ namespace Tyhp.TyhpLang.Emitter
                 PhpStringAst str => str.ValueString ?? "\"\"",
                 PhpEncapsStringAst encaps => encaps.ValueString ?? encaps.TokenValue?.ValueString ?? "\"\"",
                 PhpArrayAst array => RenderArray(array),
+                PhpArrayPairListAst pairList => RenderArrayPairList(pairList),
                 PhpNewAst newExpr => "new " + RenderExpression(newExpr.ClassName as IExpression)
                     + "(" + RenderArgumentList(newExpr.Arguments) + ")",
                 PhpUnaryOpAst unary => RenderUnary(unary),
@@ -811,14 +812,31 @@ namespace Tyhp.TyhpLang.Emitter
 
         private static string RenderArray(PhpArrayAst array)
         {
-            var pairs = array.ArrayPairs?.GetAllNotNull().Select(RenderArrayPair) ?? [];
+            var pairs = RenderArrayPairs(array.ArrayPairs);
             return array.IsShortSyntax
                 ? "[" + string.Join(", ", pairs) + "]"
                 : "array(" + string.Join(", ", pairs) + ")";
         }
 
+        private static string RenderArrayPairList(PhpArrayPairListAst list) =>
+            "[" + string.Join(", ", RenderArrayPairs(list)) + "]";
+
+        private static IEnumerable<string> RenderArrayPairs(PhpArrayPairListAst? pairList) =>
+            pairList?.GetAllTrimmingTrailingSkippedSlots()
+                .Where(pair => !pair.IsSkippedSlot)
+                .Select(RenderArrayPair)
+            ?? [];
+
         private static string RenderArrayPair(PhpArrayPairAst pair)
         {
+            // Value-array rendering never wants an empty PHP element. Trailing-comma artifacts
+            // are already trimmed by GetAllTrimmingTrailingSkippedSlots; this guard matches
+            // TyhpEmitter.BuildArrayPair so a leftover skip slot cannot call RenderExpression(null).
+            if (pair.IsSkippedSlot)
+            {
+                return string.Empty;
+            }
+
             if (pair.IsExpansion)
             {
                 return "..." + RenderExpression(pair.ValueExpr);

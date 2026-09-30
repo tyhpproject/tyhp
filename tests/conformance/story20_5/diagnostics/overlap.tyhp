@@ -1,0 +1,5 @@
+<?tyhp
+#[\Tyhp\Php(">=8.3")]
+function foo(): void {}
+#[\Tyhp\Php(">=8.4")]
+function foo(): void {}

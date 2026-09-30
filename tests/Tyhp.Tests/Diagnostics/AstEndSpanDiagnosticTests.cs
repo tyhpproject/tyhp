@@ -11,6 +11,7 @@ using Tyhp.Tests.TestHelpers;
 namespace Tyhp.Tests.Diagnostics;
 
 [Trait("Category", "Diagnostics")]
+[Collection("ProcessGlobalState")]
 public class AstEndSpanDiagnosticTests : IDisposable
 {
     private sealed class FakeLocalizer : IStringLocalizer<TyhpHostedService>

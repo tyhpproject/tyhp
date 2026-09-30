@@ -225,8 +225,8 @@
     <comment>Checker variable possibly null</comment>
   </data>
   <data name="ERROR_TYHP4016" xml:space="preserve">
-    <value>Variable `${0}` must have a type annotation or inferable initializer</value>
-    <comment>Checker variable type required</comment>
+    <value>`{0}` must have a type annotation or inferable initializer</value>
+    <comment>Checker type annotation required (variable, parameter, property, or return type)</comment>
   </data>
   <data name="ERROR_TYHP4017" xml:space="preserve">
     <value>Class `{0}` does not implement abstract method `{1}` from `{2}`</value>
@@ -345,7 +345,7 @@
     <comment>Checker void in non return position</comment>
   </data>
   <data name="ERROR_TYHP4049" xml:space="preserve">
-    <value>Type `never` can only be used as a return type or in generic positions that explicitly allow it via constraint</value>
+    <value>Type `never` can only be used as a return type or a generic type argument</value>
     <comment>Checker never in non return position</comment>
   </data>
   <data name="ERROR_TYHP4050" xml:space="preserve">
@@ -497,8 +497,8 @@
     <comment>Checker yield outside generator</comment>
   </data>
   <data name="ERROR_TYHP4087" xml:space="preserve">
-    <value>Generator function return type must be `Generator`, `iterable`, or `Iterator`</value>
-    <comment>Checker generator invalid return type</comment>
+    <value>Generator function expected `{0}`, found `{1}`</value>
+    <comment>Checker generator invalid return type or declared Generator args vs inferred body</comment>
   </data>
   <data name="ERROR_TYHP4088" xml:space="preserve">
     <value>`yield` inside a `finally` block is not allowed</value>
@@ -628,8 +628,23 @@
     <value>Empty `catch` block silently swallows exceptions</value>
     <comment>Checker empty catch</comment>
   </data>
-  <data name="WARNING_TYHP4122" xml:space="preserve">
-    <value>Return statement in a `finally` block overwrites the `try`/`catch` return value</value>
+  <data name="EXPLAIN_TYHP4121" xml:space="preserve">
+    <value>An empty `catch` block has no statements, so the exception is swallowed with no handling. That is often accidental.
+
+When swallowing is intentional, name the exception and discard it with `(void)` — the same discard used for unused `#[\NoDiscard]` returns. `(void)$e` is a statement, so the catch body is not empty, and it records that the value is unused on purpose. A comment-only body is still empty.
+
+```tyhp
+&lt;?tyhp
+try {
+    $rp = new \ReflectionProperty($class, $name);
+} catch (\ReflectionException $e) {
+    (void)$e;
+}
+```</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4121</comment>
+  </data>
+  <data name="ERROR_TYHP4122" xml:space="preserve">
+    <value>Returning from a `finally` block is not allowed</value>
     <comment>Checker return in finally</comment>
   </data>
   <data name="WARNING_TYHP4123" xml:space="preserve">
@@ -652,13 +667,29 @@
     <value>Attribute `{0}` cannot be applied to {1}</value>
     <comment>Checker attribute target mismatch</comment>
   </data>
+  <data name="EXPLAIN_TYHP4127" xml:space="preserve">
+    <value>The attribute is not valid on this kind of declaration. PHP Core attributes declare allowed targets (`TARGET_METHOD`, `TARGET_PROPERTY`, and so on); applying one elsewhere is a target mismatch.
+
+`#[\Override]` on a property is a target mismatch when `output.phpVersion` is below 8.5 (properties become a legal target at 8.5). On 8.5 or later, a property that does not actually override uses TYHP4129 instead.
+
+When `output.phpVersion` is 8.5 or later, `#[\DelayedTargetValidation]` on the same declaration skips this target check for PHP Core attributes on that declaration. Functional checks still run: `#[\Override]` that does not override is still TYHP4129, unused `#[\NoDiscard]` returns are still TYHP4165, and `#[\Override]` on `__construct` is still TYHP4339. Below 8.5 the skip is ignored.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4127</comment>
+  </data>
   <data name="ERROR_TYHP4128" xml:space="preserve">
     <value>Attribute `{0}` is not repeatable</value>
     <comment>Checker attribute not repeatable</comment>
   </data>
   <data name="ERROR_TYHP4129" xml:space="preserve">
-    <value>Method `{0}` has the `#[Override]` attribute but does not override a parent method</value>
-    <comment>Checker override not overriding</comment>
+    <value>`{0}` has the `#[Override]` attribute but does not override a parent method or property</value>
+    <comment>Checker override not overriding (method or PHP 8.5+ property)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4129" xml:space="preserve">
+    <value>`#[\Override]` marks a method or (PHP 8.5 or later) a property as intended to replace a parent or interface member. This error means no same-name non-private ancestor or interface member exists.
+
+On `output.phpVersion` below 8.5, `#[\Override]` on a property is a target mismatch (TYHP4127), not this code. `#[\Override]` on `__construct` is always TYHP4339, even when a parent constructor exists.
+
+Trait method bodies are not checked here; PHP applies the attribute on the composing class.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4129</comment>
   </data>
   <data name="WARNING_TYHP4130" xml:space="preserve">
     <value>Unused import `{0}`</value>
@@ -729,8 +760,8 @@
     <comment>Checker template string max states exceeded</comment>
   </data>
   <data name="ERROR_TYHP4147" xml:space="preserve">
-    <value>Extension function `{0}` must declare its target type with an `extends` clause</value>
-    <comment>Checker extension function missing its 'extends' target-type clause</comment>
+    <value>Extension `{0}` must declare a header `extends` type or nested `extends` groups</value>
+    <comment>Checker extension has members but no header extends type and no nested extends groups</comment>
   </data>
   <data name="ERROR_TYHP4148" xml:space="preserve">
     <value>`typeof({0})` is not available in a static member because `{0}` is bound per instance</value>
@@ -849,15 +880,17 @@ Wrap the call in a Closure that takes the value by value and forwards a local va
     <comment>Long-form explanation for tyhp --explain TYHP4164</comment>
   </data>
   <data name="WARNING_TYHP4165" xml:space="preserve">
-    <value>Return value of `{0}` is marked `#[\NoDiscard]` and must be used or discarded with `(void)`</value>
-    <comment>Checker PHP 8.5 NoDiscard return discarded without (void)</comment>
+    <value>Return value of `{0}` is marked `#[\NoDiscard]` and must be used or discarded with `(void)`{1}</value>
+    <comment>Checker PHP 8.5 NoDiscard return discarded without (void). {1} is empty, or ": {message}" when #[\NoDiscard] $message is a string literal.</comment>
   </data>
   <data name="EXPLAIN_TYHP4165" xml:space="preserve">
-    <value>Functions and methods marked `#[\NoDiscard]` (PHP 8.5) indicate that ignoring the return value is likely a bug.
+    <value>`#[\NoDiscard]` marks a function or method whose return value should be used. An unused return is TYHP4165. When `$message` is a string literal, that text is appended to the warning after a colon.
 
-Use the return value (assignment, argument, condition, etc.), or cast with `(void)` to mark an intentional discard: `(void)important();`.
+Use the return value (assignment, argument, condition, and so on), or cast with `(void)` to mark an intentional discard: `(void)important();`. Assignment to `$_` also counts as a use.
 
-The ExtCore `NoDiscard` attribute class is added in Story 21; until then Tyhp still recognizes the attribute name on declarations.</value>
+The warning comes from the invoked declaration. Calling through an interface or abstract method does not warn, even if that declaration is marked. An override does not inherit the warning unless it is itself marked. A trait-imported method keeps the attribute.
+
+Tyhp reports this even when `output.phpVersion` is below 8.5 (PHP's runtime warning is a no-op on older minors). The `(void)` cast is native on 8.5 or later and is omitted from emitted PHP below 8.5.</value>
     <comment>Long-form explanation for tyhp --explain TYHP4165</comment>
   </data>
   <data name="ERROR_TYHP4166" xml:space="preserve">
@@ -898,11 +931,217 @@ Use:
 
 ```tyhp
 final class Promise&lt;TReturn extends void|mixed = void&gt; {
-    public static function _async&lt;T extends void|mixed&gt;(callable&lt;T&gt; $fn): self&lt;T&gt; { /* ... */ }
-    public function then&lt;TResult&gt;(callable&lt;TReturn, TResult&gt; $cb): static { /* ... */ }
+    public static function _async&lt;T extends void|mixed&gt;(callable(): T $fn): self&lt;T&gt; { /* ... */ }
+    public function then&lt;TResult&gt;(callable(TReturn): TResult $cb): static { /* ... */ }
 }
 ```</value>
     <comment>Long-form explanation for tyhp --explain TYHP4168</comment>
+  </data>
+  <data name="WARNING_TYHP4169" xml:space="preserve">
+    <value>Local `use` of `{0}` is redundant; it is already in scope via `global use`</value>
+    <comment>A non-global use re-imports a symbol already included by global use without aliasing or adaptations</comment>
+  </data>
+  <data name="ERROR_TYHP4170" xml:space="preserve">
+    <value>Cannot rename operator `{0}` with `as`; use `hide` or `insteadof`</value>
+    <comment>use extension adaptation tried to rename an operator</comment>
+  </data>
+  <data name="ERROR_TYHP4171" xml:space="preserve">
+    <value>Type name `{0}` collides with the reserved extension backer suffix `{1}`</value>
+    <comment>User type Tyhp name ends with __tyhpExtensionBacker</comment>
+  </data>
+  <data name="ERROR_TYHP4172" xml:space="preserve">
+    <value>Extension `{0}` must declare at least one member</value>
+    <comment>Empty standalone extension block</comment>
+  </data>
+  <data name="ERROR_TYHP4173" xml:space="preserve">
+    <value>Extension member `{0}` does not exist and cannot be hidden</value>
+    <comment>use extension hide names an unknown member</comment>
+  </data>
+  <data name="ERROR_TYHP4174" xml:space="preserve">
+    <value>Spliced member `{0}` writes a parameter that is not declared `&amp;`, declares `&amp;` on a parameter it does not write, or mutates `$this` without `&amp;`</value>
+    <comment>Call-site splice: written parameters (including extends T &amp;$this) must be declared &amp; (and only those)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4174" xml:space="preserve">
+    <value>A spliced extension member substitutes the caller's argument where the parameter stood. A parameter the expression writes (assignment, compound assignment, `++` / `--` in either position, or passing to a callee's `&amp;` parameter) must be declared `&amp;`, and only those parameters may be. Write a non-mutating increment as `$v + 1`. Writing `$this` without the `&amp;$this` receiver annotation is `TYHP4369`; annotating `&amp;$this` on a member that never writes `$this` is `TYHP4370`.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4174</comment>
+  </data>
+  <data name="ERROR_TYHP4175" xml:space="preserve">
+    <value>Spliced member `{0}` refers to itself, directly or through other spliced members</value>
+    <comment>Call-site splice cycle</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4175" xml:space="preserve">
+    <value>Reducing a spliced call must terminate. A member whose expression (after substituting other spliced members) refers back to itself would loop. Break the cycle or move the logic into a multi-statement member that Tyhp calls rather than splices.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4175</comment>
+  </data>
+  <data name="ERROR_TYHP4176" xml:space="preserve">
+    <value>`#[\Tyhp\Optimize\Inline]` is not allowed on an extension member</value>
+    <comment>#[Inline] on a Tyhp extension or tyhpdef thin member</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4176" xml:space="preserve">
+    <value>Extension splicing is decided by the member's form (`=&gt;` vs brace body), not by `#[\Tyhp\Optimize\Inline]`. Remove the attribute. On a Tyhp `extension { }` member, pick the form that matches whether PHP should keep a method.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4176</comment>
+  </data>
+  <data name="ERROR_TYHP4177" xml:space="preserve">
+    <value>Variable `${0}` collides with the reserved inline temporary prefix `{1}`</value>
+    <comment>User variable starts with __tyhpInlineTemp</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4177" xml:space="preserve">
+    <value>The compiler introduces locals named `$__tyhpInlineTemp1`, `$__tyhpInlineTemp2`, … when a spliced parameter is used more than once. Do not declare a variable whose name starts with that prefix.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4177</comment>
+  </data>
+  <data name="ERROR_TYHP4179" xml:space="preserve">
+    <value>Spliced member `{0}` references `{1}`, which is less accessible than the member</value>
+    <comment>Spliced body references a member stricter than the spliced member's own visibility</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4179" xml:space="preserve">
+    <value>A spliced expression is evaluated at the call site, not inside the declaring class. The body may only reference members at least as accessible as the spliced member itself: a public member's body may reference public members only; a protected body may reference protected and public; a private body may reference any member of the declaring class.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4179</comment>
+  </data>
+  <data name="ERROR_TYHP4180" xml:space="preserve">
+    <value>Argument for by-reference parameter `${0}` is not referenceable</value>
+    <comment>General call-site rule: &amp; argument must be an lvalue whose read path is by reference</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4180" xml:space="preserve">
+    <value>A `&amp;` parameter requires an argument PHP can bind as a reference. The receiver of a member annotated `&amp;$this` is that argument. Literals, constants, call results, `readonly` properties, and properties whose read path is by value (`{ get; }` in tyhpdef, `__get`, or `offsetGet`) are not referenceable. A tyhpdef `{ &amp;get; }` is. Pass a variable, a non-readonly stored property, or a `{ &amp;get; }` / `&amp;__get` / `&amp;offsetGet` path instead.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4180</comment>
+  </data>
+  <data name="ERROR_TYHP4181" xml:space="preserve">
+    <value>Call to erased member `{0}` cannot be spliced faithfully</value>
+    <comment>Erased (no PHP backer) member at a call site the splice engine cannot rewrite</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4181" xml:space="preserve">
+    <value>A short `=&gt;` Tyhp extension member and a tyhpdef thin mapping have no PHP method. If the call site cannot be spliced without dropping an argument, delaying it, reordering side effects, or needing a reference-bound local with no statement slot, the compiler reports this error. Bind the argument to a variable first, or (on a Tyhp `extension { }` member) switch to a single-`return` brace body so a PHP method exists to call.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4181</comment>
+  </data>
+  <data name="ERROR_TYHP4182" xml:space="preserve">
+    <value>Function `{0}` is not found</value>
+    <comment>Checker call to a free or namespaced function that does not resolve</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4182" xml:space="preserve">
+    <value>A function call whose name does not resolve to any declared function, tyhpdef stub, `use function` import, or compile-time builtin is undefined. The binder does not bind call-site function names; the checker resolves them from the enclosing namespace, imports, and the global table. A PHP-version gate (`declare(php=…)` / `#[\Tyhp\Php]`) that is inactive for `output.phpVersion` omits the symbol, so a call outside that gate is the same error. Declare the function, import it, raise the compile target, or fix the name.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4182</comment>
+  </data>
+  <data name="ERROR_TYHP4183" xml:space="preserve">
+    <value>`...` is not a type argument; write `callable(...): TReturn` for unknown arity</value>
+    <comment>Checker bare ellipsis used as a generic type argument</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4183" xml:space="preserve">
+    <value>Bare `...` in a type-argument list is not a rest pack and not a trailing `T...`. Unknown-arity callables are written `callable(...): bool` as a generic bound (`T extends callable(...): bool`). `...` is not valid on `array`, `\Closure`, or user generics, and is not a call-site type argument (`identity&lt;...&gt;(1)`).</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4183</comment>
+  </data>
+  <data name="ERROR_TYHP4184" xml:space="preserve">
+    <value>`callable(...): {0}` cannot be used as a parameter, property, or return type; write `T extends callable(...): {0}` and use `T`</value>
+    <comment>Checker any-arity callable facet used as a value type</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4184" xml:space="preserve">
+    <value>`callable(...): TReturn` pins a callback return type without pinning arity. The parameter list is unknown, so the facet is not a value type and is not invokable. Constrain a type parameter (`TCallable extends callable(...): bool`) and take `TCallable $callback` so inference can recover a concrete callable.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4184</comment>
+  </data>
+  <data name="ERROR_TYHP4185" xml:space="preserve">
+    <value>Cannot call a value of type `{0}`; any-arity `callable(...): TReturn` is not invokable</value>
+    <comment>Checker invocation of any-arity callable facet</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4185" xml:space="preserve">
+    <value>A value typed as `callable(...): TReturn` has an unknown parameter list, so a call cannot be checked. Pass the value, store it, or recover a concrete callable via `TCallable extends callable(...): TReturn` and inference. Direct `callable(...): TReturn $cb` parameters are also rejected (TYHP4184).</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4185</comment>
+  </data>
+  <data name="ERROR_TYHP4186" xml:space="preserve">
+    <value>Type alias factory `{0}` cannot be called with type arguments; write `typeof({0}&lt;…&gt;)` or `{0}(typeof(…))`</value>
+    <comment>Checker call of a type-alias factory with generic type arguments (Optional&lt;int&gt;())</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4186" xml:space="preserve">
+    <value>A type alias factory is a PHP function over `\Tyhp\Type` values, not a generic function. `Optional&lt;int&gt;()` mixes type-argument syntax into a value call. Write `typeof(Optional&lt;int&gt;)` to get a Type value from a type, or `Optional(typeof(int))` / `Optional()` to call the factory with `\Tyhp\Type` arguments.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4186</comment>
+  </data>
+  <data name="ERROR_TYHP4187" xml:space="preserve">
+    <value>A parameter pack cannot take postfix `...` as a type argument; write `callable(__CallableParametersRest&lt;T&gt; ...): R`</value>
+    <comment>Checker postfix ellipsis on a Rest/pack type argument</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4187" xml:space="preserve">
+    <value>`__CallableParametersRest&lt;T&gt;` is a pack. On a callable shape it is an ordinary parameter (`callable(Rest&lt;T&gt; ...$args): R`) that splices T's parameters. Postfix `T...` as a generic type argument is not a splice marker.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4187</comment>
+  </data>
+  <data name="ERROR_TYHP4188" xml:space="preserve">
+    <value>Postfix `T...` is not a type argument; write `callable(T ...$args): R` for a homogeneous variadic</value>
+    <comment>Checker postfix T... as a generic type argument or glued to a value-parameter type</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4188" xml:space="preserve">
+    <value>`callable(T ...$args): R` spells a trailing PHP variadic on a callable shape. Postfix `T...` is not valid as a generic type argument on `array`, `\Closure`, or user generics. `int... $x` (ellipsis glued to the type) is not the PHP variadic `int ...$x`.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4188</comment>
+  </data>
+  <data name="ERROR_TYHP4189" xml:space="preserve">
+    <value>`__CallableParametersSlice` uses of `{0}` overlap at parameter index {1}</value>
+    <comment>Checker overlapping Slice parameters for the same TCallable</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4189" xml:space="preserve">
+    <value>Slices of one `TCallable` on the same function must be disjoint. A non-variadic `Slice&lt;T, N&gt; $x` occupies index N; a variadic `Slice&lt;T, N&gt; ...$xs` occupies N and every later index. Two slices that cover the same index overlap. Split the range or drop the duplicate slice.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4189</comment>
+  </data>
+  <data name="ERROR_TYHP4190" xml:space="preserve">
+    <value>`__CallableParametersSlice` uses of `{0}` leave a hole at parameter index {1}</value>
+    <comment>Checker Slice parameters for the same TCallable skip a required index</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4190" xml:space="preserve">
+    <value>Slices of one `TCallable` must cover required parameters without holes, ordered by `TStart`. `Slice&lt;T, 0&gt; $x` followed by `Slice&lt;T, 2&gt; ...$rest` skips index 1. Add a slice for the missing index or start the rest slice at the next index.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4190</comment>
+  </data>
+  <data name="ERROR_TYHP4191" xml:space="preserve">
+    <value>`TMin` is only valid on a variadic `__CallableParametersSlice` parameter</value>
+    <comment>Checker TMin written on a non-variadic Slice parameter</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4191" xml:space="preserve">
+    <value>A non-variadic `Slice&lt;T, N&gt; $x` is exactly parameter N. `TMin` counts how many arguments a variadic slice must receive (`Slice&lt;T, 1, 1&gt; ...$arrays`). Do not write the third type argument on a fixed Slice.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4191</comment>
+  </data>
+  <data name="ERROR_TYHP4192" xml:space="preserve">
+    <value>`__CallableParametersSlice` index `{0}` must be a non-negative int literal</value>
+    <comment>Checker TStart or TMin of Slice is not a non-negative int literal type</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4192" xml:space="preserve">
+    <value>`TStart` and `TMin` are non-negative integer literal types (`0`, `1`, …), the same family as `__IndexValueType&lt;T, 0&gt;`. A general `int`, a negative literal, or a type parameter is not an index.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4192</comment>
+  </data>
+  <data name="ERROR_TYHP4193" xml:space="preserve">
+    <value>File-level `const` declarations cannot have a type annotation</value>
+    <comment>Checker file-level typed const is illegal in Tyhp source</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4193" xml:space="preserve">
+    <value>PHP typed constants exist only on classes, interfaces, traits, and enums. Write `const X = 1;` at file scope, or move the constant onto a type. Tyhpdef file-level `const int X;` remains legal because those declarations describe PHP constants that may have no exact value.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4193</comment>
+  </data>
+  <data name="ERROR_TYHP4194" xml:space="preserve">
+    <value>Class constant `{0}` must have a type annotation</value>
+    <comment>Checker class const missing type with no typed ancestor to infer</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4194" xml:space="preserve">
+    <value>Every class-level `const` needs a type, or inherits it from the ancestor that first declared the same name. A child `const X = 2;` under `const int X` is still `int`.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4194</comment>
+  </data>
+  <data name="ERROR_TYHP4195" xml:space="preserve">
+    <value>Class constant `{0}` type `{1}` must match inherited type `{2}`</value>
+    <comment>Checker class const redeclaration changed the inherited type</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4195" xml:space="preserve">
+    <value>Redeclaring a class constant cannot change its type. Omit the type to inherit it, or repeat the ancestor's type.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4195</comment>
+  </data>
+  <data name="ERROR_TYHP4196" xml:space="preserve">
+    <value>Foreach `{0}` type `{1}` is not assignable to declared type `{2}`</value>
+    <comment>Checker foreach key/value annotation is not a supertype of the iterated type</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4196" xml:space="preserve">
+    <value>A foreach type annotation is a compatibility check, not a narrowing. The iterated key or value type must be assignable to the declared type; the loop variable then has that declared type.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4196</comment>
+  </data>
+  <data name="ERROR_TYHP4197" xml:space="preserve">
+    <value>Cannot access a member, call a method, or index a value whose type could not be resolved</value>
+    <comment>Checker member access / call / index on an Unresolved recovery receiver</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4197" xml:space="preserve">
+    <value>When the checker cannot type a receiver, that expression is marked unresolved so a missing name does not cascade through assignability. Member access, method calls (including extension lookup), and indexing still require a resolved type and report TYHP4197.
+
+This diagnostic is omitted when the receiver subtree already has an error (for example `unknownFn()-&gt;x` reports only the undefined function). Unnarrowed `mixed` uses TYHP4160, not this code. Assignability of unresolved values is unchanged.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4197</comment>
   </data>
   <data name="ERROR_TYHP4213" xml:space="preserve">
     <value>Declaration existence gate must check for `{0}` (fully-qualified name or `__NAMESPACE__.'\Name'`)</value>
@@ -988,6 +1227,10 @@ final class Promise&lt;TReturn extends void|mixed = void&gt; {
     <value>`output.phpVersion` is unset; defaulting to `8.2`</value>
     <comment>Story 20.5 — default PHP target version</comment>
   </data>
+  <data name="ERROR_TYHP4307" xml:space="preserve">
+    <value>Name `{0}` is extern</value>
+    <comment>Story 21.1 / 21.10 — checker: .tyhp used an extern type, function, or const. {0} is the name. Secondary label "declared here" on the extern declaration; help cites @provided-by as-is</comment>
+  </data>
   <data name="ERROR_TYHP4310" xml:space="preserve">
     <value>Default type `{0}` does not satisfy constraint `{1}` on generic parameter `{2}`</value>
     <comment>Story 28 — generic default vs constraint</comment>
@@ -1001,7 +1244,7 @@ final class Promise&lt;TReturn extends void|mixed = void&gt; {
     <comment>Story 28 — cyclic generic default</comment>
   </data>
   <data name="ERROR_TYHP4320" xml:space="preserve">
-    <value>Parameter of type `PropertyPath&lt;{0}, {1}&gt;` requires an inline fn expression (e.g., fn ($x) =&gt; $x-&gt;property)</value>
+    <value>Parameter of type `PropertyPath&lt;callable({0}): {1}&gt;` requires an inline fn expression (e.g., fn ($x) =&gt; $x-&gt;property)</value>
     <comment>Story 16 Phase 1 — PropertyPath argument must be an inline arrow fn</comment>
   </data>
   <data name="ERROR_TYHP4321" xml:space="preserve">
@@ -1013,7 +1256,7 @@ final class Promise&lt;TReturn extends void|mixed = void&gt; {
     <comment>Story 16 Phase 2 — Expression fn body contains an unsupported node kind</comment>
   </data>
   <data name="ERROR_TYHP4323" xml:space="preserve">
-    <value>Parameter of type `Expression&lt;{0}, {1}&gt;` requires an inline fn expression</value>
+    <value>Parameter of type `Expression&lt;callable({0}): {1}&gt;` requires an inline fn expression</value>
     <comment>Story 16 Phase 2 — Expression argument must be an inline arrow fn</comment>
   </data>
   <data name="ERROR_TYHP4324" xml:space="preserve">
@@ -1024,9 +1267,258 @@ final class Promise&lt;TReturn extends void|mixed = void&gt; {
     <value>Required struct property `{0}` is missing from `{1}`</value>
     <comment>Story 16.5 Phase 5 — required callable-parameter bag key omitted from a partial array literal</comment>
   </data>
+  <data name="ERROR_TYHP4326" xml:space="preserve">
+    <value>`{0}` cannot list `\Traversable`; use `\Iterator` or `\IteratorAggregate`</value>
+    <comment>Story 21.6 Phase 0 — user type listed Traversable in extends/implements</comment>
+  </data>
+  <data name="ERROR_TYHP4327" xml:space="preserve">
+    <value>`#[\Tyhp\PhpType]` is not allowed on `{0}`</value>
+    <comment>Story 21.6 Phase 6d — PhpType on a non-PHP type-declaration site</comment>
+  </data>
+  <data name="ERROR_TYHP4328" xml:space="preserve">
+    <value>Generator `TSend` intersection of `{0}` is empty</value>
+    <comment>Story 21.6 Phase 6b — conflicting typed yield-expression targets</comment>
+  </data>
+  <data name="ERROR_TYHP4329" xml:space="preserve">
+    <value>`#[\Tyhp\PhpType]` argument `{0}` is not a valid PHP type hint</value>
+    <comment>Story 21.6 Phase 6d — PhpType constructor string is not a PHP type-hint spelling</comment>
+  </data>
+  <data name="ERROR_TYHP4330" xml:space="preserve">
+    <value>`ArrayAccess` key type `{0}` cannot be a struct or array</value>
+    <comment>Story 21.6 Phase 6c — TKey on ArrayAccess is a struct or array (not a legal PHP offset)</comment>
+  </data>
+  <data name="ERROR_TYHP4331" xml:space="preserve">
+    <value>`ArrayAccessShape` key type `{0}` is too wide; narrow or use `as`</value>
+    <comment>Story 21.6 Phase 6d — wide string/int/mixed key on ArrayAccessShape</comment>
+  </data>
+  <data name="ERROR_TYHP4332" xml:space="preserve">
+    <value>`ArrayAccessShape` does not allow append (`$obj[] =`)</value>
+    <comment>Story 21.6 Phase 6d — $obj[] = on ArrayAccessShape</comment>
+  </data>
+  <data name="ERROR_TYHP4333" xml:space="preserve">
+    <value>`ArrayAccessShape` key `{0}` is not covered by `{1}`</value>
+    <comment>Story 21.6 Phase 6d — offsetGet/offsetSet body does not cover a finite struct key</comment>
+  </data>
+  <data name="ERROR_TYHP4334" xml:space="preserve">
+    <value>Cannot bind this closure to `{0}`; expected `{1}`</value>
+    <comment>Story 21.6 Phase 5 — bind/bindTo/call leftover-scope instanceof, object/name $newScope, or call() non-object</comment>
+  </data>
+  <data name="ERROR_TYHP4335" xml:space="preserve">
+    <value>`'static'` is not a stored closure `TScope`; it is only a `bind` / `bindTo` argument</value>
+    <comment>Story 21.6 Phase 5 — 'static' written as a stored Closure TScope type argument</comment>
+  </data>
+  <data name="ERROR_TYHP4336" xml:space="preserve">
+    <value>This closure cannot be rebound</value>
+    <comment>Story 21.6 Phase 5 — arrow / FCC / fromCallable non-Closure / internal-class bind</comment>
+  </data>
+  <data name="ERROR_TYHP4337" xml:space="preserve">
+    <value>`{0}` cannot list `{1}`</value>
+    <comment>Story 21.11 B.2 — user type listed \UnitEnum or \BackedEnum in extends/implements</comment>
+  </data>
+  <data name="ERROR_TYHP4338" xml:space="preserve">
+    <value>`{0}` cannot redeclare `{1}`</value>
+    <comment>Story 21.11 B.2 — user enum redeclared cases, from, or tryFrom</comment>
+  </data>
+  <data name="ERROR_TYHP4339" xml:space="preserve">
+    <value>`#[Override]` cannot be applied to `__construct`</value>
+    <comment>Story 21.11 C.2 — #[Override] on a constructor (invalid at any phpVersion)</comment>
+  </data>
+  <data name="ERROR_TYHP4340" xml:space="preserve">
+    <value>`#[\Tyhp\NativeTypeTest]` is not allowed on `{0}`</value>
+    <comment>Story 21.12 B — NativeTypeTest on an instance/abstract/interface method, closure, or other illegal target</comment>
+  </data>
+  <data name="ERROR_TYHP4341" xml:space="preserve">
+    <value>`#[\Tyhp\NativeTypeTest]` requires a type-guard return `{0} is T` on the first parameter</value>
+    <comment>Story 21.12 B — NativeTypeTest function must declare $firstParam is T</comment>
+  </data>
+  <data name="ERROR_TYHP4342" xml:space="preserve">
+    <value>`#[\Tyhp\NativeTypeTest]` type `{0}` must be a single type; unions, intersections, and nullables are not allowed</value>
+    <comment>Story 21.12 B — NativeTypeTest T is not a single type</comment>
+  </data>
+  <data name="ERROR_TYHP4343" xml:space="preserve">
+    <value>`#[\Tyhp\NativeTypeTest]` extra parameters after the first must have default values</value>
+    <comment>Story 21.12 B — NativeTypeTest emit is fqn($x); extra params need defaults</comment>
+  </data>
+  <data name="ERROR_TYHP4344" xml:space="preserve">
+    <value>`#[\Tyhp\NativeTypeTest]` for `{0}` overlaps `{1}` registered by `{2}`</value>
+    <comment>Story 21.12 B — duplicate or overlapping NativeTypeTest for guarded types</comment>
+  </data>
+  <data name="ERROR_TYHP4345" xml:space="preserve">
+    <value>`#[\Tyhp\EraseGeneric]` is not allowed on `{0}`</value>
+    <comment>Story 21.12 A — EraseGeneric on a method, function, or other illegal target</comment>
+  </data>
+  <data name="WARNING_TYHP4346" xml:space="preserve">
+    <value>`#[\Tyhp\GenericRuntime]` is compiler-generated; this usage is overwritten at emit</value>
+    <comment>Story 21.12 A — author-written GenericRuntime on Tyhp source</comment>
+  </data>
+  <data name="ERROR_TYHP4347" xml:space="preserve">
+    <value>Object shape `{0}` is not a class</value>
+    <comment>Story 27 — object shape used as new / :: / extends / implements / ::class</comment>
+  </data>
+  <data name="ERROR_TYHP4348" xml:space="preserve">
+    <value>`object { }` is only allowed as the right-hand side of a `type` alias</value>
+    <comment>Story 27 — object { } used outside a type-alias RHS</comment>
+  </data>
+  <data name="ERROR_TYHP4349" xml:space="preserve">
+    <value>Empty object shape is not allowed; use `object`</value>
+    <comment>Story 27 — type X = object { } with no members</comment>
+  </data>
+  <data name="ERROR_TYHP4350" xml:space="preserve">
+    <value>Object shape member `{0}` must be `public`</value>
+    <comment>Story 27 — protected or private member on an object shape</comment>
+  </data>
+  <data name="ERROR_TYHP4351" xml:space="preserve">
+    <value>Type argument `{0}` of `__New` must be an object-shape alias</value>
+    <comment>Story 27 — __New&lt;T&gt; where T is not an object-shape alias</comment>
+  </data>
+  <data name="ERROR_TYHP4352" xml:space="preserve">
+    <value>`{0}` does not satisfy `__New&lt;{1}&gt;` because it is `{2}`</value>
+    <comment>Story 27 — type does not satisfy __New&lt;Shape&gt;: abstract, interface, enum, or trait. {2} is the kind</comment>
+  </data>
+  <data name="ERROR_TYHP4353" xml:space="preserve">
+    <value>`{0}` does not satisfy `__New&lt;{1}&gt;` because its constructor is not `public`</value>
+    <comment>Story 27 — type does not satisfy __New&lt;Shape&gt;: non-public constructor</comment>
+  </data>
+  <data name="ERROR_TYHP4354" xml:space="preserve">
+    <value>`{0}` does not satisfy `__New&lt;{1}&gt;` because its constructor is not compatible</value>
+    <comment>Story 27 — type does not satisfy __New&lt;Shape&gt;: constructor arity or parameter types</comment>
+  </data>
+  <data name="ERROR_TYHP4355" xml:space="preserve">
+    <value>`new {0}()` requires `{0}` to be `__New&lt;...&gt;`</value>
+    <comment>Story 27 — new T() where T is not __New&lt;...&gt;</comment>
+  </data>
+  <data name="ERROR_TYHP4356" xml:space="preserve">
+    <value>`new ${0}()` requires `__ClassName&lt;__New&lt;...&gt;&gt;`, found `{1}`</value>
+    <comment>Story 27 — new $cls() where $cls is __ClassName&lt;Shape&gt; without __New</comment>
+  </data>
+  <data name="ERROR_TYHP4357" xml:space="preserve">
+    <value>Constructor arguments for `{0}` do not match object shape `{1}`</value>
+    <comment>Story 27 — new T(...) / new $cls(...) arguments vs the shape constructor</comment>
+  </data>
+  <data name="ERROR_TYHP4358" xml:space="preserve">
+    <value>`{0}` is not assignable to object shape `{1}` without a shape guard</value>
+    <comment>Story 27 — object or mixed assigned to a shape without a guard</comment>
+  </data>
+  <data name="ERROR_TYHP4359" xml:space="preserve">
+    <value>`__construct` is not callable on a value of object shape `{0}`</value>
+    <comment>Story 27 — $x-&gt;__construct() on a shape-typed value</comment>
+  </data>
+  <data name="ERROR_TYHP4360" xml:space="preserve">
+    <value>`{0}` is not assignable to callable shape `{1}` without a shape guard</value>
+    <comment>Story 27.1 — callable or mixed assigned to a callable shape without a guard</comment>
+  </data>
+  <data name="ERROR_TYHP4361" xml:space="preserve">
+    <value>Per-member `extends Type $this` and `operator op&lt;Type&gt;` are not how an extension names its target. Use `extension Name extends Type` or a nested `extends Type` group</value>
+    <comment>Parser — old extension member target. The target belongs on the extension block.</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4361" xml:space="preserve">
+    <value>Writing `extends Type $this` on a member, or `&lt;Type&gt;` after an operator token, is the old per-member target spelling. Name the target on the block with `extension Name extends Type` or a nested `extends Type` group. Adaptation clauses in `use extension` still qualify an operator by target (`E::operator +&lt;Money&gt;`).</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4361</comment>
+  </data>
+  <data name="ERROR_TYHP4362" xml:space="preserve">
+    <value>Extension `{0}` declares a header `extends` and a nested `extends` group</value>
+    <comment>Checker — header extends and nested extends groups in one extension</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4362" xml:space="preserve">
+    <value>A header `extends` and nested `extends` groups are mutually exclusive. A header `extends Type` covers every member of the extension. Nested `extends Type { }` groups each name their own target in place of a header. Keep one header target, or move every member into a group.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4362</comment>
+  </data>
+  <data name="ERROR_TYHP4363" xml:space="preserve">
+    <value>Extension `{0}` declares a nested `extends` group and a member outside a group</value>
+    <comment>Checker — loose member beside nested extends groups</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4363" xml:space="preserve">
+    <value>An extension that uses nested `extends` groups puts every member inside a group. A member written beside those groups, outside any group, has no target. Move the member into a group, or remove the groups and use a header `extends` for the whole extension.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4363</comment>
+  </data>
+  <data name="ERROR_TYHP4364" xml:space="preserve">
+    <value>Expected a single named type, found `{0}`</value>
+    <comment>Checker — extension target is nullable, a union, an intersection, void, never, mixed, or _</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4364" xml:space="preserve">
+    <value>The block target is an intersection, `void`, `never`, `mixed`, a type parameter, an `object { … }` shape, `_`, or a union that contains one of those. A union whose members are each a legal target is valid, and so is `?T`. An alias is read through to its body, so an alias of a legal union is a legal target.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4364</comment>
+  </data>
+  <data name="ERROR_TYHP4365" xml:space="preserve">
+    <value>Type parameter `{0}` is not used</value>
+    <comment>Checker — unused type parameter on extension Name&lt;T&gt; or extends&lt;T&gt;</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4365" xml:space="preserve">
+    <value>A type parameter on `extension Name&lt;T&gt;` or on a nested `extends&lt;T&gt;` group is in scope for that block and must be referenced there: in the target, in a constraint or default, or in a member. A parameter that is never referenced is unused. Remove it, or use it.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4365</comment>
+  </data>
+  <data name="ERROR_TYHP4366" xml:space="preserve">
+    <value>Type parameter `{0}` shadows a type parameter on the enclosing extension</value>
+    <comment>Checker — method generic reuses an in-scope extension or group type parameter</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4366" xml:space="preserve">
+    <value>Type parameters on `extension Name&lt;T&gt;` or `extends&lt;T&gt;` stay on that symbol. They are in scope for the target and the members, and they are not copied onto each method. A method lists only the type parameters written on it. A method type parameter that reuses one of those names shadows the enclosing parameter. Give the method parameter a different name.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4366</comment>
+  </data>
+  <data name="ERROR_TYHP4367" xml:space="preserve">
+    <value>`{0}` is declared on overlapping targets `{1}` and `{2}`</value>
+    <comment>Checker — two groups in one extension apply to the same receiver and declare the same member</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4367" xml:space="preserve">
+    <value>Two groups in one extension overlap when both can apply to the same receiver and both declare the same method or operator. `extends string` and `extends string|int` both apply to `string`. Different member names on overlapping targets are fine. Targets that do not overlap may share a method name. The same member on two separate extensions is an activation conflict, resolved with `hide` or `insteadof` on `use extension`.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4367</comment>
+  </data>
+  <data name="ERROR_TYHP4368" xml:space="preserve">
+    <value>`{0}::` is not allowed in an extension member</value>
+    <comment>Checker — static:: or parent:: in an extension member</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4368" xml:space="preserve">
+    <value>Inside an extension member, `self` and `self::` name the block target, including a scalar target. `static::` and `parent::` are not the block target. Name the extension class by writing its name. An anonymous class nested in the member keeps its own `self` and `static`.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4368</comment>
+  </data>
+  <data name="ERROR_TYHP4369" xml:space="preserve">
+    <value>Extension member `{0}` writes `$this` without `&amp;$this`</value>
+    <comment>Checker — body assigns, increments, or passes $this by reference without the receiver annotation</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4369" xml:space="preserve">
+    <value>An extension member that writes `$this` needs the `&amp;$this` receiver annotation. A write is an assignment, a compound assignment, `++` / `--`, or passing `$this` to a by-reference parameter. On a class, interface, or enum, assigning a property (`$this-&gt;amount = 1`) or calling a method does not write `$this`. On a scalar, array, or struct, assigning through `$this` (`$this-&gt;field`, `$this[$k]`, or `$this[]`) does.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4369</comment>
+  </data>
+  <data name="ERROR_TYHP4370" xml:space="preserve">
+    <value>Extension member `{0}` declares `&amp;$this` but does not write `$this`</value>
+    <comment>Checker — &amp;$this receiver annotation on a member that never writes $this</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4370" xml:space="preserve">
+    <value>`&amp;$this` is the by-reference receiver annotation, and an extension member declares it only when the body writes `$this`. Reading `$this`, or mutating a property of a class, interface, or enum receiver, is not that write. Remove `&amp;$this`, or write `$this` if the annotation was intentional. A missing annotation on a member that does write `$this` is `TYHP4369`.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4370</comment>
+  </data>
+  <data name="ERROR_TYHP4371" xml:space="preserve">
+    <value>`#[\Tyhp\Php]` is not allowed on `{0}`; declare a separate type per PHP version inside `declare(php=...)` instead</value>
+    <comment>Checker — #[\Tyhp\Php] on a property, class constant, enum case, or interface method</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4371" xml:space="preserve">
+    <value>PHP cannot declare a property, class constant, enum case, or interface method conditionally, so `#[\Tyhp\Php]` on one of them has no PHP form to emit. When such a member differs between PHP versions, declare the whole class, interface, or enum once per version inside `declare(php=…)` blocks.
+
+```tyhp
+&lt;?tyhp
+declare(php="&lt;8.3") {
+    class Limits {
+        const MAX = 10;
+    }
+}
+
+declare(php="&gt;=8.3") {
+    class Limits {
+        const int MAX = 10;
+    }
+}
+```
+
+`#[\Tyhp\Php]` stays legal on functions, classes, interfaces, traits, enums, and methods of classes, traits, and enums. Members of tyhpdef declarations may still carry it.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4371</comment>
+  </data>
+  <data name="ERROR_TYHP4372" xml:space="preserve">
+    <value>The name `{0}` cannot be used as a `{1}`</value>
+    <comment>Checker — PHP 8.6 reserved name (let, is, namespace, readonly function, or _)</comment>
+  </data>
   <data name="WARNING_TYHP4500" xml:space="preserve">
-    <value>`{0}` is deprecated</value>
-    <comment>Checker deprecated usage</comment>
+    <value>`{0}` is deprecated{1}</value>
+    <comment>Checker deprecated usage. {1} is empty, or ": {message}" when #[\Deprecated] $message is a string literal.</comment>
   </data>
   <data name="ERROR_TYHP4501" xml:space="preserve">
     <value>`{0}` is obsolete and must not be used</value>
@@ -1133,9 +1625,37 @@ final class Promise&lt;TReturn extends void|mixed = void&gt; {
     <value>Implements type `{0}` is a `{1}`, not an interface</value>
     <comment>Binder implements target resolved but is not an interface</comment>
   </data>
+  <data name="ERROR_TYHP3025" xml:space="preserve">
+    <value>The `&lt;Type&gt;` target of an extension operator cannot be `{0}`</value>
+    <comment>Extension operator target is a non-instantiable builtin (void, never, null, mixed, resource, true, false)</comment>
+  </data>
+  <data name="ERROR_TYHP3026" xml:space="preserve">
+    <value>Extends type `{0}` is extern</value>
+    <comment>Story 21.1 — binder: extends target is an extern placeholder. {0} is the type name. Secondary label "declared here" on the extern declaration; help cites @provided-by as-is</comment>
+  </data>
+  <data name="ERROR_TYHP3027" xml:space="preserve">
+    <value>Implements type `{0}` is extern</value>
+    <comment>Story 21.1 — binder: implements target is an extern placeholder. {0} is the type name. Secondary label "declared here" on the extern declaration; help cites @provided-by as-is</comment>
+  </data>
+  <data name="ERROR_TYHP3028" xml:space="preserve">
+    <value>Type alias `{0}` conflicts with a function of the same name</value>
+    <comment>File-level type aliases occupy the PHP function namespace. {0} is the colliding name</comment>
+  </data>
+  <data name="ERROR_TYHP3029" xml:space="preserve">
+    <value>Circular type alias `{0}`</value>
+    <comment>Type aliases must not form a cycle. {0} is an alias name on the cycle</comment>
+  </data>
+  <data name="ERROR_TYHP3030" xml:space="preserve">
+    <value>Type alias `{0}` cannot be a PHP function name</value>
+    <comment>File-level aliases emit as functions; reserved PHP function/construct names are invalid. {0} is the alias name</comment>
+  </data>
   <data name="ERROR_TYHP1001" xml:space="preserve">
     <value>Unknown parser error: {0}</value>
     <comment>Lexer/Parser unknown error</comment>
+  </data>
+  <data name="WARNING_TYHP1001" xml:space="preserve">
+    <value>Unknown parser error: {0}</value>
+    <comment>ParserUnknownError reported as a warning. {0} is the underlying failure, such as a tyhpdef AST cache read or write exception.</comment>
   </data>
   <data name="ERROR_TYHP1002" xml:space="preserve">
     <value>Unexpected token `{0}` at position {1}</value>
@@ -1271,6 +1791,40 @@ Upgrade or reinstall matching `tyhp/core`, `tyhp/async`, `tyhp/decimal`, and/or 
 That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`), ternary arms, `else if` conditions (reached only when earlier conditions in the chain were false), or loop conditions that re-evaluate each iteration. Move the postfix into its own statement (or use prefix `++$a` when the new value is intended), then use the captured variable in the expression.</value>
     <comment>Long-form explanation for tyhp --explain TYHP5019</comment>
   </data>
+  <data name="WARNING_TYHP5020" xml:space="preserve">
+    <value>Failed to generate source map for file `{0}`: {1}</value>
+    <comment>Emitter source map JSON generation failed (Story 17). Args: output file path, exception or failure detail</comment>
+  </data>
+  <data name="EXPLAIN_TYHP5020" xml:space="preserve">
+    <value>Source map generation builds Source Map v3 JSON from mappings collected while emitting PHP. A failure here is non-fatal: the `.php` file is still written, but debugging and stack-trace mapping for that file will not have a `.map` companion.
+
+The build continues. Inspect the detail in the warning for the underlying exception, then retry with `build.generateSourcemap` enabled after fixing the cause.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP5020</comment>
+  </data>
+  <data name="WARNING_TYHP5021" xml:space="preserve">
+    <value>Failed to write source map file `{0}`: {1}</value>
+    <comment>Emitter source map `.map` file write failed (Story 17). Args: map file path, exception or failure detail</comment>
+  </data>
+  <data name="EXPLAIN_TYHP5021" xml:space="preserve">
+    <value>The compiler writes a `.php.map` file next to each generated PHP file when `build.generateSourcemap` is true. A write failure (permissions, disk full, invalid path) is non-fatal: the PHP output is still usable without the map.
+
+The build continues. Fix the path or permissions named in the warning and rebuild to produce the missing source map file.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP5021</comment>
+  </data>
+  <data name="WARNING_TYHP5022" xml:space="preserve">
+    <value>Invalid source mapping in file `{0}`: generated position (`{1}`,`{2}`) references invalid source position (`{3}`,`{4}`)</value>
+    <comment>Emitter source map mapping references an invalid original position (Story 17). Args: output file, generated line, generated column, original line, original column</comment>
+  </data>
+  <data name="EXPLAIN_TYHP5022" xml:space="preserve">
+    <value>A source mapping segment points at a generated PHP position whose original `.tyhp` line or column is invalid (negative, or otherwise not a real start position). The mapping is skipped; remaining segments are still emitted.
+
+This is non-fatal. If mappings look wrong in a debugger, report the generated and original coordinates from this warning — they identify the emit item whose AST provider had a bad span.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP5022</comment>
+  </data>
+  <data name="ERROR_TYHP5023" xml:space="preserve">
+    <value>`#[\Tyhp\GenericRuntime]` layouts `{0}` have no intersection with this compiler{1}</value>
+    <comment>Emitter cannot dispatch a GenericRuntime whose layouts do not include a supported key. Args: layouts list, optional "; compiled by `{compiler}`" suffix</comment>
+  </data>
   <data name="ERROR_TYHP7200" xml:space="preserve">
     <value>File not found: `{0}`</value>
     <comment>Lint --file target does not exist</comment>
@@ -1356,20 +1910,124 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <comment>Tyhpdef inline extension invalid member</comment>
   </data>
   <data name="ERROR_TYHP8013" xml:space="preserve">
-    <value>`extension operator {0}` requires a body; use bodyless `operator {0}(…);` (without `extension`) for native PHP operators</value>
-    <comment>Tyhpdef extension operator declared without a body. Bodyless class-level operator means native passthrough; extension operator must map via a body.</comment>
+    <value>`extension operator {0}` requires a thin `=&gt;` expression; use bodyless `operator {0}(…);` (without `extension`) for native PHP operators</value>
+    <comment>Tyhpdef mapped operator missing a thin =&gt; expression. Bodyless operator (no extension) is native PHP passthrough.</comment>
+  </data>
+  <data name="ERROR_TYHP8014" xml:space="preserve">
+    <value>`partial` type `{0}` does not exist in this compilation's include set</value>
+    <comment>Base/include partial names a type that is not already loaded</comment>
+  </data>
+  <data name="ERROR_TYHP8015" xml:space="preserve">
+    <value>Tyhpdef property hooks must be bodyless</value>
+    <comment>Visitor-regression guard: a tyhpdef property hook still has a body (grammar admits get;/set; only)</comment>
+  </data>
+  <data name="ERROR_TYHP8016" xml:space="preserve">
+    <value>`#[\Tyhp\Php]` is not allowed on a property hook; place it on the property or wrap with `declare(php=...)`</value>
+    <comment>Story 20.7 — version gates belong on the hooked property or an enclosing declare, not on individual get/set</comment>
+  </data>
+  <data name="ERROR_TYHP8017" xml:space="preserve">
+    <value>`omit` is only allowed in overlay tyhpdef files</value>
+    <comment>TyhpdefOmitOutsideOverlay — omit in include/baseline</comment>
+  </data>
+  <data name="ERROR_TYHP8018" xml:space="preserve">
+    <value>`partial`, `omit`, `deprecated`, `obsolete`, and `extern` cannot be combined on the same declaration, and `fallback` cannot be combined with `partial`, `omit`, or `extern`</value>
+    <comment>TyhpdefIllegalKeywordCombination — grammar forbids stacking extern with the others; fallback may combine with deprecated or obsolete only</comment>
+  </data>
+  <data name="WARNING_TYHP8019" xml:space="preserve">
+    <value>Overlay `partial` has no matching type `{0}` in the environment; skipped</value>
+    <comment>TyhpdefOverlayPartialTargetNotFound</comment>
+  </data>
+  <data name="WARNING_TYHP8020" xml:space="preserve">
+    <value>Overlay `omit` has no matching symbol `{0}` in the environment</value>
+    <comment>TyhpdefOmitMissingSymbol</comment>
+  </data>
+  <data name="WARNING_TYHP8021" xml:space="preserve">
+    <value>`@overlay-against` for `{0}` does not match the Layer 1 baseline signature</value>
+    <comment>TyhpdefOverlayStampMismatch (warning unless strict)</comment>
+  </data>
+  <data name="ERROR_TYHP8021" xml:space="preserve">
+    <value>`@overlay-against` for `{0}` does not match the Layer 1 baseline signature</value>
+    <comment>TyhpdefOverlayStampMismatch (--strict / build.strictMode)</comment>
+  </data>
+  <data name="WARNING_TYHP8022" xml:space="preserve">
+    <value>Overlay replace of `{0}` is not a compile-time-compatible rewrite of the Layer 1 baseline</value>
+    <comment>TyhpdefOverlayIncompatibleReplace</comment>
   </data>
   <data name="ERROR_TYHP8025" xml:space="preserve">
     <value>Fully-qualified name `{0}` is defined in packages `{1}` and `{2}`</value>
     <comment>Tyhpdef duplicate FQN across Composer packages</comment>
   </data>
   <data name="WARNING_TYHP8026" xml:space="preserve">
-    <value>PHP extension package not found; install `tyhp/php` via Composer for full PHP built-in type checking</value>
+    <value>PHP extension package not found; install `tyhpdef/php` via Composer for full PHP built-in type checking</value>
     <comment>PHP extension tyhpdef package missing</comment>
   </data>
   <data name="WARNING_TYHP8027" xml:space="preserve">
     <value>Runtime package not found for `tyhp/{0}`; install the package via Composer for full type checking</value>
     <comment>Runtime tyhpdef package missing</comment>
+  </data>
+  <data name="ERROR_TYHP8028" xml:space="preserve">
+    <value>`extern` name `{0}` is not name-only</value>
+    <comment>Story 21.1 / 21.10 — tyhpdef extern with body, members, generics, extends/implements, as alias, extern trait, or a signature/body on extern function/const. {0} is the name</comment>
+  </data>
+  <data name="ERROR_TYHP8029" xml:space="preserve">
+    <value>Name `{0}` is declared as `{1}` and `{2}`</value>
+    <comment>Story 21.1 / 21.10 — extern vs real or extern vs extern type-kind mismatch (class/interface/enum only; functions and consts occupy separate PHP name spaces and never trigger this code). {0} is the FQCN; {1} and {2} are kinds such as `extern class` and `interface`</comment>
+  </data>
+  <data name="ERROR_TYHP8030" xml:space="preserve">
+    <value>`partial` cannot target `extern` `{0}`</value>
+    <comment>Story 21.1 / 21.10 — overlay/include partial targeting an extern placeholder. {0} is the name</comment>
+  </data>
+  <data name="WARNING_TYHP8031" xml:space="preserve">
+    <value>Overlay `partial function` has no matching `{0}` in the environment; skipped</value>
+    <comment>TyhpdefPartialFunctionTargetNotFound</comment>
+  </data>
+  <data name="ERROR_TYHP8032" xml:space="preserve">
+    <value>`partial function` is only allowed in overlay tyhpdef files</value>
+    <comment>TyhpdefPartialFunctionOutsideOverlay</comment>
+  </data>
+  <data name="ERROR_TYHP8033" xml:space="preserve">
+    <value>`partial function` as a member is only allowed inside overlay `partial` types</value>
+    <comment>TyhpdefPartialFunctionMemberOutsidePartialType</comment>
+  </data>
+  <data name="ERROR_TYHP8034" xml:space="preserve">
+    <value>`partial {0}` header form (semicolon) is only allowed in overlay tyhpdef files</value>
+    <comment>TyhpdefPartialTypeHeaderOutsideOverlay</comment>
+  </data>
+  <data name="WARNING_TYHP8035" xml:space="preserve">
+    <value>Overlay `partial {0} {1};` does not change the type</value>
+    <comment>TyhpdefPartialTypeHeaderNoEffect</comment>
+  </data>
+  <data name="ERROR_TYHP8036" xml:space="preserve">
+    <value>fallback function `{0}` is declared by more than one package, and Composer autoload file order cannot choose a winner</value>
+    <comment>TyhpdefFallbackOrderUnknown. {0} is the function name</comment>
+  </data>
+  <data name="WARNING_TYHP8037" xml:space="preserve">
+    <value>fallback function `{0}` from `{1}` does not match the signature from `{2}`; the later declaration is ignored</value>
+    <comment>TyhpdefFallbackSignatureMismatch. {0} function name, {1} losing package, {2} winning package</comment>
+  </data>
+  <data name="ERROR_TYHP8038" xml:space="preserve">
+    <value>function `{0}` in `{1}` is loaded after fallback function `{0}` in `{2}` and would be a fatal redeclaration in PHP</value>
+    <comment>TyhpdefFallbackRedeclare. {0} function name, {1} ordinary package, {2} fallback package</comment>
+  </data>
+  <data name="ERROR_TYHP8039" xml:space="preserve">
+    <value>`declare(ext=…)` must be the only directive in that declare</value>
+    <comment>TyhpdefExtDeclareNotAlone</comment>
+  </data>
+  <data name="ERROR_TYHP8040" xml:space="preserve">
+    <value>`declare(ext=...)` must name an extension, or `!` plus that name; got `{0}`</value>
+    <comment>TyhpdefExtDeclareInvalid. {0} is the written value</comment>
+  </data>
+  <data name="ERROR_TYHP8041" xml:space="preserve">
+    <value>fallback const `{0}` is declared by more than one package, and Composer autoload file order cannot choose a winner</value>
+    <comment>TyhpdefFallbackConstOrderUnknown. {0} is the constant name</comment>
+  </data>
+  <data name="WARNING_TYHP8042" xml:space="preserve">
+    <value>fallback const `{0}` from `{1}` does not match the constant from `{2}`; the later declaration is ignored</value>
+    <comment>TyhpdefFallbackConstMismatch. {0} constant name, {1} losing package, {2} winning package</comment>
+  </data>
+  <data name="ERROR_TYHP8043" xml:space="preserve">
+    <value>const `{0}` in `{1}` is loaded after fallback const `{0}` in `{2}` and would be a fatal redeclaration in PHP</value>
+    <comment>TyhpdefFallbackConstRedeclare. {0} constant name, {1} ordinary package, {2} fallback package</comment>
   </data>
   <data name="ERROR_TYHP7800" xml:space="preserve">
     <value>Integrity check failed: project configuration is invalid</value>
@@ -1386,6 +2044,30 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   <data name="ERROR_TYHP7803" xml:space="preserve">
     <value>Integrity check failed: runtime environment problem detected</value>
     <comment>IntegrityCheckEnvironmentError</comment>
+  </data>
+  <data name="ERROR_TYHP7900" xml:space="preserve">
+    <value>Invalid `tyhp overlay` command `{0}`; expected `create &lt;FQN&gt;` or `stamp` [`&lt;FQN&gt;`]</value>
+    <comment>OverlayInvalidArguments</comment>
+  </data>
+  <data name="ERROR_TYHP7901" xml:space="preserve">
+    <value>Overlay target `{0}` was not found</value>
+    <comment>OverlayTargetNotFound</comment>
+  </data>
+  <data name="ERROR_TYHP7902" xml:space="preserve">
+    <value>Failed to update overlay glob in `{0}`</value>
+    <comment>OverlayManifestUpdateFailed</comment>
+  </data>
+  <data name="ERROR_TYHP7903" xml:space="preserve">
+    <value>Failed to write overlay tyhpdef for `{0}`</value>
+    <comment>OverlayWriteFailed</comment>
+  </data>
+  <data name="ERROR_TYHP7904" xml:space="preserve">
+    <value>`overlay create` cannot target `extern` type `{0}`</value>
+    <comment>OverlayCreateOnExtern</comment>
+  </data>
+  <data name="ERROR_TYHP7905" xml:space="preserve">
+    <value>Managed PHP runtime for `{0}` is unavailable</value>
+    <comment>OverlayPhpRuntimeUnavailable. Arg: PHP minor such as 8.4</comment>
   </data>
   <data name="CLI_Banner" xml:space="preserve">
     <value>Tyhp CLI v{0}</value>
@@ -1418,6 +2100,10 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   <data name="CLI_StartingBuild" xml:space="preserve">
     <value>Starting build...</value>
     <comment>Build action start</comment>
+  </data>
+  <data name="CLI_BuildGeneratingTyhpdef" xml:space="preserve">
+    <value>Generating package tyhpdef...</value>
+    <comment>Library package.tyhpdef generation during tyhp build</comment>
   </data>
   <data name="CLI_AccessDeniedDiscoveringSourceFiles" xml:space="preserve">
     <value>Access denied while discovering source files: {0}</value>
@@ -1538,6 +2224,38 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   <data name="CLI_CleanOutputFailed" xml:space="preserve">
     <value>Failed to clean output directory. See diagnostics for details.</value>
     <comment>Build clean phase failed</comment>
+  </data>
+  <data name="CLI_CleaningPublishDirectory" xml:space="preserve">
+    <value>Cleaning publish directory...</value>
+    <comment>Build publishClean phase started</comment>
+  </data>
+  <data name="CLI_CleanPublishComplete" xml:space="preserve">
+    <value>Publish directory cleaned.</value>
+    <comment>Build publishClean phase completed</comment>
+  </data>
+  <data name="CLI_CleanPublishFailed" xml:space="preserve">
+    <value>Failed to clean publish directory. See diagnostics for details.</value>
+    <comment>Build publishClean phase failed</comment>
+  </data>
+  <data name="CLI_DryRunCleaningPublishDirectory" xml:space="preserve">
+    <value>Dry run enabled — publish directory would be deleted.</value>
+    <comment>Build dry run would apply output.publishClean</comment>
+  </data>
+  <data name="CLI_CopyingPublishContent" xml:space="preserve">
+    <value>Copying publish content...</value>
+    <comment>Build output.publishContent copy started</comment>
+  </data>
+  <data name="CLI_PublishContentCopyComplete" xml:space="preserve">
+    <value>Publish content copy complete.</value>
+    <comment>Build output.publishContent copy finished</comment>
+  </data>
+  <data name="CLI_DryRunCopyingPublishContent" xml:space="preserve">
+    <value>Dry run enabled — publish content would be copied.</value>
+    <comment>Build dry run would copy output.publishContent</comment>
+  </data>
+  <data name="CLI_VerbosePublishContentCopied" xml:space="preserve">
+    <value>Publish content: {0} → {1}</value>
+    <comment>Verbose log of one output.publishContent copy</comment>
   </data>
   <data name="CLI_StrictModeSkippingEmit" xml:space="preserve">
     <value>Strict mode enabled — skipping emit because warnings were reported.</value>
@@ -1992,7 +2710,7 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <comment>Unused after Story 13 Phase 5 (InitAction completed); retained for resource-key stability</comment>
   </data>
   <data name="CLI_InitHelpDescription" xml:space="preserve">
-    <value>Initialize a new Tyhp project by creating a tyhp.json configuration file and project directory structure.</value>
+    <value>Initialize a new Tyhp project: write tyhp.json and scaffold files, and create or merge composer.json.</value>
     <comment>Init help description paragraph</comment>
   </data>
   <data name="CLI_InitHelpUsageHeader" xml:space="preserve">
@@ -2111,6 +2829,14 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>  skipped {0} (already exists)</value>
     <comment>Init action: scaffold file left untouched because the path already exists ({0} = relative path)</comment>
   </data>
+  <data name="CLI_InitMergedFile" xml:space="preserve">
+    <value>  merged {0}</value>
+    <comment>Init action: existing composer.json received Tyhp require/script keys ({0} = relative path)</comment>
+  </data>
+  <data name="CLI_InitRunComposerInstall" xml:space="preserve">
+    <value>Run composer install to install PHP packages.</value>
+    <comment>Init action: next step after writing or merging composer.json (init does not run composer install)</comment>
+  </data>
   <data name="CLI_InitInvalidDirectory" xml:space="preserve">
     <value>Invalid {0} value '{1}'. Use a path inside the project (no absolute paths and no '..' segments).</value>
     <comment>Init action: --src / --output points outside the project ({0} = option name, {1} = value)</comment>
@@ -2186,6 +2912,10 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   <data name="CLI_LintHelpOptionNoCache" xml:space="preserve">
     <value>Disable the AST cache for this run (forces a full re-parse)</value>
     <comment>Lint help --no-cache description (flag is literal in HelpFormatting.Option)</comment>
+  </data>
+  <data name="CLI_LintHelpOptionSuppressWarnings" xml:space="preserve">
+    <value>Comma-separated warning codes to hide (e.g. TYHP8027). Errors are never hidden. Overrides tyhp.json suppressWarnings</value>
+    <comment>Lint help --suppress-warnings description</comment>
   </data>
   <data name="CLI_LintHelpDescriptionHeader" xml:space="preserve">
     <value>Description:</value>
@@ -2323,6 +3053,10 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>Treat warnings as errors</value>
     <comment>Build help --strict description</comment>
   </data>
+  <data name="CLI_BuildHelpOptionFix" xml:space="preserve">
+    <value>Write stale extra.tyhp.require pins onto root require-dev and Composer-update those packages</value>
+    <comment>Build help --fix description</comment>
+  </data>
   <data name="CLI_BuildHelpOptionCacheDir" xml:space="preserve">
     <value>Override the AST cache directory</value>
     <comment>Build help --cache-dir description</comment>
@@ -2330,6 +3064,10 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   <data name="CLI_BuildHelpOptionNoCache" xml:space="preserve">
     <value>Disable the AST cache for this run (forces a full re-parse)</value>
     <comment>Build help --no-cache description</comment>
+  </data>
+  <data name="CLI_BuildHelpOptionSuppressWarnings" xml:space="preserve">
+    <value>Comma-separated warning codes to hide (e.g. TYHP8027). Errors are never hidden. Overrides tyhp.json suppressWarnings</value>
+    <comment>Build help --suppress-warnings description</comment>
   </data>
   <data name="CLI_BuildHelpConfigHeader" xml:space="preserve">
     <value>Configuration file (tyhp.json):</value>
@@ -2339,6 +3077,10 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>Project options may be set in tyhp.json. CLI flags override matching keys when both are present.</value>
     <comment>Build help configuration intro paragraph</comment>
   </data>
+  <data name="CLI_BuildHelpConfigInterpolation" xml:space="preserve">
+    <value>Path keys expand {{name}} and {{version}} from composer.json next to tyhp.json, {{type}} from tyhp.json, {{phpVersion.id}} from output.phpVersion (8.2 becomes 802), and {{env.NAME}} from the process environment. Unknown placeholders are TYHP6009 errors. File variables such as {{fileName}} are only valid in output.publishContent dst.</value>
+    <comment>Build help tyhp.json interpolation. Doubled braces survive String.Format in Paragraph().</comment>
+  </data>
   <data name="CLI_BuildHelpConfigInclude" xml:space="preserve">
     <value>Array of glob strings for source/tyhpdef inputs</value>
     <comment>Build help tyhp.json include key</comment>
@@ -2347,9 +3089,25 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>Array of glob strings to exclude from the source set</value>
     <comment>Build help tyhp.json exclude key</comment>
   </data>
+  <data name="CLI_BuildHelpConfigSuppressWarnings" xml:space="preserve">
+    <value>Array of warning codes to hide (e.g. TYHP8027). Errors are never hidden</value>
+    <comment>Build help tyhp.json suppressWarnings key</comment>
+  </data>
   <data name="CLI_BuildHelpConfigOutputPath" xml:space="preserve">
     <value>Output directory for compiled PHP (string)</value>
     <comment>Build help tyhp.json output.path</comment>
+  </data>
+  <data name="CLI_BuildHelpConfigOutputPublishPath" xml:space="preserve">
+    <value>Published package root for composer.json (library extra.tyhp.package) and package.tyhpdef (string; default: the project root)</value>
+    <comment>Build help tyhp.json output.publishPath</comment>
+  </data>
+  <data name="CLI_BuildHelpConfigOutputPublishClean" xml:space="preserve">
+    <value>Delete and recreate output.publishPath before compiling (boolean; default: false; refused when publishPath is the project root)</value>
+    <comment>Build help tyhp.json output.publishClean</comment>
+  </data>
+  <data name="CLI_BuildHelpConfigOutputPublishContent" xml:space="preserve">
+    <value>Array of copy rules for extra files written into output.publishPath</value>
+    <comment>Build help tyhp.json output.publishContent</comment>
   </data>
   <data name="CLI_BuildHelpConfigOutputNamespacePrefix" xml:space="preserve">
     <value>Namespace prefix added to emitted PHP (string)</value>
@@ -2378,6 +3136,10 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   <data name="CLI_BuildHelpConfigBuild" xml:space="preserve">
     <value>Build knobs (e.g. generateSourcemap, structBacking, decimalBacking, allowEval, profile, optimize)</value>
     <comment>Build help tyhp.json build.* summary</comment>
+  </data>
+  <data name="CLI_BuildHelpConfigStrictMode" xml:space="preserve">
+    <value>Treat warnings as errors (same as --strict). Set this in CI tyhp.json</value>
+    <comment>Build help tyhp.json build.strictMode</comment>
   </data>
   <data name="CLI_BuildHelpExamplesHeader" xml:space="preserve">
     <value>Examples:</value>
@@ -2416,19 +3178,19 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <comment>Composer action: php executable missing</comment>
   </data>
   <data name="CLI_ComposerActionNotFound" xml:space="preserve">
-    <value>Composer is not installed or not available on PATH. Install Composer from https://getcomposer.org/</value>
+    <value>Composer is not installed or not available on PATH. Run `tyhp install composer`.</value>
     <comment>Composer action: composer executable missing</comment>
   </data>
   <data name="CLI_ComposerTyhpdefDeferred" xml:space="preserve">
     <value>Tyhpdef auto-generation is not yet implemented. Run `tyhp generate_tyhpdef` manually.</value>
-    <comment>Composer action: placeholder after require/install/update (Story 20)</comment>
+    <comment>Unused after Story 21.5 Phase 4 (hook now runs generate_tyhpdef --vendor); retained for resource-key stability</comment>
   </data>
   <data name="CLI_ComposerProxyFailed" xml:space="preserve">
     <value>Failed to start Composer: {0}</value>
     <comment>Composer action: process start failure ({0} = exception message)</comment>
   </data>
   <data name="CLI_ComposerHelpDescription" xml:space="preserve">
-    <value>Run Composer commands through Tyhp. Automatic tyhpdef generation for installed or updated packages is not available yet; after a successful install or update Tyhp reminds you to run `tyhp generate_tyhpdef`.</value>
+    <value>Run Composer commands through Tyhp. After a successful `require`, `install`, or `update`, Tyhp runs `generate_tyhpdef --vendor` unless `--no-tyhpdef` is set. `TYHP_NO_VENDOR_TYHPDEF=1` also skips that hook (and the Composer dump-script generate step).</value>
     <comment>Composer help description paragraph</comment>
   </data>
   <data name="CLI_ComposerHelpUsageHeader" xml:space="preserve">
@@ -2439,6 +3201,10 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>    {0} composer &lt;command&gt; [args]</value>
     <comment>Composer help usage command line ({0} = executable)</comment>
   </data>
+  <data name="CLI_ComposerHelpUsageSync" xml:space="preserve">
+    <value>    {0} composer sync</value>
+    <comment>Composer help usage: Tyhp extras sync subcommand</comment>
+  </data>
   <data name="CLI_ComposerHelpOptionsHeader" xml:space="preserve">
     <value>Options:</value>
     <comment>Composer help options section header</comment>
@@ -2448,12 +3214,24 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <comment>Composer help --help description</comment>
   </data>
   <data name="CLI_ComposerHelpOptionNoTyhpdef" xml:space="preserve">
-    <value>Skip the tyhpdef step after package install or update</value>
+    <value>Skip generate_tyhpdef --vendor after Composer require, install, or update (does not apply to a direct `tyhp generate_tyhpdef --vendor`)</value>
     <comment>Composer help --no-tyhpdef description</comment>
   </data>
   <data name="CLI_ComposerHelpProxiedNote" xml:space="preserve">
     <value>All standard Composer commands are proxied to the Composer CLI. When no Composer subcommand is given, Tyhp shows this help instead of forwarding to Composer.</value>
     <comment>Composer help note about proxied commands</comment>
+  </data>
+  <data name="CLI_ComposerHelpSyncNote" xml:space="preserve">
+    <value>`tyhp composer sync` writes root require-dev from the installed extra.tyhp.require closure (plus tyhp/compiler) and Composer-updates those packages. It does not fetch Packagist itself. Same write+update path as `tyhp build --fix`.</value>
+    <comment>Composer help note about the sync subcommand</comment>
+  </data>
+  <data name="CLI_ComposerExtrasSyncHint" xml:space="preserve">
+    <value>Run `tyhp composer sync` or `tyhp build --fix` to write root require-dev from installed extras. If extras on packages that are not installed yet are unknown, run `composer update` so the tyhp/core plugin can resolve them.</value>
+    <comment>Help prose attached to TYHP7700–7702 extras diagnostics</comment>
+  </data>
+  <data name="CLI_ComposerExtrasUnknownUntilInstall" xml:space="preserve">
+    <value>Extras on not-yet-installed packages ({0}) are unknown; run `composer update` so the tyhp/core plugin can resolve them</value>
+    <comment>Info after --fix/sync when named tyhp/* packages are not installed. {0} = package list</comment>
   </data>
   <data name="CLI_ComposerHelpExamplesHeader" xml:space="preserve">
     <value>Examples:</value>
@@ -2463,6 +3241,10 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>Show composer help</value>
     <comment>Composer help example: --help</comment>
   </data>
+  <data name="CLI_ComposerHelpExampleSync" xml:space="preserve">
+    <value>Write stale extras onto root require-dev and Composer-update those packages</value>
+    <comment>Composer help example: sync</comment>
+  </data>
   <data name="CLI_ComposerHelpExampleRequire" xml:space="preserve">
     <value>Require a Composer package</value>
     <comment>Composer help example: require</comment>
@@ -2471,13 +3253,101 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>Install packages from composer.lock</value>
     <comment>Composer help example: install</comment>
   </data>
+  <data name="CLI_InstallHelpDescription" xml:space="preserve">
+    <value>Download and install toolchain tools. The first target is Composer. This is not the same as `tyhp composer install`, which runs Composer's install command.</value>
+    <comment>Install help description paragraph</comment>
+  </data>
+  <data name="CLI_InstallHelpUsageHeader" xml:space="preserve">
+    <value>Usage:</value>
+    <comment>Install help usage section header</comment>
+  </data>
+  <data name="CLI_InstallHelpUsage" xml:space="preserve">
+    <value>    {0} install &lt;target&gt; [options]</value>
+    <comment>Install help usage command line ({0} = executable)</comment>
+  </data>
+  <data name="CLI_InstallHelpUsageComposer" xml:space="preserve">
+    <value>    {0} install composer</value>
+    <comment>Install help usage: local Composer (default)</comment>
+  </data>
+  <data name="CLI_InstallHelpUsageComposerGlobal" xml:space="preserve">
+    <value>    {0} install composer --global</value>
+    <comment>Install help usage: global Composer</comment>
+  </data>
+  <data name="CLI_InstallHelpUsageComposerLocal" xml:space="preserve">
+    <value>    {0} install composer --local</value>
+    <comment>Install help usage: local Composer</comment>
+  </data>
+  <data name="CLI_InstallHelpTargetsHeader" xml:space="preserve">
+    <value>Targets:</value>
+    <comment>Install help targets section header</comment>
+  </data>
+  <data name="CLI_InstallHelpTargetComposer" xml:space="preserve">
+    <value>Download the official Composer installer and place the binary</value>
+    <comment>Install help: composer target</comment>
+  </data>
+  <data name="CLI_InstallHelpKnownTargetsNote" xml:space="preserve">
+    <value>Unknown targets are rejected. The only target currently available is composer.</value>
+    <comment>Install help: known-target note</comment>
+  </data>
+  <data name="CLI_InstallHelpVsComposerNote" xml:space="preserve">
+    <value>`tyhp install composer` installs the Composer tool. `tyhp composer install` proxies Composer's own install command.</value>
+    <comment>Install help: distinction from tyhp composer install</comment>
+  </data>
+  <data name="CLI_InstallHelpOptionsHeader" xml:space="preserve">
+    <value>Options:</value>
+    <comment>Install help options section header</comment>
+  </data>
+  <data name="CLI_InstallHelpOptionHelp" xml:space="preserve">
+    <value>Show this help text (same as help --subject=install)</value>
+    <comment>Install help --help description</comment>
+  </data>
+  <data name="CLI_InstallHelpOptionLocal" xml:space="preserve">
+    <value>Install to ./composer.phar in the project directory (default)</value>
+    <comment>Install help --local description</comment>
+  </data>
+  <data name="CLI_InstallHelpOptionGlobal" xml:space="preserve">
+    <value>Install to ~/.local/bin/composer</value>
+    <comment>Install help --global description</comment>
+  </data>
+  <data name="CLI_InstallHelpOptionForce" xml:space="preserve">
+    <value>Replace an existing Composer binary at the destination</value>
+    <comment>Install help --force description</comment>
+  </data>
+  <data name="CLI_InstallHelpExamplesHeader" xml:space="preserve">
+    <value>Examples:</value>
+    <comment>Install help examples section header</comment>
+  </data>
+  <data name="CLI_InstallHelpExampleComposer" xml:space="preserve">
+    <value>Install Composer next to the project as composer.phar</value>
+    <comment>Install help example: install composer</comment>
+  </data>
+  <data name="CLI_InstallHelpExampleGlobal" xml:space="preserve">
+    <value>Install Composer to ~/.local/bin/composer</value>
+    <comment>Install help example: --global</comment>
+  </data>
+  <data name="CLI_InstallHelpExampleForce" xml:space="preserve">
+    <value>Replace an existing Composer binary</value>
+    <comment>Install help example: --force</comment>
+  </data>
+  <data name="CLI_InstallHelpExampleHelp" xml:space="preserve">
+    <value>Show install help</value>
+    <comment>Install help example: --help</comment>
+  </data>
+  <data name="CLI_InstallComposerAlreadyPresent" xml:space="preserve">
+    <value>Composer is already installed at {0}. Pass --force to replace it.</value>
+    <comment>Install composer: destination exists without --force ({0} = path)</comment>
+  </data>
+  <data name="CLI_InstallComposerSuccess" xml:space="preserve">
+    <value>Composer installed at {0}</value>
+    <comment>Install composer: success ({0} = destination path)</comment>
+  </data>
   <data name="CLI_LanguageServerNotImplemented" xml:space="preserve">
     <value>The language server is not yet implemented (Story 19).</value>
-    <comment>Shown when tyhp language_server is invoked before Story 19 lands</comment>
+    <comment>Unused after Story 19 Phase 1 (LanguageServerAction landed); retained for resource-key stability</comment>
   </data>
   <data name="CLI_LanguageServerHelpNotAvailable" xml:space="preserve">
     <value>Note: The language server action is not yet implemented (Story 19). The options below document the planned interface.</value>
-    <comment>Language server help availability note</comment>
+    <comment>Unused after Story 19 Phase 1 (full LanguageServerHelp landed); retained for resource-key stability</comment>
   </data>
   <data name="CLI_LanguageServerHelpDescription" xml:space="preserve">
     <value>Start the Tyhp Language Server Protocol (LSP) server for IDE integration (diagnostics, completion, hover, go-to-definition, and related features).</value>
@@ -2500,7 +3370,7 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <comment>Language server help --help description</comment>
   </data>
   <data name="CLI_LanguageServerHelpOptionStdio" xml:space="preserve">
-    <value>Communicate via stdin/stdout (default; the only transport planned for Story 19)</value>
+    <value>Communicate via stdin/stdout (default; the only transport implemented)</value>
     <comment>Language server help --stdio description</comment>
   </data>
   <data name="CLI_LanguageServerHelpOptionTcp" xml:space="preserve">
@@ -2510,6 +3380,10 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   <data name="CLI_LanguageServerHelpOptionPipe" xml:space="preserve">
     <value>Communicate via named pipe (not yet implemented)</value>
     <comment>Language server help --pipe description; PLACEHOLDER_STORY_30</comment>
+  </data>
+  <data name="CLI_LanguageServerHelpOptionPidFile" xml:space="preserve">
+    <value>Write the process id to this file while running (opt-in; nothing is written by default)</value>
+    <comment>Language server help --pid-file description</comment>
   </data>
   <data name="CLI_LanguageServerHelpExamplesHeader" xml:space="preserve">
     <value>Examples:</value>
@@ -2523,13 +3397,45 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>Show language server help</value>
     <comment>Language server help example: --help</comment>
   </data>
+  <data name="CLI_LanguageServerTransportNotImplemented" xml:space="preserve">
+    <value>TCP and named-pipe transports are not implemented; use stdin/stdout (default)</value>
+    <comment>Shown when tyhp language_server is invoked with --tcp or --pipe; PLACEHOLDER_STORY_30</comment>
+  </data>
+  <data name="CLI_LanguageServerDocumentSyncFailed" xml:space="preserve">
+    <value>Document synchronization failed: {0}: {1}</value>
+    <comment>LSP window/logMessage when didOpen/didChange/didClose/didSave throws. Args: exception type, message</comment>
+  </data>
+  <data name="CLI_LanguageServerWorkspaceScanFailed" xml:space="preserve">
+    <value>Workspace scan failed: {0}: {1}</value>
+    <comment>LSP window/logMessage when project scan or tyhp.json reload fails. Args: exception type, message</comment>
+  </data>
+  <data name="CLI_LanguageServerFeatureFailed" xml:space="preserve">
+    <value>Language server request `{0}` failed: {1}: {2}</value>
+    <comment>LSP window/logMessage when a feature handler (hover, definition, …) throws. Args: method name, exception type, message</comment>
+  </data>
+  <data name="CLI_LspCodeActionImport" xml:space="preserve">
+    <value>Import `{0}`</value>
+    <comment>LSP code action title to add a use statement. Arg: fully qualified type/function name</comment>
+  </data>
+  <data name="CLI_LspCodeActionRemoveUnusedImport" xml:space="preserve">
+    <value>Remove unused import `{0}`</value>
+    <comment>LSP code action title to delete an unused use statement. Arg: imported name</comment>
+  </data>
+  <data name="CLI_LspCodeActionOrganizeImports" xml:space="preserve">
+    <value>Organize imports</value>
+    <comment>LSP source code action title to sort use statements</comment>
+  </data>
   <data name="CLI_XDebugProxyNotImplemented" xml:space="preserve">
     <value>The XDebug proxy is not yet implemented (Story 18).</value>
-    <comment>Shown when tyhp xdebug_proxy is invoked before Story 18 lands</comment>
+    <comment>Unused after Story 18 Phase 5 (XDebugProxyAction landed); retained for resource-key stability</comment>
   </data>
   <data name="CLI_XDebugProxyHelpPlaceholder" xml:space="preserve">
     <value>Note: The XDebug proxy is not yet implemented — see Story 18. The usage below documents the planned interface; the full option list ships with Story 18.</value>
-    <comment>XDebug proxy help placeholder (Story 13); PLACEHOLDER_STORY_18</comment>
+    <comment>Unused after Story 18 Phase 7 (full XDebugProxyHelp landed); retained for resource-key stability</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpDescription" xml:space="preserve">
+    <value>Starts a DBGp proxy between an IDE debug adapter and PHP XDebug. The proxy loads .php.map sourcemaps from a tyhp build and translates file paths and line numbers so you can debug original .tyhp sources while PHP executes the compiled output. Configure XDebug to connect to the proxy XDebug port (default 9004) and the IDE to connect to the proxy IDE port (default 9003). --ide-key filters XDebug init idekey only.</value>
+    <comment>XDebug proxy help description paragraph</comment>
   </data>
   <data name="CLI_XDebugProxyHelpUsageHeader" xml:space="preserve">
     <value>Usage:</value>
@@ -2543,20 +3449,268 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>Options:</value>
     <comment>XDebug proxy help options section header</comment>
   </data>
+  <data name="CLI_XDebugProxyHelpOptionIdePort" xml:space="preserve">
+    <value>Port for IDE debug adapter connections (default: 9003)</value>
+    <comment>XDebug proxy help --ide-port description</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpOptionXdebugPort" xml:space="preserve">
+    <value>Port for XDebug engine connections (default: 9004)</value>
+    <comment>XDebug proxy help --xdebug-port description</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpOptionSourcemapDir" xml:space="preserve">
+    <value>Directory of .php.map sourcemap files (defaults to output.path)</value>
+    <comment>XDebug proxy help --sourcemap-dir description</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpOptionIdeKey" xml:space="preserve">
+    <value>Only accept XDebug sessions whose init idekey matches this value</value>
+    <comment>XDebug proxy help --ide-key description</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpOptionLogLevel" xml:space="preserve">
+    <value>Logging verbosity: debug, info, warn, or error (default: info)</value>
+    <comment>XDebug proxy help --log-level description</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpOptionPidFile" xml:space="preserve">
+    <value>Write the process id to this file while running (opt-in; nothing is written by default)</value>
+    <comment>XDebug proxy help --pid-file description</comment>
+  </data>
   <data name="CLI_XDebugProxyHelpOptionHelp" xml:space="preserve">
     <value>Show this help text (same as help --subject=xdebug_proxy)</value>
     <comment>XDebug proxy help --help description</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpXdebugConfigHeader" xml:space="preserve">
+    <value>XDebug configuration (php.ini / xdebug.ini):</value>
+    <comment>XDebug proxy help php.ini section header</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpXdebugConfigIntro" xml:space="preserve">
+    <value>Point XDebug at the proxy XDebug port (9004 by default), not the IDE port:</value>
+    <comment>XDebug proxy help php.ini intro (no braces — Paragraph uses String.Format)</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpXdebugIniExample" xml:space="preserve">
+    <value>xdebug.mode = debug
+xdebug.client_host = 127.0.0.1
+xdebug.client_port = 9004
+xdebug.idekey = tyhp</value>
+    <comment>XDebug proxy help php.ini / xdebug.ini example (printed via LocalizeRaw)</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpTyhpJsonHeader" xml:space="preserve">
+    <value>tyhp.json (xdebugProxy section):</value>
+    <comment>XDebug proxy help tyhp.json section header</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpTyhpJsonIntro" xml:space="preserve">
+    <value>CLI flags override these keys. When sourceMapDir is omitted, the proxy uses output.path. When ideKey is omitted, every XDebug idekey is accepted.</value>
+    <comment>XDebug proxy help tyhp.json intro (no braces)</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpTyhpJsonExample" xml:space="preserve">
+    <value>{
+    "xdebugProxy": {
+        "idePort": 9003,
+        "xdebugPort": 9004,
+        "ideListenAddress": "127.0.0.1",
+        "xdebugListenAddress": "127.0.0.1",
+        "sourceMapDir": null,
+        "ideKey": null,
+        "maxSessions": 10,
+        "logLevel": "info",
+        "autoReloadSourceMaps": true
+    }
+}</value>
+    <comment>XDebug proxy help tyhp.json example (braces; printed via LocalizeRaw)</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpLaunchJsonHeader" xml:space="preserve">
+    <value>VS Code launch.json:</value>
+    <comment>XDebug proxy help launch.json section header</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpLaunchJsonIntro" xml:space="preserve">
+    <value>Connect the IDE debug adapter to the proxy IDE port (9003 by default):</value>
+    <comment>XDebug proxy help launch.json intro (no braces)</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpLaunchJsonExample" xml:space="preserve">
+    <value>{
+    "name": "Debug Tyhp (via proxy)",
+    "type": "php",
+    "request": "launch",
+    "port": 9003
+}</value>
+    <comment>XDebug proxy help VS Code launch.json example (braces; printed via LocalizeRaw)</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpExamplesHeader" xml:space="preserve">
+    <value>Examples:</value>
+    <comment>XDebug proxy help examples section header</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpExampleStart" xml:space="preserve">
+    <value>Start the proxy using sourcemaps from the build output directory</value>
+    <comment>XDebug proxy help example: start with --sourcemap-dir</comment>
+  </data>
+  <data name="CLI_XDebugProxyHelpExampleHelp" xml:space="preserve">
+    <value>Show xdebug_proxy help</value>
+    <comment>XDebug proxy help example: --help</comment>
+  </data>
+  <data name="CLI_XDebugProxyStarted" xml:space="preserve">
+    <value>XDebug Proxy started</value>
+    <comment>XDebug proxy startup banner title (bound ports printed on following lines)</comment>
+  </data>
+  <data name="CLI_XDebugProxyStartedIdePort" xml:space="preserve">
+    <value>  IDE port:      {0}</value>
+    <comment>XDebug proxy startup banner; arg: bound IDE port (including ephemeral 0)</comment>
+  </data>
+  <data name="CLI_XDebugProxyStartedXdebugPort" xml:space="preserve">
+    <value>  XDebug port:   {0}</value>
+    <comment>XDebug proxy startup banner; arg: bound XDebug port</comment>
+  </data>
+  <data name="CLI_XDebugProxyStartedSourcemaps" xml:space="preserve">
+    <value>  Sourcemaps:    {0} files loaded from {1}</value>
+    <comment>XDebug proxy startup banner; args: loaded map count, sourcemap directory</comment>
+  </data>
+  <data name="CLI_XDebugProxyStartedSourceRoot" xml:space="preserve">
+    <value>  Source root:   {0}</value>
+    <comment>XDebug proxy startup banner; arg: tyhp source root</comment>
+  </data>
+  <data name="CLI_XDebugProxyStartedIdeKey" xml:space="preserve">
+    <value>  IDE key:       {0}</value>
+    <comment>XDebug proxy startup banner; arg: configured idekey or CLI_XDebugProxyIdeKeyAny</comment>
+  </data>
+  <data name="CLI_XDebugProxyIdeKeyAny" xml:space="preserve">
+    <value>(any)</value>
+    <comment>XDebug proxy startup banner when no idekey filter is configured</comment>
+  </data>
+  <data name="CLI_XDebugProxyShuttingDown" xml:space="preserve">
+    <value>Shutting down... closing {0} active session(s).</value>
+    <comment>XDebug proxy Ctrl+C shutdown; arg: active session count</comment>
+  </data>
+  <data name="CLI_XDebugProxyPortInUseHint" xml:space="preserve">
+    <value>Specify a different port with `--{0}`.</value>
+    <comment>CLI follow-up after TYHP7407; arg: ide-port or xdebug-port flag name</comment>
+  </data>
+  <data name="CLI_XDebugProxyLogLine" xml:space="preserve">
+    <value>{0}</value>
+    <comment>Passthrough for a ProxyLogger info/warn/error line (prefix already applied)</comment>
+  </data>
+  <data name="CLI_XDebugProxyConnectionAccepted" xml:space="preserve">
+    <value>{0} connection accepted from {1}</value>
+    <comment>ProxyLogger info; args: side (IDE/XDebug), remote endpoint</comment>
+  </data>
+  <data name="CLI_XDebugProxyConnectionRejected" xml:space="preserve">
+    <value>{0} connection from {1} rejected: {2}</value>
+    <comment>ProxyLogger warn; args: side, remote endpoint, reason</comment>
+  </data>
+  <data name="CLI_XDebugProxySessionPaired" xml:space="preserve">
+    <value>Session {0} paired</value>
+    <comment>ProxyLogger info; arg: session id</comment>
+  </data>
+  <data name="CLI_XDebugProxySessionPairedWithKey" xml:space="preserve">
+    <value>Session {0} paired (idekey={1})</value>
+    <comment>ProxyLogger info; args: session id, idekey</comment>
+  </data>
+  <data name="CLI_XDebugProxySessionDisconnected" xml:space="preserve">
+    <value>Session {0} disconnected</value>
+    <comment>ProxyLogger info; arg: session id</comment>
+  </data>
+  <data name="CLI_XDebugProxyTranslationFailed" xml:space="preserve">
+    <value>Translation failed: {0}</value>
+    <comment>ProxyLogger warn; arg: translator detail</comment>
+  </data>
+  <data name="CLI_XDebugProxyMalformedDbgp" xml:space="preserve">
+    <value>Malformed DBGp message from {0} skipped: {1}</value>
+    <comment>ProxyLogger warn; args: side, detail</comment>
+  </data>
+  <data name="CLI_XDebugProxyConnectionLost" xml:space="preserve">
+    <value>{0} connection lost: {1}</value>
+    <comment>ProxyLogger info; args: side or direction, detail</comment>
+  </data>
+  <data name="CLI_XDebugProxyConnectionFailed" xml:space="preserve">
+    <value>{0} connection failed: {1}</value>
+    <comment>ProxyLogger error; args: side or direction, detail</comment>
+  </data>
+  <data name="CLI_XDebugProxyAcceptFailed" xml:space="preserve">
+    <value>Accept on {0} failed; still listening: {1}</value>
+    <comment>ProxyLogger warn; args: side (IDE/XDebug), detail</comment>
+  </data>
+  <data name="CLI_XDebugProxySessionError" xml:space="preserve">
+    <value>Session ended with error: {0}</value>
+    <comment>ProxyLogger error; arg: exception detail</comment>
+  </data>
+  <data name="CLI_XDebugProxyStopped" xml:space="preserve">
+    <value>XDebug Proxy stopped.</value>
+    <comment>XDebug proxy shutdown (Ctrl+C / cancellation)</comment>
+  </data>
+  <data name="CLI_XDebugProxyNoSourceMaps" xml:space="preserve">
+    <value>No sourcemaps found in `{0}`. Build the project with sourcemap generation enabled first.</value>
+    <comment>XDebug proxy warning when the sourcemap directory has no .php.map files. Arg: directory</comment>
+  </data>
+  <data name="CLI_XDebugProxyInvalidPort" xml:space="preserve">
+    <value>Invalid port `{0}`; expected an integer from 0 to 65535</value>
+    <comment>XDebug proxy rejected a port CLI/JSON value. Arg: raw port</comment>
+  </data>
+  <data name="CLI_XDebugProxyInvalidAddress" xml:space="preserve">
+    <value>Invalid listen address `{0}`</value>
+    <comment>XDebug proxy rejected ideListenAddress or xdebugListenAddress. Arg: address</comment>
+  </data>
+  <data name="CLI_XDebugProxySourceMapDirMissing" xml:space="preserve">
+    <value>Sourcemap directory `{0}` does not exist</value>
+    <comment>XDebug proxy --sourcemap-dir / xdebugProxy.sourceMapDir points at a missing path. Arg: directory</comment>
+  </data>
+  <data name="CLI_XDebugProxyInvalidMaxSessions" xml:space="preserve">
+    <value>Invalid maxSessions `{0}`; expected an integer of at least 1</value>
+    <comment>XDebug proxy xdebugProxy.maxSessions is missing or below 1. Arg: raw value</comment>
+  </data>
+  <data name="ERROR_TYHP7300" xml:space="preserve">
+    <value>Language server failed: {0}</value>
+    <comment>Generic language server error. Arg: exception detail</comment>
+  </data>
+  <data name="ERROR_TYHP7301" xml:space="preserve">
+    <value>Language server startup failed: {0}</value>
+    <comment>Failed to start the LSP server. Arg: exception detail</comment>
+  </data>
+  <data name="ERROR_TYHP7302" xml:space="preserve">
+    <value>Document analysis failed: {0}</value>
+    <comment>Error during language-server document analysis. Arg: exception detail</comment>
+  </data>
+  <data name="ERROR_TYHP7303" xml:space="preserve">
+    <value>Sourcemap `{0}` could not be loaded: {1}</value>
+    <comment>Error loading a sourcemap for workspace analysis. Args: path, detail</comment>
+  </data>
+  <data name="ERROR_TYHP7400" xml:space="preserve">
+    <value>XDebug proxy failed: {0}</value>
+    <comment>Generic XDebug proxy error. Arg: exception detail</comment>
+  </data>
+  <data name="WARNING_TYHP7401" xml:space="preserve">
+    <value>Sourcemap `{0}` is not found</value>
+    <comment>No sourcemap file for a PHP path. Arg: path</comment>
+  </data>
+  <data name="WARNING_TYHP7402" xml:space="preserve">
+    <value>Sourcemap `{0}` is malformed: {1}</value>
+    <comment>Sourcemap JSON could not be parsed. Args: path, detail</comment>
+  </data>
+  <data name="ERROR_TYHP7403" xml:space="preserve">
+    <value>TCP connection failed: {0}</value>
+    <comment>XDebug proxy TCP connection error. Arg: detail</comment>
+  </data>
+  <data name="WARNING_TYHP7404" xml:space="preserve">
+    <value>Debug session pairing wait for `{0}` exceeds the timeout</value>
+    <comment>IDE or XDebug side did not connect in time. Arg: side name</comment>
+  </data>
+  <data name="WARNING_TYHP7405" xml:space="preserve">
+    <value>DBGp message translation failed: {0}</value>
+    <comment>Non-fatal DBGp translation warning. Arg: detail</comment>
+  </data>
+  <data name="WARNING_TYHP7406" xml:space="preserve">
+    <value>Malformed DBGp message is skipped: {0}</value>
+    <comment>Malformed DBGp message; session continues. Arg: detail</comment>
+  </data>
+  <data name="ERROR_TYHP7407" xml:space="preserve">
+    <value>Port `{0}` is already in use</value>
+    <comment>Configured proxy listen port is already bound. Arg: port</comment>
   </data>
   <data name="CLI_GenerateTyhpdefNotImplemented" xml:space="preserve">
     <value>generate tyhpdef NOT IMPLEMENTED</value>
     <comment>Unused after Story 13 Phase 3 (GenerateTyhpdefHelp completed); retained for resource-key stability</comment>
   </data>
   <data name="CLI_GenerateTyhpdefHelpNotAvailable" xml:space="preserve">
-    <value>Note: Full tyhpdef generation is not yet implemented (Story 20). The options below document the planned interface.</value>
-    <comment>Generate tyhpdef help availability note; PLACEHOLDER_STORY_20</comment>
+    <value>Note: `--ext-name` uses Tyhp-managed PHP by default. `--source` / `--package-path` parse PHP files (no PHP runtime). `--php-targets` gated output is Phase 8 / Story 20.5.</value>
+    <comment>Unused after Story 20 Phase 7 (replaced by CLI_GenerateTyhpdefHelpNotes*); retained for resource-key stability</comment>
   </data>
   <data name="CLI_GenerateTyhpdefHelpDescription" xml:space="preserve">
-    <value>Generate tyhpdef type definition files for PHP extensions or Composer packages. Library projects (type: library in tyhp.json) auto-generate a package.tyhp.json during tyhp build — this command is for generating tyhpdefs from external PHP code.</value>
+    <value>Generate tyhpdef type definition files for PHP extensions, Composer packages, or PHP source files. Library projects (type: library in tyhp.json) emit package.tyhpdef during tyhp build — this command is for generating tyhpdefs from external PHP code.</value>
     <comment>Generate tyhpdef help description paragraph</comment>
   </data>
   <data name="CLI_GenerateTyhpdefHelpUsageHeader" xml:space="preserve">
@@ -2581,31 +3735,175 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   </data>
   <data name="CLI_GenerateTyhpdefHelpOptionComposerPackage" xml:space="preserve">
     <value>Composer package name (reads from the vendor directory)</value>
-    <comment>Generate tyhpdef help --composer-package description</comment>
+    <comment>Unused after Story 20 Phase 1 (--composer-package removed); retained for resource-key stability</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionPackagePath" xml:space="preserve">
+    <value>Path to a Composer package directory (composer.json autoload)</value>
+    <comment>Generate tyhpdef help --package-path description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionSource" xml:space="preserve">
+    <value>Glob pattern(s) for PHP source files</value>
+    <comment>Generate tyhpdef help --source description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionVendor" xml:space="preserve">
+    <value>Scan Composer vendor/ (default projectRoot/vendor) and write stubs to vendor-tyhpdef/. `--vendor=/path` sets the vendor directory</value>
+    <comment>Generate tyhpdef help --vendor description</comment>
   </data>
   <data name="CLI_GenerateTyhpdefHelpOptionOutput" xml:space="preserve">
-    <value>Output directory for generated tyhpdef files</value>
+    <value>Output directory (default: projectRoot or cwd tyhpdef/; tyhp build writes package.tyhpdef next to the project, not here)</value>
     <comment>Generate tyhpdef help --output description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionOutputFile" xml:space="preserve">
+    <value>Write a single tyhpdef file (relative paths resolve against --output)</value>
+    <comment>Generate tyhpdef help --output-file description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionPhp" xml:space="preserve">
+    <value>User PHP binary for --ext-name (single-target escape hatch; illegal with --php-targets)</value>
+    <comment>Generate tyhpdef help --php description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionPhpTargets" xml:space="preserve">
+    <value>Managed PHP minors to reflect, comma-separated (gated output; illegal with --php, TYHP7510)</value>
+    <comment>Generate tyhpdef help --php-targets description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionPhpRuntimeDir" xml:space="preserve">
+    <value>Override the managed PHP runtime cache directory</value>
+    <comment>Generate tyhpdef help --php-runtime-dir description</comment>
   </data>
   <data name="CLI_GenerateTyhpdefHelpOptionPhpVersion" xml:space="preserve">
     <value>Target PHP version for extension tyhpdefs</value>
     <comment>Generate tyhpdef help --php-version description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionLocale" xml:space="preserve">
+    <value>php.net manual language for --ext-name doc comments (default: en)</value>
+    <comment>Generate tyhpdef help --locale description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionNoDocs" xml:space="preserve">
+    <value>Skip emitting /** */ comments (--ext-name also skips the php.net manual)</value>
+    <comment>Generate tyhpdef help --no-docs description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionIncludeInternal" xml:space="preserve">
+    <value>Include items marked @internal (off by default)</value>
+    <comment>Generate tyhpdef help --include-internal description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionIncludeDeprecated" xml:space="preserve">
+    <value>Include deprecated items (on by default)</value>
+    <comment>Generate tyhpdef help --include-deprecated description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionNoDeprecated" xml:space="preserve">
+    <value>Skip deprecated items</value>
+    <comment>Generate tyhpdef help --no-deprecated description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionOverwrite" xml:space="preserve">
+    <value>Overwrite existing tyhpdef files</value>
+    <comment>Generate tyhpdef help --overwrite description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionSplit" xml:space="preserve">
+    <value>Output layout: file (default; one .tyhpdef per target), namespace, or type</value>
+    <comment>Generate tyhpdef help --split description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionIncludeDev" xml:space="preserve">
+    <value>Also collect Composer autoload-dev (with --package-path)</value>
+    <comment>Generate tyhpdef help --include-dev description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionRequireStubs" xml:space="preserve">
+    <value>Fail if the Layer 2 stub cache is missing (off by default)</value>
+    <comment>Generate tyhpdef help --require-stubs description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionNoPhp" xml:space="preserve">
+    <value>Error with --ext-name (PHP is required); ignored for --source / --package-path</value>
+    <comment>Generate tyhpdef help --no-php description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionNoPhpRuntimeUpdate" xml:space="preserve">
+    <value>Skip managed PHP patch auto-update</value>
+    <comment>Generate tyhpdef help --no-php-runtime-update description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionRefreshSnapshots" xml:space="preserve">
+    <value>Re-reflect even if PHP snapshots already exist</value>
+    <comment>Generate tyhpdef help --refresh-snapshots description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionValidate" xml:space="preserve">
+    <value>Parse-check existing .tyhpdef files (file or directory); non-zero if any fail</value>
+    <comment>Generate tyhpdef help --validate description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionAuditStubs" xml:space="preserve">
+    <value>Report Layer 2 vs Psalm/PHPStan/PhpStorm/Phan consensus and harvest faithfulness (does not regenerate files)</value>
+    <comment>Generate tyhpdef help --audit-stubs description</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionAuditOut" xml:space="preserve">
+    <value>Write the --audit-stubs markdown report to a file instead of stdout</value>
+    <comment>Generate tyhpdef help --out description for --audit-stubs</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpOptionVerify" xml:space="preserve">
+    <value>Regenerate Layer 1, apply overlays (stubs then hand; omit hides), and check the final API against PHP</value>
+    <comment>Generate tyhpdef help --verify description</comment>
   </data>
   <data name="CLI_GenerateTyhpdefHelpExamplesHeader" xml:space="preserve">
     <value>Examples:</value>
     <comment>Generate tyhpdef help examples section header</comment>
   </data>
   <data name="CLI_GenerateTyhpdefHelpExampleExt" xml:space="preserve">
-    <value>Generate a tyhpdef for the curl extension</value>
+    <value>Generate a tyhpdef for the curl extension (managed PHP; no PATH php required)</value>
     <comment>Generate tyhpdef help example: --ext-name</comment>
   </data>
   <data name="CLI_GenerateTyhpdefHelpExamplePackage" xml:space="preserve">
-    <value>Generate a tyhpdef for a Composer package</value>
-    <comment>Generate tyhpdef help example: --composer-package</comment>
+    <value>Generate a tyhpdef for a Composer package into tyhpdef/</value>
+    <comment>Generate tyhpdef help example: --package-path</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpExampleSource" xml:space="preserve">
+    <value>Generate a tyhpdef from PHP source files</value>
+    <comment>Generate tyhpdef help example: --source</comment>
   </data>
   <data name="CLI_GenerateTyhpdefHelpExampleHelp" xml:space="preserve">
     <value>Show generate_tyhpdef help</value>
     <comment>Generate tyhpdef help example: --help</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpNotesManaged" xml:space="preserve">
+    <value>`--ext-name` defaults to Tyhp-managed PHP (download + isolated ini; no PATH / brew / PHP_BINARY). `--php` is a single-target user binary and cannot be combined with `--php-targets` (TYHP7510). `--php-targets` reflects each listed minor with managed PHP only and emits one gated tree.</value>
+    <comment>Generate tyhpdef help: managed PHP vs --php vs --php-targets</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpNotesTracks" xml:space="preserve">
+    <value>`--source` / `--package-path` parse PHP files only (no PHP runtime). Default output is projectRoot/tyhpdef/ when a project is open, otherwise cwd/tyhpdef/. `--split` is file (default), namespace, or type.</value>
+    <comment>Generate tyhpdef help: PHP source harvest, default output, --split</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpNotesVerify" xml:space="preserve">
+    <value>`--verify` regenerates Layer 1, applies overlays (`extra.tyhp.package` overlay array, or overlays/stubs then overlays/*.tyhpdef), and checks that the final API covers PHP. Overlay `omit` is intentional (not a fail). Extra overlay-only members are allowed. `--audit-stubs` reports Layer 2 vs stub-corpus consensus without regenerating files.</value>
+    <comment>Generate tyhpdef help: --verify overlays and omit</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpNotesDocs" xml:space="preserve">
+    <value>`--ext-name` doc comments come from the php.net HTML manual (`--locale`, default en). `--no-docs` omits `/** */` and skips the manual download.</value>
+    <comment>Generate tyhpdef help: --locale / --no-docs</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpNotesVendor" xml:space="preserve">
+    <value>`--vendor` prefers published `tyhpdef/*` companions and `tyhpdef/php-ext-*` packages, otherwise generates stubs into `vendor-tyhpdef/`. Do not edit those files; put lasting changes in overlay tyhpdefs (`tyhp.json` `overlay`). `TYHP_NO_VENDOR_TYHPDEF=1` skips the Composer dump-script generate step; `--no-tyhpdef` applies only to `tyhp composer`.</value>
+    <comment>Generate tyhpdef help: --vendor companions, overlays, env skip</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpExampleVendor" xml:space="preserve">
+    <value>Scan installed Composer packages and generate vendor tyhpdefs</value>
+    <comment>Generate tyhpdef help example: --vendor</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpExampleExtVersion" xml:space="preserve">
+    <value>Generate curl tyhpdefs targeting PHP 8.3</value>
+    <comment>Generate tyhpdef help example: --ext-name with --php-version</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpExamplePhpTargets" xml:space="preserve">
+    <value>Gated multi-target generate (managed PHP only)</value>
+    <comment>Generate tyhpdef help example: --php-targets</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpExamplePhp" xml:space="preserve">
+    <value>Private extension via a user PHP binary (ungated single target)</value>
+    <comment>Generate tyhpdef help example: --php user binary</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpExampleSourceSplit" xml:space="preserve">
+    <value>Generate from PHP sources, one file per namespace</value>
+    <comment>Generate tyhpdef help example: --source with --split=namespace</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpExampleValidate" xml:space="preserve">
+    <value>Parse-check existing tyhpdef files</value>
+    <comment>Generate tyhpdef help example: --validate</comment>
+  </data>
+  <data name="CLI_GenerateTyhpdefHelpExampleAuditStubs" xml:space="preserve">
+    <value>Report Layer 2 stub consensus and harvest faithfulness without regenerating files</value>
+    <comment>Generate tyhpdef help example: --audit-stubs</comment>
   </data>
   <data name="CLI_FormatDiagnosticFailed" xml:space="preserve">
     <value>Failed to format diagnostic {0}: {1}</value>
@@ -2635,6 +3933,10 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>did you mean `{0}`?</value>
     <comment>Story 14 Phase 3: suggestion description / help hint for a close identifier match</comment>
   </data>
+  <data name="CLI_DiagnosticLabelDeclaredHere" xml:space="preserve">
+    <value>declared here</value>
+    <comment>Story 14 secondary-span label on the declaration that a diagnostic refers to (e.g. extern type used in extends/implements)</comment>
+  </data>
   <data name="CLI_DiagnosticNote" xml:space="preserve">
     <value>   = note: {0}</value>
     <comment>Rich diagnostic: note annotation</comment>
@@ -2661,7 +3963,203 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   </data>
   <data name="CLI_ExtNameRequired" xml:space="preserve">
     <value>You must specify a PHP extension name using the "--ext-name=" command line option.</value>
-    <comment>Generate tyhpdef missing ext name</comment>
+    <comment>Unused after Story 20 Phase 1 (replaced by CLI_TyhpdefRequiredArguments); retained for resource-key stability</comment>
+  </data>
+  <data name="CLI_TyhpdefRequiredArguments" xml:space="preserve">
+    <value>generate_tyhpdef requires `--ext-name`, `--package-path`, `--source`, `--vendor`, `--validate`, or `--audit-stubs`</value>
+    <comment>Generate tyhpdef with no generation mode flags</comment>
+  </data>
+  <data name="CLI_TyhpdefMultipleModes" xml:space="preserve">
+    <value>Exactly one of `--ext-name`, `--package-path`, `--source`, or `--vendor` is required</value>
+    <comment>Generate tyhpdef with more than one generation mode flag</comment>
+  </data>
+  <data name="CLI_TyhpdefAuditStubsExclusive" xml:space="preserve">
+    <value>`--audit-stubs` cannot be combined with `--ext-name`, `--package-path`, `--source`, or `--vendor`</value>
+    <comment>generate_tyhpdef --audit-stubs with a generation mode</comment>
+  </data>
+  <data name="CLI_TyhpdefInvalidSplit" xml:space="preserve">
+    <value>Invalid `--split` value `{0}`; expected `file`, `namespace`, or `type`</value>
+    <comment>Generate tyhpdef --split is not file|namespace|type. Arg: value</comment>
+  </data>
+  <data name="CLI_TyhpdefPhpDelegationNotImplemented" xml:space="preserve">
+    <value>PHP delegation not yet implemented</value>
+    <comment>Phase 1 placeholder for --ext-name Reflection harvest</comment>
+  </data>
+  <data name="CLI_TyhpdefCsharpNativeNotImplemented" xml:space="preserve">
+    <value>C# native generation not yet implemented</value>
+    <comment>Unused after PHP-source harvest was implemented; retained for resource-key stability</comment>
+  </data>
+  <data name="CLI_TyhpdefMissingComposerJson" xml:space="preserve">
+    <value>`--package-path` `{0}` has no composer.json</value>
+    <comment>--package-path directory is missing composer.json. Arg: path</comment>
+  </data>
+  <data name="CLI_TyhpdefNoAutoloadPaths" xml:space="preserve">
+    <value>`--package-path` `{0}` has no autoload paths</value>
+    <comment>--package-path composer.json has no autoload (or autoload-dev). Arg: path</comment>
+  </data>
+  <data name="CLI_TyhpdefNoSourceFiles" xml:space="preserve">
+    <value>No PHP source files were collected for tyhpdef generation</value>
+    <comment>--source glob or --package-path autoload matched nothing</comment>
+  </data>
+  <data name="CLI_TyhpdefGeneratedFile" xml:space="preserve">
+    <value>Generated: {0}</value>
+    <comment>Generate tyhpdef per-file path. Arg: path</comment>
+  </data>
+  <data name="CLI_TyhpdefDeclarationCounts" xml:space="preserve">
+    <value>Declarations: {0} (classes: {1}, functions: {2}, constants: {3})</value>
+    <comment>Generate tyhpdef declaration counts</comment>
+  </data>
+  <data name="CLI_TyhpdefDuration" xml:space="preserve">
+    <value>Duration: {0:F2}s</value>
+    <comment>Generate tyhpdef elapsed time</comment>
+  </data>
+  <data name="CLI_TyhpdefPhpTargetsNotImplemented" xml:space="preserve">
+    <value>Multi-target `--php-targets` generation is not implemented yet (Story 20 Phase 8)</value>
+    <comment>Unused after Story 20 Phase 8; retained for resource-key stability</comment>
+  </data>
+  <data name="CLI_TyhpdefPhpTargetsRequiresExtName" xml:space="preserve">
+    <value>`--php-targets` is only valid with `--ext-name` (managed PHP)</value>
+    <comment>generate_tyhpdef --php-targets used with --source or --package-path</comment>
+  </data>
+  <data name="CLI_TyhpdefUsingSnapshot" xml:space="preserve">
+    <value>Using PHP snapshot for PHP {0} (`{1}`)</value>
+    <comment>generate_tyhpdef reused tyhpdef_gen/snapshots JSON. Args: minor, path</comment>
+  </data>
+  <data name="CLI_TyhpdefUserBinaryUncontrolled" xml:space="preserve">
+    <value>Using user PHP `{0}` with its own configuration; output is single-target and ungated</value>
+    <comment>Warning for --php escape hatch. Arg: path</comment>
+  </data>
+  <data name="CLI_TyhpdefSkippedExistingFile" xml:space="preserve">
+    <value>Skipping existing tyhpdef `{0}` (pass `--overwrite` to replace it)</value>
+    <comment>Existing output file and --overwrite unset. Arg: path</comment>
+  </data>
+  <data name="CLI_TyhpdefOmittedExternBase" xml:space="preserve">
+    <value>Omitting `{0}` because it extends or implements extern type `{1}`</value>
+    <comment>PHP-source harvest skipped a generated type whose extends/implements would be extern. Args: type FQCN, extern FQCN</comment>
+  </data>
+  <data name="CLI_TyhpdefOmittedMissingBase" xml:space="preserve">
+    <value>Omitting `{0}` because it extends or implements omitted type `{1}`</value>
+    <comment>PHP-source harvest cascaded omit of a descendant whose parent was omitted (extern base or excluded @internal). Args: type FQCN, omitted parent FQCN</comment>
+  </data>
+  <data name="CLI_TyhpdefOmittedMissingReference" xml:space="preserve">
+    <value>Omitting `{0}` because it references omitted type `{1}`</value>
+    <comment>PHP-source harvest dropped a member, use, function, or alias that named an omitted type. Args: member FQCN, omitted type FQCN</comment>
+  </data>
+  <data name="CLI_TyhpdefSkippedIdenticalDuplicate" xml:space="preserve">
+    <value>Skipping duplicate `{0}` because it is identical to an earlier declaration</value>
+    <comment>PHP-source harvest skipped a later class/interface/trait/enum whose FQCN and body match a type already emitted. Arg: FQCN</comment>
+  </data>
+  <data name="CLI_TyhpdefRequiredPhpPackageMissingWrapper" xml:space="preserve">
+    <value>No `tyhpdef/*` package wraps `{0}`; generate that wrapper first</value>
+    <comment>PHP-source harvest: target composer.json requires a PHP package / ext-* with no catalog wrapper. Arg: composer package name</comment>
+  </data>
+  <data name="CLI_TyhpdefUsingManagedRuntime" xml:space="preserve">
+    <value>Using Tyhp-managed PHP {0} at `{1}`</value>
+    <comment>Managed runtime selected. Args: version, path</comment>
+  </data>
+  <data name="CLI_TyhpdefManualUnavailable" xml:space="preserve">
+    <value>php.net manual for locale `{0}` is unavailable ({1}); generating without manual prose</value>
+    <comment>--ext-name php.net manual download/cache miss. Args: locale, detail</comment>
+  </data>
+  <data name="CLI_TyhpdefUnknownLocale" xml:space="preserve">
+    <value>Unknown php.net manual locale `{0}`; falling back to `{1}`</value>
+    <comment>Unknown --locale. Args: requested, fallback</comment>
+  </data>
+  <data name="CLI_TyhpdefPhpVersionMismatch" xml:space="preserve">
+    <value>`--php-version` `{0}` does not match PHP_VERSION `{1}`</value>
+    <comment>User --php binary version mismatch. Args: expected minor, actual version</comment>
+  </data>
+  <data name="CLI_TyhpdefDumperFailed" xml:space="preserve">
+    <value>PHP Reflection dumper failed: {0}</value>
+    <comment>Dumper non-zero exit or timeout. Arg: stderr/detail</comment>
+  </data>
+  <data name="CLI_TyhpdefSchemaInvalid" xml:space="preserve">
+    <value>Reflection JSON is not schema version 1: {0}</value>
+    <comment>Dumper JSON missing required fields or bad schemaVersion. Arg: detail</comment>
+  </data>
+  <data name="CLI_TyhpdefExtensionNotLoaded" xml:space="preserve">
+    <value>User PHP `{1}` does not have extension `{0}` loaded</value>
+    <comment>User --php missing --ext-name. Args: extension, path</comment>
+  </data>
+  <data name="CLI_TyhpdefUnsupportedRid" xml:space="preserve">
+    <value>No managed PHP provider for this platform (`{0}`)</value>
+    <comment>Unsupported RID. Arg: rid/detail</comment>
+  </data>
+  <data name="CLI_TyhpdefUnsupportedMinor" xml:space="preserve">
+    <value>Managed PHP does not support minor `{0}` (use 8.2–8.5, or `--php`)</value>
+    <comment>Unsupported managed minor. Arg: minor</comment>
+  </data>
+  <data name="CLI_TyhpdefParseFailed" xml:space="preserve">
+    <value>Generated tyhpdef `{0}` failed to parse: {1}</value>
+    <comment>Writer output did not parse. Args: path, detail</comment>
+  </data>
+  <data name="CLI_TyhpdefRuntimeDownloadEmpty" xml:space="preserve">
+    <value>no managed PHP artifact was available (try `--php` as an escape hatch)</value>
+    <comment>All managed providers failed with empty cache</comment>
+  </data>
+  <data name="CLI_TyhpdefRuntimeUpdateFailedDetail" xml:space="preserve">
+    <value>Managed PHP patch update failed ({0}); using last-known-good runtime</value>
+    <comment>Detail line alongside TYHP7512. Arg: exception message</comment>
+  </data>
+  <data name="CLI_TyhpdefFetchingStubs" xml:space="preserve">
+    <value>Fetching Layer 2 stub corpora into `{0}`</value>
+    <comment>generate_tyhpdef downloading Psalm/PHPStan/Phan/PhpStorm stubs. Arg: cache directory</comment>
+  </data>
+  <data name="CLI_TyhpdefStubOverlayWritten" xml:space="preserve">
+    <value>Wrote Layer 2 stub overlay `{0}`</value>
+    <comment>generate_tyhpdef wrote overlays/stubs/*.tyhpdef. Arg: path</comment>
+  </data>
+  <data name="CLI_TyhpdefValidatePathNotFound" xml:space="preserve">
+    <value>`--validate` path `{0}` was not found</value>
+    <comment>generate_tyhpdef --validate path missing. Arg: path</comment>
+  </data>
+  <data name="CLI_TyhpdefAuditStubsPathNotFound" xml:space="preserve">
+    <value>`--audit-stubs` path `{0}` was not found</value>
+    <comment>generate_tyhpdef --audit-stubs path missing. Arg: path</comment>
+  </data>
+  <data name="CLI_TyhpdefAuditStubsWrote" xml:space="preserve">
+    <value>Wrote Layer 2 stub audit `{0}`</value>
+    <comment>generate_tyhpdef --audit-stubs wrote --out file. Arg: path</comment>
+  </data>
+  <data name="CLI_TyhpdefAuditStubsSummary" xml:space="preserve">
+    <value>Layer 2 stub audit: {0} fact(s), {1} agree, {2} to review</value>
+    <comment>generate_tyhpdef --audit-stubs summary. Args: total, agree, review</comment>
+  </data>
+  <data name="CLI_TyhpdefValidateNoFiles" xml:space="preserve">
+    <value>No `.tyhpdef` files found at `{0}`</value>
+    <comment>generate_tyhpdef --validate discovered nothing. Arg: path</comment>
+  </data>
+  <data name="CLI_TyhpdefValidateFilePass" xml:space="preserve">
+    <value>PASS  {0}</value>
+    <comment>generate_tyhpdef --validate per-file pass. Arg: path</comment>
+  </data>
+  <data name="CLI_TyhpdefValidateFileFail" xml:space="preserve">
+    <value>FAIL  {0} ({1} error(s))</value>
+    <comment>generate_tyhpdef --validate per-file fail. Args: path, error count</comment>
+  </data>
+  <data name="CLI_TyhpdefValidateErrorDetail" xml:space="preserve">
+    <value>  {0}:{1} TYHP{2}: {3}</value>
+    <comment>generate_tyhpdef --validate line-level error. Args: line, column, code, message</comment>
+  </data>
+  <data name="CLI_TyhpdefValidateReadFailed" xml:space="preserve">
+    <value>Could not read `{0}`: {1}</value>
+    <comment>generate_tyhpdef --validate read failure. Args: path, exception</comment>
+  </data>
+  <data name="CLI_TyhpdefValidateSummary" xml:space="preserve">
+    <value>Validated {0} file(s): {1} passed, {2} failed, {3} error(s)</value>
+    <comment>generate_tyhpdef --validate aggregate. Args: total, passed, failed, errors</comment>
+  </data>
+  <data name="CLI_TyhpdefVerifyNoGolden" xml:space="preserve">
+    <value>`--verify` needs a generated Layer 1 golden API (`--ext-name`, `--source`, or `--package-path`)</value>
+    <comment>generate_tyhpdef --verify without golden IR</comment>
+  </data>
+  <data name="CLI_TyhpdefVerifyNoExisting" xml:space="preserve">
+    <value>`--verify` found no existing tyhpdef files under `{0}`</value>
+    <comment>generate_tyhpdef --verify missing output tree. Arg: output directory</comment>
+  </data>
+  <data name="CLI_TyhpdefVerifyPassed" xml:space="preserve">
+    <value>Verify passed: {0} golden symbol(s) covered after {1} overlay file(s)</value>
+    <comment>generate_tyhpdef --verify success. Args: golden count, overlay count</comment>
   </data>
   <data name="CLI_RunningIntegrityChecks" xml:space="preserve">
     <value>Running Tyhp build integrity checks...</value>
@@ -2956,7 +4454,7 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <comment>Environment check: Composer present</comment>
   </data>
   <data name="CLI_IntegrityEnvComposerMissing" xml:space="preserve">
-    <value>Composer not found on PATH (informational)</value>
+    <value>Composer not found on PATH (informational — run `tyhp install composer`)</value>
     <comment>Environment check: Composer missing</comment>
   </data>
   <data name="CLI_IntegrityEnvDiskFree" xml:space="preserve">
@@ -2994,6 +4492,62 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   <data name="CLI_CacheCleared" xml:space="preserve">
     <value>AST cache cleared: {0}</value>
     <comment>AST cache clear success</comment>
+  </data>
+  <data name="CLI_OverlayCreated" xml:space="preserve">
+    <value>Wrote overlay `{0}`</value>
+    <comment>tyhp overlay create wrote a hand-written overlay file</comment>
+  </data>
+  <data name="CLI_OverlayStamped" xml:space="preserve">
+    <value>Updated {0:N0} overlay stamp(s)</value>
+    <comment>tyhp overlay stamp rewrote @overlay-against comments</comment>
+  </data>
+  <data name="CLI_OverlayHelpDescription" xml:space="preserve">
+    <value>Create hand-written tyhpdef overlays and stamp them against the Layer 1 baseline for each managed PHP version.</value>
+    <comment>overlay help description paragraph</comment>
+  </data>
+  <data name="CLI_OverlayHelpUsageHeader" xml:space="preserve">
+    <value>Usage:</value>
+    <comment>overlay help usage section header</comment>
+  </data>
+  <data name="CLI_OverlayHelpUsageCreate" xml:space="preserve">
+    <value>    {0} overlay create &lt;FQN&gt;</value>
+    <comment>overlay help usage for create ({0} = executable)</comment>
+  </data>
+  <data name="CLI_OverlayHelpUsageStamp" xml:space="preserve">
+    <value>    {0} overlay stamp</value>
+    <comment>overlay help usage for stamp-all</comment>
+  </data>
+  <data name="CLI_OverlayHelpUsageStampFqn" xml:space="preserve">
+    <value>    {0} overlay stamp &lt;FQN&gt;</value>
+    <comment>overlay help usage for stamp-one</comment>
+  </data>
+  <data name="CLI_OverlayHelpOptionsHeader" xml:space="preserve">
+    <value>Options:</value>
+    <comment>overlay help options section header</comment>
+  </data>
+  <data name="CLI_OverlayHelpOptionHelp" xml:space="preserve">
+    <value>Show this help and exit</value>
+    <comment>overlay help --help option</comment>
+  </data>
+  <data name="CLI_OverlayHelpOptionStrict" xml:space="preserve">
+    <value>Treat overlay stamp mismatches as errors when compiling</value>
+    <comment>overlay help --strict option</comment>
+  </data>
+  <data name="CLI_OverlayHelpExamplesHeader" xml:space="preserve">
+    <value>Examples:</value>
+    <comment>overlay help examples section header</comment>
+  </data>
+  <data name="CLI_OverlayHelpExampleCreate" xml:space="preserve">
+    <value>Copy the current Iterator declaration into a hand-written overlay file</value>
+    <comment>overlay help create example</comment>
+  </data>
+  <data name="CLI_OverlayHelpExampleStamp" xml:space="preserve">
+    <value>Write @overlay-against stamps for each managed PHP version, honoring declare(php) and #[\Tyhp\Php] gates</value>
+    <comment>overlay help stamp-all example</comment>
+  </data>
+  <data name="CLI_OverlayHelpExampleStampFqn" xml:space="preserve">
+    <value>Stamp only the overlay declaration for Iterator</value>
+    <comment>overlay help stamp-one example</comment>
   </data>
   <data name="CLI_FailedDeleteCacheFile" xml:space="preserve">
     <value>Failed to delete cache file: {0}</value>
@@ -3143,6 +4697,38 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>Unrecognized project type `{0}`; using `application`</value>
     <comment>Invalid type field in tyhp.json</comment>
   </data>
+  <data name="ERROR_TYHP6009" xml:space="preserve">
+    <value>Cannot expand `{0}` in `{1}`: {2}</value>
+    <comment>tyhp.json interpolation failed</comment>
+  </data>
+  <data name="ERROR_TYHP7000" xml:space="preserve">
+    <value>Unknown install target `{0}`; known targets: `{1}`</value>
+    <comment>InstallUnknownTarget. {0} = requested target, {1} = known target list</comment>
+  </data>
+  <data name="ERROR_TYHP7001" xml:space="preserve">
+    <value>PHP is not found on PATH; the Composer installer requires PHP</value>
+    <comment>InstallPhpNotFound</comment>
+  </data>
+  <data name="ERROR_TYHP7002" xml:space="preserve">
+    <value>`--local` and `--global` cannot be combined</value>
+    <comment>InstallConflictingLocationFlags</comment>
+  </data>
+  <data name="ERROR_TYHP7003" xml:space="preserve">
+    <value>Composer installer download failed: {0}</value>
+    <comment>InstallComposerDownloadFailed. {0} = free-form detail</comment>
+  </data>
+  <data name="ERROR_TYHP7004" xml:space="preserve">
+    <value>Composer installer SHA-384 does not match</value>
+    <comment>InstallComposerChecksumMismatch</comment>
+  </data>
+  <data name="ERROR_TYHP7005" xml:space="preserve">
+    <value>Composer installer failed: {0}</value>
+    <comment>InstallComposerSetupFailed. {0} = exit code or detail</comment>
+  </data>
+  <data name="ERROR_TYHP7006" xml:space="preserve">
+    <value>Composer binary is not found at `{0}` after install</value>
+    <comment>InstallComposerNotFoundAfterInstall. {0} = destination path</comment>
+  </data>
   <data name="ERROR_TYHP7100" xml:space="preserve">
     <value>Build failed</value>
     <comment>Generic build error</comment>
@@ -3162,6 +4748,14 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
   <data name="WARNING_TYHP7105" xml:space="preserve">
     <value>Tyhp runtime Composer package `{0}` is not available; compiled code may not run correctly without it</value>
     <comment>Runtime package not available after composer install attempt</comment>
+  </data>
+  <data name="ERROR_TYHP7106" xml:space="preserve">
+    <value>Failed to copy publish content `{0}`: {1}</value>
+    <comment>output.publishContent copy failed</comment>
+  </data>
+  <data name="WARNING_TYHP7107" xml:space="preserve">
+    <value>Publish content src `{0}` matched no files</value>
+    <comment>output.publishContent src unmatched</comment>
   </data>
   <data name="INFO_TYHP7101" xml:space="preserve">
     <value>No source files found matching include patterns</value>
@@ -3227,9 +4821,145 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>Composer install failed: {0}</value>
     <comment>Verbose composer install failure details</comment>
   </data>
+  <data name="ERROR_TYHP7500" xml:space="preserve">
+    <value>Tyhpdef generation failed: {0}</value>
+    <comment>Generic generate_tyhpdef error. Arg: detail</comment>
+  </data>
+  <data name="ERROR_TYHP7501" xml:space="preserve">
+    <value>PHP runtime is not found; `--ext-name` requires PHP</value>
+    <comment>--ext-name PHP runtime missing, or --no-php with --ext-name</comment>
+  </data>
+  <data name="ERROR_TYHP7502" xml:space="preserve">
+    <value>PHP source file `{0}` failed to parse: {1}</value>
+    <comment>PHP source parse error during tyhpdef generation. Args: path, detail</comment>
+  </data>
+  <data name="ERROR_TYHP7503" xml:space="preserve">
+    <value>Failed to write tyhpdef `{0}`: {1}</value>
+    <comment>Tyhpdef output write error. Args: path, detail</comment>
+  </data>
+  <data name="ERROR_TYHP7504" xml:space="preserve">
+    <value>Failed to parse PHPDoc comment: {0}</value>
+    <comment>PHPDoc parse error. Arg: detail</comment>
+  </data>
   <data name="ERROR_TYHP7505" xml:space="preserve">
     <value>Library projects cannot contain entrypoint files with executable top-level code: `{0}`</value>
     <comment>Library project entrypoint detected during build</comment>
+  </data>
+  <data name="ERROR_TYHP7506" xml:space="preserve">
+    <value>`--verify` found an incompatible tyhpdef for `{0}`</value>
+    <comment>Verify mode found a signature that does not cover the golden PHP API. Arg: symbol</comment>
+  </data>
+  <data name="ERROR_TYHP7507" xml:space="preserve">
+    <value>Source path `{0}` is not a `.php` file</value>
+    <comment>PHP-source harvest collected a non-PHP path. Arg: path</comment>
+  </data>
+  <data name="ERROR_TYHP7508" xml:space="preserve">
+    <value>Managed PHP runtime download failed: {0}</value>
+    <comment>Managed PHP runtime download failure. Arg: detail</comment>
+  </data>
+  <data name="ERROR_TYHP7509" xml:space="preserve">
+    <value>Managed PHP artifact checksum does not match</value>
+    <comment>Managed PHP artifact checksum mismatch</comment>
+  </data>
+  <data name="ERROR_TYHP7510" xml:space="preserve">
+    <value>`--php` cannot be combined with `--php-targets`</value>
+    <comment>--php user binary with --php-targets</comment>
+  </data>
+  <data name="ERROR_TYHP7511" xml:space="preserve">
+    <value>Managed PHP cannot load extension `{0}`</value>
+    <comment>Managed PHP missing --ext-name. Arg: extension</comment>
+  </data>
+  <data name="WARNING_TYHP7512" xml:space="preserve">
+    <value>Managed PHP patch update failed; using last-known-good runtime</value>
+    <comment>Managed PHP patch auto-update failed; last-known-good still used</comment>
+  </data>
+  <data name="WARNING_TYHP7513" xml:space="preserve">
+    <value>Layer 2 stub cache is missing at `{0}`; skipping stub harvest</value>
+    <comment>Stub cache missing without --require-stubs. Arg: cache path</comment>
+  </data>
+  <data name="ERROR_TYHP7514" xml:space="preserve">
+    <value>`--require-stubs` is set but the Layer 2 stub cache was not found at `{0}`</value>
+    <comment>Stub cache required but missing. Arg: cache path</comment>
+  </data>
+  <data name="WARNING_TYHP7515" xml:space="preserve">
+    <value>Psalm and PHPStan disagree on `{0}`; keeping the Layer 1 type</value>
+    <comment>Stub corpora no consensus. Arg: FQN</comment>
+  </data>
+  <data name="ERROR_TYHP7516" xml:space="preserve">
+    <value>`vendor/composer/installed.json` is not found at `{0}`</value>
+    <comment>generate_tyhpdef --vendor missing Composer 2 installed.json. Arg: path</comment>
+  </data>
+  <data name="ERROR_TYHP7517" xml:space="preserve">
+    <value>`{0}` is not valid Composer 2 `installed.json`: {1}</value>
+    <comment>installed.json parse failure. {0} = path, {1} = parser detail</comment>
+  </data>
+  <data name="WARNING_TYHP7518" xml:space="preserve">
+    <value>`--vendor` candidate `{0}` failed: {1}</value>
+    <comment>Per-package/extension generate failure. {0} = name, {1} = detail</comment>
+  </data>
+  <data name="WARNING_TYHP7519" xml:space="preserve">
+    <value>Composer require of `{0}` failed: {1}</value>
+    <comment>Batched composer require failed. {0} = packages, {1} = detail</comment>
+  </data>
+  <data name="ERROR_TYHP7520" xml:space="preserve">
+    <value>Every `--vendor` candidate failed; found {0}</value>
+    <comment>All generate_tyhpdef --vendor candidates failed. Arg: candidate count</comment>
+  </data>
+  <data name="ERROR_TYHP7521" xml:space="preserve">
+    <value>Layer 2 stub overlay uses undeclared generic placeholder `{0}`; not writing invalid tyhpdef</value>
+    <comment>Stub harvest used TKey/TValue (or similar) without declaring it. Arg: location: name</comment>
+  </data>
+  <data name="WARNING_TYHP7522" xml:space="preserve">
+    <value>Skipping unparseable PHP source `{0}` during tyhpdef harvest: {1}</value>
+    <comment>generate_tyhpdef skip-and-continue. {0} = path, {1} = parse detail</comment>
+  </data>
+  <data name="WARNING_TYHP7523" xml:space="preserve">
+    <value>Bundled types in `{0}` are used instead of `{1}`</value>
+    <comment>PHP package extra.tyhp.package wins over an installed tyhpdef/*-impl. {0} = PHP package, {1} = impl package</comment>
+  </data>
+  <data name="ERROR_TYHP7600" xml:space="preserve">
+    <value>`{0}` is not valid JSON: {1}</value>
+    <comment>InitComposerJsonInvalid. {0} = path, {1} = parser detail</comment>
+  </data>
+  <data name="WARNING_TYHP7601" xml:space="preserve">
+    <value>Existing `php` constraint `{0}` cannot satisfy PHP `{1}`</value>
+    <comment>InitPhpConstraintUnsatisfied. {0} = existing constraint, {1} = chosen PHP version</comment>
+  </data>
+  <data name="ERROR_TYHP7602" xml:space="preserve">
+    <value>`{0}` root is not a JSON object</value>
+    <comment>InitComposerJsonNotObject. {0} = path</comment>
+  </data>
+  <data name="ERROR_TYHP7700" xml:space="preserve">
+    <value>`extra.tyhp.require` constraint `{0}` for `{1}` is disjoint from existing pin `{2}`</value>
+    <comment>ComposerDisjointExtraRequire. {0} = extra constraint, {1} = package name, {2} = existing pin</comment>
+  </data>
+  <data name="EXPLAIN_TYHP7700" xml:space="preserve">
+    <value>An extra.tyhp.require constraint is disjoint from the existing root pin for that package. Tyhp does not widen or clobber the pin. Align the extra with the pin, or change the root constraint so the two intersect, then re-run `tyhp composer sync`.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP7700</comment>
+  </data>
+  <data name="ERROR_TYHP7701" xml:space="preserve">
+    <value>Stale extra `{0}` is missing from root require-dev or is not installed</value>
+    <comment>ComposerStaleExtraRequire. {0} = package name</comment>
+  </data>
+  <data name="EXPLAIN_TYHP7701" xml:space="preserve">
+    <value>An installed package listed a stale extra.tyhp.require name that is not in this project's root require-dev (and not in require) or is not installed. The compiler cannot type-check against ambient types that are not loaded. Run `tyhp composer sync` or `tyhp build --fix` to write require-dev from the installed extra closure. If extras on packages that are not installed yet are unknown, run `composer update` so the tyhp/core plugin can resolve them. This check is local only and does not fetch Packagist.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP7701</comment>
+  </data>
+  <data name="WARNING_TYHP7702" xml:space="preserve">
+    <value>`tyhp/compiler` is missing from root require-dev while `{0}` is in the graph</value>
+    <comment>ComposerMissingCompilerPin. {0} = tyhp/core</comment>
+  </data>
+  <data name="EXPLAIN_TYHP7702" xml:space="preserve">
+    <value>`tyhp/compiler` must be pinned on the application root require-dev whenever `tyhp/core` is in the Composer graph. The native CLI can keep running without that pin, so this is a warning unless `--strict` or `build.strictMode` is set. Run `tyhp composer sync` or `tyhp build --fix` to add the compiler pin.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP7702</comment>
+  </data>
+  <data name="ERROR_TYHP7703" xml:space="preserve">
+    <value>root `composer.json` at `{0}` cannot be parsed or written: {1}</value>
+    <comment>ComposerRootJsonWriteFailed. {0} = path, {1} = parser or IO detail</comment>
+  </data>
+  <data name="EXPLAIN_TYHP7703" xml:space="preserve">
+    <value>The root composer.json could not be parsed or written while syncing extra.tyhp.require onto require-dev. Fix the JSON (or file permissions) and re-run `tyhp composer sync`.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP7703</comment>
   </data>
   <data name="CLI_TokenizeNotImplemented" xml:space="preserve">
     <value>Usage: tokenize &lt;file&gt; [--mode=php|tyhp|tyhpdef] [--out=file.json]. Lexes the file and prints the token list as JSON to stdout; status/errors go to stderr.</value>
@@ -3471,6 +5201,74 @@ That split is not safe inside short-circuit operands (`&amp;&amp;`, `||`, `??`),
     <value>Show dump_ast help</value>
     <comment>Dump-ast help example: --help</comment>
   </data>
+  <data name="CLI_StartingSymbolTree" xml:space="preserve">
+    <value>Starting symbol_tree...</value>
+    <comment>Symbol-tree action start</comment>
+  </data>
+  <data name="CLI_SymbolTreeCompleted" xml:space="preserve">
+    <value>Symbol-tree dump completed ({0:N0} symbol(s)).</value>
+    <comment>Symbol-tree action completed. {0} = dumped symbol count</comment>
+  </data>
+  <data name="CLI_SymbolTreeBindFailed" xml:space="preserve">
+    <value>Bind did not produce a global scope; dumping diagnostics only.</value>
+    <comment>Symbol-tree bind produced no GlobalScope</comment>
+  </data>
+  <data name="CLI_SymbolTreeNoSourceFiles" xml:space="preserve">
+    <value>No project source files found; dumping builtins and loaded tyhpdefs only.</value>
+    <comment>Symbol-tree with empty source discovery still binds the environment</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpDescription" xml:space="preserve">
+    <value>Parse and bind the project, then dump the fully resolved symbol tree as JSON. Includes declarations from tyhpdefs, vendor packages, overlays, and project sources — the same environment used by bind, check, and emit. Status goes to stderr; the JSON document goes to stdout (or --out).</value>
+    <comment>Symbol-tree help description</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpUsageHeader" xml:space="preserve">
+    <value>Usage:</value>
+    <comment>Symbol-tree help usage section header</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpUsage" xml:space="preserve">
+    <value>    {0} symbol_tree [file…] [options]</value>
+    <comment>Symbol-tree help usage line ({0} = executable)</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpOptionsHeader" xml:space="preserve">
+    <value>Options:</value>
+    <comment>Symbol-tree help options section header</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpOptionHelp" xml:space="preserve">
+    <value>Show this help text (same as help --subject=symbol_tree)</value>
+    <comment>Symbol-tree help --help description</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpOptionFilter" xml:space="preserve">
+    <value>Only include symbols whose Tyhp name, FQN, or PHP name contains this substring (case-insensitive)</value>
+    <comment>Symbol-tree help --filter description</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpOptionOut" xml:space="preserve">
+    <value>Write JSON to a file instead of stdout</value>
+    <comment>Symbol-tree help --out description</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpOptionQuiet" xml:space="preserve">
+    <value>Suppress status lines on stderr</value>
+    <comment>Symbol-tree help --quiet description</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpExamplesHeader" xml:space="preserve">
+    <value>Examples:</value>
+    <comment>Symbol-tree help examples section header</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpExampleProject" xml:space="preserve">
+    <value>Bind the project and print the full symbol tree as JSON</value>
+    <comment>Symbol-tree help example: project</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpExampleFilter" xml:space="preserve">
+    <value>Dump only symbols whose name contains strtoupper</value>
+    <comment>Symbol-tree help example: --filter</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpExampleOut" xml:space="preserve">
+    <value>Write the dump to a file</value>
+    <comment>Symbol-tree help example: --out</comment>
+  </data>
+  <data name="CLI_SymbolTreeHelpExampleHelp" xml:space="preserve">
+    <value>Show symbol_tree help</value>
+    <comment>Symbol-tree help example: --help</comment>
+  </data>
   <data name="CLI_ExplainHelpDescription" xml:space="preserve">
     <value>Prints the long-form explanation for a diagnostic code. Codes are looked up dynamically from the compiler's MessageCode registry and the localized short-message catalog.</value>
     <comment>Explain help description paragraph</comment>
@@ -3674,22 +5472,24 @@ Fix: If you encounter this error, please report it as a compiler bug with a mini
   <data name="EXPLAIN_TYHP3002" xml:space="preserve">
     <value>Two declarations with the same name exist in the same scope. This includes classes, functions, constants, and variables declared at the same scope level.
 
+The primary span is the later declaration. A secondary span labeled "declared here" points at the first declaration of that name.
+
 ```tyhp
 &lt;?tyhp
-class User { }
-class User { }  // Error: Duplicate declaration of symbol 'User'
+class User { }  // first declaration — labeled "declared here"
+class User { }  // Error: Duplicate declaration of symbol `User`
 ```
 
 Fix: Rename one of the duplicate declarations, or remove the duplicate. If the declarations are in different files, ensure they are in different namespaces.</value>
     <comment>Long-form explanation for TYHP3002 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP3003" xml:space="preserve">
-    <value>A referenced class, function, constant, variable, or other symbol could not be resolved in any accessible scope.
+    <value>A referenced class, function, constant, variable, or other symbol could not be resolved in any accessible scope. Type names on `is` / `instanceof` / `typeof`, and undeclared names inside generic type arguments, use this same diagnostic.
 
 ```tyhp
 &lt;?tyhp
-function process(UnknownType $item): void {
-    // Error: Symbol 'UnknownType' not found
+function demo(mixed $x): bool {
+    return $x is UnknownType;  // Error: Symbol `UnknownType` is not found
 }
 ```
 
@@ -3801,6 +5601,26 @@ Fix: Merge the constructors into a single `__construct` method with optional par
   <data name="EXPLAIN_TYHP3016" xml:space="preserve">
     <value>The type named as the target of an extension operator overload does not resolve to a known class.</value>
     <comment>Long-form explanation for TYHP3016 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
+  </data>
+  <data name="EXPLAIN_TYHP3025" xml:space="preserve">
+    <value>The target of an extension operator must be a class or a value-bearing built-in type such as `string`, `int`, or `array`. Types that cannot be instantiated or used as a runtime value (`void`, `never`, `null`, `mixed`, `resource`, `true`, `false`) are not valid targets.</value>
+    <comment>Long-form explanation for TYHP3025 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP3026" xml:space="preserve">
+    <value>A type `extends` an `extern` placeholder. That name is bound, so this is not an unresolved `extends` (`TYHP3017`). Placeholders cannot be inheritance bases: a real tyhpdef class or interface must not extend an extern type.
+
+The primary span is the `extends` clause. A secondary span labeled "declared here" points at the `extern` declaration. When that declaration has `// @provided-by: tyhpdef/ruflin-elastica` or `// @provided-by: tyhpdef/php-ext-curl`, help cites that wrapper name as-is.
+
+Omit generated types that would extend an extern (for example a test base). Include the providing `tyhpdef/*` package if the intent is a real parent type.</value>
+    <comment>Long-form explanation for TYHP3026 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP3027" xml:space="preserve">
+    <value>A type `implements` an `extern` placeholder. That name is bound, so this is not an unresolved `implements` (`TYHP3018`). Placeholders cannot be interface lists: a real tyhpdef class or enum must not implement an extern type.
+
+The primary span is the `implements` clause. A secondary span labeled "declared here" points at the `extern` declaration. When that declaration has `// @provided-by: tyhpdef/ruflin-elastica` or `// @provided-by: tyhpdef/php-ext-curl`, help cites that wrapper name as-is.
+
+Omit generated types that would implement an extern. Include the providing `tyhpdef/*` package if the intent is a real interface.</value>
+    <comment>Long-form explanation for TYHP3027 (tyhp --explain); blank line separates paragraphs</comment>
   </data>
   <data name="EXPLAIN_TYHP4001" xml:space="preserve">
     <value>A catch-all for unexpected errors during the checking phase.</value>
@@ -3969,17 +5789,17 @@ Fix: Add a null check before using the variable, or use the null coalescing oper
     <comment>Long-form explanation for TYHP4015 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP4016" xml:space="preserve">
-    <value>A variable lacks both an explicit type declaration and an initializer from which the type can be inferred.
+    <value>A variable, parameter, or property lacks both an explicit type declaration and an initializer from which the type can be inferred. A function or method with no return type uses the same diagnostic with the subject `return type`.
 
 ```tyhp
 &lt;?tyhp
-function example(): void {
-    $x;  // Error: must have a type annotation or inferable initializer
+function example($x) {
+    return $x;
 }
 ```
 
-Fix: Add an explicit type: `int $x;` or initialize the variable: `$x = 0;`.</value>
-    <comment>Long-form explanation for TYHP4016 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
+Fix: Annotate the parameter and return type (`function example(int $x): int`). For a local variable, add an explicit type (`int $x;`) or an initializer (`$x = 0;`).</value>
+    <comment>Long-form explanation for TYHP4016 (tyhp --explain)</comment>
   </data>
   <data name="EXPLAIN_TYHP4017" xml:space="preserve">
     <value>A concrete class extends an abstract class but does not implement all of its abstract methods.
@@ -4193,7 +6013,7 @@ Collection&lt;void&gt; $items;  // Error: 'void' can only be used as a return ty
     <comment>Long-form explanation for TYHP4048 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP4049" xml:space="preserve">
-    <value>The `never` type is used in a position other than a function/method return type.</value>
+    <value>`never` is a generic type argument (`array&lt;never&gt;`, `PromiseInterface&lt;never&gt;`) and a return type. It is still rejected as a parameter type, a property type, or a callable-shape parameter.</value>
     <comment>Long-form explanation for TYHP4049 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP4050" xml:space="preserve">
@@ -4271,7 +6091,7 @@ Fix: Drop the `&amp;` or give the function a non-void return type.</value>
     <comment>Long-form explanation for TYHP4060 (tyhp --explain)</comment>
   </data>
   <data name="EXPLAIN_TYHP4061" xml:space="preserve">
-    <value>`never` is only valid as a function or method return type. It cannot be used as a parameter type or property type (see also TYHP4049 for `never` as a generic type argument).
+    <value>`never` is rejected as a parameter type or a property type. It is a valid generic type argument and a valid return type.
 
 Fix: Use a different type for parameters and properties.</value>
     <comment>Long-form explanation for TYHP4061 (tyhp --explain)</comment>
@@ -4313,10 +6133,12 @@ Fix: Remove the redundant intersection from the DNF type.</value>
     <comment>Long-form explanation for TYHP4067 (tyhp --explain)</comment>
   </data>
   <data name="EXPLAIN_TYHP4500" xml:space="preserve">
-    <value>Code references a symbol that has been marked as deprecated. The symbol still works but may be removed in a future version.
+    <value>A use of a deprecated symbol. The compiler sets deprecation from `#[\Deprecated]` on the declaration and from the tyhpdef `deprecated` keyword. Both produce this same warning (TYHP4500).
 
-Fix: Check the deprecation notice for the recommended replacement and migrate your code.</value>
-    <comment>Long-form explanation for TYHP4500 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
+When `#[\Deprecated]` has a string-literal `$message`, that text is appended after a colon. `$since` is not part of the short message.
+
+The symbol still compiles. Tyhp warns even when `output.phpVersion` is below 8.4 (PHP's runtime `E_USER_DEPRECATED` is a no-op on older minors). The class itself stays version-gated in `tyhpdef/php`.</value>
+    <comment>Long-form explanation for TYHP4500 (tyhp --explain)</comment>
   </data>
   <data name="EXPLAIN_TYHP4501" xml:space="preserve">
     <value>Code references a symbol that has been marked as obsolete. This is stronger than deprecated and the symbol may be removed imminently.</value>
@@ -4424,6 +6246,14 @@ Fix: Restore the runtime package reference (Composer `tyhp/core` / `tyhp.json` r
     <value>A `psr4` configuration entry maps a namespace to a path that is invalid or does not exist.</value>
     <comment>Long-form explanation for TYHP6007 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
+  <data name="EXPLAIN_TYHP6009" xml:space="preserve">
+    <value>A placeholder in `tyhp.json` could not be expanded during interpolation. Path keys such as `output.path`, `output.publishPath`, `cache-dir`, `psr4` values, and `output.publishContent` src/dst/exclude support `{name}`-style variables.
+
+`{name}` and `{version}` (and `{projectVersion}`) come from `composer.json` next to `tyhp.json`, not from a file `build.updateComposer` may write under `output.publishPath`. `{version.suffix}` is everything after the numeric patch and is empty when omitted. `{type}` is the tyhp.json project kind. `{composer.type}` is Composer's `type`. `{phpVersion.id}` is the Tyhp PHP id for `output.phpVersion` (`8.2` → `802`). `{env.NAME}` reads a process environment variable; it is an error if that variable is unset.
+
+File variables (`{fileName}`, `{fileStem}`, `{extension}`, `{recursiveDir}`, `{relativePath}`) are only valid in `output.publishContent` `dst`, and expand after glob matching. `{extension}`, `{fileStem}`, and `{recursiveDir}` may be empty. Use `{{` and `}}` for a literal brace. `tyhp init` does not write `version` into `composer.json`; add that field before using `{version}`.</value>
+    <comment>Long-form explanation for TYHP6009 (tyhp --explain)</comment>
+  </data>
   <data name="EXPLAIN_TYHP7100" xml:space="preserve">
     <value>A generic build action error.</value>
     <comment>Long-form explanation for TYHP7100 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
@@ -4443,12 +6273,20 @@ Fix: Check the `include` and `exclude` patterns in `tyhp.json`. Ensure your sour
     <comment>Long-form explanation for TYHP7103 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP7104" xml:space="preserve">
-    <value>The `--clean` flag was used but the output directory could not be cleaned (e.g., safety check failed or permission denied).</value>
-    <comment>Long-form explanation for TYHP7104 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
+    <value>The `--clean` flag or `output.publishClean` was used but the target directory could not be cleaned (e.g., safety check failed or permission denied). `output.publishClean` refuses to delete the project root.</value>
+    <comment>Long-form explanation for TYHP7104 (tyhp --explain)</comment>
   </data>
   <data name="EXPLAIN_TYHP7105" xml:space="preserve">
     <value>A Tyhp runtime Composer package (e.g., `tyhp/core`, `tyhp/decimal`, `tyhp/async`) is needed by the compiled output but could not be found or installed.</value>
     <comment>Long-form explanation for TYHP7105 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
+  </data>
+  <data name="EXPLAIN_TYHP7106" xml:space="preserve">
+    <value>Copying extra files into the publish directory failed. Check that `output.publishContent` sources exist, destinations stay under `output.publishPath`, and the process can write there.</value>
+    <comment>Long-form explanation for TYHP7106 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP7107" xml:space="preserve">
+    <value>An `output.publishContent` src pattern was unmatched: it matched no files. Set `required` to true if a missing match should fail the build.</value>
+    <comment>Long-form explanation for TYHP7107 (tyhp --explain)</comment>
   </data>
   <data name="EXPLAIN_TYHP7200" xml:space="preserve">
     <value>The `--file` argument to `tyhp lint` specifies a file path that does not exist.</value>
@@ -4505,7 +6343,19 @@ Fix: Check the tyhpdef file for syntax errors. Tyhpdef syntax is similar to Tyhp
     <comment>Long-form explanation for TYHP8001 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP8002" xml:space="preserve">
-    <value>A tyhpdef file declares a symbol (class, function, constant) that is already declared by another tyhpdef or by the project's source code.</value>
+    <value>A tyhpdef file declares a symbol (class, function, constant) that is already declared by another tyhpdef or by the project's source code.
+
+The primary span is the later include-layer declaration. A secondary span labeled "declared here" points at the first declaration of that name.
+
+```tyhpdef
+&lt;?tyhpdef
+class \App\User { }  // first include — labeled "declared here"
+```
+
+```tyhpdef
+&lt;?tyhpdef
+class \App\User { }  // Error: Tyhpdef declares symbol `\App\User` which already exists
+```</value>
     <comment>Long-form explanation for TYHP8002 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP8003" xml:space="preserve">
@@ -4536,6 +6386,84 @@ Fix: Check the tyhpdef for unresolved names, illegal members, or other bind-time
     <value>A member marked with the `extension` qualifier inside a tyhpdef declaration is not a valid extension member.</value>
     <comment>Long-form explanation for TYHP8012 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
+  <data name="EXPLAIN_TYHP8015" xml:space="preserve">
+    <value>A tyhpdef hooked property is a bodyless signature list: `{ get; set; }`, `{ get; }`, or `{ &amp;get; set; }`. Brace and arrow bodies (`get { … }`, `get =&gt; …`) belong in `.tyhp` source, not `.tyhpdef`.
+
+Write `public string $name { get; set; }` to describe a hooked PHP property. A hooked declaration names one `$name`.</value>
+    <comment>Long-form explanation for TYHP8015 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP8016" xml:space="preserve">
+    <value>`#[\Tyhp\Php]` on an individual `get` or `set` is not a version gate. Place the attribute on the property, or wrap the declaration with `declare(php=…)`.
+
+```tyhp
+&lt;?tyhpdef
+class Holder {
+    #[\Tyhp\Php("&gt;=8.4")]
+    public string $name { get; set; }
+}
+```</value>
+    <comment>Long-form explanation for TYHP8016 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP8028" xml:space="preserve">
+    <value>An `extern` declaration must be name-only: `extern \Foo\Bar;`, `extern class \Foo\Bar;` (or `interface` / `enum`), `extern function \bcadd;`, or `extern const \FOO;` with a semicolon and no members or signature. A body, members, generics, `extends` / `implements` on the placeholder, an `as` alias, `abstract` / `final` / `readonly`, a backing type on `enum`, `extern trait`, or a parameter list / return type / value on `extern function` / `const` is an illegal declaration.
+
+Grammar rejects most of these at parse time. This code is for visitor or binder paths that still see an invalid form.</value>
+    <comment>Long-form explanation for TYHP8028 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP8029" xml:space="preserve">
+    <value>The kind of an `extern` placeholder does not match another declaration of the same name in the same PHP name space. `extern class Foo` against a real `interface Foo`, or `extern class Foo` against `extern interface Foo`, is a kind mismatch. A kind-unspecified `extern Foo;` is compatible with a later real class, interface, or enum. Functions, constants, and types occupy separate PHP name spaces, so `extern function Foo` may coexist with `class Foo`.
+
+A later real declaration of the same fully-qualified name and kind silently replaces a compatible placeholder. Two externs of the same kind merge. This diagnostic is only the kind conflict. The `{1}` and `{2}` placeholders are the two kinds (for example `extern class` and `interface`).</value>
+    <comment>Long-form explanation for TYHP8029 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP8030" xml:space="preserve">
+    <value>Overlay or include `partial` targeted an `extern` name. Partial would add members or attributes to a name-only placeholder, which is not allowed.
+
+Full overlay replace with a real `class` / `interface` / `enum` / `function` / `const` of the same name upgrades the placeholder (a kind-unspecified `extern \Name;` accepts class, interface, or enum). `omit` of an extern is allowed and removes the name.</value>
+    <comment>Long-form explanation for TYHP8030 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP8031" xml:space="preserve">
+    <value>Overlay `partial function` names a function or method that is not in the environment left by include files and earlier overlays. The missing target is skipped; no attributes are merged.
+
+Match the Tyhp name of an existing callable. `partial function` does not add a new symbol. Use a full overlay function or method declaration to introduce a name.</value>
+    <comment>Long-form explanation for TYHP8031 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP8032" xml:space="preserve">
+    <value>`partial function` is overlay-only. It merges attributes onto an existing callable without restating the signature.
+
+Using it outside an overlay file is an error. Put name-only `partial function` declarations in an overlay tyhpdef (`extra.tyhp.package` / `tyhp.json` `"overlay"`). Include / baseline files still declare full signatures.</value>
+    <comment>Long-form explanation for TYHP8032 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP8033" xml:space="preserve">
+    <value>A `partial function` member is only valid inside an overlay `partial` type. That is the merge path that keeps other members and unions attributes onto the matching method.
+
+Write `partial class DateTime { #[\Tyhp\Optimize\Pure] partial function format; }`. A full overlay class replace restates methods with their signatures instead.</value>
+    <comment>Long-form explanation for TYHP8033 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP8034" xml:space="preserve">
+    <value>The semicolon header form `partial class Foo&lt;T&gt;;` (also interface / trait / enum) is overlay-only. It replaces written header clauses on an existing type and keeps unlisted members.
+
+Using it outside an overlay file is an error. Put header-only `partial` declarations in an overlay tyhpdef (`extra.tyhp.package` / `tyhp.json` `"overlay"`). Include / baseline files still use brace `partial` to add members, or a full type declaration.</value>
+    <comment>Long-form explanation for TYHP8034 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP8035" xml:space="preserve">
+    <value>A bare overlay `partial class Foo;` has no effect: it does not change generics, inheritance, attributes, or names. It is only useful as a keep so the same overlay file can also declare `partial class Foo as Bar;`.
+
+Add generics, `extends` / `implements`, attributes, or `as`, or pair the bare keep with an alias in the same overlay file. Otherwise omit the declaration.</value>
+    <comment>Long-form explanation for TYHP8035 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP7904" xml:space="preserve">
+    <value>`tyhp overlay create` copies a real declaration into a hand-written overlay so that declaration can be replaced. An `extern` type is a name-only placeholder with no members; copying it would write a hollow `class { }` that looks like a complete empty type.
+
+Write a full overlay `class` / `interface` / `enum` of the same name to upgrade the placeholder, or `omit` it. Extra `extern` names belong in an include file that regen does not overwrite, not in an overlay created from the placeholder.</value>
+    <comment>Long-form explanation for TYHP7904 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP7905" xml:space="preserve">
+    <value>`tyhp overlay stamp` writes `@overlay-against` once per managed PHP version. Each pass uses that version's managed runtime and stamps only declarations whose `declare(php=…)` or `#[\Tyhp\Php]` gate that runtime satisfies.
+
+This error means the managed runtime for the named version is unavailable, so that pass is skipped. Declarations that belong only to that version are left unchanged. They are not stamped from a different PHP version. Restore the managed runtime cache (the same one `generate_tyhpdef` downloads) and run stamp again.</value>
+    <comment>Long-form explanation for TYHP7905 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
   <data name="EXPLAIN_TYHP4008" xml:space="preserve">
     <value>The checker reports a type mismatch when a value's type is not assignable to the type its target declares — an assignment, an argument, a return statement, or a property initializer. The first placeholder is the type of the value being supplied; the second is the type the target requires.
 
@@ -4548,12 +6476,127 @@ int $count = "hello";
 Make the two types agree: widen or change the declared type, convert the value explicitly, or narrow a nullable or union type with a guard before the assignment.</value>
     <comment>Long-form explanation for TYHP4008 (tyhp --explain); blank line separates paragraphs; example recovered from pre-generated docs; example recovered from pre-generated docs</comment>
   </data>
-  <data name="EXPLAIN_TYHP4320" xml:space="preserve">
-    <value>A value that is not an inline `fn` was passed where `PropertyPath&lt;TSource, TReturn&gt;` is expected. The compiler reads the property chain out of the arrow function at compile time, so an already-built closure carries no chain it can lower.
+  <data name="EXPLAIN_TYHP4300" xml:space="preserve">
+    <value>The string given to `declare(php=…)` or `#[\Tyhp\Php]` is not a valid Composer PHP version constraint.
 
 ```tyhp
 &lt;?tyhp
-function takes(\Tyhp\PropertyPath&lt;User, string&gt; $path): void {}
+declare(php="eight-four");
+function demo(): void {}
+```
+
+Use Composer constraint syntax such as `&gt;=8.4`, `^8.2`, `8.2.*`, or `&gt;=8.2 &lt;8.4`. A bare `"8.2"` means the whole `8.2.*` minor.</value>
+    <comment>Long-form explanation for TYHP4300 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4301" xml:space="preserve">
+    <value>The `php` version-gate directive must appear alone in its `declare` statement. Mixing it with `strict_types`, `output_file`, or any other key is rejected.
+
+```tyhp
+&lt;?tyhp
+declare(strict_types=1);
+declare(php="&gt;=8.4");
+```
+
+Write two consecutive `declare` statements instead of combining keys. Consecutive declares are valid.</value>
+    <comment>Long-form explanation for TYHP4301 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4302" xml:space="preserve">
+    <value>A nested PHP version constraint can never be true given its enclosing constraint, so the inner region is unreachable.
+
+```tyhp
+&lt;?tyhp
+declare(php="&gt;=8.4") {
+    function outer(): void {}
+
+    declare(php="&lt;8.3") {
+        function never(): void {}
+    }
+}
+```
+
+This error applies only to nested gates. Sibling `declare(php=…)` blocks that cover different PHP versions are alternate variants, not unreachable code. An inactive file-level `declare(php="…");` skips the file silently and does not report this error.</value>
+    <comment>Long-form explanation for TYHP4302 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4303" xml:space="preserve">
+    <value>Duplicate declarations of the same symbol have overlapping PHP version constraints. Two variants of a name are allowed when their effective constraints are pairwise disjoint, or when they are distinct function or method overloads (different parameter lists) under the same or overlapping gates.
+
+```tyhp
+&lt;?tyhp
+#[\Tyhp\Php("&gt;=8.3")]
+function example(): void {}
+
+#[\Tyhp\Php("&gt;=8.4")]
+function example(): void {}
+```
+
+Those two constraints both match PHP 8.4 and later. Use disjoint ranges such as `&gt;=8.4` with `&lt;8.4` when you need version-specific declarations of the same name and signature.</value>
+    <comment>Long-form explanation for TYHP4303 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4304" xml:space="preserve">
+    <value>`#[\Tyhp\Php]` is not a valid attribute target on a `struct` or on a Tyhp or tyhpdef `extension` declaration. Gate those forms with `declare(php=…)` instead.
+
+```tyhp
+&lt;?tyhp
+declare(php="&gt;=8.4") {
+    extension GatedStringOps {
+        function gated_tag(extends string $this): string {
+            return \strtoupper($this);
+        }
+    }
+}
+```
+
+The attribute remains legal on class, interface, enum, trait, their members, functions, and other ordinary attribute targets. File-level `declare(php="…");` also gates the rest of that file.</value>
+    <comment>Long-form explanation for TYHP4304 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4305" xml:space="preserve">
+    <value>`#[\Tyhp\Php]` requires a string `version` argument, either positional or named. Omitting it, or passing a non-string, is rejected.
+
+```tyhp
+&lt;?tyhp
+#[\Tyhp\Php("&gt;=8.4")]
+function array_find(array $array, callable $callback): mixed {
+    return null;
+}
+
+#[\Tyhp\Php(version: "&gt;=8.2 &lt;8.4")]
+function example(string $v): mixed {
+    return $v;
+}
+```
+
+On a tyhpdef hooked property, place `#[\Tyhp\Php]` on the property, not on `get` or `set`.</value>
+    <comment>Long-form explanation for TYHP4305 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4306" xml:space="preserve">
+    <value>The compile target was defaulted to `"8.2"` because no project `phpVersion` was set, and this warning is emitted once per compilation.
+
+Set `output.phpVersion` in `tyhp.json` to an explicit `"8.0"`–`"8.5"` value to choose the check and emit target and which version-gated declarations are visible. This diagnostic fires once per compilation, not once per file. An explicit but unsupported value is a different diagnostic and falls back to `"8.4"`.</value>
+    <comment>Long-form explanation for TYHP4306 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4307" xml:space="preserve">
+    <value>A `.tyhp` file named or received an `extern` name. That name is a tyhpdef placeholder for a type, function, or const the current tyhpdef mentions but does not own, so it is not usable in Tyhp source.
+
+```tyhp
+&lt;?tyhp
+function f(\Elastica\Client $client): void {}
+\bcadd("1", "2");
+int $mode = \GMP_ROUND_PLUSINF;
+```
+
+The primary span is the use: a type annotation, `new`, `instanceof`, `catch`, a `use` / `use function` / `use const` import of that fully-qualified name, a generic argument, a union or intersection arm, a call of an extern function, a const fetch, or an expression whose inferred type is extern (including a call whose return or parameter type is extern). A secondary span labeled "declared here" points at the `extern` declaration.
+
+When the declaration has `// @provided-by: tyhpdef/ruflin-elastica` or `// @provided-by: tyhpdef/php-ext-bcmath`, help cites that wrapper name as-is. Include that package so a real declaration replaces the placeholder.
+
+Naming a real class whose signature mentions an extern type is not itself a use. Tyhpdef signatures and mapping bodies may name an extern function or const.</value>
+    <comment>Long-form explanation for TYHP4307 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4320" xml:space="preserve">
+    <value>A value that is not an inline `fn` was passed where `PropertyPath&lt;callable(TSource $source): TReturn&gt;` is expected. The compiler reads the property chain out of the arrow function at compile time, so an already-built closure carries no chain it can lower.
+
+```tyhp
+&lt;?tyhp
+function takes(\Tyhp\PropertyPath&lt;callable(User $u): string&gt; $path): void {}
 
 takes($someClosure);
 ```
@@ -4566,7 +6609,7 @@ Pass an inline arrow function instead — `takes(fn ($u) =&gt; $u-&gt;name)`. Fo
 
 ```tyhp
 &lt;?tyhp
-function takes(\Tyhp\PropertyPath&lt;User, string&gt; $path): void {}
+function takes(\Tyhp\PropertyPath&lt;callable(User $u): string&gt; $path): void {}
 
 takes(fn ($u) =&gt; \strtolower($u-&gt;name));
 ```
@@ -4579,7 +6622,7 @@ Use only `-&gt;` or `?-&gt;` property accesses starting at the parameter — `ta
 
 ```tyhp
 &lt;?tyhp
-function takes(\Tyhp\Expression&lt;User, bool&gt; $pred): void {}
+function takes(\Tyhp\Expression&lt;callable(User $u): bool&gt; $pred): void {}
 
 takes(fn ($u) =&gt; await $u-&gt;load());
 ```
@@ -4588,11 +6631,11 @@ Simplify the body to supported forms: property/method access, operators, casts, 
     <comment>Long-form explanation for TYHP4322 (tyhp --explain); blank line separates paragraphs</comment>
   </data>
   <data name="EXPLAIN_TYHP4323" xml:space="preserve">
-    <value>A value that is not an inline `fn` was passed where `Expression&lt;T, R&gt;` is expected. The compiler builds the expression tree from the arrow function at compile time, so an already-built closure carries no tree it can lower.
+    <value>A value that is not an inline `fn` was passed where `Expression&lt;callable(T $arg): R&gt;` is expected. The compiler builds the expression tree from the arrow function at compile time, so an already-built closure carries no tree it can lower.
 
 ```tyhp
 &lt;?tyhp
-function takes(\Tyhp\Expression&lt;User, bool&gt; $pred): void {}
+function takes(\Tyhp\Expression&lt;callable(User $u): bool&gt; $pred): void {}
 
 takes($someClosure);
 ```
@@ -4605,7 +6648,7 @@ Pass an inline arrow function instead — `takes(fn ($u) =&gt; $u-&gt;age &gt; 1
 
 ```tyhp
 &lt;?tyhp
-function takes(\Tyhp\Expression&lt;User, bool&gt; $pred): void {}
+function takes(\Tyhp\Expression&lt;callable(User $u): bool&gt; $pred): void {}
 
 function demo(): void {
     int $minAge;
@@ -4640,5 +6683,81 @@ function demo(): void {
 
 The first call is valid (`$age` has a default). The second is not — `$name` is required. Optionality is modeled as required-key assignability on one struct, not an intersection of every key-subset bag.</value>
     <comment>Long-form explanation for TYHP4325 (tyhp --explain); blank line separates paragraphs</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4326" xml:space="preserve">
+    <value>`\Traversable` is an engine interface. Only `\Iterator` and `\IteratorAggregate` may extend it. Classes, enums, interfaces, and traits list `\Iterator` or `\IteratorAggregate` instead of `\Traversable`. Listing both (for example `implements \Iterator, \Traversable`) is also rejected.</value>
+    <comment>Long-form explanation for TYHP4326 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4327" xml:space="preserve">
+    <value>`#[\Tyhp\PhpType]` replaces the emitted PHP type of a parameter, function or method return, property, or typed constant. It is not a valid target on a class, interface, trait, enum, enum case, catch type, local variable, or property hook. Put the attribute on the property or on the `set` parameter instead of on `get`/`set`.</value>
+    <comment>Long-form explanation for TYHP4327 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4328" xml:space="preserve">
+    <value>Each typed use of a `yield` expression (for example `int $x = yield` or `foo(yield)` when `foo` takes `int`) constrains generator `TSend` — the type of `Generator::send()`. Several such targets are intersected. If that intersection is empty (for example `int` vs `string`), no send value can satisfy every site. Untyped `$x = yield` does not constrain `TSend` (it stays `mixed`).</value>
+    <comment>Long-form explanation for TYHP4328 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4329" xml:space="preserve">
+    <value>`#[\Tyhp\PhpType]` takes a PHP type-hint spelling such as `mixed`, `int`, `string|int`, or `?\Foo`. The constructor argument must be that string; invalid spelling (for example `int[]`, `?mixed`, or a missing argument) is a compile error. Checker types are unchanged; only the emitted PHP type uses the hint.</value>
+    <comment>Long-form explanation for TYHP4329 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4330" xml:space="preserve">
+    <value>PHP array offsets cannot be arrays. Tyhp structs erase to arrays, so `ArrayAccess&lt;SomeStruct, TValue&gt;` is not a legal homogeneous map (that spelling is `TKey` plus default `TValue`, not a per-key shape). Use `int`, `string`, `int|string`, or an object key type. Per-key struct maps are `ArrayAccessShape`.</value>
+    <comment>Long-form explanation for TYHP4330 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4331" xml:space="preserve">
+    <value>An `ArrayAccessShape` index must be a struct-key literal (or a finite union of those keys). A wide `string`, `int`, or `mixed` key is not enough; narrow the key or assert it with `as`.</value>
+    <comment>Long-form explanation for TYHP4331 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4332" xml:space="preserve">
+    <value>`ArrayAccessShape` has a closed key set from `TStruct`. Append (`$obj[] =`) is only legal on homogeneous `ArrayAccess`. Write a known key such as `$obj['host'] = …`.</value>
+    <comment>Long-form explanation for TYHP4332 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4333" xml:space="preserve">
+    <value>For each finite struct key `K`, `offsetGet` / `offsetSet` is checked with `$offset` assumed `K`. A key is covered only by a reachable value return (`offsetGet`) or a write of `$value` (`offsetSet`) of that field's type. `throw` and `never` do not cover an unhandled key; `match` is sufficient but not required.</value>
+    <comment>Long-form explanation for TYHP4333 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4334" xml:space="preserve">
+    <value>After `bindTo($x)` or `bindTo($x, 'static')` the leftover `TScope` is unchanged. `$newThis` must still be an instance of that scope class (or of `TThis` when the stored scope is gradual). An explicit object `$newScope` requires `TNewThis` to be a subtype of that object's type; a string `$newScope` must be `__SuperTypeName&lt;TNewThis&gt;` (an ancestor name, not a descendant). `call($newThis)` is a temporary bind: `$newThis` must be a non-null object compatible the same way. Gradual `TThis` (`object|null` / bare `\Closure`) does not prove an error.</value>
+    <comment>Long-form explanation for TYHP4334 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4335" xml:space="preserve">
+    <value>The token `'static'` on `bind` / `bindTo` means "keep the old stored `TScope`". It is not a class-name string and must not appear as a Closure type argument. Write `\Closure&lt;callable(…): mixed, TThis, TScope&gt;` with a real scope type, or omit `TScope` so the default `__ClosureScope&lt;TThis&gt;` is used.</value>
+    <comment>Long-form explanation for TYHP4335 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4336" xml:space="preserve">
+    <value>PHP refuses to rebind some closures. Arrow functions, first-class callables, and `fromCallable` of a non-Closure cannot change `$this` or scope. Binding `$newThis` or `$newScope` to an internal (engine) class is also forbidden. A gradual `\Closure` annotation does not prove the value is non-rebindable.</value>
+    <comment>Long-form explanation for TYHP4336 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4337" xml:space="preserve">
+    <value>`\UnitEnum` and `\BackedEnum` are engine interfaces. Classes, interfaces, and traits cannot implement or extend them. Enumerations are already `\UnitEnum` (and `\BackedEnum` when backed) and must not list those interfaces in `implements`. Only `\BackedEnum` may extend `\UnitEnum`.</value>
+    <comment>Long-form explanation for TYHP4337 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4338" xml:space="preserve">
+    <value>The engine supplies `cases` on every enumeration and `from` / `tryFrom` on backed enumerations. Redeclaring those methods is an error.</value>
+    <comment>Long-form explanation for TYHP4338 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4339" xml:space="preserve">
+    <value>PHP constructors are exempt from override signature checks, so `#[Override]` is invalid on `__construct` even when a parent constructor exists. This error is reported at every `output.phpVersion`. Use `#[Override]` on methods or (PHP 8.5 or later) properties that actually replace a parent or interface member. A method or property that does not override uses TYHP4129 instead.</value>
+    <comment>Long-form explanation for TYHP4339 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4340" xml:space="preserve">
+    <value>`#[\Tyhp\NativeTypeTest]` marks a free function or concrete static method as the native lowering for `$x is T`. Instance methods, abstract or interface methods, closures, and other declarations cannot be that lowering; emit is `fqn($x)` or `\Class::method($x)` with the guarded first parameter.</value>
+    <comment>Long-form explanation for TYHP4340 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4341" xml:space="preserve">
+    <value>The attribute does not take a type argument. `T` is the type-guard return of the same function: the first parameter must be named in `$param is T` (not `$other is T` and not an index subject such as `$array[$key] is T`).</value>
+    <comment>Long-form explanation for TYHP4341 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4342" xml:space="preserve">
+    <value>`T` must be a single type after transparent alias expansion. Unions (`int|string`), intersections, and nullables (`?string`) stay on `\Tyhp\Type::is` at `$x is …` sites; mark a guard only when it tests one exact type (for example `string`, `int`, or a class name).</value>
+    <comment>Long-form explanation for TYHP4342 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4343" xml:space="preserve">
+    <value>`$x is T` emits `fqn($x)` and does not pass further arguments. Extra parameters after the guarded first parameter must all have defaults (or be variadic) so a one-argument call is valid.</value>
+    <comment>Long-form explanation for TYHP4343 (tyhp --explain)</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4344" xml:space="preserve">
+    <value>Only one callable may be the native test for a given `T`, including overlapping guarded types (for example `string` and `int|float|string`). Canonical PHP builtins such as `is_int` are marked; aliases such as `is_integer` / `is_long` stay callable but do not win `$x is int`. Concrete static methods are allowed; instance and abstract methods are not.</value>
+    <comment>Long-form explanation for TYHP4344 (tyhp --explain)</comment>
   </data>
 </root>

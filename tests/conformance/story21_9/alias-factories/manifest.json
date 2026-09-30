@@ -1,0 +1,65 @@
+{
+  "suite": "story21_9/alias-factories",
+  "description": "Story 21.9 Phase 4 — type-alias Type factories plus import rewrite (use → use function)",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "user_id_factory",
+      "file": "Types.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Types/_functions.php"
+      }
+    },
+    {
+      "id": "user_class",
+      "file": "Types.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Types/User.php"
+      }
+    },
+    {
+      "id": "user_service_static_factory",
+      "file": "UserService.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/UserService.php"
+      }
+    },
+    {
+      "id": "imported_factory_use_function",
+      "file": "demo.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/Demo/_functions.php"
+      }
+    },
+    {
+      "id": "hints_only_import_pruned",
+      "file": "hints.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/Hints/_functions.php"
+      }
+    },
+    {
+      "id": "fq_factory_call_drops_import",
+      "file": "fq.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/Fq/_functions.php"
+      }
+    },
+    {
+      "id": "mixed_group_split",
+      "file": "mixed.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/MixedNs/_functions.php"
+      }
+    }
+  ]
+}

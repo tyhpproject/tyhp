@@ -243,6 +243,61 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefImportExtension([NotNull] TyhpParser.TyhpdefImportExtensionContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefGlobalImportExtension</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefTopStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefGlobalImportExtension([NotNull] TyhpParser.TyhpdefGlobalImportExtensionContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefGlobalImportGroupDecls</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefTopStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefGlobalImportGroupDecls([NotNull] TyhpParser.TyhpdefGlobalImportGroupDeclsContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefGlobalImportTypedGroupDecls</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefTopStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefGlobalImportTypedGroupDecls([NotNull] TyhpParser.TyhpdefGlobalImportTypedGroupDeclsContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefGlobalImportDecls</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefTopStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefGlobalImportDecls([NotNull] TyhpParser.TyhpdefGlobalImportDeclsContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefGlobalImportType</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefTopStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefGlobalImportType([NotNull] TyhpParser.TyhpdefGlobalImportTypeContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpdefTypeAliasDecl</c>
 	/// labeled alternative in <see cref="TyhpParser.tyhpdefTopStatement"/>.
 	/// <para>
@@ -254,6 +309,17 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefTypeAliasDecl([NotNull] TyhpParser.TyhpdefTypeAliasDeclContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefStandaloneExtensionTopDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefTopStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefStandaloneExtensionTopDecl([NotNull] TyhpParser.TyhpdefStandaloneExtensionTopDeclContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefDeprecatedOrObsolete"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -263,17 +329,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefDeprecatedOrObsolete([NotNull] TyhpParser.TyhpdefDeprecatedOrObsoleteContext context) { return VisitChildren(context); }
-	/// <summary>
-	/// Visit a parse tree produced by the <c>tyhpdefStructDecl</c>
-	/// labeled alternative in <see cref="TyhpParser.tyhpdefStatement"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitTyhpdefStructDecl([NotNull] TyhpParser.TyhpdefStructDeclContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpdefEmptyStatement</c>
 	/// labeled alternative in <see cref="TyhpParser.tyhpdefStatement"/>.
@@ -319,6 +374,39 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefImportVariable([NotNull] TyhpParser.TyhpdefImportVariableContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefDeclareEmpty</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefDeclareBody"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefDeclareEmpty([NotNull] TyhpParser.TyhpdefDeclareEmptyContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefDeclareBlock</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefDeclareBody"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefDeclareBlock([NotNull] TyhpParser.TyhpdefDeclareBlockContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefDeclareColon</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefDeclareBody"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefDeclareColon([NotNull] TyhpParser.TyhpdefDeclareColonContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefImportConstStatement"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -338,6 +426,83 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefImportVariableStatement([NotNull] TyhpParser.TyhpdefImportVariableStatementContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefExternClassDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefAttributedStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternClassDecl([NotNull] TyhpParser.TyhpdefExternClassDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefExternInterfaceDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefAttributedStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternInterfaceDecl([NotNull] TyhpParser.TyhpdefExternInterfaceDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefExternEnumDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefAttributedStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternEnumDecl([NotNull] TyhpParser.TyhpdefExternEnumDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefExternFunctionDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefAttributedStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternFunctionDecl([NotNull] TyhpParser.TyhpdefExternFunctionDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefExternConstDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefAttributedStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternConstDecl([NotNull] TyhpParser.TyhpdefExternConstDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefExternDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefAttributedStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternDecl([NotNull] TyhpParser.TyhpdefExternDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefPartialFunctionDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefAttributedStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefPartialFunctionDecl([NotNull] TyhpParser.TyhpdefPartialFunctionDeclContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpdefImportFunctionDecl</c>
 	/// labeled alternative in <see cref="TyhpParser.tyhpdefAttributedStatement"/>.
@@ -394,6 +559,96 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefImportEnumDecl([NotNull] TyhpParser.TyhpdefImportEnumDeclContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefExternClassDeclarationStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternClassDeclarationStatement([NotNull] TyhpParser.TyhpdefExternClassDeclarationStatementContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefExternClassIllegalHeader"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternClassIllegalHeader([NotNull] TyhpParser.TyhpdefExternClassIllegalHeaderContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefExternInterfaceDeclarationStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternInterfaceDeclarationStatement([NotNull] TyhpParser.TyhpdefExternInterfaceDeclarationStatementContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefExternEnumDeclarationStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternEnumDeclarationStatement([NotNull] TyhpParser.TyhpdefExternEnumDeclarationStatementContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefExternFunctionDeclarationStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternFunctionDeclarationStatement([NotNull] TyhpParser.TyhpdefExternFunctionDeclarationStatementContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefExternConstDeclarationStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternConstDeclarationStatement([NotNull] TyhpParser.TyhpdefExternConstDeclarationStatementContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefExternDeclarationStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefExternDeclarationStatement([NotNull] TyhpParser.TyhpdefExternDeclarationStatementContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefPartialFunctionDeclarationStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefPartialFunctionDeclarationStatement([NotNull] TyhpParser.TyhpdefPartialFunctionDeclarationStatementContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefPartialFunctionName"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefPartialFunctionName([NotNull] TyhpParser.TyhpdefPartialFunctionNameContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefImportFunctionDeclarationStatement"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -444,6 +699,121 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefImportEnumDeclarationStatement([NotNull] TyhpParser.TyhpdefImportEnumDeclarationStatementContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefStandaloneExtensionDeclarationStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefStandaloneExtensionDeclarationStatement([NotNull] TyhpParser.TyhpdefStandaloneExtensionDeclarationStatementContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefStandaloneExtensionMemberList"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefStandaloneExtensionMemberList([NotNull] TyhpParser.TyhpdefStandaloneExtensionMemberListContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefStandaloneExtensionFunctionMember</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefStandaloneExtensionMember"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefStandaloneExtensionFunctionMember([NotNull] TyhpParser.TyhpdefStandaloneExtensionFunctionMemberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefStandaloneExtensionOperatorMember</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefStandaloneExtensionMember"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefStandaloneExtensionOperatorMember([NotNull] TyhpParser.TyhpdefStandaloneExtensionOperatorMemberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefStandaloneExtensionTargetGroupMember</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefStandaloneExtensionMember"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefStandaloneExtensionTargetGroupMember([NotNull] TyhpParser.TyhpdefStandaloneExtensionTargetGroupMemberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefStandaloneExtensionGroupFunctionMember</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefStandaloneExtensionGroupMember"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefStandaloneExtensionGroupFunctionMember([NotNull] TyhpParser.TyhpdefStandaloneExtensionGroupFunctionMemberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefStandaloneExtensionGroupOperatorMember</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefStandaloneExtensionGroupMember"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefStandaloneExtensionGroupOperatorMember([NotNull] TyhpParser.TyhpdefStandaloneExtensionGroupOperatorMemberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefStandaloneExtensionGroupMemberList"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefStandaloneExtensionGroupMemberList([NotNull] TyhpParser.TyhpdefStandaloneExtensionGroupMemberListContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefStandaloneExtensionTargetGroup"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefStandaloneExtensionTargetGroup([NotNull] TyhpParser.TyhpdefStandaloneExtensionTargetGroupContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefStandaloneExtensionFunction"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefStandaloneExtensionFunction([NotNull] TyhpParser.TyhpdefStandaloneExtensionFunctionContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefStandaloneExtensionOperator"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefStandaloneExtensionOperator([NotNull] TyhpParser.TyhpdefStandaloneExtensionOperatorContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefClassStatementList"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -465,6 +835,17 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefClassProperty([NotNull] TyhpParser.TyhpdefClassPropertyContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefClassPropertyAccessors</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefClassStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefClassPropertyAccessors([NotNull] TyhpParser.TyhpdefClassPropertyAccessorsContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpdefImportClassConst</c>
 	/// labeled alternative in <see cref="TyhpParser.tyhpdefClassStatement"/>.
 	/// <para>
@@ -475,6 +856,17 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefImportClassConst([NotNull] TyhpParser.TyhpdefImportClassConstContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefPartialClassMethod</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefClassStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefPartialClassMethod([NotNull] TyhpParser.TyhpdefPartialClassMethodContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpdefImportClassMethod</c>
 	/// labeled alternative in <see cref="TyhpParser.tyhpdefClassStatement"/>.
@@ -553,8 +945,8 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefClassOperatorDecl([NotNull] TyhpParser.TyhpdefClassOperatorDeclContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by the <c>tyhpdefExtensionFunctionFullDecl</c>
-	/// labeled alternative in <see cref="TyhpParser.tyhpdefExtensionFunction"/>.
+	/// Visit a parse tree produced by the <c>tyhpdefClassTypeAlias</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefClassStatement"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -562,7 +954,7 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitTyhpdefExtensionFunctionFullDecl([NotNull] TyhpParser.TyhpdefExtensionFunctionFullDeclContext context) { return VisitChildren(context); }
+	public virtual Result VisitTyhpdefClassTypeAlias([NotNull] TyhpParser.TyhpdefClassTypeAliasContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpdefExtensionFunctionShortDecl</c>
 	/// labeled alternative in <see cref="TyhpParser.tyhpdefExtensionFunction"/>.
@@ -667,6 +1059,36 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefPropertyList([NotNull] TyhpParser.TyhpdefPropertyListContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefHookedProperty"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefHookedProperty([NotNull] TyhpParser.TyhpdefHookedPropertyContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefPropertyHookList"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefPropertyHookList([NotNull] TyhpParser.TyhpdefPropertyHookListContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefPropertyHook"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefPropertyHook([NotNull] TyhpParser.TyhpdefPropertyHookContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefIdentifierWithOptionalAlias"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -709,6 +1131,17 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefFunctionNameAlias([NotNull] TyhpParser.TyhpdefFunctionNameAliasContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpdefFunctionNameSemiReservedAlias</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpdefFunctionNameWithOptionalAlias"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpdefFunctionNameSemiReservedAlias([NotNull] TyhpParser.TyhpdefFunctionNameSemiReservedAliasContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpdefIdentifierAlias</c>
 	/// labeled alternative in <see cref="TyhpParser.tyhpdefIdentifierWithAlias"/>.
 	/// <para>
@@ -731,16 +1164,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpdefClassMemberIdentifierAlias([NotNull] TyhpParser.TyhpdefClassMemberIdentifierAliasContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpStructDeclarationStatement"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitTyhpStructDeclarationStatement([NotNull] TyhpParser.TyhpStructDeclarationStatementContext context) { return VisitChildren(context); }
-	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpAnonymousStruct"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -750,6 +1173,16 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpAnonymousStruct([NotNull] TyhpParser.TyhpAnonymousStructContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpStructShape"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpStructShape([NotNull] TyhpParser.TyhpStructShapeContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpStructProperty"/>.
 	/// <para>
@@ -791,7 +1224,8 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpExtensionFunctionList([NotNull] TyhpParser.TyhpExtensionFunctionListContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpExtensionMember"/>.
+	/// Visit a parse tree produced by the <c>tyhpExtensionCallableMemberAlt</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpExtensionMember"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -799,7 +1233,113 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitTyhpExtensionMember([NotNull] TyhpParser.TyhpExtensionMemberContext context) { return VisitChildren(context); }
+	public virtual Result VisitTyhpExtensionCallableMemberAlt([NotNull] TyhpParser.TyhpExtensionCallableMemberAltContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpExtensionOperatorMember</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpExtensionMember"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpExtensionOperatorMember([NotNull] TyhpParser.TyhpExtensionOperatorMemberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpExtensionTargetGroupMember</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpExtensionMember"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpExtensionTargetGroupMember([NotNull] TyhpParser.TyhpExtensionTargetGroupMemberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpExtensionGroupCallableMember</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpExtensionGroupMember"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpExtensionGroupCallableMember([NotNull] TyhpParser.TyhpExtensionGroupCallableMemberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpExtensionGroupOperatorMember</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpExtensionGroupMember"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpExtensionGroupOperatorMember([NotNull] TyhpParser.TyhpExtensionGroupOperatorMemberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpExtensionGroupMemberList"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpExtensionGroupMemberList([NotNull] TyhpParser.TyhpExtensionGroupMemberListContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpExtensionTargetGroup"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpExtensionTargetGroup([NotNull] TyhpParser.TyhpExtensionTargetGroupContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpExtensionFunctionDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpExtensionCallableMember"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpExtensionFunctionDecl([NotNull] TyhpParser.TyhpExtensionFunctionDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpExtensionFunctionShortDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpExtensionCallableMember"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpExtensionFunctionShortDecl([NotNull] TyhpParser.TyhpExtensionFunctionShortDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpExtensionCallableParameters"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpExtensionCallableParameters([NotNull] TyhpParser.TyhpExtensionCallableParametersContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpExtensionOperatorLegacyTarget"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpExtensionOperatorLegacyTarget([NotNull] TyhpParser.TyhpExtensionOperatorLegacyTargetContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpExtensionOperatorOverload"/>.
 	/// <para>
@@ -820,6 +1360,79 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpTypeAlias([NotNull] TyhpParser.TyhpTypeAliasContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpObjectShape"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpObjectShape([NotNull] TyhpParser.TyhpObjectShapeContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpObjectShapeStatementList"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpObjectShapeStatementList([NotNull] TyhpParser.TyhpObjectShapeStatementListContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpObjectShapeClassConsts</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpObjectShapeStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpObjectShapeClassConsts([NotNull] TyhpParser.TyhpObjectShapeClassConstsContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpObjectShapeClassTypedConsts</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpObjectShapeStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpObjectShapeClassTypedConsts([NotNull] TyhpParser.TyhpObjectShapeClassTypedConstsContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpObjectShapeTyhpdefMember</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpObjectShapeStatement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpObjectShapeTyhpdefMember([NotNull] TyhpParser.TyhpObjectShapeTyhpdefMemberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpObjectShapeIntersection"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpObjectShapeIntersection([NotNull] TyhpParser.TyhpObjectShapeIntersectionContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpObjectShapeIntersectionItem"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpObjectShapeIntersectionItem([NotNull] TyhpParser.TyhpObjectShapeIntersectionItemContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpGenericIdentifier"/>.
 	/// <para>
@@ -981,6 +1594,16 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitPhpExprAssignmentOpsGrammarAddon([NotNull] TyhpParser.PhpExprAssignmentOpsGrammarAddonContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.phpExprPrecBaseGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitPhpExprPrecBaseGrammarAddon([NotNull] TyhpParser.PhpExprPrecBaseGrammarAddonContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpReservedNonModifiers"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -1091,6 +1714,39 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitOptionalTypeWithoutStatic([NotNull] TyhpParser.OptionalTypeWithoutStaticContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by the <c>newClassInstance</c>
+	/// labeled alternative in <see cref="TyhpParser.newDereferenceable"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitNewClassInstance([NotNull] TyhpParser.NewClassInstanceContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>newAnonClassInstance</c>
+	/// labeled alternative in <see cref="TyhpParser.newDereferenceable"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitNewAnonClassInstance([NotNull] TyhpParser.NewAnonClassInstanceContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>newDereferenceableGrammarAddonHandler</c>
+	/// labeled alternative in <see cref="TyhpParser.newDereferenceable"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitNewDereferenceableGrammarAddonHandler([NotNull] TyhpParser.NewDereferenceableGrammarAddonHandlerContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpNewAnonStructInstance</c>
 	/// labeled alternative in <see cref="TyhpParser.newDereferenceableGrammarAddon"/>.
 	/// <para>
@@ -1135,6 +1791,61 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpImportExtension([NotNull] TyhpParser.TyhpImportExtensionContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpGlobalImportExtension</c>
+	/// labeled alternative in <see cref="TyhpParser.topStatementGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpGlobalImportExtension([NotNull] TyhpParser.TyhpGlobalImportExtensionContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpGlobalImportGroupDecls</c>
+	/// labeled alternative in <see cref="TyhpParser.topStatementGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpGlobalImportGroupDecls([NotNull] TyhpParser.TyhpGlobalImportGroupDeclsContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpGlobalImportTypedGroupDecls</c>
+	/// labeled alternative in <see cref="TyhpParser.topStatementGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpGlobalImportTypedGroupDecls([NotNull] TyhpParser.TyhpGlobalImportTypedGroupDeclsContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpGlobalImportDecls</c>
+	/// labeled alternative in <see cref="TyhpParser.topStatementGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpGlobalImportDecls([NotNull] TyhpParser.TyhpGlobalImportDeclsContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpGlobalImportType</c>
+	/// labeled alternative in <see cref="TyhpParser.topStatementGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpGlobalImportType([NotNull] TyhpParser.TyhpGlobalImportTypeContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpTypeAliasDecl</c>
 	/// labeled alternative in <see cref="TyhpParser.topStatementGrammarAddon"/>.
 	/// <para>
@@ -1146,17 +1857,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpTypeAliasDecl([NotNull] TyhpParser.TyhpTypeAliasDeclContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by the <c>tyhpStructDecl</c>
-	/// labeled alternative in <see cref="TyhpParser.topStatementGrammarAddon"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitTyhpStructDecl([NotNull] TyhpParser.TyhpStructDeclContext context) { return VisitChildren(context); }
-	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpExtensionDecl</c>
 	/// labeled alternative in <see cref="TyhpParser.topStatementGrammarAddon"/>.
 	/// <para>
@@ -1167,6 +1867,39 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpExtensionDecl([NotNull] TyhpParser.TyhpExtensionDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpInternalConstDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.topStatementGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpInternalConstDecl([NotNull] TyhpParser.TyhpInternalConstDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpFallbackDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.topStatementGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpFallbackDecl([NotNull] TyhpParser.TyhpFallbackDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpFallbackConstDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.topStatementGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpFallbackConstDecl([NotNull] TyhpParser.TyhpFallbackConstDeclContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.unprefixedUseDeclarationGrammarAddon"/>.
 	/// <para>
@@ -1187,6 +1920,39 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitUseDeclarationGrammarAddon([NotNull] TyhpParser.UseDeclarationGrammarAddonContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpInnerExtensionDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.innerStatementGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpInnerExtensionDecl([NotNull] TyhpParser.TyhpInnerExtensionDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpInnerTypeAliasDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.innerStatementGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpInnerTypeAliasDecl([NotNull] TyhpParser.TyhpInnerTypeAliasDeclContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpInnerFallbackDecl</c>
+	/// labeled alternative in <see cref="TyhpParser.innerStatementGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpInnerFallbackDecl([NotNull] TyhpParser.TyhpInnerFallbackDeclContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.phpTopExpr"/>.
 	/// <para>
@@ -1271,6 +2037,26 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpForInitTypedVar([NotNull] TyhpParser.TyhpForInitTypedVarContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.foreachVariable"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitForeachVariable([NotNull] TyhpParser.ForeachVariableContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.constDecl"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitConstDecl([NotNull] TyhpParser.ConstDeclContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpStatementUsingBlock</c>
 	/// labeled alternative in <see cref="TyhpParser.statementWithoutTerminalGrammarAddon"/>.
@@ -1524,6 +2310,17 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpClassOperatorOverloadDecl([NotNull] TyhpParser.TyhpClassOperatorOverloadDeclContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpModifiedEnumCase</c>
+	/// labeled alternative in <see cref="TyhpParser.classStatementGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpModifiedEnumCase([NotNull] TyhpParser.TyhpModifiedEnumCaseContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpClassOperatorOverload"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -1555,6 +2352,39 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpTraitAliasPropertyRename([NotNull] TyhpParser.TyhpTraitAliasPropertyRenameContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpTraitAliasHide</c>
+	/// labeled alternative in <see cref="TyhpParser.traitAliasGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpTraitAliasHide([NotNull] TyhpParser.TyhpTraitAliasHideContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpTraitOperatorMethodReference</c>
+	/// labeled alternative in <see cref="TyhpParser.traitMethodReferenceGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpTraitOperatorMethodReference([NotNull] TyhpParser.TyhpTraitOperatorMethodReferenceContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpAbsoluteTraitOperatorMethodReference</c>
+	/// labeled alternative in <see cref="TyhpParser.absoluteTraitMethodReferenceGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpAbsoluteTraitOperatorMethodReference([NotNull] TyhpParser.TyhpAbsoluteTraitOperatorMethodReferenceContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.traitAliasNameGrammarAddon"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -1585,6 +2415,46 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitMemberModifierGrammarAddon([NotNull] TyhpParser.MemberModifierGrammarAddonContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.classModifierGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitClassModifierGrammarAddon([NotNull] TyhpParser.ClassModifierGrammarAddonContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.traitModifiersGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTraitModifiersGrammarAddon([NotNull] TyhpParser.TraitModifiersGrammarAddonContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.interfaceModifiersGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitInterfaceModifiersGrammarAddon([NotNull] TyhpParser.InterfaceModifiersGrammarAddonContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.enumModifiersGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitEnumModifiersGrammarAddon([NotNull] TyhpParser.EnumModifiersGrammarAddonContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.parameterTypeExpressionGrammarAddon"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -1594,6 +2464,96 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitParameterTypeExpressionGrammarAddon([NotNull] TyhpParser.ParameterTypeExpressionGrammarAddonContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.typeExpr"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTypeExpr([NotNull] TyhpParser.TypeExprContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.typeExprWithoutStatic"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTypeExprWithoutStatic([NotNull] TyhpParser.TypeExprWithoutStaticContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.typeWithoutStatic"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTypeWithoutStatic([NotNull] TyhpParser.TypeWithoutStaticContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.unionTypeElement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitUnionTypeElement([NotNull] TyhpParser.UnionTypeElementContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.unionTypeWithoutStaticElement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitUnionTypeWithoutStaticElement([NotNull] TyhpParser.UnionTypeWithoutStaticElementContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.callableType"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitCallableType([NotNull] TyhpParser.CallableTypeContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.callableShapeParameterList"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitCallableShapeParameterList([NotNull] TyhpParser.CallableShapeParameterListContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.callableShapeParameter"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitCallableShapeParameter([NotNull] TyhpParser.CallableShapeParameterContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.groupedType"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitGroupedType([NotNull] TyhpParser.GroupedTypeContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.typeWithoutStaticGrammarAddon"/>.
 	/// <para>
@@ -1616,6 +2576,28 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitScalarTypeLNumber([NotNull] TyhpParser.ScalarTypeLNumberContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by the <c>scalarTypeNegativeLNumber</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpScalarType"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitScalarTypeNegativeLNumber([NotNull] TyhpParser.ScalarTypeNegativeLNumberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>scalarTypePositiveLNumber</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpScalarType"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitScalarTypePositiveLNumber([NotNull] TyhpParser.ScalarTypePositiveLNumberContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by the <c>scalarTypeDNumber</c>
 	/// labeled alternative in <see cref="TyhpParser.tyhpScalarType"/>.
 	/// <para>
@@ -1626,6 +2608,28 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitScalarTypeDNumber([NotNull] TyhpParser.ScalarTypeDNumberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>scalarTypeNegativeDNumber</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpScalarType"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitScalarTypeNegativeDNumber([NotNull] TyhpParser.ScalarTypeNegativeDNumberContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>scalarTypePositiveDNumber</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpScalarType"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitScalarTypePositiveDNumber([NotNull] TyhpParser.ScalarTypePositiveDNumberContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by the <c>scalarTypeONumber</c>
 	/// labeled alternative in <see cref="TyhpParser.tyhpScalarType"/>.
@@ -1714,6 +2718,17 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpInternalFunctionTypeof([NotNull] TyhpParser.TyhpInternalFunctionTypeofContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpInternalFunctionTypeofBuiltinCast</c>
+	/// labeled alternative in <see cref="TyhpParser.internalFunctionsGrammarAddon"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpInternalFunctionTypeofBuiltinCast([NotNull] TyhpParser.TyhpInternalFunctionTypeofBuiltinCastContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpInternalFunctionDefault</c>
 	/// labeled alternative in <see cref="TyhpParser.internalFunctionsGrammarAddon"/>.
@@ -2894,16 +3909,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitPhpExprPrecBaseGrammarAddonHandler([NotNull] TyhpParser.PhpExprPrecBaseGrammarAddonHandlerContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.phpExprPrecBaseGrammarAddon"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitPhpExprPrecBaseGrammarAddon([NotNull] TyhpParser.PhpExprPrecBaseGrammarAddonContext context) { return VisitChildren(context); }
-	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.optionalExpr"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -3562,16 +4567,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitInnerStatementGrammarAddonHandler([NotNull] TyhpParser.InnerStatementGrammarAddonHandlerContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.innerStatementGrammarAddon"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitInnerStatementGrammarAddon([NotNull] TyhpParser.InnerStatementGrammarAddonContext context) { return VisitChildren(context); }
-	/// <summary>
 	/// Visit a parse tree produced by the <c>statementDoWhile</c>
 	/// labeled alternative in <see cref="TyhpParser.statementRequiringTerminal"/>.
 	/// <para>
@@ -3932,16 +4927,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitUnsetVariable([NotNull] TyhpParser.UnsetVariableContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.constDecl"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitConstDecl([NotNull] TyhpParser.ConstDeclContext context) { return VisitChildren(context); }
-	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.echoExprList"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -4246,16 +5231,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitClassModifier([NotNull] TyhpParser.ClassModifierContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.classModifierGrammarAddon"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitClassModifierGrammarAddon([NotNull] TyhpParser.ClassModifierGrammarAddonContext context) { return VisitChildren(context); }
-	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.traitDeclarationStatement"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -4275,16 +5250,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTraitDeclarationStatementGrammarAddon([NotNull] TyhpParser.TraitDeclarationStatementGrammarAddonContext context) { return VisitChildren(context); }
-	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.traitModifiersGrammarAddon"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitTraitModifiersGrammarAddon([NotNull] TyhpParser.TraitModifiersGrammarAddonContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.interfaceDeclarationStatement"/>.
 	/// <para>
@@ -4306,16 +5271,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitInterfaceDeclarationStatementGrammarAddon([NotNull] TyhpParser.InterfaceDeclarationStatementGrammarAddonContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.interfaceModifiersGrammarAddon"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitInterfaceModifiersGrammarAddon([NotNull] TyhpParser.InterfaceModifiersGrammarAddonContext context) { return VisitChildren(context); }
-	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.enumDeclarationStatement"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -4335,16 +5290,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitEnumDeclarationStatementGrammarAddon([NotNull] TyhpParser.EnumDeclarationStatementGrammarAddonContext context) { return VisitChildren(context); }
-	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.enumModifiersGrammarAddon"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitEnumModifiersGrammarAddon([NotNull] TyhpParser.EnumModifiersGrammarAddonContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.enumBackingType"/>.
 	/// <para>
@@ -4933,16 +5878,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitCtorArguments([NotNull] TyhpParser.CtorArgumentsContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.foreachVariable"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitForeachVariable([NotNull] TyhpParser.ForeachVariableContext context) { return VisitChildren(context); }
-	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.forStatement"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -5375,16 +6310,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitStaticVar([NotNull] TyhpParser.StaticVarContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.typeExpr"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitTypeExpr([NotNull] TyhpParser.TypeExprContext context) { return VisitChildren(context); }
-	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.typeExprGrammarAddon"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -5404,16 +6329,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitType([NotNull] TyhpParser.TypeContext context) { return VisitChildren(context); }
-	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.unionTypeElement"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitUnionTypeElement([NotNull] TyhpParser.UnionTypeElementContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.unionType"/>.
 	/// <para>
@@ -5435,16 +6350,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitIntersectionType([NotNull] TyhpParser.IntersectionTypeContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.typeExprWithoutStatic"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitTypeExprWithoutStatic([NotNull] TyhpParser.TypeExprWithoutStaticContext context) { return VisitChildren(context); }
-	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.typeExprWithoutStaticGrammarAddon"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
@@ -5454,26 +6359,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTypeExprWithoutStaticGrammarAddon([NotNull] TyhpParser.TypeExprWithoutStaticGrammarAddonContext context) { return VisitChildren(context); }
-	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.typeWithoutStatic"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitTypeWithoutStatic([NotNull] TyhpParser.TypeWithoutStaticContext context) { return VisitChildren(context); }
-	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.unionTypeWithoutStaticElement"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitUnionTypeWithoutStaticElement([NotNull] TyhpParser.UnionTypeWithoutStaticElementContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.unionTypeWithoutStatic"/>.
 	/// <para>
@@ -5516,39 +6401,6 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitReturnTypeGrammarAddonHandler([NotNull] TyhpParser.ReturnTypeGrammarAddonHandlerContext context) { return VisitChildren(context); }
-	/// <summary>
-	/// Visit a parse tree produced by the <c>newClassInstance</c>
-	/// labeled alternative in <see cref="TyhpParser.newDereferenceable"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitNewClassInstance([NotNull] TyhpParser.NewClassInstanceContext context) { return VisitChildren(context); }
-	/// <summary>
-	/// Visit a parse tree produced by the <c>newAnonClassInstance</c>
-	/// labeled alternative in <see cref="TyhpParser.newDereferenceable"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitNewAnonClassInstance([NotNull] TyhpParser.NewAnonClassInstanceContext context) { return VisitChildren(context); }
-	/// <summary>
-	/// Visit a parse tree produced by the <c>newDereferenceableGrammarAddonHandler</c>
-	/// labeled alternative in <see cref="TyhpParser.newDereferenceable"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitNewDereferenceableGrammarAddonHandler([NotNull] TyhpParser.NewDereferenceableGrammarAddonHandlerContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.newNonDereferenceableGrammarAddon"/>.
 	/// <para>

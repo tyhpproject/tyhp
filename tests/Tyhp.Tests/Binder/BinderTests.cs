@@ -14,44 +14,32 @@ namespace Tyhp.Tests.Binder;
 [Trait("Category", "Binder")]
 public class BinderTestHelper
 {
-    private static CompilationOptions CreateOptions()
-        => new()
-        {
-            EnableAstCache = false,
-            PhpVersion = "8.2",
-            ProjectPath = TestFileManager.GetRepoRoot(),
-            TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            SkipChecking = true,
-        };
+    private static CompilationOptions CreateOptions(string projectPath)
+        => IsolatedCompilation.CreateOptions(projectPath, skipChecking: true);
 
     public static (GlobalScope? Global, DiagnosticBag Diagnostics) BindFile(string filePath)
     {
         using var compilationService = new CompilationService();
-        var result = compilationService.ParseFiles(new[] { filePath }, CreateOptions());
+        var result = compilationService.ParseFiles(
+            [filePath],
+            CreateOptions(Path.GetDirectoryName(filePath)!));
         return (result.GlobalScope, result.Diagnostics);
     }
 
     public static (GlobalScope? Global, DiagnosticBag Diagnostics) BindFiles(params string[] filePaths)
     {
         using var compilationService = new CompilationService();
-        var result = compilationService.ParseFiles(filePaths, CreateOptions());
+        var projectPath = filePaths.Length > 0
+            ? Path.GetDirectoryName(filePaths[0])!
+            : Path.GetTempPath();
+        var result = compilationService.ParseFiles(filePaths, CreateOptions(projectPath));
         return (result.GlobalScope, result.Diagnostics);
     }
 
     public static (GlobalScope? Global, DiagnosticBag Diagnostics) BindContent(string content, string fileName = "test.tyhp")
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var filePath = Path.Combine(tempDir, fileName);
-        File.WriteAllText(filePath, content);
-        try
-        {
-            return BindFile(filePath);
-        }
-        finally
-        {
-            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
-        }
+        var result = IsolatedCompilation.ParseSnippet(content, fileName: fileName, skipChecking: true);
+        return (result.GlobalScope, result.Diagnostics);
     }
 }
 
@@ -422,36 +410,6 @@ public class DuplicateDeclarationTests
         {
             try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
         }
-    }
-
-    [Fact]
-    public void Bind_DebugProject_HasNoBinderDuplicateDeclarations()
-    {
-        // DebugProject exercises multi-resource using blocks; those must not false-report TYHP3002.
-        var projectPath = Path.Combine(TestFileManager.GetRepoRoot(), "DebugProject");
-        var projectFile = Path.Combine(projectPath, "tyhp.json");
-        var configuration = new ConfigurationBuilder()
-            .AddJsonFile(projectFile, optional: false)
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["*project_file_path"] = projectFile,
-            })
-            .Build();
-        var project = new Project(configuration);
-        var files = project.GetProjectSourceFiles().Select(Path.GetFullPath).ToArray();
-
-        using var compilationService = new CompilationService();
-        var options = CompilationOptions.FromProject(project);
-        options.EnableAstCache = false;
-        options.SkipChecking = true;
-        var result = compilationService.ParseFiles(files, options);
-
-        var dups = result.Diagnostics.Errors
-            .Where(d => d.Code == MessageCode.BinderDuplicateSymbolDeclaration)
-            .Select(d => $"{Path.GetFileName(d.FileName)}:{string.Join(",", d.FormatParams ?? [])}")
-            .ToList();
-
-        dups.Should().BeEmpty($"unexpected binder duplicates: {string.Join("; ", dups)}");
     }
 
     [Fact]

@@ -38,8 +38,19 @@ namespace Tyhp.TyhpLang.Enum {
         public static OverloadableOperator FromToken(Antlr4.Runtime.IToken? token, bool isAlternateKind = false)
             => FromToken(token?.Type ?? -1, token?.Text ?? "", isAlternateKind);
 
+        /// <summary>
+        /// Tyhp and tyhpdef grammars assign different integer ids to the same spelling.
+        /// When <paramref name="text"/> is present it is authoritative. <paramref name="token"/>
+        /// is a <c>TyhpParser</c> id used only when the spelling is absent.
+        /// </summary>
         public static OverloadableOperator FromToken(int token, string text = "", bool isAlternateKind = false)
-            => token switch {
+        {
+            if (!string.IsNullOrEmpty(text))
+            {
+                return FromSpelling(text, isAlternateKind);
+            }
+
+            return token switch {
                 TyhpLang.Parser.TyhpParser.T_SYM_PLUS => isAlternateKind ? OverloadableOperator.Plus : OverloadableOperator.Add,
                 TyhpLang.Parser.TyhpParser.T_SYM_MINUS => isAlternateKind ? OverloadableOperator.Minus : OverloadableOperator.Subtract,
                 TyhpLang.Parser.TyhpParser.T_SYM_SLASH => OverloadableOperator.Divide,
@@ -66,20 +77,76 @@ namespace Tyhp.TyhpLang.Enum {
                 TyhpLang.Parser.TyhpParser.T_SYM_CARET => OverloadableOperator.BitwiseXor,
                 TyhpLang.Parser.TyhpParser.T_SYM_PIPE => OverloadableOperator.BitwiseOr,
                 TyhpLang.Parser.TyhpParser.T_EMPTY => OverloadableOperator.IsEmpty,
-                TyhpLang.Parser.TyhpParser.T_STRING => text.ToLower().Trim() switch {
-                    "empty" => OverloadableOperator.IsEmpty,
-                    "convert" => OverloadableOperator.Convert,
-                    _ => OverloadableOperator.Invalid
-                },
                 _ => OverloadableOperator.Invalid
             };
+        }
+
+        private static OverloadableOperator FromSpelling(string text, bool isAlternateKind)
+        {
+            var spelling = text.Trim();
+            return spelling switch
+            {
+                "+" => isAlternateKind ? OverloadableOperator.Plus : OverloadableOperator.Add,
+                "-" => isAlternateKind ? OverloadableOperator.Minus : OverloadableOperator.Subtract,
+                "/" => OverloadableOperator.Divide,
+                "*" => OverloadableOperator.Multiply,
+                "%" => OverloadableOperator.Mod,
+                "++" => OverloadableOperator.Increment,
+                "--" => OverloadableOperator.Decrement,
+                "**" => OverloadableOperator.Pow,
+                "~" => OverloadableOperator.BitwiseNot,
+                "!" => OverloadableOperator.BooleanNot,
+                "<<" => OverloadableOperator.BitwiseShiftLeft,
+                ">>" => OverloadableOperator.BitwiseShiftRight,
+                ">" => isAlternateKind ? OverloadableOperator.BitwiseShiftRight : OverloadableOperator.CompareGreaterThan,
+                "." => OverloadableOperator.Concat,
+                "<" => OverloadableOperator.CompareLessThan,
+                "<=" => OverloadableOperator.CompareLessThanOrEqualTo,
+                ">=" => OverloadableOperator.CompareGreaterThanOrEqualTo,
+                "==" => OverloadableOperator.CompareEqual,
+                "!=" => OverloadableOperator.CompareNotEqual,
+                "===" => OverloadableOperator.CompareIdentical,
+                "!==" => OverloadableOperator.CompareNotIdentical,
+                "<=>" => OverloadableOperator.CompareSpaceship,
+                "&" => OverloadableOperator.BitwiseAnd,
+                "^" => OverloadableOperator.BitwiseXor,
+                "|" => OverloadableOperator.BitwiseOr,
+                _ => spelling.ToLowerInvariant() switch
+                {
+                    "empty" => OverloadableOperator.IsEmpty,
+                    "convert" => OverloadableOperator.Convert,
+                    _ => OverloadableOperator.Invalid,
+                },
+            };
+        }
 
         /// <summary>
         /// Maps a compound-assignment token (<c>+=</c>, <c>-=</c>, …) to the underlying binary
         /// <see cref="OverloadableOperator"/> used for overload resolution and call-site rewriting.
         /// </summary>
-        public static OverloadableOperator FromAssignmentToken(int token)
-            => token switch
+        public static OverloadableOperator FromAssignmentToken(int token, string text = "")
+        {
+            if (!string.IsNullOrEmpty(text))
+            {
+                return text.Trim() switch
+                {
+                    "+=" => OverloadableOperator.Add,
+                    "-=" => OverloadableOperator.Subtract,
+                    "*=" => OverloadableOperator.Multiply,
+                    "/=" => OverloadableOperator.Divide,
+                    "%=" => OverloadableOperator.Mod,
+                    "**=" => OverloadableOperator.Pow,
+                    ".=" => OverloadableOperator.Concat,
+                    "&=" => OverloadableOperator.BitwiseAnd,
+                    "|=" => OverloadableOperator.BitwiseOr,
+                    "^=" => OverloadableOperator.BitwiseXor,
+                    "<<=" => OverloadableOperator.BitwiseShiftLeft,
+                    ">>=" => OverloadableOperator.BitwiseShiftRight,
+                    _ => OverloadableOperator.Invalid,
+                };
+            }
+
+            return token switch
             {
                 TyhpLang.Parser.TyhpParser.T_PLUS_EQUAL => OverloadableOperator.Add,
                 TyhpLang.Parser.TyhpParser.T_MINUS_EQUAL => OverloadableOperator.Subtract,
@@ -95,5 +162,6 @@ namespace Tyhp.TyhpLang.Enum {
                 TyhpLang.Parser.TyhpParser.T_SR_EQUAL => OverloadableOperator.BitwiseShiftRight,
                 _ => OverloadableOperator.Invalid,
             };
+        }
     }
 }

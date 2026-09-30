@@ -31,9 +31,17 @@ namespace Tyhp.Domain.Services
 
         /// <summary>
         /// Target PHP version used for version-gated checks (e.g. <c>with</c> on readonly).
-        /// Defaults to <c>8.4</c>.
+        /// Defaults to <see cref="CompilationOptions.DefaultPhpVersionWhenUnset"/> so checker
+        /// options constructed without <see cref="FromProject"/> match the locked default for
+        /// an unset <c>output.phpVersion</c>.
         /// </summary>
-        public string PhpVersion { get; set; } = "8.4";
+        public string PhpVersion { get; set; } = CompilationOptions.DefaultPhpVersionWhenUnset;
+
+        /// <summary>
+        /// True when <c>output.phpVersion</c> was unset and defaulted to <c>8.2</c>.
+        /// <c>PhpVersionRule</c> emits 4306 once per compilation when this is set.
+        /// </summary>
+        public bool PhpVersionWasDefaulted { get; set; }
 
         /// <summary>
         /// Opt-in for anonymous-class <c>clone ... with</c> on readonly properties when targeting PHP &lt; 8.5.
@@ -51,6 +59,7 @@ namespace Tyhp.Domain.Services
                 AllowEval = project.Build.AllowEval,
                 TemplateStringMaxStates = project.Checker.TemplateStringMaxStates,
                 PhpVersion = project.PhpVersion,
+                PhpVersionWasDefaulted = project.PhpVersionWasDefaulted,
                 ExperimentalReadonlyCloneWith = project.Build.ExperimentalReadonlyCloneWith,
             };
         }

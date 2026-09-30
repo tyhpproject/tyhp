@@ -24,6 +24,7 @@
 - [Phase 7: Cross-Reference Constant Folding Module](#phase-7-cross-reference-constant-folding-module)
 - [Phase 8: Escape Analysis Module](#phase-8-escape-analysis-module)
 - [Phase 9: Tyhp Reflection API (Foundation)](#phase-9-tyhp-reflection-api-foundation)
+- [Phase 10: User documentation and AIDevGuide](#phase-10-user-documentation-and-aidevguide)
 - [Cross-Story References](#cross-story-references)
 
 ---
@@ -100,8 +101,8 @@ Tyhp/TyhpLang/Optimizer/
 
 ## Phase 1: Operator Chain Optimization Module
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -148,8 +149,8 @@ $result = $temp2->add($d);
 
 ## Phase 2: Null-Safe Chain Collapsing Module
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -178,8 +179,8 @@ If `getProfile()` returns a non-nullable type (e.g., `Profile` not `?Profile`), 
 
 ## Phase 3: Type Guard Elimination Module
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -229,8 +230,8 @@ The checker persists narrowed type information by storing it on a `NarrowedTypes
 
 ## Phase 4: Devirtualization Module
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -260,8 +261,8 @@ Replace virtual method calls with direct calls when the concrete type is known a
 
 ## Phase 5: Struct Copy Elision Module
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -293,8 +294,8 @@ If `$p` is not referenced after the `clone`/`with` expression, the optimizer can
 
 ## Phase 6: Pure Function Memoization, `#[\Tyhp\Optimize\Pure]` Attribute, and `#[\Tyhp\Optimize\Memoize]` Attribute
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -538,7 +539,7 @@ Applying it to invalid targets emits `OptimizerMemoizeAttributeInvalidTarget` wa
 
 For `#[\Tyhp\Optimize\Pure]` validation to be useful, the compiler must know which PHP standard library functions are pure. Without this knowledge, almost any user function that calls built-in PHP functions would fail purity validation (requiring `force: true`).
 
-**Approach:** Add `#[\Tyhp\Optimize\Pure]` attributes to pure PHP built-in functions and methods in the PHP extension tyhpdef files (Story 21's `tyhp/php-{phpVersion}` packages). This includes functions like `\strlen()`, `\str_contains()`, `\array_map()`, `\count()`, `\max()`, `\min()`, `\abs()`, `\ceil()`, `\floor()`, `\round()`, `\intval()`, `\floatval()`, `\strval()`, `\boolval()`, `\array_key_exists()`, `\in_array()`, `\array_merge()`, `\array_slice()`, `\implode()`, `\explode()`, `\trim()`, `\strtolower()`, `\strtoupper()`, `\substr()`, `\str_replace()`, `\preg_match()`, `\sprintf()`, `\json_encode()`, `\json_decode()`, and many more.
+**Approach:** Add `#[\Tyhp\Optimize\Pure]` attributes to pure PHP built-in functions and methods in the PHP extension tyhpdef files (Story 21's `tyhpdef/php-{phpVersion}` packages). This includes functions like `\strlen()`, `\str_contains()`, `\array_map()`, `\count()`, `\max()`, `\min()`, `\abs()`, `\ceil()`, `\floor()`, `\round()`, `\intval()`, `\floatval()`, `\strval()`, `\boolval()`, `\array_key_exists()`, `\in_array()`, `\array_merge()`, `\array_slice()`, `\implode()`, `\explode()`, `\trim()`, `\strtolower()`, `\strtoupper()`, `\substr()`, `\str_replace()`, `\preg_match()`, `\sprintf()`, `\json_encode()`, `\json_decode()`, and many more.
 
 The tyhpdef overlay files (`.tyhp`) and base tyhpdef files (`.tyhpdef`) in Story 21 must be updated to include `#[\Tyhp\Optimize\Pure]` annotations on all functions/methods that are genuinely side-effect-free. See the Story 21 cross-story reference for this requirement.
 
@@ -548,8 +549,8 @@ The tyhpdef overlay files (`.tyhp`) and base tyhpdef files (`.tyhpdef`) in Story
 
 ## Phase 7: Cross-Reference Constant Folding Module
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -588,8 +589,8 @@ The reference `self::MAX_RETRIES` can be folded to `3` since the constant is `pr
 
 ## Phase 8: Escape Analysis Module
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -621,8 +622,8 @@ An object that does NOT escape can be:
 
 ## Phase 9: Tyhp Reflection API (Foundation)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -682,6 +683,55 @@ This metadata format is defined in this phase but the emitter integration (actua
 
 ---
 
+## Phase 10: User documentation and AIDevGuide
+
+### Phase Overview
+
+Story 23 established the optimizer's documented surface — the `optimize` levels, the `optimizations` map, the CLI flags, and `#[\Tyhp\Optimize\Inline]`. This story extends that surface with eight more modules and two attributes authors write in source, `#[\Tyhp\Optimize\Pure]` and `#[\Tyhp\Optimize\Memoize]`. Extend Story 23's pages rather than creating parallel ones.
+
+The two new attributes need more care than the module list. `Pure` is an assertion the compiler acts on, and `Memoize` changes when a body runs, so both have correctness preconditions an author must satisfy. Document those preconditions as rules, not as tuning advice.
+
+### Pages to update (create a sibling page only if an existing page cannot hold the topic)
+
+| Page | What this story adds |
+|------|----------------------|
+| `docs/content/project_optimization.md` (Story 23) | The eight modules this story adds, which level enables each, and what each does |
+| `docs/content/project_optionsList.md` | New `optimizations` module keys with defaults per level |
+| The `#[Inline]` page Story 23 Phase 8 creates | `#[\Tyhp\Optimize\Pure]` and `#[\Tyhp\Optimize\Memoize]`: what the author is asserting, what the compiler does with it, the preconditions, and what happens when an assertion is wrong |
+| `docs/content/tyhp_2900_lostFunctionality.md` | Anything an optimization makes unobservable, and the reflection guarantee that compensates |
+| `docs/content/diagnostics_reference.md` | Codes this story registers, including any that reject an unsatisfiable `Pure` / `Memoize` |
+| `docs/content/faq_project.md` | Whether `aggressive` is safe; what to do when a build differs between levels |
+| `docs/content/quickref.md` | One line each for `Pure` and `Memoize` |
+
+Reflection is defined here but implemented in Story 29, so its user documentation belongs to that story. Say nothing here that promises a `\Tyhp\Reflection\*` API to authors.
+
+### AIDevGuide
+
+`AIDevGuide/` is the bundle an agent loads to write Tyhp applications, and it is **regenerated** from the prompt in `AIDevGuide/REGEN.md`. A claim corrected only in a section file comes back the next time the bundle is regenerated, so update the prompt as well as the section.
+
+| File | What this story changes |
+|---|---|
+| `AIDevGuide/guide/17-compile-time-helpers.md` | `Pure` and `Memoize` alongside `Inline`, with their preconditions |
+| `AIDevGuide/guide/26-build-cli.md` | The extended module list per level |
+| `AIDevGuide/guide/28-availability-gotchas.md` | Whether the new attributes are "use freely" yet |
+| `AIDevGuide/QUICK_GUIDE.md` | Lines for the two attributes |
+| `AIDevGuide/REGEN.md` | Item 17 should name all three `\Tyhp\Optimize\*` attributes so a regeneration does not drop the two added here |
+
+### Acceptance Criteria
+
+- [ ] Every module this story adds is listed with the level that enables it
+- [ ] `Pure` and `Memoize` are documented as assertions with stated preconditions, not as hints
+- [ ] Docs state what is not observable after optimization and what recovers it
+- [ ] No user-facing page promises the reflection API this story only specifies
+- [ ] `AIDevGuide/guide/17-compile-time-helpers.md` covers all three attributes, and `REGEN.md` item 17 names them
+
+### Dependencies
+
+- **Requires:** Phases 1–8 (the shipped modules and attributes), Story 23 Phase 8 (the pages this phase extends)
+- **Provides:** Published documentation and agent-facing guide entries matching the full optimizer
+
+---
+
 ## Cross-Story References
 
 ### Prerequisites
@@ -699,7 +749,7 @@ This metadata format is defined in this phase but the emitter integration (actua
 |-------|--------|
 | Story 11 (Emitter Feature Expansion) | Struct transformer should coordinate with struct copy elision |
 | Story 17 (Sourcemaps) | Metadata format for Tyhp reflection must be emitted alongside sourcemaps |
-| Story 20 (Tyhpdef Generator) | Reflection metadata may overlap with `package.tyhp.json` manifest content |
+| Story 20 (Tyhpdef Generator) | Reflection metadata may overlap with `extra.tyhp.package` manifest content |
 | Story 18 (XDebug Proxy) | Tyhp reflection can provide enhanced debugging information |
 | Story 21 (PHP Extension Packages) | `#[\Tyhp\Optimize\Pure]` attributes must be added to pure PHP built-in functions in the tyhpdef files |
 

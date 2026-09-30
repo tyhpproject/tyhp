@@ -29,7 +29,7 @@ The contract covers every place compiled Tyhp depends on a concrete runtime shap
 - **Type erasure rules** — how generics, type aliases, type guards, structs, and `internal` lower to PHP (what survives at runtime vs. what is erased).
 - **Runtime entry points** — the public surface of `\Tyhp\*` the emitter is allowed to call: `Type`/`NamedType`/`GenericObject`, `PropertyAccessor`/`IsDisposable` (core); `Decimal` (decimal); `Promise`/`EventLoop`/`CancellationToken`/`DisposableScope` (async); `Expression`/`ExpressionNode`/`PropertyPath` (lambda). Emitter `RequirePackage` today: `tyhp/core`, `tyhp/async`; decimal/lambda remain required surface for direct/future calls.
 - **Lowering protocols** — disposables (`:=` → `DisposableScope`), async/await (Promise/Fiber), `with`, null-conditional assignment, expression trees (Story 16 wiring).
-- **tyhpdef surface** — what the runtime packages publish via their auto-generated `package.tyhp.json` (`include` globs → `_tyhpdef/` / `package.tyhpdef`) and the stability guarantees on those declarations.
+- **tyhpdef surface** — what the runtime packages publish via their auto-generated `extra.tyhp.package` (`include` globs → `_tyhpdef/` / `package.tyhpdef`) and the stability guarantees on those declarations.
 
 ---
 

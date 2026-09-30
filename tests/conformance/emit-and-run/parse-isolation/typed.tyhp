@@ -1,0 +1,4 @@
+<?tyhp
+function typed(): int {
+    return "nope";
+}

@@ -24,7 +24,7 @@ public class ExpressionEmitterTests
             class User {
                 public int $age;
             }
-            function take(\Tyhp\Expression<User, bool> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
                 take(fn ($u) => $u->age > 18);
             }
@@ -49,7 +49,7 @@ public class ExpressionEmitterTests
             class User {
                 public function getFullName(): string { return ""; }
             }
-            function take(\Tyhp\Expression<User, string> $sel): void {}
+            function take(\Tyhp\Expression<callable(User): string> $sel): void {}
             function demo(): void {
                 take(fn ($u) => $u->getFullName());
             }
@@ -68,7 +68,7 @@ public class ExpressionEmitterTests
             class User {
                 public int $age;
             }
-            function take(\Tyhp\Expression<User, bool> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
                 int $minAge = 18;
                 take(fn ($u) => $u->age > $minAge);
@@ -87,9 +87,9 @@ public class ExpressionEmitterTests
             class User {
                 public int $age;
             }
-            function takeExpr(\Tyhp\Expression<User, bool> $pred): void {}
+            function takeExpr(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function takeClosure(\Closure $c): void {}
-            function demo(\Tyhp\Expression<User, bool> $pred): void {
+            function demo(\Tyhp\Expression<callable(User): bool> $pred): void {
                 takeClosure($pred);
             }
             """);
@@ -106,7 +106,7 @@ public class ExpressionEmitterTests
             class User {
                 public int $age;
             }
-            function take(\Tyhp\Expression<User, bool> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
                 take(fn ($u) => $u->age > 18);
             }
@@ -123,7 +123,7 @@ public class ExpressionEmitterTests
             class User {
                 public static function create(): User { return new User(); }
             }
-            function take(\Tyhp\Expression<User, User> $sel): void {}
+            function take(\Tyhp\Expression<callable(User): User> $sel): void {}
             function demo(): void {
                 take(fn ($u) => User::create());
             }
@@ -142,7 +142,7 @@ public class ExpressionEmitterTests
             class User {
                 public const int FLAG = 1;
             }
-            function take(\Tyhp\Expression<User, int> $sel): void {}
+            function take(\Tyhp\Expression<callable(User): int> $sel): void {}
             function demo(): void {
                 take(fn ($u) => User::FLAG);
             }
@@ -160,7 +160,7 @@ public class ExpressionEmitterTests
             class User {
                 public string $name;
             }
-            function take(\Tyhp\PropertyPath<User, string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
                 take(fn ($u) => $u->name);
             }
@@ -178,7 +178,7 @@ public class ExpressionEmitterTests
             class User {
                 public string $lastName;
             }
-            function sortBy(\Tyhp\Expression<User, User, int> $cmp): void {}
+            function sortBy(\Tyhp\Expression<callable(User, User): int> $cmp): void {}
             function demo(): void {
                 sortBy(fn ($a, $b) => $a->lastName <=> $b->lastName);
             }
@@ -201,7 +201,7 @@ public class ExpressionEmitterTests
             class User {
                 public mixed $value;
             }
-            function take(\Tyhp\Expression<User, bool> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
                 take(fn ($u) => $u->value is int);
             }
@@ -223,7 +223,7 @@ public class ExpressionEmitterTests
                 public mixed $value;
             }
             class Address {}
-            function take(\Tyhp\Expression<User, bool> $pred): void {}
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
                 take(fn ($u) => $u->value instanceof Address);
             }
@@ -242,7 +242,7 @@ public class ExpressionEmitterTests
             class User {
                 public string $lastName;
             }
-            function sortBy(\Tyhp\Expression<User, User, int> $cmp): void {}
+            function sortBy(\Tyhp\Expression<callable(User, User): int> $cmp): void {}
             function demo(): void {
                 sortBy(fn ($a, $b) => $a->lastName <=> $b->lastName);
             }
@@ -252,6 +252,25 @@ public class ExpressionEmitterTests
         php.Should().Contain(@"new \Tyhp\Expression\ParameterExpression('a'");
         php.Should().Contain(@"new \Tyhp\Expression\ParameterExpression('b'");
         php.Should().NotContain("sortBy(fn(");
+    }
+
+    [Fact]
+    public void Emit_TypedLocalNamedCallableShape_StillCaptures()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class User {
+                public int $age;
+            }
+            function demo(): void {
+                \Tyhp\Expression<callable(User $u): bool> $e = fn ($u) => $u->age > 18;
+            }
+            """);
+
+        php.Should().Contain(@"new \Tyhp\Expression(");
+        php.Should().Contain(@"new \Tyhp\Expression\BinaryExpression(");
+        php.Should().Contain(@"new \Tyhp\Expression\PropertyAccessExpression(");
+        php.Should().NotContain("$e = fn");
     }
 
     private static string CompileAndEmit(string tyhp)
@@ -268,13 +287,7 @@ public class ExpressionEmitterTests
         {
             var project = CreateProject();
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

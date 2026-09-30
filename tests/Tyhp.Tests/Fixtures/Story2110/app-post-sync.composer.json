@@ -1,0 +1,19 @@
+{
+    "name": "app/tyhp-project",
+    "description": "Story 21.10 post-sync app root: plugin merged extras, not author-only wrappers.",
+    "type": "project",
+    "require": {
+        "php": ">=8.2",
+        "tyhp/core": "@dev",
+        "tyhp/decimal": "@dev"
+    },
+    "require-dev": {
+        "tyhp/compiler": "@dev",
+        "tyhpdef/php": "@dev"
+    },
+    "config": {
+        "allow-plugins": {
+            "tyhp/core": true
+        }
+    }
+}

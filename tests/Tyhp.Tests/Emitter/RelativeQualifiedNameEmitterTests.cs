@@ -469,13 +469,7 @@ public class RelativeQualifiedNameEmitterTests
         try
         {
             using var compilationService = new CompilationService();
-            return compilationService.ParseFiles(paths, new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            return compilationService.ParseFiles(paths, IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
         }
         finally
         {
@@ -513,13 +507,7 @@ public class RelativeQualifiedNameEmitterTests
             var project = new Project(configuration);
 
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles(paths, new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles(paths, IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

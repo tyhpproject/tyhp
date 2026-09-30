@@ -1,7 +1,9 @@
 using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Binder;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Checker.Rules;
 using Tyhp.TyhpLang.Enum;
 using Tyhp.TyhpLang.Parser;
@@ -27,7 +29,7 @@ namespace Tyhp.TyhpLang.Checker
                     return InferEncapsList(encapsList);
 
                 case PhpNameAst nameExpr:
-                    return InferNamedConstant(nameExpr);
+                    return InferNamedConstant(nameExpr, state);
 
                 case PhpMagicConstantAst magic:
                     return InferMagicConstant(magic);
@@ -57,15 +59,18 @@ namespace Tyhp.TyhpLang.Checker
                     return InferNew(newExpr, state);
 
                 case PhpArrayAst array:
-                    return InferArrayLiteral(array.ArrayPairs?.GetAllNotNull().ToList() ?? [], state);
+                    return InferArrayLiteral(array.ArrayPairs?.GetAllExcludingSkippedSlots().ToList() ?? [], state);
 
                 case PhpArrayPairListAst pairList:
                     // Short-array syntax `[…]` is a bare pair-list expression (not wrapped in
                     // PhpArrayAst) via dereferenceableScalar.
-                    return InferArrayLiteral(pairList.GetAllNotNull().ToList(), state);
+                    return InferArrayLiteral(pairList.GetAllExcludingSkippedSlots().ToList(), state);
 
                 case PhpInlineFunctionAst closure:
                     return InferClosure(closure, state);
+
+                case TyhpAsyncBlockAst asyncBlock:
+                    return InferAsyncBlock(asyncBlock, state);
 
                 case TyhpNameofAst nameofExpr:
                     return NameofTypeInferrer.Infer(
@@ -87,6 +92,9 @@ namespace Tyhp.TyhpLang.Checker
                 case PhpIssetStatementAst:
                 case PhpEmptyStatementAst:
                     return CheckedTypes.Bool;
+
+                case PhpYieldAst yield:
+                    return InferYield(yield, state);
 
                 case PhpConditionalAst conditional when conditional.IsMatchSyntax:
                     return InferMatch(conditional, state);
@@ -126,18 +134,48 @@ namespace Tyhp.TyhpLang.Checker
                 _ => false,
             };
 
-        private static ICheckedType InferNamedConstant(PhpNameAst name)
+        private ICheckedType InferNamedConstant(PhpNameAst name, CheckerState state)
         {
             // Underlying symbol names match the registered builtins (`true`/`false`), not `bool`,
             // so assignability against declared `: true` / `true $x` (SimpleCheckedType("true"))
             // succeeds via underlying equality as well as the dedicated bool-literal rules.
-            return name.ValueString?.ToLowerInvariant() switch
+            var builtin = name.ValueString?.ToLowerInvariant() switch
             {
                 "null" => CheckedTypes.Null,
                 "true" => new LiteralCheckedType(true, new SimpleCheckedType(new BuiltInTypeSymbol("true"))),
                 "false" => new LiteralCheckedType(false, new SimpleCheckedType(new BuiltInTypeSymbol("false"))),
-                _ => CheckedTypes.Unresolved,
+                _ => (ICheckedType?)null,
             };
+            if (builtin is not null)
+            {
+                return builtin;
+            }
+
+            if (CheckerHelpers.ResolveFreeConstant(name, state, _symbolTree, _globalScope) is { } constant)
+            {
+                return TypeOfConstant(constant, state);
+            }
+
+            return CheckedTypes.Unresolved;
+        }
+
+        private ICheckedType TypeOfConstant(IBaseSymbol symbol, CheckerState state)
+        {
+            if (TyhpdefConstIntLiteral.TryGetLiteralType(symbol, out var literal))
+            {
+                return literal;
+            }
+
+            var declared = symbol switch
+            {
+                ConstantSymbol constant => constant.DeclaredType,
+                ObjectConstantSymbol objectConstant => objectConstant.DeclaredType,
+                _ => null,
+            };
+
+            return declared is not null
+                ? ResolveTypeExpression(declared, state)
+                : CheckedTypes.Unresolved;
         }
 
         private static ICheckedType InferScalar(PhpScalarAst scalar)
@@ -246,21 +284,43 @@ namespace Tyhp.TyhpLang.Checker
         private ICheckedType InferBinary(PhpBinaryOpAst binary, CheckerState state)
         {
             var token = GetTokenType(binary.Operator);
-            if (token == TyhpParser.T_TYHP_WITH)
+            var opText = binary.Operator?.ValueString;
+            if (token == TyhpParser.T_TYHP_WITH
+                || string.Equals(opText, "with", StringComparison.OrdinalIgnoreCase))
             {
                 return binary.Left is not null
                     ? InferExpressionType(binary.Left, state)
                     : CheckedTypes.Unresolved;
             }
 
-            if (PhpAssignmentOperatorExtensions.FromToken(token) is PhpAssignmentOperator assignmentOp)
+            if (PhpAssignmentOperatorExtensions.FromToken(token, opText) is PhpAssignmentOperator assignmentOp)
             {
                 return InferAssignment(binary, assignmentOp, state);
             }
 
+            // `is`/`instanceof` RHS is a type name (or a dynamic class-name expression), not a
+            // value. Inferring a bareword as a constant would miss undeclared-type diagnostics
+            // and type the target as unresolved-as-value.
+            if (CheckerHelpers.IsInstanceofLikeOperator(binary)
+                || PhpBinaryOperatorExtensions.FromToken(token, opText) == PhpBinaryOperator.InstanceOf)
+            {
+                if (binary.Left is not null)
+                {
+                    InferExpressionType(binary.Left, state);
+                }
+
+                if (binary.Right is not null)
+                {
+                    CheckerHelpers.ResolveInstanceofTargetType(
+                        binary.Right, state, this, _symbolTree, _globalScope);
+                }
+
+                return CheckedTypes.Bool;
+            }
+
             var left = InferExpressionType(binary.Left!, state);
             var right = InferExpressionType(binary.Right!, state);
-            var op = PhpBinaryOperatorExtensions.FromToken(token);
+            var op = PhpBinaryOperatorExtensions.FromToken(token, opText);
 
             if (op is null)
             {
@@ -406,7 +466,7 @@ namespace Tyhp.TyhpLang.Checker
                     state.AssignVariable(name, resultType, _diagnostics);
                 }
             }
-            else if (TryGetThisPropertyAssignmentTarget(binary.Left, out var propertyKey))
+            else if (TypeNarrowingRule.TryGetTrackedPropertyKey(binary.Left, state, out var propertyKey))
             {
                 // `=` / `??=` are write-only / existence-probe writes — mark initialized + type.
                 // Other compounds (`+=`, `.=`, …) read first; must not suppress TYHP4157 by
@@ -421,34 +481,18 @@ namespace Tyhp.TyhpLang.Checker
                 }
             }
 
+            if (assignmentOp == PhpAssignmentOperator.Assign)
+            {
+                ArrayAppendInference.TryRefineLocal(
+                    binary.Left,
+                    resultType,
+                    state,
+                    _symbolTree,
+                    _globalScope,
+                    expr => InferExpressionType(expr, state));
+            }
+
             return resultType;
-        }
-
-        /// <summary>
-        /// True when <paramref name="left"/> is a plain <c>$this->prop</c> write target.
-        /// </summary>
-        private static bool TryGetThisPropertyAssignmentTarget(IExpression? left, out string? propertyKey)
-        {
-            propertyKey = null;
-            if (left is not PhpDereferenceableAst { Suffix: PhpInstanceMemberAccessAst memberAccess } dereferenceable)
-            {
-                return false;
-            }
-
-            if (dereferenceable.Base is not PhpVariableAst receiver
-                || !Rules.CheckerHelpers.IsThisVariable(receiver))
-            {
-                return false;
-            }
-
-            var memberName = GetExpressionText(memberAccess.MemberName);
-            if (memberName is null || memberName.StartsWith('{'))
-            {
-                return false;
-            }
-
-            propertyKey = memberName.StartsWith('$') ? memberName : "$" + memberName;
-            return true;
         }
 
         private ICheckedType InferUnary(PhpUnaryOpAst unary, CheckerState state)
@@ -481,12 +525,25 @@ namespace Tyhp.TyhpLang.Checker
                 return CheckedTypes.Void;
             }
 
-            if (IsCastToken(token))
+            // `yield` / `yield from` are not overloadable unaries. Operand is still typed
+            // above so nested expressions (and yield-from's iterable) keep real types.
+            if (IsYieldFromUnary(unary))
             {
-                return InferCastType(token);
+                return InferYieldFromResult(operand);
             }
 
-            var overloadable = ToOverloadableUnaryOperator(token);
+            if (token == TyhpParser.T_YIELD
+                || string.Equals(unary.Operator?.ValueString, "yield", StringComparison.OrdinalIgnoreCase))
+            {
+                return InferEnclosingGeneratorSendType(state);
+            }
+
+            if (IsCastToken(token))
+            {
+                return InferCastType(token, operand);
+            }
+
+            var overloadable = ToOverloadableUnaryOperator(token, unary.Operator?.ValueString ?? "");
             if (overloadable != OverloadableOperator.Invalid
                 && TryInferUnaryOperatorOverloadReturn(overloadable, operand, state, out var overloadReturn))
             {
@@ -860,12 +917,19 @@ namespace Tyhp.TyhpLang.Checker
 
             if (newExpr.ClassName?.BoundSymbol is ObjectDeclarationSymbol obj)
             {
-                return ApplyDefaultsForBareGenericReference(obj, newExpr.ClassName, state);
+                return ApplyContextOrDefaultsForBareGenericNew(obj, newExpr.ClassName, state);
             }
 
             if (newExpr.ClassName is ITypeExpression typeExpr)
             {
                 return ResolveTypeExpression(typeExpr, state);
+            }
+
+            // `new T(...)` where T is an in-scope type parameter (function or class generic).
+            if (newExpr.ClassName is PhpNameAst genericName
+                && TryResolveInScopeGenericParameter(genericName.ValueString, state, out var typeParam))
+            {
+                return typeParam;
             }
 
             // `new self(...)`/`new static(...)`/`new SomeClass(...)` reference the class by a bare
@@ -880,13 +944,65 @@ namespace Tyhp.TyhpLang.Checker
 
                 if (receiver is SimpleCheckedType { ResolvedSymbol: ObjectDeclarationSymbol bareObj })
                 {
-                    return ApplyDefaultsForBareGenericReference(bareObj, bareName, state);
+                    return ApplyContextOrDefaultsForBareGenericNew(bareObj, bareName, state);
                 }
 
                 return receiver;
             }
 
+            if (TryInferNewFromClassNameBrand(newExpr.ClassName, state, out var brandedInstance))
+            {
+                return brandedInstance;
+            }
+
             return CheckedTypes.Unresolved;
+        }
+
+        /// <summary>
+        /// <c>new $cls(...)</c> where <c>$cls</c> is <c>__ClassName&lt;T&gt;</c>: the constructed
+        /// value has type <c>T</c> (unwrapped to the shape itself for <c>__New&lt;Shape&gt;</c>).
+        /// Bare / <c>object</c> brands stay unresolved so existing gradual <c>new $cls()</c> is
+        /// unchanged. A shape brand <em>without</em> <c>__New</c> cannot actually be constructed
+        /// (TYHP4356 is reported separately by <c>CheckNew</c>); typing the expression as that
+        /// shape would mask the real error behind a spurious cascading assignment-mismatch
+        /// diagnostic, so it also stays unresolved.
+        /// </summary>
+        private bool TryInferNewFromClassNameBrand(
+            IClassNameReference? classRef,
+            CheckerState state,
+            out ICheckedType instanceType)
+        {
+            instanceType = CheckedTypes.Unresolved;
+            if (classRef is PhpNameAst || classRef is not IExpression classExpr)
+            {
+                return false;
+            }
+
+            var nameType = InferExpressionType(classExpr, state);
+            if (!SymbolNameTypeHelper.TryGetClassNameBrandArgument(nameType, out var brand))
+            {
+                return false;
+            }
+
+            if (brand is SimpleCheckedType { ResolvedSymbol: BuiltInTypeSymbol { Name: var builtIn } }
+                && string.Equals(builtIn, "object", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (TypeComparer.TryGetNewUtility(brand, out var newUtility))
+            {
+                instanceType = newUtility.TypeArguments[0];
+                return true;
+            }
+
+            if (TypeComparer.IsObjectShapeTypeArgument(brand))
+            {
+                return false;
+            }
+
+            instanceType = brand;
+            return true;
         }
 
         /// <summary>
@@ -963,6 +1079,17 @@ namespace Tyhp.TyhpLang.Checker
 
         private ICheckedType InferClosure(PhpInlineFunctionAst closure, CheckerState state)
         {
+            // Generator closures record inferred `\Generator<…>` in ClosureRule.FinishAfterBody.
+            // `$gen = function(): \Generator { yield 1; }` types the RHS during CheckBinaryOp
+            // *before* the child walk, so force that visit first or callers see default mixed args.
+            if (TyhpBinder.BodyContainsYield(closure.Body)
+                && !_checker.TryGetInferredGeneratorReturn(closure, out _)
+                && (closure.BoundSymbol is null
+                    || !_checker.TryGetInferredGeneratorReturn(closure.BoundSymbol, out _)))
+            {
+                _checker.CheckNode(closure, state);
+            }
+
             var parameters = closure.Parameters?.GetAllNotNull().ToList() ?? [];
             var paramTypes = parameters
                 .Select(param =>
@@ -1004,7 +1131,28 @@ namespace Tyhp.TyhpLang.Checker
                 }
             }
 
-            return CallableArityFacetBuilder.BuildFromClosureParameters(parameters, paramTypes, returnType);
+            if (_checker.TryGetInferredGeneratorReturn(closure, out var inferredGenerator)
+                && inferredGenerator.Kind != CheckedTypeKind.Unresolved)
+            {
+                returnType = inferredGenerator;
+            }
+            else if (closure.BoundSymbol is not null
+                && _checker.TryGetInferredGeneratorReturn(closure.BoundSymbol, out inferredGenerator)
+                && inferredGenerator.Kind != CheckedTypeKind.Unresolved)
+            {
+                returnType = inferredGenerator;
+            }
+
+            var shape = CallableArityFacetBuilder.BuildFromClosureParameters(
+                parameters, paramTypes, returnType);
+            var isStatic = ClosureRule.IsStaticClosure(closure);
+            return ClosureProducerInference.WrapAsClosure(
+                shape,
+                ClosureProducerInference.EnclosingThisType(state, isStatic),
+                ClosureProducerInference.EnclosingScopeType(state),
+                _symbolTree,
+                _globalScope,
+                nonRebindable: closure.IsArrowFunction);
         }
 
         /// <summary>
@@ -1037,9 +1185,63 @@ namespace Tyhp.TyhpLang.Checker
 
             var armTypes = new List<ICheckedType>(arms.Count);
             CheckerState? joined = null;
+            CodeQualityRule.CheckMatchArmReachability(
+                conditional, state, _checker.RuleContext, _diagnostics);
+            var subjectType = conditional.Expression is IExpression subject
+                ? InferExpressionType(subject, state)
+                : CheckedTypes.Unresolved;
+            var filterArms = ArrayAccessShapeSupport.IsTrackingPerKeyCoverage(state)
+                && subjectType is LiteralCheckedType;
+            var hasMatchingSpecificArm = false;
+            if (filterArms)
+            {
+                foreach (var candidate in arms)
+                {
+                    if (candidate.IsDefault)
+                    {
+                        continue;
+                    }
+
+                    var conditionTypes = new List<ICheckedType>();
+                    if (candidate.Conditions is not null)
+                    {
+                        foreach (var condition in candidate.Conditions.GetAllNotNull())
+                        {
+                            conditionTypes.Add(InferExpressionType(condition, state));
+                        }
+                    }
+
+                    if (ArrayAccessShapeSupport.ArmMatchesLiteralSubject(subjectType, conditionTypes))
+                    {
+                        hasMatchingSpecificArm = true;
+                        break;
+                    }
+                }
+            }
 
             foreach (var arm in arms)
             {
+                if (filterArms && arm.IsDefault && hasMatchingSpecificArm)
+                {
+                    continue;
+                }
+
+                if (filterArms && !arm.IsDefault)
+                {
+                    var conditionTypes = new List<ICheckedType>();
+                    if (arm.Conditions is not null)
+                    {
+                        foreach (var condition in arm.Conditions.GetAllNotNull())
+                        {
+                            conditionTypes.Add(InferExpressionType(condition, state));
+                        }
+                    }
+
+                    if (!ArrayAccessShapeSupport.ArmMatchesLiteralSubject(subjectType, conditionTypes))
+                    {
+                        continue;
+                    }
+                }
                 // Per-arm split (unlike switch's shared mutable switchState): an earlier arm's
                 // synthetic return setting HasReturnedOnAllPaths must not leak into the next arm.
                 var armState = state.Split(ScopeType.CodeBlock);
@@ -1052,7 +1254,7 @@ namespace Tyhp.TyhpLang.Checker
                 {
                     foreach (var condition in arm.Conditions.GetAllNotNull())
                     {
-                        // Probe: progressive `&&` narrowing must not mutate the pre-match state.
+                        // Probe: progressive `&&`/`||` narrowing must not mutate the pre-match state.
                         var probe = state.Split(ScopeType.CodeBlock);
                         _checker.CheckNode(condition, probe);
                     }
@@ -1159,8 +1361,10 @@ namespace Tyhp.TyhpLang.Checker
             var returnType = func.ReturnType is not null
                 ? ResolveTypeExpression(func.ReturnType, resolveState, isReturnTypePosition: true)
                 : CheckedTypes.Mixed;
+            returnType = WrapIfAsyncCall(returnType, func.IsAsync);
 
-            return CallableArityFacetBuilder.BuildFromParameterInfos(func.Parameters, paramTypes, returnType);
+            return WrapFunctionCallableAsClosure(
+                CallableArityFacetBuilder.BuildFromParameterInfos(func.Parameters, paramTypes, returnType));
         }
 
         private static ICheckedType InferNullCoalesce(ICheckedType left, ICheckedType right)
@@ -1210,7 +1414,7 @@ namespace Tyhp.TyhpLang.Checker
                 or TyhpParser.T_ARRAY_CAST
                 or TyhpParser.T_OBJECT_CAST;
 
-        private static ICheckedType InferCastType(int token) =>
+        private ICheckedType InferCastType(int token, ICheckedType operand) =>
             token switch
             {
                 TyhpParser.T_INT_CAST => CheckedTypes.Int,
@@ -1219,8 +1423,43 @@ namespace Tyhp.TyhpLang.Checker
                 TyhpParser.T_DOUBLE_CAST => CheckedTypes.Float,
                 TyhpParser.T_DECIMAL_CAST => CheckedTypes.FromSymbol(new BuiltInTypeSymbol("decimal")),
                 TyhpParser.T_ARRAY_CAST => CheckedTypes.FromSymbol(new BuiltInTypeSymbol("array")),
-                TyhpParser.T_OBJECT_CAST => CheckedTypes.FromSymbol(new BuiltInTypeSymbol("object")),
+                TyhpParser.T_OBJECT_CAST => InferObjectCastType(operand),
                 _ => CheckedTypes.Unresolved,
+            };
+
+        /// <summary>
+        /// PHP <c>(object)</c> leaves an operand that is already an object untouched — no new
+        /// instance is created, the value keeps its own class (<c>get_class((object)$x) ===
+        /// get_class($x)</c> whenever <c>$x</c> is an object). Only array/scalar/null operands are
+        /// actually converted into a new <c>\stdClass</c> instance. Treating an already-object
+        /// operand as <c>\stdClass</c> would let an explicit cast bypass the <c>\stdClass</c> named
+        /// write gate for other types (e.g. <c>\stdClass $bad = (object)$plainInstance;</c> would
+        /// wrongly license undeclared writes on a non-<c>stdClass</c> object at runtime), so the
+        /// engine class is only resolved for the genuine-conversion case.
+        /// </summary>
+        private ICheckedType InferObjectCastType(ICheckedType operand)
+        {
+            if (IsDefinitelyObject(operand))
+            {
+                return operand;
+            }
+
+            return CheckerHelpers.ResolveNamedType("stdClass", _symbolTree, _globalScope);
+        }
+
+        /// <summary>
+        /// True when every possible runtime value of <paramref name="type"/> is already an object,
+        /// so a <c>(object)</c> cast on it is guaranteed to be a no-op. Nullable / non-object union
+        /// members mean the cast may perform a real array/scalar/null → <c>\stdClass</c>
+        /// conversion, so those are never treated as identity.
+        /// </summary>
+        private static bool IsDefinitelyObject(ICheckedType type) =>
+            type switch
+            {
+                NullableCheckedType => false,
+                UnionCheckedType union => union.Members.Count > 0 && union.Members.All(IsDefinitelyObject),
+                _ => CheckerHelpers.TryGetObjectDeclaration(type) is not null
+                    || CheckerHelpers.IsBuiltInName(type, "object"),
             };
 
         private static ICheckedType InferUnaryNumeric(int token, ICheckedType operand)
@@ -1228,6 +1467,20 @@ namespace Tyhp.TyhpLang.Checker
             if (token == TyhpParser.T_SYM_TILDE)
             {
                 return CheckedTypes.Int;
+            }
+
+            if (token == TyhpParser.T_SYM_MINUS
+                && TyhpdefConstIntLiteral.TryGetIntegerLiteralValue(operand, out var negated))
+            {
+                return new LiteralCheckedType(
+                    -negated,
+                    new SimpleCheckedType(new BuiltInTypeSymbol("int")));
+            }
+
+            if (token == TyhpParser.T_SYM_MINUS
+                && operand is LiteralCheckedType { Value: decimal decimalValue } floatLiteral)
+            {
+                return new LiteralCheckedType(-decimalValue, floatLiteral.UnderlyingType);
             }
 
             if (IsNumericType(operand))
@@ -1261,6 +1514,179 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             return CheckedTypes.Unresolved;
+        }
+
+        /// <summary>
+        /// <c>yield $v</c> / <c>yield $k => $v</c> (<see cref="PhpYieldAst"/>). Key and value
+        /// expressions are typed for nested checking; the yield expression itself is TSend.
+        /// </summary>
+        private ICheckedType InferYield(PhpYieldAst yield, CheckerState state)
+        {
+            if (yield.KeyExpr is not null)
+            {
+                InferExpressionType(yield.KeyExpr, state);
+            }
+
+            if (yield.ValueExpr is not null)
+            {
+                InferExpressionType(yield.ValueExpr, state);
+            }
+
+            return InferEnclosingGeneratorSendType(state);
+        }
+
+        /// <summary>
+        /// PHP: the value of <c>yield</c> / <c>yield $v</c> / <c>yield $k => $v</c> is the
+        /// argument passed to <c>Generator::send()</c>. Documented as TSend on
+        /// <c>Generator&lt;TKey, TValue, TSend, TReturn&gt;</c>. Bare
+        /// <c>Generator</c> / <c>Iterator</c> / <c>Traversable</c> / <c>iterable</c> (no TSend
+        /// slot) fall back to <c>mixed</c>, matching generator-<c>return</c> TReturn unwrapping.
+        /// Uses <see cref="CheckerState.ExpectedReturnType"/> under
+        /// <see cref="CheckerState.IsInGeneratorContext"/> so a nested generator closure does
+        /// not inherit the outer callable's TSend.
+        /// </summary>
+        private static ICheckedType InferEnclosingGeneratorSendType(CheckerState state)
+        {
+            if (!state.IsInGeneratorContext)
+            {
+                return CheckedTypes.Mixed;
+            }
+
+            return TryGetGeneratorTypeArgument(state.ExpectedReturnType, sendSlot: true)
+                ?? CheckedTypes.Mixed;
+        }
+
+        /// <summary>
+        /// PHP: <c>yield from $gen</c> evaluates to the inner generator's
+        /// <c>getReturn()</c> (TReturn). <c>yield from</c> of an array / <c>iterable</c> /
+        /// non-<c>Generator</c> <c>Traversable</c> evaluates to <c>null</c>.
+        /// </summary>
+        private ICheckedType InferYieldFromResult(ICheckedType operandType)
+        {
+            if (operandType.Kind == CheckedTypeKind.Unresolved)
+            {
+                return operandType;
+            }
+
+            if (operandType is UnionCheckedType union)
+            {
+                if (union.Members.Count == 0)
+                {
+                    return CheckedTypes.Mixed;
+                }
+
+                var members = new List<ICheckedType>(union.Members.Count);
+                foreach (var member in union.Members)
+                {
+                    members.Add(InferYieldFromResult(member));
+                }
+
+                return CheckedTypes.UnionTypes(members);
+            }
+
+            if (TryGetGeneratorTypeArgument(operandType, sendSlot: false) is { } tReturn)
+            {
+                return tReturn;
+            }
+
+            var iterableProbe = operandType is NullableCheckedType nullable
+                ? nullable.InnerType
+                : operandType;
+            if (CheckerHelpers.IsIterableType(iterableProbe, _symbolTree, _globalScope))
+            {
+                return CheckedTypes.Null;
+            }
+
+            return CheckedTypes.Mixed;
+        }
+
+        /// <summary>
+        /// TSend is type-argument index 2; TReturn is index 3. Missing slots (and bare
+        /// <c>Generator</c>) are <c>mixed</c>. Returns <see langword="null"/> when
+        /// <paramref name="type"/> is not a Generator (so yield-from can fall through to
+        /// iterable → null).
+        /// </summary>
+        private static ICheckedType? TryGetGeneratorTypeArgument(ICheckedType? type, bool sendSlot)
+        {
+            if (type is null)
+            {
+                return null;
+            }
+
+            while (type is NullableCheckedType wrapped)
+            {
+                type = wrapped.InnerType;
+            }
+
+            if (type is GenericCheckedType generic)
+            {
+                if (!IsNominalName(generic.BaseType, "Generator"))
+                {
+                    return null;
+                }
+
+                var index = sendSlot ? 2 : 3;
+                return generic.TypeArguments.Count > index
+                    ? generic.TypeArguments[index]
+                    : CheckedTypes.Mixed;
+            }
+
+            if (IsNominalName(type, "Generator"))
+            {
+                return CheckedTypes.Mixed;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// True for the <c>yield from</c> operator (token <c>T_YIELD_FROM</c> or text containing
+        /// both <c>yield</c> and <c>from</c>). Also accepts a nested unary <c>from</c> so a
+        /// constructed <see cref="PhpYieldAst"/> value-expr shape still classifies as yield-from.
+        /// </summary>
+        private static bool IsYieldFromUnary(PhpUnaryOpAst unary)
+        {
+            if (GetTokenType(unary.Operator) == TyhpParser.T_YIELD_FROM)
+            {
+                return true;
+            }
+
+            var op = unary.Operator?.ValueString;
+            if (string.IsNullOrEmpty(op))
+            {
+                return false;
+            }
+
+            if (string.Equals(op, "from", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return op.Contains("yield", StringComparison.OrdinalIgnoreCase)
+                && op.Contains("from", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsNominalName(ICheckedType type, string name)
+        {
+            if (type is SimpleCheckedType { ResolvedSymbol: ObjectDeclarationSymbol obj })
+            {
+                return string.Equals(obj.Name, name, StringComparison.OrdinalIgnoreCase);
+            }
+
+            var display = type.DisplayName.TrimStart('\\');
+            var angle = display.IndexOf('<');
+            if (angle >= 0)
+            {
+                display = display[..angle];
+            }
+
+            var slash = display.LastIndexOf('\\');
+            if (slash >= 0)
+            {
+                display = display[(slash + 1)..];
+            }
+
+            return string.Equals(display, name, StringComparison.OrdinalIgnoreCase);
         }
 
         private static string? GetVariableName(PhpVariableAst variable)

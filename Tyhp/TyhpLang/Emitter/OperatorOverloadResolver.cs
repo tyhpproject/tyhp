@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
@@ -105,7 +106,20 @@ namespace Tyhp.TyhpLang.Emitter
                 }
             }
 
-            return best ?? firstArityMatch;
+            if (best is not null)
+            {
+                return best;
+            }
+
+            // Unknown operands: any arity-matching form is a best-effort pick for emit/inference.
+            // When both operand types are known and none matched, do NOT fall back to a wrong-shape
+            // form — that would silently accept e.g. Box+Box against only `+(self, int)`.
+            if (leftUnknown || rightUnknown)
+            {
+                return firstArityMatch;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -213,7 +227,12 @@ namespace Tyhp.TyhpLang.Emitter
             return false;
         }
 
-        /// <summary>True when a convert overload's sole operand is <c>self</c> (a convert-to form).</summary>
+        /// <summary>
+        /// True when a convert overload's sole operand is <c>self</c> (a convert-to form).
+        /// After block-target rewrite the keyword text is the target type; the written
+        /// <c>self</c> remains on <c>OriginalAst</c>, and the operand still binds to
+        /// <paramref name="owningType"/>.
+        /// </summary>
         public static bool IsConvertToForm(
             ObjectOperatorOverloadMethodSymbol overload,
             IBaseSymbol owningType)
@@ -292,21 +311,66 @@ namespace Tyhp.TyhpLang.Emitter
             IBaseSymbol? operandSymbol,
             string operandName,
             ITypeExpression paramType,
-            IBaseSymbol leftType)
+            IBaseSymbol leftType,
+            HashSet<IBaseSymbol>? visitingAliases = null)
         {
+            if (TryExpandAlias(paramType, visitingAliases, out var expanded, out var nextVisiting)
+                && expanded != null)
+            {
+                return TypeMatches(operandSymbol, operandName, expanded, leftType, nextVisiting);
+            }
+
             return paramType switch
             {
                 PhpTypeExpressionAst composite when composite.TypeKind == PhpTypeKind.Union =>
                     composite.Types?.GetAllNotNull().Any(member =>
-                        TypeMatches(operandSymbol, operandName, member, leftType)) == true,
+                        TypeMatches(operandSymbol, operandName, member, leftType, visitingAliases)) == true,
                 PhpTypeExpressionAst composite when composite.IsNullable =>
                     TypeMatches(operandSymbol, operandName,
-                        composite.Types?.GetAllNotNull().FirstOrDefault() ?? composite, leftType),
+                        composite.Types?.GetAllNotNull().FirstOrDefault() ?? composite, leftType, visitingAliases),
                 PhpTypeExpressionAst composite =>
                     composite.Types?.GetAllNotNull().FirstOrDefault() is ITypeExpression inner
-                        && TypeMatches(operandSymbol, operandName, inner, leftType),
+                        && TypeMatches(operandSymbol, operandName, inner, leftType, visitingAliases),
                 _ => MatchesAtomicType(operandSymbol, operandName, paramType, leftType),
             };
+        }
+
+        private static bool TryExpandAlias(
+            ITypeExpression paramType,
+            HashSet<IBaseSymbol>? visitingAliases,
+            out ITypeExpression? expanded,
+            out HashSet<IBaseSymbol>? nextVisiting)
+        {
+            expanded = null;
+            nextVisiting = visitingAliases;
+            IBaseSymbol? alias = paramType switch
+            {
+                PhpNamedTypeAst named => named.BoundSymbol,
+                _ => null,
+            };
+
+            ITypeExpression? aliased = alias switch
+            {
+                TypeAliasSymbol fileAlias => fileAlias.AliasedType,
+                ObjectTypeAliasSymbol objectAlias => objectAlias.AliasedType,
+                _ => null,
+            };
+
+            if (alias == null || aliased == null)
+            {
+                return false;
+            }
+
+            if (visitingAliases != null && visitingAliases.Contains(alias))
+            {
+                return false;
+            }
+
+            nextVisiting = visitingAliases == null
+                ? new HashSet<IBaseSymbol> { alias }
+                : new HashSet<IBaseSymbol>(visitingAliases) { alias };
+            expanded = aliased;
+            return true;
         }
 
         private static bool MatchesAtomicType(
@@ -415,6 +479,12 @@ namespace Tyhp.TyhpLang.Emitter
             ITypeExpression paramType,
             IBaseSymbol leftType)
         {
+            if (TryExpandAlias(paramType, visitingAliases: null, out var expanded, out _)
+                && expanded != null)
+            {
+                return ScoreType(operandSymbol, operandName, expanded, leftType);
+            }
+
             if (paramType is PhpTypeExpressionAst composite && composite.TypeKind == PhpTypeKind.Union)
             {
                 var members = composite.Types?.GetAllNotNull().ToList() ?? [];
@@ -514,6 +584,17 @@ namespace Tyhp.TyhpLang.Emitter
                     yield return NormalizeAtom(builtin.Identifier ?? "", owningType);
                     yield break;
                 case PhpNamedTypeAst named:
+                    if (TryExpandAlias(named, visitingAliases: null, out var expanded, out _)
+                        && expanded != null)
+                    {
+                        foreach (var atom in ExpandAtoms(expanded, owningType))
+                        {
+                            yield return atom;
+                        }
+
+                        yield break;
+                    }
+
                     yield return NormalizeAtom(GetNamedTypeText(named) ?? "", owningType);
                     yield break;
             }
@@ -542,14 +623,26 @@ namespace Tyhp.TyhpLang.Emitter
             if (typeExpression is PhpBuiltinTypeAst builtin)
             {
                 return string.Equals(builtin.Identifier, "self", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(builtin.Identifier, "static", StringComparison.OrdinalIgnoreCase);
+                    || string.Equals(builtin.Identifier, "static", StringComparison.OrdinalIgnoreCase)
+                    || TypeNamesOwningSymbol(builtin.Identifier, leftType);
             }
 
             if (typeExpression is PhpNamedTypeAst named)
             {
                 var text = GetNamedTypeText(named);
-                return string.Equals(text, "self", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(text, "static", StringComparison.OrdinalIgnoreCase);
+                if (string.Equals(text, "self", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(text, "static", StringComparison.OrdinalIgnoreCase)
+                    || NameWasSelfKeyword(named.Name))
+                {
+                    return true;
+                }
+
+                if (named.BoundSymbol != null && SymbolsMatch(named.BoundSymbol, leftType))
+                {
+                    return true;
+                }
+
+                return TypeNamesOwningSymbol(text, leftType);
             }
 
             if (typeExpression is PhpTypeExpressionAst composite
@@ -559,6 +652,63 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             return false;
+        }
+
+        private static bool NameWasSelfKeyword(IBase2Ast? node)
+        {
+            if (node?.OriginalAst is not PhpNameAst original)
+            {
+                return false;
+            }
+
+            return string.Equals(original.ValueString ?? original.Identifier, "self", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool SymbolsMatch(IBaseSymbol left, IBaseSymbol right)
+        {
+            if (ReferenceEquals(left, right))
+            {
+                return true;
+            }
+
+            if (left is BuiltInTypeSymbol leftBuiltin && right is BuiltInTypeSymbol rightBuiltin)
+            {
+                return string.Equals(leftBuiltin.Name, rightBuiltin.Name, StringComparison.OrdinalIgnoreCase);
+            }
+
+            var leftName = left.FullyQualifiedName;
+            var rightName = right.FullyQualifiedName;
+            if (!string.IsNullOrEmpty(leftName) && !string.IsNullOrEmpty(rightName))
+            {
+                return string.Equals(leftName.TrimStart('\\'), rightName.TrimStart('\\'), StringComparison.OrdinalIgnoreCase);
+            }
+
+            return string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TypeNamesOwningSymbol(string? text, IBaseSymbol owningType)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            var norm = text.Trim().TrimStart('?').TrimStart('\\');
+            if (norm.Length == 0
+                || string.Equals(norm, "self", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(norm, "static", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (owningType is BuiltInTypeSymbol builtin)
+            {
+                return string.Equals(norm, builtin.Name, StringComparison.OrdinalIgnoreCase);
+            }
+
+            var fqn = (owningType.FullyQualifiedName ?? owningType.Name).TrimStart('\\');
+            return string.Equals(norm, fqn, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(norm, owningType.Name, StringComparison.OrdinalIgnoreCase);
         }
 
         private static string? GetNamedTypeText(PhpNamedTypeAst named)

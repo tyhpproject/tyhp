@@ -28,10 +28,15 @@ public static class DiagnosticAssertions
         var hasAnyExpectation = expectation.NoDiagnostics.HasValue
             || expectation.ErrorCount.HasValue
             || expectation.WarningCount.HasValue
-            || expectation.Codes is { Count: > 0 };
+            || expectation.Codes is { Count: > 0 }
+            || expectation.WarningCodes is { Count: > 0 }
+            || expectation.HarnessFail == true
+            || expectation.Stdout is not null
+            || expectation.EmittedContains is { Count: > 0 }
+            || expectation.EmittedNotContains is { Count: > 0 };
         hasAnyExpectation.Should().BeTrue(
             "a conformance case must specify at least one expectation "
-            + "(noDiagnostics, errorCount, warningCount, or codes); none were found "
+            + "(noDiagnostics, errorCount, warningCount, codes, or warningCodes); none were found "
             + "(check for a typo'd expect key)");
 
         if (expectation.NoDiagnostics == true)
@@ -65,6 +70,14 @@ public static class DiagnosticAssertions
             foreach (var code in expectation.Codes)
             {
                 diagnostics.Errors.Should().Contain(d => (int)d.Code == code);
+            }
+        }
+
+        if (expectation.WarningCodes is { Count: > 0 })
+        {
+            foreach (var code in expectation.WarningCodes)
+            {
+                diagnostics.Warnings.Should().Contain(d => (int)d.Code == code);
             }
         }
     }

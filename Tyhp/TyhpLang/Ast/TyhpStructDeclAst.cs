@@ -6,31 +6,19 @@ namespace Tyhp.TyhpLang.Ast
     /// <summary>
     /// Represents a Tyhp struct declaration (both named and anonymous).
     ///
-    /// Grammar (named):
-    ///   tyhpStructDeclarationStatement
-    ///     : T_TYHP_STRUCT Identifier=T_STRING
-    ///         GenericParameters=tyhpGenericParameterDeclarations?
-    ///         (T_EXTENDS Extends=className)?
-    ///         FindDocComment=T_OPEN_CURLY_BRACE PropertyList=tyhpStructPropertyList
-    ///         T_CLOSE_CURLY_BRACE
-    ///     ;
-    ///
-    /// Generic parameters (when present) are stored on AstGrammarAddons["identifier"]
-    /// as a TyhpGenericsTypeArgumentListAst, matching class/interface declarations.
-    ///
     /// Grammar (anonymous):
     ///   tyhpAnonymousStruct
-    ///     : T_TYHP_STRUCT (T_EXTENDS Extends=className)? (T_OPEN_ROUND_BRACE
+    ///     : StructKw=T_STRING {this.isStructKeyword($StructKw)}?
+    ///         (T_EXTENDS Extends=className)? (T_OPEN_ROUND_BRACE
     ///         T_CLOSE_ROUND_BRACE)? FindDocComment=T_OPEN_CURLY_BRACE
     ///         PropertyList=tyhpStructPropertyList T_CLOSE_CURLY_BRACE
     ///     ;
     ///
     /// Used as:
-    ///   - Top-level statement (via topStatementGrammarAddon #tyhpStructDecl)
-    ///   - Tyhpdef statement (via tyhpdefStatement #tyhpdefStructDecl)
     ///   - Anonymous struct expression (via newDereferenceableGrammarAddon #tyhpNewAnonStructInstance)
+    /// Named structs are `type Name = struct { … }` (`TyhpStructShapeAst` on a type alias).
     /// </summary>
-    public class TyhpStructDeclAst : Base2Ast, ITopStatement
+    public class TyhpStructDeclAst : Base2Ast, IStatement
     {
         private const short IS_ANONYMOUS_FLAG = -1;
 

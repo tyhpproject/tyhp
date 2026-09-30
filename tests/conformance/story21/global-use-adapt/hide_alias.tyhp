@@ -1,0 +1,17 @@
+<?tyhp
+
+// Plan mentioned `toSnakeCase`; tyhp/core StringExtensions has no such member.
+use extension \Tyhp\StringExtensions {
+    StringExtensions::toLower hide;
+    StringExtensions::toUpper as toCC;
+}
+
+function testHideAndAlias(): string {
+    string $s = "Hello";
+    return $s->toCC();
+}
+
+function testVisibleLength(): int {
+    string $s = "Hello";
+    return $s->length();
+}

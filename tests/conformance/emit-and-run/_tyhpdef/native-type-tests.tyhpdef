@@ -1,0 +1,24 @@
+<?tyhpdef
+#[\Tyhp\NativeTypeTest]
+function is_string(mixed $value): $value is string;
+
+#[\Tyhp\NativeTypeTest]
+function is_int(mixed $value): $value is int;
+
+#[\Tyhp\NativeTypeTest]
+function is_null(mixed $value): $value is null;
+
+#[\Tyhp\NativeTypeTest]
+function is_float(mixed $value): $value is float;
+
+#[\Tyhp\NativeTypeTest]
+function is_bool(mixed $value): $value is bool;
+
+#[\Tyhp\NativeTypeTest]
+function is_array(mixed $value): $value is array;
+
+#[\Tyhp\NativeTypeTest]
+function is_object(mixed $value): $value is object;
+
+#[\Tyhp\NativeTypeTest]
+function is_resource(mixed $value): $value is resource;

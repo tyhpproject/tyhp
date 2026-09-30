@@ -15,6 +15,7 @@ namespace Tyhp.Tests.Emitter;
 /// FOUND_BUGS item 26: attributes on class constants (and the same comma-list gap for properties)
 /// must survive emit; bare file-scope <c>const</c> stays attribute-free. Attributed top-level
 /// <c>const</c> (PHP ≥ 8.5) is covered in <see cref="ConstAndHookAttributeEmitterTests"/>.
+/// Parameter <c>#[…]</c> attributes are inline on the signature via <c>FormatParameter</c>.
 /// </summary>
 [Trait("Category", "Emitter")]
 public class AttributeEmitterTests
@@ -211,6 +212,123 @@ public class AttributeEmitterTests
                 RegexOptions.Singleline));
     }
 
+    [Fact]
+    public void MethodParameter_Attribute_IsEmittedInline()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+
+            namespace Probe;
+
+            #[\Attribute]
+            class Marker {}
+
+            final class Widget {
+                #[Marker]
+                public function run(#[Marker] string $p): void {}
+            }
+            """);
+
+        php.Should().MatchRegex(
+            new Regex(
+                @"#\[\\Probe\\Marker\]\s*public function run\(#\[\\Probe\\Marker\] string \$p\): void",
+                RegexOptions.Singleline));
+    }
+
+    [Fact]
+    public void FunctionParameter_Attribute_IsEmittedInline()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+
+            namespace Probe;
+
+            #[\Attribute]
+            class Marker {}
+
+            function run(#[Marker] string $p): void {}
+            """);
+
+        php.Should().Contain("function run(#[\\Probe\\Marker] string $p): void");
+    }
+
+    [Fact]
+    public void PromotedConstructorParameter_Attribute_IsEmittedInline()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+
+            namespace Probe;
+
+            #[\Attribute]
+            class Marker {}
+
+            final class Widget {
+                public function __construct(#[Marker] public string $p) {}
+            }
+            """);
+
+        php.Should().Contain("function __construct(#[\\Probe\\Marker] public string $p)");
+    }
+
+    [Fact]
+    public void ClosureParameter_Attribute_IsEmittedInline()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+
+            namespace Probe;
+
+            #[\Attribute]
+            class Marker {}
+
+            function wrap(): void {
+                $fn = function (#[Marker] string $p): void {};
+            }
+            """);
+
+        php.Should().Contain("function (#[\\Probe\\Marker] string $p): void");
+    }
+
+    [Fact]
+    public void Parameter_AttributeWithArguments_IsEmittedInline()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+
+            namespace Probe;
+
+            #[\Attribute]
+            class Marker {
+                public function __construct(public string $label = '') {}
+            }
+
+            function run(#[Marker('x')] int $n): void {}
+            """);
+
+        php.Should().Contain("function run(#[\\Probe\\Marker('x')] int $n): void");
+    }
+
+    [Fact]
+    public void Parameter_MultipleAttributes_AreEmittedInlineInOrder()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+
+            namespace Probe;
+
+            #[\Attribute]
+            class First {}
+
+            #[\Attribute]
+            class Second {}
+
+            function run(#[First] #[Second] string $p): void {}
+            """);
+
+        php.Should().Contain("function run(#[\\Probe\\First] #[\\Probe\\Second] string $p): void");
+    }
+
     private static string CompileAndEmit(string tyhp) =>
         string.Join('\n', CompileToFiles(tyhp).Select(f => f.GeneratedContent ?? string.Empty));
 
@@ -232,13 +350,7 @@ public class AttributeEmitterTests
             var project = new Project(configuration);
 
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

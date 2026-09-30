@@ -21,13 +21,23 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
-            var isStatic = HasStaticModifier(closure.Modifiers) || ClosureHasStaticModifier(closure);
+            var isStatic = IsStaticClosure(closure);
 
             ValidateUseVariables(closure, isStatic, state, context, diagnostics);
 
             var closureState = state.Split(ScopeType.AnonymousFunctionDeclaration);
             closureState.IsInAsyncContext = state.IsInAsyncContext || IsAsyncClosure(closure);
             closureState.IsInsideClosure = true;
+            // A closure's yields make it its own generator, not the lexically enclosing
+            // function/method — `Split` otherwise leaves `IsInGeneratorContext` inherited from the
+            // outer scope, which would wrongly unwrap `TReturn` for a non-generator closure nested
+            // inside a generator (or miss `TReturn` unwrapping for a generator closure nested inside
+            // a non-generator).
+            closureState.IsInGeneratorContext = Binder.TyhpBinder.BodyContainsYield(closure.Body);
+            if (closureState.IsInGeneratorContext)
+            {
+                closureState.GeneratorInference = GeneratorBodyCollector.ForDeclaredReturn(closure.ReturnType);
+            }
             // A closure's return type is its own, not the enclosing callable's — an untyped closure
             // must not silently inherit whatever the lexically enclosing function/method expected
             // (e.g. `void` for a closure declared inside `__construct`/`__destruct`). Call-site /
@@ -45,6 +55,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 // ClosureRule suppresses child traversal, so the return-type annotation is never
                 // CheckNode'd — still count import usage for TYHP4130.
                 context.MarkImportNames(closure.ReturnType, state);
+                ExternTypeUse.ReportIfCheckedType(
+                    closureState.ExpectedReturnType, closure.ReturnType, closureState, diagnostics);
             }
 
             RegisterCapturedVariables(closure, closureState, state);
@@ -59,7 +71,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             ClosureParameterInference.InferAndRegisterParameters(closure, closureState, state, context, diagnostics);
 
-            // Contextual `callable<…>` / annotation expectation supplies the return when the author
+            // Contextual `callable(...)` / annotation expectation supplies the return when the author
             // omitted it (same source as inferred parameter types).
             if (closure.ReturnType is null && closureState.ExpectedReturnType is null)
             {
@@ -115,6 +127,50 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // The closure's own scope is the only place its receivers resolve correctly, so generic
             // call targets inside it are recorded here rather than from the enclosing callable.
             context.RecordGenericCallTargetsIn(closure, closureState);
+
+            if (closureState.IsInGeneratorContext)
+            {
+                GeneratorBodyInference.FinishAfterBody(
+                    closure,
+                    closure.ReturnType,
+                    closure.BoundSymbol,
+                    closure,
+                    closureState,
+                    context,
+                    diagnostics);
+            }
+        }
+
+        /// <summary>
+        /// Seeds outer locals and <c>$this</c> into an <c>async { }</c> block's checker state
+        /// (implicit capture, like arrow functions).
+        /// </summary>
+        internal static void PrepareAsyncBlockCaptures(
+            IBase2Ast? body,
+            CheckerState innerState,
+            CheckerState outerState)
+        {
+            BindEnclosingThis(innerState, outerState);
+            if (body is null)
+            {
+                return;
+            }
+
+            foreach (var variable in FindVariables(body))
+            {
+                var name = CheckerHelpers.GetVariableName(variable);
+                if (name is null
+                    || string.Equals(name, "this", StringComparison.OrdinalIgnoreCase)
+                    || innerState.Variables.ContainsKey(name))
+                {
+                    continue;
+                }
+
+                if (outerState.LookupVariable(name) is { } outerVar)
+                {
+                    innerState.Variables[name] = outerVar.Clone();
+                }
+            }
         }
 
         private static bool IsAsyncClosure(PhpInlineFunctionAst closure)
@@ -161,6 +217,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
         private static bool IsAsyncToken(TokenValueAst token) =>
             token.ValueInt64 == TyhpParser.T_TYHP_ASYNC
             || string.Equals(token.ValueString, "async", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// True when the closure/arrow is declared <c>static</c> (PHP unbound <c>$this</c>).
+        /// Shared with Closure producer inference so inferred <c>TThis</c> is <c>null</c>.
+        /// </summary>
+        internal static bool IsStaticClosure(PhpInlineFunctionAst closure) =>
+            HasStaticModifier(closure.Modifiers) || ClosureHasStaticModifier(closure);
 
         private static bool ClosureHasStaticModifier(PhpInlineFunctionAst closure)
         {

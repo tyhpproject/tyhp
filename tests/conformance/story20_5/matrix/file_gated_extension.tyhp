@@ -1,0 +1,9 @@
+<?tyhp
+declare(php=">=8.4");
+namespace App;
+
+extension GatedStringOps extends string {
+    function gated_tag(): string {
+        return \strtoupper($this);
+    }
+}

@@ -20,9 +20,10 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
 
         public AnonymousFunctionSymbol(
             string name,
-            string? sourceFile = null
+            string? sourceFile = null,
+            IBase2Ast? declaringNode = null
         )
-            : base(name, SymbolType.AnonymousFunctionDeclaration, sourceFile: sourceFile ?? string.Empty)
+            : base(name, SymbolType.AnonymousFunctionDeclaration, declaringNode: declaringNode, sourceFile: sourceFile ?? string.Empty)
         {
         }
     }

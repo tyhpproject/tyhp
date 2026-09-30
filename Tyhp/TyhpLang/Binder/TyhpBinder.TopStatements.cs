@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
@@ -6,7 +8,9 @@ using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Enum;
+using Tyhp.TyhpLang.Versioning;
 
 namespace Tyhp.TyhpLang.Binder
 {
@@ -18,6 +22,13 @@ namespace Tyhp.TyhpLang.Binder
 
             foreach (var stmt in stmtList.GetAllNotNull())
             {
+                // Inactive file-level `declare(php=…);` skips the file's declarations silently.
+                // Still bind declare statements so other directives (and 4301) are recorded.
+                if (_currentFilePhpGateInactive && stmt is not PhpDeclareAst)
+                {
+                    continue;
+                }
+
                 // A statement-form `namespace Foo;` (no braces) carries no captured body. Per PHP
                 // semantics it applies to every following sibling statement until the next namespace
                 // declaration or end of file. Establish its namespace scope and bind subsequent siblings
@@ -58,16 +69,20 @@ namespace Tyhp.TyhpLang.Binder
                     BindImportDeclList(importList, parentScope);
                     break;
 
+                case TyhpImportExtensionAst importExt:
+                    BindFileUseExtension(importExt, parentScope);
+                    break;
+
+                case TyhpdefStandaloneExtensionDeclAst tyhpdefExt:
+                    BindTyhpdefStandaloneExtensionDecl(tyhpdefExt, parentScope);
+                    break;
+
                 case PhpConstDeclListAst constList:
                     BindConstDeclList(constList, parentScope);
                     break;
 
-                case PhpDeclareAst declareAst when parentScope is FileScope:
-                    BindFileLevelDeclare(declareAst);
-                    break;
-
                 case PhpDeclareAst declareAst:
-                    BindDeclareBlock(declareAst, parentScope);
+                    BindDeclare(declareAst, parentScope);
                     break;
 
                 case PhpTopStatementListAst nestedList:
@@ -76,6 +91,12 @@ namespace Tyhp.TyhpLang.Binder
 
                 case TyhpTypeAliasAst typeAlias:
                 {
+                    if (typeAlias.StructShape is { } structShape)
+                    {
+                        BindStructShapeAlias(typeAlias, structShape, parentScope);
+                        break;
+                    }
+
                     var aliasName = typeAlias.Name?.ValueString ?? typeAlias.Identifier ?? "";
                     if (!string.IsNullOrEmpty(aliasName))
                     {
@@ -84,29 +105,25 @@ namespace Tyhp.TyhpLang.Binder
                             declaringNode: typeAlias,
                             sourceFile: _currentFileName);
                         aliasSymbol.AliasedType = typeAlias.TypeExpression;
+                        ApplyInternal(aliasSymbol, typeAlias);
+                        ValidateObjectShapeAlias(typeAlias);
+                        if (typeAlias.GenericArguments != null)
+                        {
+                            PopulateGenericParameters(
+                                typeAlias.GenericArguments,
+                                aliasSymbol.GenericParameters,
+                                _currentFileName,
+                                SymbolType.ClassGenericTypeParameter);
+                        }
 
                         switch (parentScope)
                         {
                             case FileScope fileScope:
-                                if (!fileScope.AddChildSymbol(aliasSymbol))
-                                {
-                                    _diagnostics.AddErrorFromAst(
-                                        MessageCode.BinderDuplicateSymbolDeclaration,
-                                        typeAlias,
-                                        _currentFileName,
-                                        aliasSymbol.Name);
-                                }
+                                BindSourceFileLevelTypeAlias(typeAlias, aliasSymbol, fileScope);
                                 break;
 
                             case NamespaceBlockScope nsBlockScope:
-                                if (!nsBlockScope.AddChildSymbol(aliasSymbol))
-                                {
-                                    _diagnostics.AddErrorFromAst(
-                                        MessageCode.BinderDuplicateSymbolDeclaration,
-                                        typeAlias,
-                                        _currentFileName,
-                                        aliasSymbol.Name);
-                                }
+                                BindSourceFileLevelTypeAlias(typeAlias, aliasSymbol, nsBlockScope);
                                 break;
                         }
                     }
@@ -125,20 +142,26 @@ namespace Tyhp.TyhpLang.Binder
                         varSymbol.DeclaredType = typedVar.TypeExpression;
                         varSymbol.IsRef = typedVar.IsRef;
 
-                        bool added = parentScope switch
+                        bool added;
+                        IBaseSymbol? existing;
+                        switch (parentScope)
                         {
-                            FileScope fs => fs.AddChildSymbol(varSymbol),
-                            NamespaceBlockScope ns => ns.AddChildSymbol(varSymbol),
-                            _ => false
-                        };
+                            case FileScope fs:
+                                added = fs.TryAddChildSymbol(varSymbol, out existing);
+                                break;
+                            case NamespaceBlockScope ns:
+                                added = ns.TryAddChildSymbol(varSymbol, out var nsExisting);
+                                existing = nsExisting;
+                                break;
+                            default:
+                                added = false;
+                                existing = null;
+                                break;
+                        }
 
                         if (!added)
                         {
-                            _diagnostics.AddErrorFromAst(
-                                MessageCode.BinderDuplicateSymbolDeclaration,
-                                typedVar,
-                                _currentFileName,
-                                varSymbol.Name);
+                            ReportBinderDuplicate(typedVar, existing, varSymbol.Name);
                         }
                     }
                     break;
@@ -237,6 +260,19 @@ namespace Tyhp.TyhpLang.Binder
                 return;
             }
 
+            ReportReservedExtensionBackerName(identifier, objDecl);
+
+            if (!ShouldRegisterPhpVersionGatedDeclaration(
+                    objDecl,
+                    parentScope,
+                    identifier,
+                    SymbolType.ObjectTypeDeclaration,
+                    illegalAttributeTarget: false,
+                    out var phpConstraints))
+            {
+                return;
+            }
+
             var modifiers = ConvertModifiers(objDecl.Modifiers);
             var symbol = new ObjectDeclarationSymbol(
                 identifier,
@@ -244,6 +280,8 @@ namespace Tyhp.TyhpLang.Binder
                 _currentFileName,
                 modifiers
             );
+            StampPhpVersionConstraints(symbol, phpConstraints);
+            ApplyInternal(symbol, objDecl, modifiers);
 
             if (objDecl.DeclType?.ValueString != null)
             {
@@ -261,6 +299,7 @@ namespace Tyhp.TyhpLang.Binder
                 ?? (objDecl.Extends is IExpression extendsName
                     ? PhpNamedTypeAst.WrapClassName(extendsName, objDecl)
                     : null);
+            symbol.BackingType = objDecl.BackingType;
             if (objDecl.Implements != null)
             {
                 foreach (var impl in objDecl.Implements.GetAllNotNull())
@@ -281,13 +320,9 @@ namespace Tyhp.TyhpLang.Binder
             {
                 case FileScope fileScope:
                 {
-                    if (!fileScope.AddChildSymbol(symbol))
+                    if (!fileScope.TryAddChildSymbol(symbol, out var existing))
                     {
-                        _diagnostics.AddErrorFromAst(
-                            MessageCode.BinderDuplicateSymbolDeclaration,
-                            objDecl,
-                            _currentFileName,
-                            symbol.Name);
+                        ReportBinderDuplicate(objDecl, existing, symbol.Name);
                     }
 
                     var objScope = new ObjectDeclarationScope(fileScope, symbol);
@@ -298,13 +333,9 @@ namespace Tyhp.TyhpLang.Binder
 
                 case NamespaceBlockScope nsBlockScope:
                 {
-                    if (!nsBlockScope.AddChildSymbol(symbol))
+                    if (!nsBlockScope.TryAddChildSymbol(symbol, out var existing))
                     {
-                        _diagnostics.AddErrorFromAst(
-                            MessageCode.BinderDuplicateSymbolDeclaration,
-                            objDecl,
-                            _currentFileName,
-                            symbol.Name);
+                        ReportBinderDuplicate(objDecl, existing, symbol.Name);
                     }
 
                     var objScope = new ObjectDeclarationScope(nsBlockScope, symbol);
@@ -330,8 +361,20 @@ namespace Tyhp.TyhpLang.Binder
             }
 
             var name = objDecl.Identifier ?? $"anon@{objDecl.Line}:{objDecl.Column}";
+            if (!ShouldRegisterPhpVersionGatedDeclaration(
+                    objDecl,
+                    parentScope,
+                    name,
+                    SymbolType.ObjectTypeDeclaration,
+                    illegalAttributeTarget: false,
+                    out var phpConstraints))
+            {
+                return;
+            }
+
             var modifiers = ConvertModifiers(objDecl.Modifiers);
             var symbol = new ObjectDeclarationSymbol(name, objDecl, _currentFileName, modifiers);
+            StampPhpVersionConstraints(symbol, phpConstraints);
             symbol.ObjectKind = PhpTypeDeclType.Class;
 
             var objScope = new ObjectDeclarationScope(objParent, symbol);
@@ -360,6 +403,17 @@ namespace Tyhp.TyhpLang.Binder
                 return;
             }
 
+            if (!ShouldRegisterPhpVersionGatedDeclaration(
+                    funcDecl,
+                    parentScope,
+                    identifier,
+                    SymbolType.FunctionDeclaration,
+                    illegalAttributeTarget: false,
+                    out var phpConstraints))
+            {
+                return;
+            }
+
             var modifiers = ConvertModifiers(null);
             var symbol = new FunctionDeclarationSymbol(
                 identifier,
@@ -367,7 +421,9 @@ namespace Tyhp.TyhpLang.Binder
                 _currentFileName,
                 modifiers
             );
+            StampPhpVersionConstraints(symbol, phpConstraints);
             symbol.IsAsync = HasAsyncModifier(funcDecl);
+            ApplyInternal(symbol, funcDecl, modifiers);
             PopulateGenericParametersFromGrammarAddon(
                 funcDecl.AstGrammarAddons,
                 symbol.GenericParameters,
@@ -378,13 +434,9 @@ namespace Tyhp.TyhpLang.Binder
             {
                 case FileScope fileScope:
                 {
-                    if (!fileScope.AddChildSymbol(symbol))
+                    if (!fileScope.TryAddChildSymbol(symbol, out var existing))
                     {
-                        _diagnostics.AddErrorFromAst(
-                            MessageCode.BinderDuplicateSymbolDeclaration,
-                            funcDecl,
-                            _currentFileName,
-                            symbol.Name);
+                        ReportFunctionDeclarationConflict(funcDecl, existing, symbol.Name);
                     }
 
                     var funcScope = new FunctionDeclarationScope(fileScope, symbol);
@@ -395,13 +447,9 @@ namespace Tyhp.TyhpLang.Binder
 
                 case NamespaceBlockScope nsBlockScope:
                 {
-                    if (!nsBlockScope.AddChildSymbol(symbol))
+                    if (!nsBlockScope.TryAddChildSymbol(symbol, out var existing))
                     {
-                        _diagnostics.AddErrorFromAst(
-                            MessageCode.BinderDuplicateSymbolDeclaration,
-                            funcDecl,
-                            _currentFileName,
-                            symbol.Name);
+                        ReportFunctionDeclarationConflict(funcDecl, existing, symbol.Name);
                     }
 
                     var funcScope = new FunctionDeclarationScope(nsBlockScope, symbol);
@@ -464,28 +512,37 @@ namespace Tyhp.TyhpLang.Binder
                     useType: useType
                 );
 
+                if (importList.IsGlobal || importDecl.IsGlobal)
+                {
+                    _globalScope.GlobalImports.Add(symbol);
+                }
+
                 switch (parentScope)
                 {
                     case FileScope fileScope:
-                        if (!fileScope.AddChildSymbol(symbol))
+                        if (!fileScope.TryAddChildSymbol(symbol, out var existing))
                         {
-                            _diagnostics.AddErrorFromAst(
-                                MessageCode.BinderDuplicateSymbolDeclaration,
+                            ReportBinderDuplicate(
                                 importDecl,
-                                _currentFileName,
-                                symbol.Name);
+                                existing,
+                                symbol.Name,
+                                existing is UseIncludeSymbol
+                                    ? MessageCode.BinderDuplicateUseAlias
+                                    : MessageCode.BinderDuplicateSymbolDeclaration);
                         }
                         break;
 
                     case NamespaceBlockScope nsBlockScope:
-                        if (!nsBlockScope.AddChildSymbol(symbol))
-                        {
-                            _diagnostics.AddErrorFromAst(
-                                MessageCode.BinderDuplicateSymbolDeclaration,
-                                importDecl,
-                                _currentFileName,
-                                symbol.Name);
-                        }
+                    if (!nsBlockScope.TryAddChildSymbol(symbol, out var nsExisting))
+                    {
+                        ReportBinderDuplicate(
+                            importDecl,
+                            nsExisting,
+                            symbol.Name,
+                            nsExisting is UseIncludeSymbol
+                                ? MessageCode.BinderDuplicateUseAlias
+                                : MessageCode.BinderDuplicateSymbolDeclaration);
+                    }
                         break;
                     default:
                         _diagnostics.AddErrorFromAst(
@@ -509,6 +566,18 @@ namespace Tyhp.TyhpLang.Binder
                     continue;
                 }
 
+                if (!ShouldRegisterPhpVersionGatedDeclaration(
+                        constList,
+                        parentScope,
+                        constName,
+                        SymbolType.Constant,
+                        illegalAttributeTarget: false,
+                        out var phpConstraints,
+                        constDecl))
+                {
+                    continue;
+                }
+
                 var symbol = new ConstantSymbol(
                     constName,
                     sourceFile: _currentFileName,
@@ -516,29 +585,24 @@ namespace Tyhp.TyhpLang.Binder
                     // (single declarator). Pass 2 resolves them via ResolveDeclarationAttributes.
                     declaringNode: constList
                 );
+                StampPhpVersionConstraints(symbol, phpConstraints);
+                ApplyInternal(symbol, constList);
+                constList.BoundSymbol ??= symbol;
 
                 switch (parentScope)
                 {
                     case FileScope fileScope:
-                        if (!fileScope.AddChildSymbol(symbol))
+                        if (!fileScope.TryAddChildSymbol(symbol, out var existing))
                         {
-                            _diagnostics.AddErrorFromAst(
-                                MessageCode.BinderDuplicateSymbolDeclaration,
-                                constDecl,
-                                _currentFileName,
-                                symbol.Name);
+                            ReportBinderDuplicate(constDecl, existing, symbol.Name);
                         }
                         break;
 
                     case NamespaceBlockScope nsBlockScope:
-                        if (!nsBlockScope.AddChildSymbol(symbol))
-                        {
-                            _diagnostics.AddErrorFromAst(
-                                MessageCode.BinderDuplicateSymbolDeclaration,
-                                constDecl,
-                                _currentFileName,
-                                symbol.Name);
-                        }
+                    if (!nsBlockScope.TryAddChildSymbol(symbol, out var nsExisting))
+                    {
+                        ReportBinderDuplicate(constDecl, nsExisting, symbol.Name);
+                    }
                         break;
                     default:
                         _diagnostics.AddErrorFromAst(
@@ -551,47 +615,568 @@ namespace Tyhp.TyhpLang.Binder
             }
         }
 
-        private void BindFileLevelDeclare(PhpDeclareAst declareAst)
+        private const string PhpDeclareDirectiveKey = "php";
+
+        /// <summary>
+        /// Default compile target when <c>output.phpVersion</c> is missing. Checker emits 4306
+        /// once per compilation when compilation options record that the version was defaulted.
+        /// This method does not emit that warning.
+        /// </summary>
+        private const string DefaultPhpVersionTarget = "8.2";
+
+        private void BindDeclare(PhpDeclareAst declareAst, IBaseScope parentScope)
         {
-            if (_currentFileScope == null || declareAst.Declarations == null) return;
-
-            foreach (var decl in declareAst.Declarations.GetAllNotNull())
+            var directives = ReadDeclareDirectives(declareAst);
+            var phpAlone = TryGetAlonePhpConstraint(directives, out var phpConstraint);
+            var extAlone = TryGetAloneExtConstraint(directives, out var extConstraint);
+            var hasPhp = directives.Exists(d => IsPhpDeclareKey(d.Key));
+            var hasExt = directives.Exists(d => IsExtDeclareKey(d.Key));
+            if (hasPhp && !phpAlone)
             {
-                var key = decl.Identifier ?? "";
-                var valueExpr = decl.Value;
-                var value = valueExpr?.ValueString ?? "1";
+                _diagnostics.AddErrorFromAst(
+                    MessageCode.CheckerPhpVersionDeclareNotAlone,
+                    declareAst,
+                    _currentFileName);
+            }
 
-                _currentFileScope.AddFileDeclareDirective(key, value);
+            if (hasExt && !extAlone)
+            {
+                _diagnostics.AddErrorFromAst(
+                    MessageCode.TyhpdefExtDeclareNotAlone,
+                    declareAst,
+                    _currentFileName);
+            }
+
+            if (!IsDeclareBlockForm(declareAst))
+            {
+                if (_phpDeclareBlockDepth == 0)
+                {
+                    BindFileLevelDeclare(directives, phpAlone, extAlone);
+                }
+
+                return;
+            }
+
+            BindDeclareBlock(
+                declareAst,
+                parentScope,
+                directives,
+                phpAlone ? phpConstraint : null,
+                extAlone ? extConstraint : null);
+        }
+
+        private void BindFileLevelDeclare(
+            List<DeclareDirective> directives,
+            bool phpAlone,
+            bool extAlone)
+        {
+            if (_currentFileScope == null)
+            {
+                return;
+            }
+
+            foreach (var directive in directives)
+            {
+                if (IsPhpDeclareKey(directive.Key) && !phpAlone)
+                {
+                    continue;
+                }
+
+                if (IsExtDeclareKey(directive.Key) && !extAlone)
+                {
+                    continue;
+                }
+
+                _currentFileScope.TryAddFileDeclareDirective(directive.Key, directive.Value, out _);
             }
         }
 
-        private void BindDeclareBlock(PhpDeclareAst declareAst, IBaseScope parentScope)
+        private void BindDeclareBlock(
+            PhpDeclareAst declareAst,
+            IBaseScope parentScope,
+            List<DeclareDirective> directives,
+            string? phpConstraint,
+            string? extConstraint = null)
         {
-            if (parentScope is not ICodeBlockScopeParent codeBlockParent) return;
+            if (parentScope is not ICodeBlockScopeParent codeBlockParent)
+            {
+                return;
+            }
 
             var symbol = new DeclareBlockSymbol("declare", sourceFile: _currentFileName);
-
-            if (declareAst.Declarations != null)
+            symbol.DeclaringAstNode = declareAst;
+            declareAst.BoundSymbol = symbol;
+            foreach (var directive in directives)
             {
-                foreach (var decl in declareAst.Declarations.GetAllNotNull())
+                symbol.Directives[directive.Key] = directive.Value;
+            }
+
+            var inactive = false;
+            var phpUnsatisfied = false;
+            var constraintValid = true;
+            if (phpConstraint != null)
+            {
+                var result = PhpVersionConstraint.Evaluate(GetTargetPhpVersion(), phpConstraint);
+                constraintValid = result.ConstraintIsValid;
+                inactive = !result.ConstraintIsValid || !result.IsSatisfied;
+                phpUnsatisfied = result.ConstraintIsValid && !result.IsSatisfied;
+                symbol.PhpVersionConstraint = phpConstraint;
+            }
+
+            if (extConstraint != null)
+            {
+                symbol.ExtGate = extConstraint.Trim();
+                var insideFunctionBody = parentScope is not (FileScope or NamespaceBlockScope);
+                if (!TryEvaluateExtGate(extConstraint, declareAst, out var extSatisfied, insideFunctionBody)
+                    || !extSatisfied)
                 {
-                    var key = decl.Identifier ?? "";
-                    var valueExpr = decl.Value;
-                    var value = valueExpr?.ValueString ?? "1";
-                    symbol.Directives[key] = value;
+                    inactive = true;
                 }
             }
+
+            symbol.IsPhpVersionConstraintValid = constraintValid;
+            symbol.IsPhpVersionGateInactive = inactive;
+
+            if (phpConstraint != null)
+            {
+                _phpVersionConstraintStack.Add(phpConstraint);
+            }
+
+            if (extConstraint != null)
+            {
+                _extGateStack.Add(extConstraint.Trim());
+            }
+
+            symbol.EffectivePhpVersionConstraints = _phpVersionConstraintStack.ToArray();
+            symbol.EffectiveExtGates = _extGateStack.ToArray();
 
             var declareScope = new DeclareBlockScope(codeBlockParent, symbol);
             codeBlockParent.AddCodeBlockChildScope(declareScope);
 
-            if (declareAst.Body != null)
+            _phpDeclareBlockDepth++;
+            try
             {
-                BindStatementBlock(declareAst.Body, declareScope);
+                if (inactive || declareAst.Body == null)
+                {
+                    if (phpUnsatisfied && declareAst.Body != null)
+                    {
+                        RecordUncompiledDeclareBlockDeclarations(
+                            declareAst.Body,
+                            parentScope,
+                            [.. _phpVersionConstraintStack]);
+                    }
+
+                    return;
+                }
+
+                BindDeclareBlockBody(declareAst.Body, parentScope, declareScope);
+            }
+            finally
+            {
+                _phpDeclareBlockDepth--;
+                if (phpConstraint != null && _phpVersionConstraintStack.Count > 0)
+                {
+                    _phpVersionConstraintStack.RemoveAt(_phpVersionConstraintStack.Count - 1);
+                }
+
+                if (extConstraint != null && _extGateStack.Count > 0)
+                {
+                    _extGateStack.RemoveAt(_extGateStack.Count - 1);
+                }
             }
         }
 
-        private static void PopulateGenericParametersFromGrammarAddon(
+        /// <summary>
+        /// An inactive <c>declare(php=…)</c> block binds nothing, but the function and type names it
+        /// declares still count as variants of same-named declarations that are compiled
+        /// (see <see cref="MarkDeclarationsWithUncompiledVersionVariants"/>).
+        /// </summary>
+        private void RecordUncompiledDeclareBlockDeclarations(
+            IStatement body,
+            IBaseScope parentScope,
+            List<string> constraints)
+        {
+            IEnumerable<IBase2Ast?> children = body is PhpStatementBlockAst block
+                ? block.GetAllNotNull()
+                : [body];
+
+            foreach (var child in children)
+            {
+                switch (child)
+                {
+                    case PhpFunctionDeclAst function:
+                        RecordUncompiledDeclaration(
+                            function.Identifier, SymbolType.FunctionDeclaration, parentScope, constraints);
+                        break;
+
+                    case PhpObjectTypeDeclAst { IsAnonymousClass: false } objectType:
+                        RecordUncompiledDeclaration(
+                            objectType.Identifier, SymbolType.ObjectTypeDeclaration, parentScope, constraints);
+                        break;
+
+                    case PhpDeclareAst nested when IsDeclareBlockForm(nested) && nested.Body != null:
+                    {
+                        var nestedConstraints = new List<string>(constraints);
+                        if (TryGetAlonePhpConstraint(ReadDeclareDirectives(nested), out var nestedPhp))
+                        {
+                            nestedConstraints.Add(nestedPhp);
+                        }
+
+                        RecordUncompiledDeclareBlockDeclarations(nested.Body, parentScope, nestedConstraints);
+                        break;
+                    }
+                }
+            }
+        }
+
+        private void RecordUncompiledDeclaration(
+            string? name,
+            SymbolType symbolType,
+            IBaseScope parentScope,
+            IReadOnlyList<string> constraints)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return;
+            }
+
+            var key = new GatedDeclarationKey(
+                GetGatedContainerKey(parentScope),
+                GatedNameKey(name, symbolType),
+                NormalizeGatedKind(symbolType));
+            if (!_uncompiledVersionVariants.TryGetValue(key, out var variants))
+            {
+                variants = [];
+                _uncompiledVersionVariants[key] = variants;
+            }
+
+            variants.Add(constraints);
+        }
+
+        private void BindDeclareBlockBody(
+            IStatement body,
+            IBaseScope parentScope,
+            DeclareBlockScope declareScope)
+        {
+            // Gate blocks are compile-time only. At file/namespace level, hoist declarations into
+            // the enclosing scope so they resolve as normal globals. Inside functions, bind into
+            // the declare scope like other statement blocks.
+            if (parentScope is FileScope or NamespaceBlockScope)
+            {
+                if (body is PhpStatementBlockAst block)
+                {
+                    foreach (var child in block.GetAllNotNull())
+                    {
+                        BindTopStatement(child, parentScope);
+                    }
+
+                    return;
+                }
+
+                BindTopStatement(body, parentScope);
+                return;
+            }
+
+            BindStatementBlock(body, declareScope);
+        }
+
+        private void ApplyFileLevelPhpGates(SrcFileAst srcFile, FileSymbol? fileSymbol)
+        {
+            _currentFilePhpGateInactive = false;
+            if (fileSymbol == null)
+            {
+                return;
+            }
+
+            var constraints = new List<string>();
+            var sawInvalid = false;
+            var sawUnsatisfied = false;
+            _pendingFileExtGates = [];
+
+            foreach (var child in srcFile.AstChildren)
+            {
+                if (child is PhpTopStatementListAst list)
+                {
+                    CollectFileLevelPhpGates(list, constraints, ref sawInvalid, ref sawUnsatisfied);
+                }
+            }
+
+            var fileExtGates = _pendingFileExtGates;
+            _pendingFileExtGates = null;
+
+            foreach (var constraint in constraints)
+            {
+                fileSymbol.AddPhpVersionConstraint(constraint);
+            }
+
+            fileSymbol.IsPhpVersionConstraintValid = !sawInvalid;
+            fileSymbol.IsPhpVersionGateInactive = sawInvalid || sawUnsatisfied;
+            _currentFilePhpGateInactive = fileSymbol.IsPhpVersionGateInactive;
+
+            if (_currentFilePhpGateInactive)
+            {
+                return;
+            }
+
+            foreach (var constraint in constraints)
+            {
+                _phpVersionConstraintStack.Add(constraint);
+            }
+
+            _extGateStack.AddRange(fileExtGates);
+        }
+
+        private void CollectFileLevelPhpGates(
+            ITopStatement stmt,
+            List<string> constraints,
+            ref bool sawInvalid,
+            ref bool sawUnsatisfied)
+        {
+            switch (stmt)
+            {
+                case PhpTopStatementListAst list:
+                    foreach (var child in list.GetAllNotNull())
+                    {
+                        CollectFileLevelPhpGates(child, constraints, ref sawInvalid, ref sawUnsatisfied);
+                    }
+                    break;
+
+                case PhpNamespaceDeclAst ns when ns.TopStatements != null:
+                    CollectFileLevelPhpGates(ns.TopStatements, constraints, ref sawInvalid, ref sawUnsatisfied);
+                    break;
+
+                case PhpBlockNamespaceDeclAst ns when ns.TopStatements != null:
+                    CollectFileLevelPhpGates(ns.TopStatements, constraints, ref sawInvalid, ref sawUnsatisfied);
+                    break;
+
+                case PhpDeclareAst declareAst when !IsDeclareBlockForm(declareAst):
+                {
+                    var directives = ReadDeclareDirectives(declareAst);
+                    if (TryGetAloneExtConstraint(directives, out var extSpec))
+                    {
+                        if (!TryEvaluateExtGate(extSpec, declareAst, out var extSatisfied) || !extSatisfied)
+                        {
+                            sawUnsatisfied = true;
+                        }
+                        else
+                        {
+                            _pendingFileExtGates?.Add(extSpec.Trim());
+                        }
+                    }
+
+                    if (!TryGetAlonePhpConstraint(directives, out var phpConstraint))
+                    {
+                        break;
+                    }
+
+                    var result = PhpVersionConstraint.Evaluate(GetTargetPhpVersion(), phpConstraint);
+                    if (!result.ConstraintIsValid)
+                    {
+                        sawInvalid = true;
+                        break;
+                    }
+
+                    constraints.Add(phpConstraint);
+                    if (!result.IsSatisfied)
+                    {
+                        sawUnsatisfied = true;
+                    }
+                    break;
+                }
+            }
+        }
+
+        private string GetTargetPhpVersion()
+        {
+            var version = _compilationOptions?.PhpVersion;
+            return string.IsNullOrWhiteSpace(version) ? DefaultPhpVersionTarget : version.Trim();
+        }
+
+        private static bool IsDeclareBlockForm(PhpDeclareAst declareAst)
+            => declareAst.Body is not null and not PhpNopStatementAst;
+
+        private static bool IsPhpDeclareKey(string? key)
+            => string.Equals(key, PhpDeclareDirectiveKey, StringComparison.OrdinalIgnoreCase);
+
+        private const string ExtDeclareDirectiveKey = "ext";
+
+        private static bool IsExtDeclareKey(string? key)
+            => string.Equals(key, ExtDeclareDirectiveKey, StringComparison.OrdinalIgnoreCase);
+
+        private static bool TryGetAloneExtConstraint(List<DeclareDirective> directives, out string extConstraint)
+        {
+            extConstraint = "";
+            string? found = null;
+            var otherCount = 0;
+            foreach (var directive in directives)
+            {
+                if (IsExtDeclareKey(directive.Key))
+                {
+                    found = directive.Value;
+                }
+                else
+                {
+                    otherCount++;
+                }
+            }
+
+            if (found == null || otherCount > 0)
+            {
+                return false;
+            }
+
+            extConstraint = found;
+            return true;
+        }
+
+        private bool TryEvaluateExtGate(
+            string spec,
+            PhpDeclareAst declareAst,
+            out bool satisfied,
+            bool insideFunctionBody = false)
+        {
+            satisfied = false;
+            var text = spec.Trim();
+            var negative = text.StartsWith('!');
+            var name = negative ? text[1..].Trim() : text;
+            if (name.Length == 0
+                || name.StartsWith("ext-", StringComparison.OrdinalIgnoreCase)
+                || name.Any(ch => !char.IsAsciiLetterOrDigit(ch) && ch != '_'))
+            {
+                _diagnostics.AddErrorFromAst(
+                    MessageCode.TyhpdefExtDeclareInvalid,
+                    declareAst,
+                    _currentFileName,
+                    spec);
+                return false;
+            }
+
+            // A positive gate needs a loaded tyhpdef package for the extension, or the block could not
+            // be type-checked. Inside a function body a negative gate is the branch that runs when the
+            // extension is missing at runtime, which no package can rule out, so it always compiles
+            // (behind `!\extension_loaded('name')`). Around declarations it selects which declaration
+            // exists, so it follows the loaded packages: an extension package that declares the same
+            // name would make the fallback a duplicate.
+            var present = ExtensionIsPresent(name);
+            satisfied = negative ? !present || insideFunctionBody : present;
+            return true;
+        }
+
+        private static List<DeclareDirective> ReadDeclareDirectives(PhpDeclareAst declareAst)
+        {
+            var result = new List<DeclareDirective>();
+            if (declareAst.Declarations == null)
+            {
+                return result;
+            }
+
+            foreach (var decl in declareAst.Declarations.GetAllNotNull())
+            {
+                var key = decl.Identifier ?? "";
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    continue;
+                }
+
+                var forPhp = IsPhpDeclareKey(key);
+                var value = ExtractDeclareValue(decl.Value, forPhp);
+                result.Add(new DeclareDirective(key, value));
+            }
+
+            return result;
+        }
+
+        private static bool TryGetAlonePhpConstraint(
+            List<DeclareDirective> directives,
+            out string phpConstraint)
+        {
+            phpConstraint = "";
+            string? found = null;
+            var otherCount = 0;
+            foreach (var directive in directives)
+            {
+                if (IsPhpDeclareKey(directive.Key))
+                {
+                    found = directive.Value;
+                }
+                else
+                {
+                    otherCount++;
+                }
+            }
+
+            if (found == null || otherCount > 0)
+            {
+                return false;
+            }
+
+            phpConstraint = found;
+            return true;
+        }
+
+        private static string ExtractDeclareValue(IExpression? valueExpr, bool forPhpConstraint)
+        {
+            if (valueExpr == null)
+            {
+                return forPhpConstraint ? "" : "1";
+            }
+
+            switch (valueExpr)
+            {
+                case PhpScalarAst scalar:
+                    if (!string.IsNullOrEmpty(scalar.ValueString))
+                    {
+                        return UnquotePhpString(scalar.ValueString);
+                    }
+
+                    if (scalar.ValueInt64.HasValue)
+                    {
+                        return scalar.ValueInt64.Value.ToString();
+                    }
+
+                    if (scalar.ValueBoolean.HasValue)
+                    {
+                        return scalar.ValueBoolean.Value ? "true" : "false";
+                    }
+
+                    break;
+
+                case PhpEncapsStringAst encaps:
+                    return UnquotePhpString(encaps.ValueString ?? encaps.TokenValue?.ValueString);
+
+                case PhpEncapsListAst list:
+                    return string.Concat(
+                        list.GetAllNotNull().Select(part => UnquotePhpString(part.ValueString)));
+            }
+
+            if (!string.IsNullOrEmpty(valueExpr.ValueString))
+            {
+                return UnquotePhpString(valueExpr.ValueString);
+            }
+
+            return forPhpConstraint ? "" : "1";
+        }
+
+        private static string UnquotePhpString(string? literal)
+        {
+            if (string.IsNullOrEmpty(literal))
+            {
+                return "";
+            }
+
+            if (literal.Length >= 2
+                && ((literal[0] == '\'' && literal[^1] == '\'')
+                    || (literal[0] == '"' && literal[^1] == '"')))
+            {
+                return literal[1..^1];
+            }
+
+            return literal;
+        }
+
+        private readonly record struct DeclareDirective(string Key, string Value);
+
+        private void PopulateGenericParametersFromGrammarAddon(
             IReadOnlyDictionary<string, IBase2Ast> grammarAddons,
             List<GenericTypeParameterSymbol> targetList,
             string sourceFile,
@@ -607,7 +1192,7 @@ namespace Tyhp.TyhpLang.Binder
             PopulateGenericParameters(genericList, targetList, sourceFile, genericParameterKind);
         }
 
-        private static void PopulateGenericParameters(
+        private void PopulateGenericParameters(
             TyhpGenericsTypeArgumentListAst genericList,
             List<GenericTypeParameterSymbol> targetList,
             string sourceFile,
@@ -620,6 +1205,27 @@ namespace Tyhp.TyhpLang.Binder
                     : genericArg.Name?.ValueString;
                 if (string.IsNullOrEmpty(name))
                 {
+                    continue;
+                }
+
+                GenericTypeParameterSymbol? existing = null;
+                for (var i = 0; i < targetList.Count; i++)
+                {
+                    if (string.Equals(targetList[i].Name, name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        existing = targetList[i];
+                        break;
+                    }
+                }
+
+                if (existing != null)
+                {
+                    _diagnostics.AddDuplicateFromAst(
+                        MessageCode.BinderDuplicateGenericParameter,
+                        genericArg,
+                        _currentFileName,
+                        existing,
+                        name);
                     continue;
                 }
 
@@ -652,14 +1258,21 @@ namespace Tyhp.TyhpLang.Binder
                     PhpModifier.Final => MemberModifier.Final,
                     PhpModifier.Readonly => MemberModifier.Readonly,
                     PhpModifier.Var => MemberModifier.Var,
+                    PhpModifier.Internal => MemberModifier.Internal,
                     _ => MemberModifier.None
                 };
             }
 
-            // Tyhp `async` is not a PhpModifier; the visitor attaches it as an "isAsync" addon.
+            // Tyhp `async` / `internal` may arrive as grammar addons when they are not PhpModifier values
+            // on the list (or in addition to PhpModifier.Internal).
             if (modifiers.AstGrammarAddons.ContainsKey("isAsync"))
             {
                 result |= MemberModifier.Async;
+            }
+
+            if (modifiers.AstGrammarAddons.ContainsKey("isInternal"))
+            {
+                result |= MemberModifier.Internal;
             }
 
             return result;
@@ -693,6 +1306,50 @@ namespace Tyhp.TyhpLang.Binder
             string.Equals(token.ValueString, "async", StringComparison.OrdinalIgnoreCase)
             || token.ValueInt64 == Tyhp.TyhpLang.Parser.TyhpParser.T_TYHP_ASYNC;
 
+        private static bool HasInternalModifier(IBase2Ast? node)
+        {
+            if (node is null)
+            {
+                return false;
+            }
+
+            if (node.AstGrammarAddons.ContainsKey("isInternal"))
+            {
+                return true;
+            }
+
+            if (node.AstGrammarAddons.TryGetValue("modifiers", out var addon))
+            {
+                var fromAddon = addon switch
+                {
+                    TokenValueListAst list => list.GetAllNotNull().Any(IsInternalToken),
+                    TokenValueAst token => IsInternalToken(token),
+                    PhpModifierListAst phpList => phpList.AstGrammarAddons.ContainsKey("isInternal")
+                        || phpList.Modifiers.Contains(PhpModifier.Internal),
+                    _ => false,
+                };
+                if (fromAddon)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsInternalToken(TokenValueAst token) =>
+            string.Equals(token.ValueString, "internal", StringComparison.OrdinalIgnoreCase)
+            || token.ValueInt64 == Tyhp.TyhpLang.Parser.TyhpParser.T_TYHP_INTERNAL;
+
+        private static void ApplyInternal(BaseSymbol symbol, IBase2Ast? node, MemberModifier modifiers = MemberModifier.None)
+        {
+            if ((modifiers & MemberModifier.Internal) != 0 || HasInternalModifier(node))
+            {
+                symbol.IsInternal = true;
+                symbol.Visibility |= MemberModifier.Internal;
+            }
+        }
+
         private void BindStructDecl(TyhpStructDeclAst structDecl, IBaseScope parentScope)
         {
             var identifier = structDecl.Identifier;
@@ -706,63 +1363,185 @@ namespace Tyhp.TyhpLang.Binder
                 return;
             }
 
-            var symbol = new ObjectDeclarationSymbol(
+            BindNamedStruct(
                 identifier,
                 structDecl,
+                structDecl.PropertyList,
+                structDecl.Extends,
+                genericArguments: null,
+                genericAddons: structDecl.AstGrammarAddons,
+                parentScope);
+        }
+
+        /// <summary>
+        /// File/namespace and class-member <c>type Name = struct { … }</c> is today's named
+        /// struct: an <see cref="ObjectDeclarationSymbol"/> with <c>IsStruct</c>, not a
+        /// <see cref="TypeAliasSymbol"/> / <see cref="ObjectTypeAliasSymbol"/>.
+        /// <c>new Name() with […]</c> / <c>new C\Name() with […]</c> constructs the array.
+        /// Object- and callable-shape aliases stay type aliases and cannot be constructed.
+        /// </summary>
+        private void BindStructShapeAlias(
+            TyhpTypeAliasAst typeAlias,
+            TyhpStructShapeAst structShape,
+            IBaseScope parentScope)
+        {
+            var identifier = typeAlias.Name?.ValueString ?? typeAlias.Identifier ?? "";
+            if (string.IsNullOrEmpty(identifier))
+            {
+                _diagnostics.AddWarningFromAst(
+                    MessageCode.BinderUnknownError,
+                    typeAlias,
+                    _currentFileName,
+                    "Struct type alias has no identifier — skipping binding.");
+                return;
+            }
+
+            BindNamedStruct(
+                identifier,
+                typeAlias,
+                structShape.PropertyList,
+                structShape.Extends,
+                typeAlias.GenericArguments,
+                genericAddons: null,
+                parentScope);
+            structShape.BoundSymbol = typeAlias.BoundSymbol;
+
+            if (parentScope is ObjectDeclarationScope
+                && typeAlias.BoundSymbol is ObjectDeclarationSymbol nested)
+            {
+                var modifiers = ConvertModifiers(typeAlias.Modifiers);
+                if (modifiers != MemberModifier.None)
+                {
+                    nested.Visibility = modifiers;
+                }
+
+                ApplyInternal(nested, typeAlias, nested.Visibility);
+            }
+        }
+
+        private void BindNamedStruct(
+            string identifier,
+            IBase2Ast declaringNode,
+            TyhpStructPropertyListAst? propertyList,
+            PhpNameAst? extends,
+            TyhpGenericsTypeArgumentListAst? genericArguments,
+            IReadOnlyDictionary<string, IBase2Ast>? genericAddons,
+            IBaseScope parentScope)
+        {
+            ShouldRegisterPhpVersionGatedDeclaration(
+                declaringNode,
+                parentScope,
+                identifier,
+                SymbolType.ObjectTypeDeclaration,
+                illegalAttributeTarget: true,
+                out var phpConstraints);
+
+            var symbol = new ObjectDeclarationSymbol(
+                identifier,
+                declaringNode,
                 _currentFileName,
                 MemberModifier.Public)
             {
                 ObjectKind = PhpTypeDeclType.Class,
                 IsStruct = true,
-                ExtendsType = structDecl.Extends as ITypeExpression,
+                ExtendsType = extends as ITypeExpression,
             };
+            StampPhpVersionConstraints(symbol, phpConstraints);
 
-            PopulateGenericParametersFromGrammarAddon(
-                structDecl.AstGrammarAddons,
-                symbol.GenericParameters,
-                _currentFileName);
+            if (genericArguments != null)
+            {
+                PopulateGenericParameters(
+                    genericArguments,
+                    symbol.GenericParameters,
+                    _currentFileName,
+                    SymbolType.ClassGenericTypeParameter);
+            }
+            else if (genericAddons != null)
+            {
+                PopulateGenericParametersFromGrammarAddon(
+                    genericAddons,
+                    symbol.GenericParameters,
+                    _currentFileName);
+            }
 
             switch (parentScope)
             {
                 case FileScope fileScope:
                 {
-                    if (!fileScope.AddChildSymbol(symbol))
+                    if (!fileScope.TryAddChildSymbol(symbol, out var existing))
                     {
-                        _diagnostics.AddErrorFromAst(
-                            MessageCode.BinderDuplicateSymbolDeclaration,
-                            structDecl,
-                            _currentFileName,
-                            symbol.Name);
+                        ReportBinderDuplicate(declaringNode, existing, symbol.Name);
                     }
 
                     var objScope = new ObjectDeclarationScope(fileScope, symbol);
                     fileScope.AddChildScope(objScope);
-                    BindStructBody(structDecl, objScope);
+                    BindStructBody(propertyList, objScope);
                     break;
                 }
 
                 case NamespaceBlockScope nsBlockScope:
                 {
-                    if (!nsBlockScope.AddChildSymbol(symbol))
+                    if (!nsBlockScope.TryAddChildSymbol(symbol, out var existing))
                     {
-                        _diagnostics.AddErrorFromAst(
-                            MessageCode.BinderDuplicateSymbolDeclaration,
-                            structDecl,
-                            _currentFileName,
-                            symbol.Name);
+                        ReportBinderDuplicate(declaringNode, existing, symbol.Name);
                     }
 
                     var objScope = new ObjectDeclarationScope(nsBlockScope, symbol);
                     nsBlockScope.AddChildScope(objScope);
-                    BindStructBody(structDecl, objScope);
+                    BindStructBody(propertyList, objScope);
+                    break;
+                }
+
+                case ObjectDeclarationScope ownerScope:
+                {
+                    if (!ownerScope.TryAddChildSymbol(symbol, out var existing))
+                    {
+                        ReportBinderDuplicate(declaringNode, existing, symbol.Name);
+                    }
+                    else
+                    {
+                        RegisterObjectMember(ownerScope, symbol, identifier);
+                    }
+
+                    var nestedScope = new ObjectDeclarationScope(ownerScope, symbol);
+                    ((IObjectDeclarationScopeParent)ownerScope).AddObjectDeclarationChildScope(nestedScope);
+                    StampNestedStructFullyQualifiedName(symbol, ownerScope.DeclarationSymbol);
+                    BindStructBody(propertyList, nestedScope);
                     break;
                 }
             }
         }
 
-        private void BindStructBody(TyhpStructDeclAst structDecl, ObjectDeclarationScope objScope)
+        /// <summary>
+        /// Nested structs are members of the owning class, so their FQN is
+        /// <c>Owner\Name</c> (matching the <c>C\Point</c> spelling), not a sibling
+        /// of the owner in the namespace.
+        /// </summary>
+        private static void StampNestedStructFullyQualifiedName(
+            ObjectDeclarationSymbol nested,
+            ObjectDeclarationSymbol? owner)
         {
-            foreach (var property in structDecl.PropertyList?.GetAllNotNull() ?? [])
+            if (owner is null || string.IsNullOrEmpty(nested.Name))
+            {
+                return;
+            }
+
+            var ownerFqn = owner.FullyQualifiedName;
+            if (string.IsNullOrWhiteSpace(ownerFqn))
+            {
+                ownerFqn = "\\" + owner.Name;
+            }
+            else if (ownerFqn[0] != '\\')
+            {
+                ownerFqn = "\\" + ownerFqn;
+            }
+
+            nested.FullyQualifiedName = ownerFqn.TrimEnd('\\') + "\\" + nested.Name;
+        }
+
+        private void BindStructBody(TyhpStructPropertyListAst? propertyList, ObjectDeclarationScope objScope)
+        {
+            foreach (var property in propertyList?.GetAllNotNull() ?? [])
             {
                 var propName = property.Property?.Identifier ?? property.Identifier;
                 if (string.IsNullOrEmpty(propName))
@@ -780,19 +1559,189 @@ namespace Tyhp.TyhpLang.Binder
                     DefaultValue = property.Property?.DefaultValue,
                 };
 
-                if (!objScope.AddChildSymbol(propSymbol))
+                if (!objScope.TryAddChildSymbol(propSymbol, out var existing))
                 {
-                    _diagnostics.AddErrorFromAst(
-                        MessageCode.BinderDuplicateSymbolDeclaration,
-                        property,
-                        _currentFileName,
-                        propSymbol.Name);
+                    ReportBinderDuplicate(property, existing, propSymbol.Name);
                 }
                 else
                 {
                     RegisterObjectMember(objScope, propSymbol, propName);
                 }
             }
+        }
+
+        private void BindSourceFileLevelTypeAlias(
+            TyhpTypeAliasAst typeAlias,
+            TypeAliasSymbol aliasSymbol,
+            IBaseScope parentScope)
+        {
+            // Tyhpdef file-level aliases stay type-only: they never emit PHP and must not occupy
+            // the PHP function namespace, nor be rejected for using a name that cannot be a PHP
+            // function (that restriction only matters for source aliases, which do emit a
+            // same-named function). Mirrors the tyhpdef exclusion in
+            // TyhpBinder.Resolution.IsUserSourceTypeAlias.
+            var isTyhpdefAlias = IsTyhpdefContext(typeAlias);
+
+            if (!isTyhpdefAlias && PhpReservedFunctionNames.CannotBePhpFunction(aliasSymbol.Name))
+            {
+                _diagnostics.AddErrorFromAst(
+                    MessageCode.BinderTypeAliasReservedFunctionName,
+                    typeAlias,
+                    _currentFileName,
+                    aliasSymbol.Name);
+            }
+
+            bool added;
+            IBaseSymbol? existing;
+            switch (parentScope)
+            {
+                case FileScope fileScope:
+                    added = fileScope.TryAddChildSymbol(aliasSymbol, out existing);
+                    break;
+                case NamespaceBlockScope nsBlockScope:
+                    added = nsBlockScope.TryAddChildSymbol(aliasSymbol, out var nsExisting);
+                    existing = nsExisting;
+                    break;
+                default:
+                    added = false;
+                    existing = null;
+                    break;
+            }
+
+            if (!added)
+            {
+                ReportBinderDuplicate(typeAlias, existing, aliasSymbol.Name);
+                return;
+            }
+
+            if (isTyhpdefAlias)
+            {
+                return;
+            }
+
+            if (!parentScope.TryOccupyFunctionNamespace(aliasSymbol))
+            {
+                _diagnostics.AddErrorFromAst(
+                    MessageCode.BinderTypeAliasConflictsWithFunction,
+                    typeAlias,
+                    _currentFileName,
+                    aliasSymbol.Name);
+            }
+        }
+
+        /// <summary>
+        /// Object shapes are public-only and must have at least one member. Empty
+        /// <c>type X = object {};</c> is TYHP4349; <c>private</c>/<c>protected</c>/<c>internal</c>
+        /// members are TYHP4350. Signatures (including <c>__construct</c>) stay on the shape AST
+        /// so later phases can read them; no <c>ObjectDeclarationSymbol</c> is invented.
+        /// </summary>
+        private void ValidateObjectShapeAlias(TyhpTypeAliasAst typeAlias)
+        {
+            var shape = typeAlias.ObjectShape;
+            if (shape is null)
+            {
+                return;
+            }
+
+            var members = shape.Members?.GetAllNotNull().ToList() ?? [];
+            if (members.Count == 0)
+            {
+                _diagnostics.AddErrorFromAst(
+                    MessageCode.CheckerObjectShapeEmpty,
+                    shape,
+                    _currentFileName);
+                return;
+            }
+
+            foreach (var member in members)
+            {
+                if (!TryGetObjectShapeMemberVisibility(member, out var modifiers, out var memberName))
+                {
+                    continue;
+                }
+
+                var visibility = ConvertModifiers(modifiers);
+                if ((visibility & (MemberModifier.Private | MemberModifier.Protected | MemberModifier.Internal)) == 0
+                    && !HasInternalModifier(member)
+                    && (modifiers is null || !HasInternalModifier(modifiers)))
+                {
+                    continue;
+                }
+
+                _diagnostics.AddErrorFromAst(
+                    MessageCode.CheckerObjectShapeNonPublicMember,
+                    member,
+                    _currentFileName,
+                    memberName);
+            }
+        }
+
+        private static bool TryGetObjectShapeMemberVisibility(
+            IClassMember member,
+            out PhpModifierListAst? modifiers,
+            out string memberName)
+        {
+            switch (member)
+            {
+                case PhpMethodDeclAst method:
+                    modifiers = method.Modifiers;
+                    memberName = method.Identifier ?? "";
+                    return true;
+                case PhpPropertyDeclAst property:
+                    modifiers = property.Modifiers;
+                    memberName = property.Properties?.GetAllNotNull().FirstOrDefault()?.Identifier
+                        ?? property.Identifier
+                        ?? "";
+                    return true;
+                case PhpConstDeclListAst constList:
+                    modifiers = constList.GetAllNotNull().FirstOrDefault()?.Modifiers;
+                    memberName = constList.GetAllNotNull().FirstOrDefault()?.Identifier ?? "";
+                    return true;
+                case TyhpdefImportConstDeclListAst tyhpdefConsts:
+                    modifiers = tyhpdefConsts.AstGrammarAddons.TryGetValue("modifiers", out var addon)
+                        ? addon as PhpModifierListAst
+                        : null;
+                    memberName = tyhpdefConsts.GetAllNotNull().FirstOrDefault()?.Identifier ?? "";
+                    return true;
+                default:
+                    modifiers = null;
+                    memberName = member.Identifier ?? "";
+                    return modifiers is not null || HasExplicitNonPublicAddon(member);
+            }
+        }
+
+        private static bool HasExplicitNonPublicAddon(IBase2Ast node) =>
+            node.AstGrammarAddons.TryGetValue("modifiers", out var addon)
+            && addon is PhpModifierListAst list
+            && list.Modifiers.Any(m =>
+                m is PhpModifier.Private or PhpModifier.Protected or PhpModifier.Internal);
+
+        /// <summary>
+        /// True when a node was declared in a <c>.tyhpdef</c> file or an embedded
+        /// <c>&lt;tyhpdef:…&gt;</c> block, matching the tyhpdef detection used for circular-alias
+        /// exemption in <c>TyhpBinder.Resolution.IsUserSourceTypeAlias</c>.
+        /// </summary>
+        private bool IsTyhpdefContext(IBase2Ast node) =>
+            _currentFileName.Contains("<tyhpdef:", StringComparison.OrdinalIgnoreCase)
+            || _currentFileName.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(node.LanguageMode, "tyhpdef", StringComparison.Ordinal);
+
+        private void ReportFunctionDeclarationConflict(
+            PhpFunctionDeclAst funcDecl,
+            IBaseSymbol? existing,
+            string name)
+        {
+            if (existing is TypeAliasSymbol)
+            {
+                _diagnostics.AddErrorFromAst(
+                    MessageCode.BinderTypeAliasConflictsWithFunction,
+                    funcDecl,
+                    _currentFileName,
+                    name);
+                return;
+            }
+
+            ReportBinderDuplicate(funcDecl, existing, name);
         }
 
         // Defined in TyhpBinder.ObjectBody.cs

@@ -47,6 +47,7 @@ public class MessageCodeTests
     {
         ((int)MessageCode.ConfigUnknownError).Should().BeInRange(6000, 6999);
         ((int)MessageCode.ConfigInvalidProjectType).Should().BeInRange(6000, 6999);
+        ((int)MessageCode.ConfigInterpolationFailed).Should().BeInRange(6000, 6999);
     }
 
     [Fact]

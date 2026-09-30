@@ -102,5 +102,45 @@ namespace Tyhp.TyhpLang
         /// method; the emitter renames the parameter and rewrites body references to this alias.
         /// </summary>
         public const string ExtensionReceiverThisAlias = "$this_";
+
+        /// <summary>
+        /// Tyhp-only alias suffix on the compiled PHP backer class for a standalone
+        /// <c>extension Name { }</c> (<c>class PhpName as Name__tyhpExtensionBacker</c>).
+        /// Never appears in emitted PHP. Same family as <see cref="GenericVariantSuffix"/>.
+        /// </summary>
+        public const string ExtensionBackerSuffix = "__tyhpExtensionBacker";
+
+        /// <summary>
+        /// True when <paramref name="name"/> is or ends with the extension-backer alias suffix,
+        /// which would collide with compiled-library tyhpdef's generated Tyhp name for a standalone extension.
+        /// PHP method/class matching is case-insensitive.
+        /// </summary>
+        public static bool EndsWithExtensionBackerSuffix(string? name) =>
+            name is not null
+            && name.Length >= ExtensionBackerSuffix.Length
+            && name.EndsWith(ExtensionBackerSuffix, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Prefix on call-site temps for a repeated splice parameter or receiver
+        /// (<c>$__tyhpInlineTemp1</c>, <c>$__tyhpInlineTemp2</c>, …). Unlike
+        /// <see cref="ExtensionBackerSuffix"/>, this name appears in emitted PHP.
+        /// </summary>
+        public const string InlineTempVariablePrefix = "__tyhpInlineTemp";
+
+        /// <summary>
+        /// True when <paramref name="name"/> (with or without a leading <c>$</c>) is or starts
+        /// with the inline-temp prefix, which would collide with a generated splice hoist.
+        /// PHP variables are case-insensitive.
+        /// </summary>
+        public static bool StartsWithInlineTempPrefix(string? name)
+        {
+            if (name is null)
+            {
+                return false;
+            }
+
+            var bare = name.StartsWith('$') ? name[1..] : name;
+            return bare.StartsWith(InlineTempVariablePrefix, StringComparison.OrdinalIgnoreCase);
+        }
     }
 }

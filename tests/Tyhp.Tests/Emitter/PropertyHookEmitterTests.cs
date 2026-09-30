@@ -333,6 +333,51 @@ public class PropertyHookEmitterTests
     }
 
     [Fact]
+    public void Emit_Php82_HookedProperty_SkipsInjectingUsesPropertyAccessorsWhenAuthorAlreadyUsesFqcn()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+
+            namespace Probe;
+
+            final class Widget {
+                use \Tyhp\Concerns\UsesPropertyAccessors;
+
+                public string $name = 'default' {
+                    get => $this->name;
+                }
+            }
+            """, phpVersion: "8.2");
+
+        Regex.Matches(php, @"use \\Tyhp\\Concerns\\UsesPropertyAccessors;")
+            .Count
+            .Should()
+            .Be(1);
+        php.Should().NotContain("use \\Tyhp\\Concerns\\HasPropertyAccessors;");
+    }
+
+    [Fact]
+    public void Emit_Php82_HookedProperty_SkipsInjectingUsesPropertyAccessorsWhenAuthorAlreadyUsesHasPropertyAccessors()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+
+            namespace Probe;
+
+            final class Widget {
+                use \Tyhp\Concerns\HasPropertyAccessors;
+
+                public string $name = 'default' {
+                    get => $this->name;
+                }
+            }
+            """, phpVersion: "8.2");
+
+        php.Should().Contain("use \\Tyhp\\Concerns\\HasPropertyAccessors;");
+        php.Should().NotContain("use \\Tyhp\\Concerns\\UsesPropertyAccessors;");
+    }
+
+    [Fact]
     public void Emit_Php82_NullPropertyDefault_EmitsDefaultValueIsNull()
     {
         var php = CompileAndEmit("""
@@ -470,7 +515,7 @@ public class PropertyHookEmitterTests
             }
             """, phpVersion: "8.2");
 
-        php.Should().Contain("private function __set_name__tyhpPropertyHook(string | \\Stringable $value): void");
+        php.Should().Contain("private function __set_name__tyhpPropertyHook(string|\\Stringable $value): void");
         php.Should().Contain("register__tyhpGeneric(\\Tyhp\\Type::string())(");
         php.Should().Contain("setAcceptType:");
         php.Should().Contain("\\Tyhp\\Type::union(");
@@ -1244,13 +1289,7 @@ public class PropertyHookEmitterTests
             var project = new Project(configuration);
 
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = phpVersion,
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: phpVersion));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

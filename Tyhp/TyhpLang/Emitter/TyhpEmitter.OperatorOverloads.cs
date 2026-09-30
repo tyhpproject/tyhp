@@ -11,8 +11,10 @@ namespace Tyhp.TyhpLang.Emitter
         private const string InvalidOperatorParamsException =
             "\\Tyhp\\Exceptions\\InvalidParametersForOperatorOverloadException";
 
-        // Story 11 §8 redesign: every operator collapses into a single static method (except convert's
-        // instance to-forms). Forms of the same operator are grouped and emitted as one method whose
+        // Story 11 §8 redesign: every operator collapses into a single static method (except
+        // class-owned convert's instance to-forms). Standalone `extension E { operator convert }`
+        // to-forms are static on E (`E::__toInt($value)`), because the target type does not own
+        // the method. Forms of the same operator are grouped and emitted as one method whose
         // union-typed parameters are dispatched on at runtime via instanceof/is_* guards.
         private void EmitCollapsedOperatorMethods(
             EmitItem parent,
@@ -29,6 +31,12 @@ namespace Tyhp.TyhpLang.Emitter
             var indexByOp = new Dictionary<OverloadableOperator, int>();
             foreach (var overload in overloads)
             {
+                // Short `=>` Tyhp extension operators are erased; class-owned operators always emit.
+                if (isExtension && overload.IsShortSyntax)
+                {
+                    continue;
+                }
+
                 var op = this.GetOperatorEnum(overload);
                 if (op == OverloadableOperator.Invalid)
                 {
@@ -185,12 +193,21 @@ namespace Tyhp.TyhpLang.Emitter
             bool isExtension,
             HashSet<string> emittedNames)
         {
-            var toForms = forms.Where(f => this.IsSelfTypeExpression(f.LeftParameter?.Type)).ToList();
-            var fromForms = forms.Where(f => !this.IsSelfTypeExpression(f.LeftParameter?.Type)).ToList();
+            var toForms = forms.Where(f => this.IsConvertToForm(f, isExtension)).ToList();
+            var fromForms = forms.Where(f => !this.IsConvertToForm(f, isExtension)).ToList();
 
-            foreach (var toForm in toForms)
+            // A multi-target standalone extension (`extension E { extends A {...} extends B {...} }`)
+            // shares one PHP backer, so a to-form declared under two different nested targets with
+            // the same return type (e.g. both `operator convert(self $v): int`) collapses onto the
+            // *same* method name even though their operand types differ post-rewrite (A vs B). Group
+            // by method name first so every same-named form is emitted once, dispatched by operand
+            // guard — never silently dropped (previous behavior kept only the first form per name).
+            foreach (var toGroup in toForms
+                .GroupBy(
+                    f => OperatorMethodNameGenerator.GetConvertToMethodName(GetConvertTargetRawName(f.ReturnType)),
+                    StringComparer.Ordinal))
             {
-                this.EmitConvertTo(parent, toForm, emittedNames);
+                this.EmitConvertTo(parent, toGroup.ToList(), isExtension, emittedNames);
             }
 
             if (fromForms.Count > 0)
@@ -199,45 +216,99 @@ namespace Tyhp.TyhpLang.Emitter
             }
         }
 
-        private void EmitConvertTo(EmitItem parent, TyhpOperatorOverloadAst form, HashSet<string> emittedNames)
+        private void EmitConvertTo(
+            EmitItem parent,
+            IReadOnlyList<TyhpOperatorOverloadAst> forms,
+            bool isExtension,
+            HashSet<string> emittedNames)
         {
-            var targetRaw = GetConvertTargetRawName(form.ReturnType);
+            var firstForm = forms[0];
+            var targetRaw = GetConvertTargetRawName(firstForm.ReturnType);
             var methodName = OperatorMethodNameGenerator.GetConvertToMethodName(targetRaw);
             if (!emittedNames.Add(methodName))
             {
                 return;
             }
 
-            var returnText = form.ReturnType != null ? this.BuildTypeExpression(form.ReturnType) : "mixed";
-            var (isAbstract, isFinal) = this.GetModifierFlags([form]);
+            var returnText = firstForm.ReturnType != null ? this.BuildTypeExpression(firstForm.ReturnType) : "mixed";
+            var (isAbstract, isFinal) = this.GetModifierFlags(forms);
             var finalPrefix = isFinal ? "final " : string.Empty;
 
-            // convert-to is ALWAYS an instance method (satisfies \Stringable and the *Convertible
-            // instance interfaces).
+            if (isExtension)
+            {
+                // Standalone extension convert-to cannot live on the target instance (the
+                // extension does not own that type). Emit a static method on the backer that
+                // takes the target as the operand; AliasConverter rewrites to `E::__toInt($v)`.
+                // Multiple forms only happen across distinct nested targets sharing this method
+                // name — union the operand types and dispatch by guard, same as EmitUnaryGroup.
+                var operandType = this.BuildOperandUnionText(
+                    forms.Select(f => (f.LeftParameter?.Type, this.SelfTypeText(f, isExtension: true))));
+                if (isAbstract)
+                {
+                    EmitItem.Line(
+                        firstForm, EmitType.ObjectStaticMethods,
+                        $"{finalPrefix}abstract public static function {methodName}({operandType} $o): {returnText};",
+                        parent);
+                    return;
+                }
+
+                var extensionBlock = EmitItem.BlockBraceNextLine(
+                    firstForm, EmitType.ObjectStaticMethods,
+                    $"{finalPrefix}public static function {methodName}({operandType} $o): {returnText}",
+                    "}", parent);
+
+                if (forms.Count == 1)
+                {
+                    this.EmitOperatorBranchBody(firstForm, extensionBlock, ("$o", firstForm.LeftParameter));
+                    return;
+                }
+
+                var toSegments = new List<(string Open, Action<EmitItem> Body)>();
+                for (var i = 0; i < forms.Count; i++)
+                {
+                    var form = forms[i];
+                    var selfInstance = this.SelfTypeText(form, isExtension: true);
+                    var guard = this.BuildOperandGuard("$o", form.LeftParameter?.Type, selfInstance);
+                    var keyword = i == 0 ? "if" : "elseif";
+                    toSegments.Add((
+                        $"{keyword} ({guard}) {{",
+                        block => this.EmitOperatorBranchBody(form, block, ("$o", form.LeftParameter))));
+                }
+
+                toSegments.Add((
+                    "else {",
+                    block => this.EmitOperatorThrow(block, firstForm, "$o")));
+                this.EmitBraceSegments(firstForm, extensionBlock, EmitType.FunctionStatement, toSegments);
+                return;
+            }
+
+            // Class-owned convert-to is ALWAYS an instance method (satisfies \Stringable and the
+            // *Convertible instance interfaces). A class owns exactly one `self`, so distinct forms
+            // sharing this method name cannot occur here (the checker rejects that as a duplicate).
             if (isAbstract)
             {
                 EmitItem.Line(
-                    form, EmitType.ObjectInstanceMethods,
+                    firstForm, EmitType.ObjectInstanceMethods,
                     $"{finalPrefix}abstract public function {methodName}(): {returnText};",
                     parent);
                 return;
             }
 
             var block = EmitItem.BlockBraceNextLine(
-                form, EmitType.ObjectInstanceMethods,
+                firstForm, EmitType.ObjectInstanceMethods,
                 $"{finalPrefix}public function {methodName}(): {returnText}", "}", parent);
 
             // If the author names the self-operand `$this`, it already *is* PHP's real instance
-            // `$this` (convert-to is never static) — skip the alias line entirely. PHP forbids
-            // re-assigning `$this` (`$this = $this;` is a fatal error), unlike the static
-            // operator-branch case where `$this` needs the `$this_` rename because it is an
-            // ordinary parameter there.
-            if (!string.IsNullOrEmpty(form.LeftParameter?.Name) && !IsThisParameterName(form.LeftParameter!.Name))
+            // `$this` (class-owned convert-to is never static) — skip the alias line entirely.
+            // PHP forbids re-assigning `$this` (`$this = $this;` is a fatal error), unlike the
+            // static operator-branch case where `$this` needs the `$this_` rename because it is
+            // an ordinary parameter there.
+            if (!string.IsNullOrEmpty(firstForm.LeftParameter?.Name) && !IsThisParameterName(firstForm.LeftParameter!.Name))
             {
-                EmitItem.Line(form, EmitType.FunctionStatement, $"{form.LeftParameter!.Name} = $this;", block);
+                EmitItem.Line(firstForm, EmitType.FunctionStatement, $"{firstForm.LeftParameter!.Name} = $this;", block);
             }
 
-            this.EmitFunctionBody(form.Body, block);
+            this.EmitFunctionBody(firstForm.Body, block);
         }
 
         private void EmitConvertFrom(
@@ -254,7 +325,15 @@ namespace Tyhp.TyhpLang.Emitter
 
             var sourceUnion = this.BuildOperandUnionText(
                 forms.Select(f => (f.LeftParameter?.Type, this.SelfTypeText(f, isExtension))));
-            var returnType = isExtension ? this.ExtensionTargetText(forms[0]) : "self";
+            // A multi-target standalone extension shares one `__from`, so from-forms declared under
+            // different nested targets land here together — spell the union of every distinct
+            // target they actually construct, not just the first form's (previously wrong for every
+            // target after the first).
+            var returnType = isExtension
+                ? string.Join(
+                    "|",
+                    forms.Select(f => this.ExtensionTargetText(f)).Distinct(StringComparer.Ordinal))
+                : "self";
             var (isAbstract, isFinal) = this.GetModifierFlags(forms);
             var finalPrefix = isFinal ? "final " : string.Empty;
 
@@ -368,9 +447,20 @@ namespace Tyhp.TyhpLang.Emitter
             => isExtension ? this.ExtensionTargetText(form) : "self";
 
         private string ExtensionTargetText(TyhpOperatorOverloadAst form)
-            => form.ExtensionTargetType != null
-                ? this.BuildTypeExpression(form.ExtensionTargetType)
-                : (this._currentObjectShortName ?? "self");
+        {
+            if (form.ExtensionTargetType != null)
+            {
+                return this.BuildTypeExpression(form.ExtensionTargetType);
+            }
+
+            var block = this.FindExtensionBlock(form.BoundSymbol);
+            if (block != null && this.SpellExtensionBlockTarget(block) is { } spelled)
+            {
+                return spelled;
+            }
+
+            return this._currentObjectShortName ?? "self";
+        }
 
         private string BuildOperatorReturnClause(IReadOnlyList<TyhpOperatorOverloadAst> forms, bool isExtension)
         {
@@ -434,7 +524,7 @@ namespace Tyhp.TyhpLang.Emitter
                 return "mixed";
             }
 
-            return string.Join(" | ", atoms);
+            return string.Join("|", atoms);
         }
 
         private string BuildBinaryGuard(TyhpOperatorOverloadAst form, string selfInstanceType)
@@ -465,7 +555,18 @@ namespace Tyhp.TyhpLang.Emitter
 
                 if (IsSelfKeyword(part))
                 {
-                    conditions.Add($"{varName} instanceof {selfInstanceType}");
+                    // Extension operators substitute the `<Type>` target for `self`. Builtins
+                    // (string/array/int/…) are not legal PHP `instanceof` RHS operands — use
+                    // `\is_string` / `\is_array` / … instead. Class/interface targets keep
+                    // `instanceof`.
+                    if (TryBuiltinGuard(varName, selfInstanceType, out var selfBuiltinGuard))
+                    {
+                        conditions.Add(selfBuiltinGuard);
+                    }
+                    else
+                    {
+                        conditions.Add($"{varName} instanceof {selfInstanceType}");
+                    }
                 }
                 else if (string.Equals(part, "mixed", StringComparison.OrdinalIgnoreCase))
                 {
@@ -547,6 +648,115 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             return result;
+        }
+
+        // Convert-to is an operand of `self`/`static`, or (on a block-target extension) an
+        // operand that is the group target. ExtensionBlockSelfRewriter has already replaced
+        // the keyword `self` with that target's PHP spelling, so the keyword text is gone
+        // and the written keyword survives only on OriginalAst.
+        private bool IsConvertToForm(TyhpOperatorOverloadAst form, bool isExtension)
+        {
+            var type = form.LeftParameter?.Type;
+            if (this.IsSelfTypeExpression(type) || ContainsRewrittenSelfKeyword(type))
+            {
+                return true;
+            }
+
+            if (!isExtension || type == null)
+            {
+                return false;
+            }
+
+            var target = this.ExtensionTargetText(form);
+            if (string.IsNullOrWhiteSpace(target) || IsSelfKeyword(target))
+            {
+                return false;
+            }
+
+            return this.TypeMatchesExtensionTarget(type, target);
+        }
+
+        private bool TypeMatchesExtensionTarget(ITypeExpression? type, string target)
+        {
+            switch (type)
+            {
+                case null:
+                    return false;
+                case PhpNamedTypeAst named:
+                    var written = GetNamedTypeText(named);
+                    if (!string.IsNullOrWhiteSpace(written)
+                        && !IsSelfKeyword(written)
+                        && OperandTextMatchesTarget(written, target))
+                    {
+                        return true;
+                    }
+
+                    return OperandTextMatchesTarget(this.BuildTypeExpression(type), target);
+                case PhpTypeExpressionAst composite:
+                    return composite.Types?.GetAllNotNull().Any(t => this.TypeMatchesExtensionTarget(t, target)) == true;
+                default:
+                    return OperandTextMatchesTarget(this.BuildTypeExpression(type), target);
+            }
+        }
+
+        private static bool ContainsRewrittenSelfKeyword(ITypeExpression? type)
+        {
+            switch (type)
+            {
+                case null:
+                    return false;
+                case PhpNamedTypeAst named:
+                    return NameWasSelfKeyword(named.Name);
+                case PhpTypeExpressionAst composite:
+                    return composite.Types?.GetAllNotNull().Any(ContainsRewrittenSelfKeyword) == true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool NameWasSelfKeyword(IBase2Ast? node)
+        {
+            if (node?.OriginalAst is not PhpNameAst original)
+            {
+                return false;
+            }
+
+            return IsSelfKeyword(original.ValueString ?? original.Identifier);
+        }
+
+        private static bool OperandTextMatchesTarget(string spelled, string target)
+        {
+            if (string.IsNullOrWhiteSpace(spelled))
+            {
+                return false;
+            }
+
+            if (TypeAtomsMatch(spelled, target))
+            {
+                return true;
+            }
+
+            foreach (var rawPart in spelled.Split('|'))
+            {
+                var part = rawPart.Trim();
+                if (part.Length > 0 && TypeAtomsMatch(part, target))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TypeAtomsMatch(string left, string right)
+        {
+            static string Norm(string value)
+            {
+                var trimmed = value.Trim().TrimStart('?');
+                return trimmed.StartsWith('\\') ? trimmed[1..] : trimmed;
+            }
+
+            return string.Equals(Norm(left), Norm(right), StringComparison.OrdinalIgnoreCase);
         }
 
         private bool IsSelfTypeExpression(ITypeExpression? type)

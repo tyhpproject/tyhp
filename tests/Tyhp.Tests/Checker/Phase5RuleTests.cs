@@ -1,3 +1,4 @@
+using System.Linq;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.Domain.Services;
@@ -51,18 +52,21 @@ public class Phase5RuleTests
     }
 
     [Fact]
-    public void Check_FunctionParameterWithoutType_ReportsTypeRequired()
+    public void Check_FunctionParameterWithoutType_ReportsTypeRequiredWithSingleDollar()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
             function demo($value): void {}
             """);
 
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerVariableTypeRequired);
+        var error = diagnostics.Errors.Should()
+            .ContainSingle(d => d.Code == MessageCode.CheckerVariableTypeRequired).Which;
+        error.Message.Should().Be("`$value` must have a type annotation or inferable initializer");
+        error.Message.Should().NotContain("$$");
     }
 
     [Fact]
-    public void Check_FunctionWithoutReturnType_ReportsTypeRequired()
+    public void Check_FunctionWithoutReturnType_DoesNotCallReturnTypeAVariable()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
@@ -71,7 +75,66 @@ public class Phase5RuleTests
             }
             """);
 
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerVariableTypeRequired);
+        var error = diagnostics.Errors.Should()
+            .ContainSingle(d => d.Code == MessageCode.CheckerVariableTypeRequired).Which;
+        error.Message.Should().Be("`return type` must have a type annotation or inferable initializer");
+        error.Message.Should().NotContain("Variable");
+        error.Message.Should().NotContain("$return");
+    }
+
+    [Fact]
+    public void Check_UntypedFunctionAndParameter_FormatsBoth4016Messages()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function untyped($x) {
+                return $x;
+            }
+            """);
+
+        var messages = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerVariableTypeRequired)
+            .Select(d => d.Message)
+            .ToList();
+
+        messages.Should().Contain("`$x` must have a type annotation or inferable initializer");
+        messages.Should().Contain("`return type` must have a type annotation or inferable initializer");
+        messages.Should().OnlyContain(m => !m.Contains("$$", StringComparison.Ordinal));
+        messages.Should().OnlyContain(m => !m.Contains("Variable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_MethodWithoutReturnType_DoesNotCallReturnTypeAVariable()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class C {
+                public function go() {
+                    return;
+                }
+            }
+            """);
+
+        var error = diagnostics.Errors.Should()
+            .ContainSingle(d => d.Code == MessageCode.CheckerVariableTypeRequired).Which;
+        error.Message.Should().Be("`return type` must have a type annotation or inferable initializer");
+        error.Message.Should().NotContain("Variable");
+    }
+
+    [Fact]
+    public void Check_UntypedProperty_ReportsTypeRequiredWithSingleDollar()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class C {
+                public $x;
+            }
+            """);
+
+        var error = diagnostics.Errors.Should()
+            .ContainSingle(d => d.Code == MessageCode.CheckerVariableTypeRequired).Which;
+        error.Message.Should().Be("`$x` must have a type annotation or inferable initializer");
+        error.Message.Should().NotContain("$$");
     }
 
     [Fact]
@@ -147,6 +210,59 @@ public class Phase5RuleTests
     }
 
     [Fact]
+    public void Check_NotIdenticalFalse_DropsFalseFromUnion()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function parentOf(): __ClassName<object>|false {
+                return false;
+            }
+
+            function demo(): void {
+                ?\__ClassName<object> $ancestor = null;
+                $parent = parentOf();
+                if ($parent !== false) {
+                    $ancestor = $parent;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", diagnostics.Errors.Select(e => $"{e.Code}: {e.Message}")));
+    }
+
+    [Fact]
+    public void Check_NotIdenticalFalse_SwappedOperands_DropsFalseFromUnion()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(string|false $value): void {
+                if (false !== $value) {
+                    string $copy = $value;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerTypeMismatch);
+    }
+
+    [Fact]
+    public void Check_IdenticalFalse_NarrowsToFalse()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(string|false $value): void {
+                if ($value === false) {
+                    false $flag = $value;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", diagnostics.Errors.Select(e => $"{e.Code}: {e.Message}")));
+    }
+
+    [Fact]
     public void Check_PossiblyNullAssignedToNonNullable_ReportsTypeMismatch()
     {
         var diagnostics = CompileAndCheck("""
@@ -166,7 +282,7 @@ public class Phase5RuleTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             function demo(): void {
-                callable<void, string> $fn;
+                callable(void): string $fn;
             }
             """);
 
@@ -195,7 +311,7 @@ public class Phase5RuleTests
                 public int $age;
             }
 
-            function apply(callable<User, bool> $predicate): void {
+            function apply(callable(User): bool $predicate): void {
                 $predicate(new User());
             }
 
@@ -226,9 +342,9 @@ public class Phase5RuleTests
         // Required at construction via `new Point() with [x => …]`; declaration itself is fine.
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x;
-            }
+            };
             """);
 
         diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerStructPropertyRequired);
@@ -241,7 +357,7 @@ public class Phase5RuleTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             function demo(): void {
-                \Tyhp\NonNullable<?string> $type;
+                __NonNullable<?string> $type;
             }
             """);
 
@@ -258,14 +374,7 @@ public class Phase5RuleTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

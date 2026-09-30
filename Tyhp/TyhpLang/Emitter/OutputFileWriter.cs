@@ -81,7 +81,9 @@ namespace Tyhp.TyhpLang.Emitter
                     result.WrittenPaths.Add(fullPath);
                     result.FilesWritten += 1;
 
-                    // PLACEHOLDER_STORY_17: Write sourcemap for {outputPath}
+                    // Sourcemap companions are written by OutputWriterService via SourceMapWriter
+                    // (Story 17). This class is the legacy Story 09 writer and is not on the
+                    // build pipeline.
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {

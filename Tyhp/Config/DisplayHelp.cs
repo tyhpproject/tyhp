@@ -39,11 +39,17 @@ namespace Tyhp.Config
                 case Tyhp.Config.Action.dump_ast:
                     DisplayHelp.DumpAstHelp();
                     break;
+                case Tyhp.Config.Action.symbol_tree:
+                    DisplayHelp.SymbolTreeHelp();
+                    break;
                 case Tyhp.Config.Action.build:
                     DisplayHelp.BuildHelp();
                     break;
                 case Tyhp.Config.Action.composer:
                     DisplayHelp.ComposerHelp();
+                    break;
+                case Tyhp.Config.Action.install:
+                    DisplayHelp.InstallHelp();
                     break;
                 case Tyhp.Config.Action.language_server:
                     DisplayHelp.LanguageServerHelp();
@@ -53,6 +59,9 @@ namespace Tyhp.Config
                     break;
                 case Tyhp.Config.Action.generate_tyhpdef:
                     DisplayHelp.GenerateTyhpdefHelp();
+                    break;
+                case Tyhp.Config.Action.overlay:
+                    DisplayHelp.OverlayHelp();
                     break;
                 case Tyhp.Config.Action.integrity_check:
                     DisplayHelp.IntegrityCheckHelp();
@@ -224,6 +233,7 @@ namespace Tyhp.Config
             HelpFormatting.Option("--strict", "CLI_LintHelpOptionStrict");
             HelpFormatting.Option("--cache-dir=<path>", "CLI_LintHelpOptionCacheDir");
             HelpFormatting.Option("--no-cache", "CLI_LintHelpOptionNoCache");
+            HelpFormatting.Option("--suppress-warnings=<TYHP####,…>", "CLI_LintHelpOptionSuppressWarnings");
 
             HelpFormatting.Section("CLI_LintHelpFormatsHeader");
             HelpFormatting.Option("text", "CLI_LintHelpFormatText");
@@ -285,6 +295,27 @@ namespace Tyhp.Config
             HelpFormatting.Example($"{executable} dump_ast --help", "CLI_DumpAstHelpExampleHelp");
         }
 
+        private static void SymbolTreeHelp()
+        {
+            string executable = HelpFormatting.GetExecutableName();
+
+            HelpFormatting.Paragraph("CLI_SymbolTreeHelpDescription");
+            HelpFormatting.Section("CLI_SymbolTreeHelpUsageHeader");
+            HelpFormatting.Usage(executable, "CLI_SymbolTreeHelpUsage");
+
+            HelpFormatting.Section("CLI_SymbolTreeHelpOptionsHeader");
+            HelpFormatting.Option("--help", "CLI_SymbolTreeHelpOptionHelp");
+            HelpFormatting.Option("--filter=<substring>", "CLI_SymbolTreeHelpOptionFilter");
+            HelpFormatting.Option("--out=<file.json>", "CLI_SymbolTreeHelpOptionOut");
+            HelpFormatting.Option("--quiet / -q", "CLI_SymbolTreeHelpOptionQuiet");
+
+            HelpFormatting.Section("CLI_SymbolTreeHelpExamplesHeader");
+            HelpFormatting.Example($"{executable} symbol_tree", "CLI_SymbolTreeHelpExampleProject");
+            HelpFormatting.Example($"{executable} symbol_tree --filter=strtoupper", "CLI_SymbolTreeHelpExampleFilter");
+            HelpFormatting.Example($"{executable} symbol_tree --out=symbols.json", "CLI_SymbolTreeHelpExampleOut");
+            HelpFormatting.Example($"{executable} symbol_tree --help", "CLI_SymbolTreeHelpExampleHelp");
+        }
+
         private static void IntegrityCheckHelp()
         {
             string executable = HelpFormatting.GetExecutableName();
@@ -340,14 +371,21 @@ namespace Tyhp.Config
             HelpFormatting.Option("--verbose", "CLI_BuildHelpOptionVerbose");
             HelpFormatting.Option("--dry-run", "CLI_BuildHelpOptionDryRun");
             HelpFormatting.Option("--strict", "CLI_BuildHelpOptionStrict");
+            HelpFormatting.Option("--fix", "CLI_BuildHelpOptionFix");
             HelpFormatting.Option("--cache-dir=<path>", "CLI_BuildHelpOptionCacheDir");
             HelpFormatting.Option("--no-cache", "CLI_BuildHelpOptionNoCache");
+            HelpFormatting.Option("--suppress-warnings=<TYHP####,…>", "CLI_BuildHelpOptionSuppressWarnings");
 
             HelpFormatting.Section("CLI_BuildHelpConfigHeader");
             HelpFormatting.Paragraph("CLI_BuildHelpConfigIntro");
+            HelpFormatting.Paragraph("CLI_BuildHelpConfigInterpolation");
             HelpFormatting.Option("include", "CLI_BuildHelpConfigInclude");
             HelpFormatting.Option("exclude", "CLI_BuildHelpConfigExclude");
+            HelpFormatting.Option("suppressWarnings", "CLI_BuildHelpConfigSuppressWarnings");
             HelpFormatting.Option("output.path", "CLI_BuildHelpConfigOutputPath");
+            HelpFormatting.Option("output.publishPath", "CLI_BuildHelpConfigOutputPublishPath");
+            HelpFormatting.Option("output.publishClean", "CLI_BuildHelpConfigOutputPublishClean");
+            HelpFormatting.Option("output.publishContent", "CLI_BuildHelpConfigOutputPublishContent");
             HelpFormatting.Option("output.namespacePrefix", "CLI_BuildHelpConfigOutputNamespacePrefix");
             HelpFormatting.Option("output.comments", "CLI_BuildHelpConfigOutputComments");
             HelpFormatting.Option("output.phpVersion", "CLI_BuildHelpConfigOutputPhpVersion");
@@ -355,6 +393,7 @@ namespace Tyhp.Config
             HelpFormatting.Option("psr4", "CLI_BuildHelpConfigPsr4");
             HelpFormatting.Option("checker.*", "CLI_BuildHelpConfigChecker");
             HelpFormatting.Option("build.*", "CLI_BuildHelpConfigBuild");
+            HelpFormatting.Option("build.strictMode", "CLI_BuildHelpConfigStrictMode");
 
             HelpFormatting.Section("CLI_BuildHelpExamplesHeader");
             HelpFormatting.Example($"{executable} build", "CLI_BuildHelpExampleDefault");
@@ -362,6 +401,26 @@ namespace Tyhp.Config
             HelpFormatting.Example($"{executable} build --include=\"src/**/*.tyhp\"", "CLI_BuildHelpExampleInclude");
             HelpFormatting.Example($"{executable} build --dry-run", "CLI_BuildHelpExampleDryRun");
             HelpFormatting.Example($"{executable} build --clean --verbose", "CLI_BuildHelpExampleCleanVerbose");
+        }
+
+        internal static void OverlayHelp()
+        {
+            string executable = HelpFormatting.GetExecutableName();
+
+            HelpFormatting.Paragraph("CLI_OverlayHelpDescription");
+            HelpFormatting.Section("CLI_OverlayHelpUsageHeader");
+            HelpFormatting.Usage(executable, "CLI_OverlayHelpUsageCreate");
+            HelpFormatting.Usage(executable, "CLI_OverlayHelpUsageStamp");
+            HelpFormatting.Usage(executable, "CLI_OverlayHelpUsageStampFqn");
+
+            HelpFormatting.Section("CLI_OverlayHelpOptionsHeader");
+            HelpFormatting.Option("--help", "CLI_OverlayHelpOptionHelp");
+            HelpFormatting.Option("--strict", "CLI_OverlayHelpOptionStrict");
+
+            HelpFormatting.Section("CLI_OverlayHelpExamplesHeader");
+            HelpFormatting.Example($"{executable} overlay create \\Iterator", "CLI_OverlayHelpExampleCreate");
+            HelpFormatting.Example($"{executable} overlay stamp", "CLI_OverlayHelpExampleStamp");
+            HelpFormatting.Example($"{executable} overlay stamp \\Iterator", "CLI_OverlayHelpExampleStampFqn");
         }
 
         /// <summary>
@@ -375,27 +434,62 @@ namespace Tyhp.Config
             HelpFormatting.Paragraph("CLI_ComposerHelpDescription");
             HelpFormatting.Section("CLI_ComposerHelpUsageHeader");
             HelpFormatting.Usage(executable, "CLI_ComposerHelpUsage");
+            HelpFormatting.Usage(executable, "CLI_ComposerHelpUsageSync");
 
             HelpFormatting.Section("CLI_ComposerHelpOptionsHeader");
             HelpFormatting.Option("--help", "CLI_ComposerHelpOptionHelp");
             HelpFormatting.Option("--no-tyhpdef", "CLI_ComposerHelpOptionNoTyhpdef");
             Message.Display("");
             HelpFormatting.Paragraph("CLI_ComposerHelpProxiedNote");
+            HelpFormatting.Paragraph("CLI_ComposerHelpSyncNote");
 
             HelpFormatting.Section("CLI_ComposerHelpExamplesHeader");
             HelpFormatting.Example($"{executable} composer --help", "CLI_ComposerHelpExampleHelp");
+            HelpFormatting.Example($"{executable} composer sync", "CLI_ComposerHelpExampleSync");
             HelpFormatting.Example($"{executable} composer require guzzlehttp/guzzle", "CLI_ComposerHelpExampleRequire");
             HelpFormatting.Example($"{executable} composer install", "CLI_ComposerHelpExampleInstall");
         }
 
-        private static void LanguageServerHelp()
+        /// <summary>
+        /// Install action help. Also invoked by <see cref="CLI.InstallAction"/> when no target is given.
+        /// </summary>
+        internal static void InstallHelp()
         {
             string executable = HelpFormatting.GetExecutableName();
 
-            // Story 19 owns the language server; Story 13 only formats this help via HelpFormatting.
-            // The action itself is not wired yet — document the planned interface.
-            HelpFormatting.Paragraph("CLI_LanguageServerHelpNotAvailable");
+            HelpFormatting.Paragraph("CLI_InstallHelpDescription");
+            HelpFormatting.Section("CLI_InstallHelpUsageHeader");
+            HelpFormatting.Usage(executable, "CLI_InstallHelpUsage");
+            HelpFormatting.Usage(executable, "CLI_InstallHelpUsageComposer");
+            HelpFormatting.Usage(executable, "CLI_InstallHelpUsageComposerGlobal");
+            HelpFormatting.Usage(executable, "CLI_InstallHelpUsageComposerLocal");
+
+            HelpFormatting.Section("CLI_InstallHelpTargetsHeader");
+            HelpFormatting.Option("composer", "CLI_InstallHelpTargetComposer");
             Message.Display("");
+            HelpFormatting.Paragraph("CLI_InstallHelpKnownTargetsNote");
+            HelpFormatting.Paragraph("CLI_InstallHelpVsComposerNote");
+
+            HelpFormatting.Section("CLI_InstallHelpOptionsHeader");
+            HelpFormatting.Option("--help", "CLI_InstallHelpOptionHelp");
+            HelpFormatting.Option("--local", "CLI_InstallHelpOptionLocal");
+            HelpFormatting.Option("--global", "CLI_InstallHelpOptionGlobal");
+            HelpFormatting.Option("--force", "CLI_InstallHelpOptionForce");
+
+            HelpFormatting.Section("CLI_InstallHelpExamplesHeader");
+            HelpFormatting.Example($"{executable} install composer", "CLI_InstallHelpExampleComposer");
+            HelpFormatting.Example($"{executable} install composer --global", "CLI_InstallHelpExampleGlobal");
+            HelpFormatting.Example($"{executable} install composer --force", "CLI_InstallHelpExampleForce");
+            HelpFormatting.Example($"{executable} install --help", "CLI_InstallHelpExampleHelp");
+        }
+
+        /// <summary>
+        /// Language server help. Also invoked by tests via InternalsVisibleTo.
+        /// </summary>
+        internal static void LanguageServerHelp()
+        {
+            string executable = HelpFormatting.GetExecutableName();
+
             HelpFormatting.Paragraph("CLI_LanguageServerHelpDescription");
             HelpFormatting.Section("CLI_LanguageServerHelpUsageHeader");
             HelpFormatting.Usage(executable, "CLI_LanguageServerHelpUsage");
@@ -407,47 +501,132 @@ namespace Tyhp.Config
             HelpFormatting.Option("--tcp=<port>", "CLI_LanguageServerHelpOptionTcp");
             // PLACEHOLDER_STORY_30: named-pipe transport
             HelpFormatting.Option("--pipe=<name>", "CLI_LanguageServerHelpOptionPipe");
+            HelpFormatting.Option("--pid-file=<path>", "CLI_LanguageServerHelpOptionPidFile");
 
             HelpFormatting.Section("CLI_LanguageServerHelpExamplesHeader");
             HelpFormatting.Example($"{executable} language_server", "CLI_LanguageServerHelpExampleStdio");
             HelpFormatting.Example($"{executable} language_server --help", "CLI_LanguageServerHelpExampleHelp");
         }
 
-        private static void XDebugProxyHelp()
+        /// <summary>
+        /// XDebug proxy help. Also invoked by tests via InternalsVisibleTo.
+        /// </summary>
+        internal static void XDebugProxyHelp()
         {
             string executable = HelpFormatting.GetExecutableName();
 
-            // PLACEHOLDER_STORY_18: full xdebug_proxy help delivered by Story 18 Phase 7
-            HelpFormatting.Paragraph("CLI_XDebugProxyHelpPlaceholder");
+            HelpFormatting.Paragraph("CLI_XDebugProxyHelpDescription");
             HelpFormatting.Section("CLI_XDebugProxyHelpUsageHeader");
             HelpFormatting.Usage(executable, "CLI_XDebugProxyHelpUsage");
+
             HelpFormatting.Section("CLI_XDebugProxyHelpOptionsHeader");
+            HelpFormatting.Option("--ide-port=<port>", "CLI_XDebugProxyHelpOptionIdePort");
+            HelpFormatting.Option("--xdebug-port=<port>", "CLI_XDebugProxyHelpOptionXdebugPort");
+            HelpFormatting.Option("--sourcemap-dir=<path>", "CLI_XDebugProxyHelpOptionSourcemapDir");
+            HelpFormatting.Option("--ide-key=<key>", "CLI_XDebugProxyHelpOptionIdeKey");
+            HelpFormatting.Option("--log-level=<debug|info|warn|error>", "CLI_XDebugProxyHelpOptionLogLevel");
+            HelpFormatting.Option("--pid-file=<path>", "CLI_XDebugProxyHelpOptionPidFile");
             HelpFormatting.Option("--help", "CLI_XDebugProxyHelpOptionHelp");
+
+            HelpFormatting.Section("CLI_XDebugProxyHelpXdebugConfigHeader");
+            HelpFormatting.Paragraph("CLI_XDebugProxyHelpXdebugConfigIntro");
+            DisplayPreformatted("CLI_XDebugProxyHelpXdebugIniExample");
+
+            HelpFormatting.Section("CLI_XDebugProxyHelpTyhpJsonHeader");
+            HelpFormatting.Paragraph("CLI_XDebugProxyHelpTyhpJsonIntro");
+            DisplayPreformatted("CLI_XDebugProxyHelpTyhpJsonExample");
+
+            HelpFormatting.Section("CLI_XDebugProxyHelpLaunchJsonHeader");
+            HelpFormatting.Paragraph("CLI_XDebugProxyHelpLaunchJsonIntro");
+            DisplayPreformatted("CLI_XDebugProxyHelpLaunchJsonExample");
+
+            HelpFormatting.Section("CLI_XDebugProxyHelpExamplesHeader");
+            HelpFormatting.Example(
+                $"{executable} xdebug_proxy --sourcemap-dir=./build/",
+                "CLI_XDebugProxyHelpExampleStart");
+            HelpFormatting.Example($"{executable} xdebug_proxy --help", "CLI_XDebugProxyHelpExampleHelp");
+        }
+
+        /// <summary>
+        /// Prints a resx value that may contain braces (JSON/ini samples) without String.Format.
+        /// </summary>
+        private static void DisplayPreformatted(string key)
+        {
+            string text = Message.LocalizeRaw(key);
+            foreach (string line in text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+            {
+                Message.Display("CLI_HelpWrappedLine", line);
+            }
         }
 
         private static void GenerateTyhpdefHelp()
         {
             string executable = HelpFormatting.GetExecutableName();
 
-            // PLACEHOLDER_STORY_20: full tyhpdef generation
-            HelpFormatting.Paragraph("CLI_GenerateTyhpdefHelpNotAvailable");
-            Message.Display("");
             HelpFormatting.Paragraph("CLI_GenerateTyhpdefHelpDescription");
+            HelpFormatting.Paragraph("CLI_GenerateTyhpdefHelpNotesManaged");
+            HelpFormatting.Paragraph("CLI_GenerateTyhpdefHelpNotesTracks");
+            HelpFormatting.Paragraph("CLI_GenerateTyhpdefHelpNotesVerify");
+            HelpFormatting.Paragraph("CLI_GenerateTyhpdefHelpNotesDocs");
+            HelpFormatting.Paragraph("CLI_GenerateTyhpdefHelpNotesVendor");
             HelpFormatting.Section("CLI_GenerateTyhpdefHelpUsageHeader");
             HelpFormatting.Usage(executable, "CLI_GenerateTyhpdefHelpUsage");
 
             HelpFormatting.Section("CLI_GenerateTyhpdefHelpOptionsHeader");
             HelpFormatting.Option("--help", "CLI_GenerateTyhpdefHelpOptionHelp");
             HelpFormatting.Option("--ext-name=<name>", "CLI_GenerateTyhpdefHelpOptionExtName");
-            HelpFormatting.Option("--composer-package=<name>", "CLI_GenerateTyhpdefHelpOptionComposerPackage");
+            HelpFormatting.Option("--package-path=<path>", "CLI_GenerateTyhpdefHelpOptionPackagePath");
+            HelpFormatting.Option("--source=<glob>", "CLI_GenerateTyhpdefHelpOptionSource");
+            HelpFormatting.Option("--vendor[=<dir>]", "CLI_GenerateTyhpdefHelpOptionVendor");
             HelpFormatting.Option("--output=<path>", "CLI_GenerateTyhpdefHelpOptionOutput");
+            HelpFormatting.Option("--output-file=<path>", "CLI_GenerateTyhpdefHelpOptionOutputFile");
+            HelpFormatting.Option("--split=<mode>", "CLI_GenerateTyhpdefHelpOptionSplit");
+            HelpFormatting.Option("--php=<path>", "CLI_GenerateTyhpdefHelpOptionPhp");
             HelpFormatting.Option("--php-version=<version>", "CLI_GenerateTyhpdefHelpOptionPhpVersion");
+            HelpFormatting.Option("--php-targets=<list>", "CLI_GenerateTyhpdefHelpOptionPhpTargets");
+            HelpFormatting.Option("--php-runtime-dir=<dir>", "CLI_GenerateTyhpdefHelpOptionPhpRuntimeDir");
+            HelpFormatting.Option("--include-dev", "CLI_GenerateTyhpdefHelpOptionIncludeDev");
+            HelpFormatting.Option("--locale=<locale>", "CLI_GenerateTyhpdefHelpOptionLocale");
+            HelpFormatting.Option("--no-docs", "CLI_GenerateTyhpdefHelpOptionNoDocs");
+            HelpFormatting.Option("--include-internal", "CLI_GenerateTyhpdefHelpOptionIncludeInternal");
+            HelpFormatting.Option("--include-deprecated", "CLI_GenerateTyhpdefHelpOptionIncludeDeprecated");
+            HelpFormatting.Option("--no-deprecated", "CLI_GenerateTyhpdefHelpOptionNoDeprecated");
+            HelpFormatting.Option("--overwrite", "CLI_GenerateTyhpdefHelpOptionOverwrite");
+            HelpFormatting.Option("--require-stubs", "CLI_GenerateTyhpdefHelpOptionRequireStubs");
+            HelpFormatting.Option("--no-php", "CLI_GenerateTyhpdefHelpOptionNoPhp");
+            HelpFormatting.Option("--no-php-runtime-update", "CLI_GenerateTyhpdefHelpOptionNoPhpRuntimeUpdate");
+            HelpFormatting.Option("--refresh-snapshots", "CLI_GenerateTyhpdefHelpOptionRefreshSnapshots");
+            HelpFormatting.Option("--validate=<path>", "CLI_GenerateTyhpdefHelpOptionValidate");
+            HelpFormatting.Option("--audit-stubs=<path>", "CLI_GenerateTyhpdefHelpOptionAuditStubs");
+            HelpFormatting.Option("--out=<file>", "CLI_GenerateTyhpdefHelpOptionAuditOut");
+            HelpFormatting.Option("--verify", "CLI_GenerateTyhpdefHelpOptionVerify");
 
             HelpFormatting.Section("CLI_GenerateTyhpdefHelpExamplesHeader");
             HelpFormatting.Example($"{executable} generate_tyhpdef --ext-name=curl", "CLI_GenerateTyhpdefHelpExampleExt");
             HelpFormatting.Example(
-                $"{executable} generate_tyhpdef --composer-package=guzzlehttp/guzzle",
+                $"{executable} generate_tyhpdef --ext-name=curl --php-version=8.3",
+                "CLI_GenerateTyhpdefHelpExampleExtVersion");
+            HelpFormatting.Example(
+                $"{executable} generate_tyhpdef --ext-name=curl --php-targets=8.2,8.3,8.4,8.5",
+                "CLI_GenerateTyhpdefHelpExamplePhpTargets");
+            HelpFormatting.Example(
+                $"{executable} generate_tyhpdef --ext-name=myext --php=/opt/php/bin/php",
+                "CLI_GenerateTyhpdefHelpExamplePhp");
+            HelpFormatting.Example(
+                $"{executable} generate_tyhpdef --package-path=./vendor/guzzlehttp/guzzle --output=./tyhpdef/",
                 "CLI_GenerateTyhpdefHelpExamplePackage");
+            HelpFormatting.Example(
+                $"{executable} generate_tyhpdef --vendor",
+                "CLI_GenerateTyhpdefHelpExampleVendor");
+            HelpFormatting.Example(
+                $"{executable} generate_tyhpdef --source=./lib/**/*.php --split=namespace",
+                "CLI_GenerateTyhpdefHelpExampleSourceSplit");
+            HelpFormatting.Example(
+                $"{executable} generate_tyhpdef --validate ./tyhpdef/",
+                "CLI_GenerateTyhpdefHelpExampleValidate");
+            HelpFormatting.Example(
+                $"{executable} generate_tyhpdef --audit-stubs=../tyhp-runtime-src/packages/php/_tyhpdef --out=stub-audit.md",
+                "CLI_GenerateTyhpdefHelpExampleAuditStubs");
             HelpFormatting.Example($"{executable} generate_tyhpdef --help", "CLI_GenerateTyhpdefHelpExampleHelp");
         }
     }

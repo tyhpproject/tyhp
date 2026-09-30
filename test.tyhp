@@ -1,0 +1,267 @@
+<?tyhp
+
+namespace App\InlineProbe;
+
+use \Tyhp\Optimize\Inline;
+
+/*
+ * Source of truth for the inline by-reference rules.
+ *
+ * 1. WRITTEN PARAMETERS ARE BY REFERENCE, AND ONLY THOSE.
+ *    A parameter that is assigned to, compound-assigned, incremented,
+ *    decremented (pre or post), or passed to a callee's by-reference parameter
+ *    is by reference. Every other parameter never is. The compiler detects which
+ *    parameters are written and requires the author to have declared exactly
+ *    those `&`; a mismatch either way is a compile-time error. A developer who
+ *    wants a non-mutating increment writes `$v + 1` at the call site.
+ *
+ * 2. A BY-REFERENCE ARGUMENT MUST BE REFERENCEABLE, IN EVERY OPTIMIZE MODE.
+ *    Passing a literal, a const, a call result, a readonly property, or a member
+ *    whose read path is by value is a compile-time error at any call site with a
+ *    by-reference parameter — not just inline ones. What matters is whether the
+ *    read path is by reference, not whether an accessor is involved: `&get`,
+ *    `&__get`, and `&offsetGet` are referenceable and stay legal.
+ *
+ * 3. WHEN SPLICING WOULD CHANGE EVALUATION, HOIST OR DECLINE.
+ *    If the rewrite would evaluate an argument or receiver more than once, hoist
+ *    it into a local — by value for a read, ref-bound for a `&` parameter — which
+ *    needs a statement slot. If there is no slot, or if the rewrite would drop an
+ *    argument or make it lazy, the call site keeps the real call and the compiler
+ *    warns. An erased member has no real call to keep, so there the same
+ *    condition is an error instead.
+ *
+ * `test.php` and `test.tyhpdef` are the hand-written compiler output for this
+ * file. `test.php` also carries the harness that diffs a spliced build against
+ * an `optimize: none` build.
+ */
+
+/** Argument sources whose reads and writes go through an accessor. */
+final class Holder
+{
+    private string $backing = 'raw';
+    private int    $counter = 4;
+
+    public readonly int $frozenCount;
+
+    private array $items = ['x'];
+
+    /** Hooked by value: every read runs `get`, every write runs `set`. */
+    public string $hooked {
+        get {
+            return $this->backing;
+        }
+        set(string $value) {
+            $this->backing = $value;
+        }
+    }
+
+    public int $hookedCount {
+        get {
+            return $this->counter;
+        }
+        set(int $value) {
+            $this->counter = $value;
+        }
+    }
+
+    /**
+     * Hooked by reference. `&get` is a by-reference read path, so this property
+     * IS referenceable and may be passed to a `&` parameter.
+     */
+    public array $refItems {
+        &get {
+            return $this->items;
+        }
+    }
+
+    public function __construct(): void
+    {
+        $this->frozenCount = 4;
+    }
+}
+
+final class Probe
+{
+    public string $first = 'Ada';
+    public string $last  = 'Lovelace';
+
+    /* --------------------------------------------------------------------- *
+     * GROUP A — pure bodies. No parameter is written, so nothing is `&`.
+     * --------------------------------------------------------------------- */
+
+    /** Parameter read twice. */
+    #[Inline]
+    public fn doubleTrim(string $s): string => \trim($s . $s);
+
+    /** Second parameter is never read. */
+    #[Inline]
+    public fn ignoreSecond(int $a, int $b): int => $a;
+
+    /** Second parameter is read only when the first is null. */
+    #[Inline]
+    public fn coalesce(?string $a, string $b): string => $a ?? $b;
+
+    /** Parameters are read in the opposite order from the parameter list. */
+    #[Inline]
+    public fn reversed(string $a, string $b): string => $b . $a;
+
+    /** Body reads `$this` twice, so the receiver expression is substituted twice. */
+    #[Inline]
+    public fn label(): string => $this->first . ' ' . $this->last;
+
+    /* --------------------------------------------------------------------- *
+     * GROUP B — a written parameter, correctly declared `&`.
+     * --------------------------------------------------------------------- */
+
+    /** Direct assignment, plus a non-written parameter with a default. */
+    #[Inline]
+    public fn appendTo(string &$s, string $suffix = '__end'): string
+        => ($s = ($s . $s) . $suffix);
+
+    /** Post-increment returns the pre-increment value and still advances `$i`. */
+    #[Inline]
+    public fn postInc(int &$i): int => $i++;
+
+    /** Pre-increment returns the advanced value. */
+    #[Inline]
+    public fn preInc(int &$i): int => ++$i;
+
+    /** Compound assignment. */
+    #[Inline]
+    public fn addTwo(int &$i): int => $i += 2;
+
+    /** Written twice and read twice in one expression. */
+    #[Inline]
+    public fn crazy(int &$i): int => $i *= ($i += 2);
+
+    /**
+     * Mutation happens through a callee's by-reference parameter rather than by
+     * direct assignment, so the checker has to look through `\ksort`'s signature
+     * to know `$a` is written.
+     */
+    #[Inline]
+    public fn sortKeys(array &$a): bool => \ksort($a);
+
+    /** Appends through a `&` array parameter, for the `&get` argument case. */
+    #[Inline]
+    public fn appendItem(array &$a, string $item): int
+        => (($a[] = $item) !== null ? \count($a) : 0);
+
+    /* --------------------------------------------------------------------- *
+     * GROUP C — a written parameter left by value is a compile-time error.
+     *
+     * Rule 1 makes no exception for pre-increment: any write requires `&`. These
+     * would each report the mismatch rather than compiling into something that
+     * needs a write local to emulate a by-value copy.
+     * --------------------------------------------------------------------- */
+
+    // ERROR: `$i` is incremented but not declared `&`.
+    // #[Inline]
+    // public fn preIncLocal(int $i): int => ++$i;
+
+    // ERROR: `$s` is assigned but not declared `&`.
+    // #[Inline]
+    // public fn assignThenRead(string $s): string => ($s = $s . $s) . $s;
+
+    // ERROR: `$a` is written through `\ksort`'s `&` parameter but declared by value.
+    // #[Inline]
+    // public fn sortByValue(array $a): bool => \ksort($a);
+
+    /* --------------------------------------------------------------------- *
+     * GROUP D — variadics.
+     * --------------------------------------------------------------------- */
+
+    /** Nothing is written, so neither parameter is `&`. */
+    #[Inline]
+    public fn joinAll(string $glue, string ...$parts): string
+        => \implode($glue, $parts);
+
+    /** The variadic is written, so it is declared `&...`. */
+    #[Inline]
+    public fn upperFirst(string &...$parts): string
+        => ($parts[0] = \strtoupper($parts[0]));
+}
+
+final class ProbeFactory
+{
+    public function make(): Probe
+    {
+        return new Probe();
+    }
+}
+
+final class Caller
+{
+    public function callTests(): void
+    {
+        Probe $p = new Probe();
+        ProbeFactory $factory = new ProbeFactory();
+
+        /* GROUP A — every argument shape is legal, nothing is `&`. */
+        string $s = 'asdf';
+        $p->doubleTrim($s);                            // variable
+        $p->doubleTrim($p->first);                     // plain property
+        $p->doubleTrim('wnerkgfoemwe');                // literal
+        $p->doubleTrim(\strtoupper('wnerkgfoemwe'));   // call result — read local
+        $p->label();                                   // receiver is a variable, safe to repeat
+
+        /* Rule 3 — no hoist can help, so these keep the real call and warn. */
+        $p->ignoreSecond(1, \intval('2'));             // 2nd argument would be dropped
+        $p->coalesce('a', \strtoupper('b'));           // 2nd argument would not be reached
+        $p->reversed(\strtoupper('a'), \strtoupper('b')); // order would flip
+
+        /* Rule 3 — repeated evaluation, so hoist a local and still splice. */
+        $factory->make()->label();                     // receiver read local: one make()
+
+        /* Same members with side-effect-free arguments: splicing is safe, no warning. */
+        $p->ignoreSecond(1, 2);
+        $p->coalesce('a', 'b');
+        $p->reversed('a', 'b');
+
+        /* GROUP B — a `&` parameter needs a referenceable argument. */
+        $p->appendTo($s, '__blah');
+        $p->appendTo($s);                              // default for the non-ref parameter
+
+        int $i = 10;
+        int $before = $p->postInc($i);
+        int $after  = $p->preInc($i);
+        $p->addTwo($i);
+        $p->crazy($i);
+
+        array $map = ['b' => 2, 'a' => 1];
+        $p->sortKeys($map);
+
+        Holder $h = new Holder();
+
+        // Rule 2 — compile-time errors in every optimize mode. These are the same
+        // checks any call with a by-reference parameter needs, inline or not.
+        // $p->addTwo(4);                              // literal
+        // $p->addTwo(\intval('4'));                   // call result
+        // $p->appendTo('literal');                    // literal
+        // $p->addTwo($h->frozenCount);                // readonly property
+        // $p->addTwo($h->hookedCount);                // by-value `get` hook
+        // $p->addTwo($h->magicCount);                 // by-value `__get`
+        // $p->addTwo($h['k']);                        // by-value `offsetGet`
+        // \ksort($h->hookedItems);                    // not inline — same error
+
+        /* A by-reference read path is referenceable, so `&get` is legal. `$a` is
+         * used twice in the body, so this needs a ref-bound local to keep `&get`
+         * from running twice. */
+        $p->appendItem($h->refItems, 'added');
+
+        /* Same shape without an accessor: the index must not advance twice. */
+        array $slots = [4, 40];
+        int $slot = 0;
+        $p->crazy($slots[$slot++]);
+
+        /* An accessor-backed argument to a non-`&` parameter is fine, and gets a
+         * read local so `get` runs once instead of once per use. */
+        $p->doubleTrim($h->hooked);
+
+        /* GROUP D — variadics. */
+        $p->joinAll('-', 'a', 'b');
+        string $one = 'a';
+        string $two = 'b';
+        $p->upperFirst($one, $two);                    // $one becomes 'A'
+    }
+}

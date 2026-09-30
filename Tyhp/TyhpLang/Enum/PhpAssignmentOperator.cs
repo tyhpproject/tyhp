@@ -24,10 +24,38 @@ namespace Tyhp.TyhpLang.Enum
     public static class PhpAssignmentOperatorExtensions
     {
         public static PhpAssignmentOperator? FromToken(IToken? token)
-            => FromToken(token?.Type ?? -1);
+            => FromToken(token?.Type ?? -1, token?.Text);
 
-        public static PhpAssignmentOperator? FromToken(int token)
-            => (token) switch
+        /// <summary>
+        /// When <paramref name="text"/> is present it is authoritative. Tyhpdef token ids are not
+        /// <c>TyhpParser</c> ids; the integer is used only when the spelling is absent.
+        /// </summary>
+        public static PhpAssignmentOperator? FromToken(int token, string? text = null)
+        {
+            if (!string.IsNullOrEmpty(text))
+            {
+                return text.Trim() switch
+                {
+                    "=" => PhpAssignmentOperator.Assign,
+                    "+=" => PhpAssignmentOperator.PlusAssign,
+                    "-=" => PhpAssignmentOperator.MinusAssign,
+                    "*=" => PhpAssignmentOperator.MultiplyAssign,
+                    "/=" => PhpAssignmentOperator.DivideAssign,
+                    "%=" => PhpAssignmentOperator.ModuloAssign,
+                    ".=" => PhpAssignmentOperator.ConcatAssign,
+                    "**=" => PhpAssignmentOperator.PowerAssign,
+                    "&=" => PhpAssignmentOperator.BitwiseAndAssign,
+                    "|=" => PhpAssignmentOperator.BitwiseOrAssign,
+                    "^=" => PhpAssignmentOperator.BitwiseXorAssign,
+                    "<<=" => PhpAssignmentOperator.ShiftLeftAssign,
+                    ">>=" => PhpAssignmentOperator.ShiftRightAssign,
+                    "??=" => PhpAssignmentOperator.CoalesceAssign,
+                    ":=" => PhpAssignmentOperator.UsingEqual,
+                    _ => null,
+                };
+            }
+
+            return token switch
             {
                 TyhpLang.Parser.TyhpParser.T_SYM_EQUAL => PhpAssignmentOperator.Assign,
                 TyhpLang.Parser.TyhpParser.T_PLUS_EQUAL => PhpAssignmentOperator.PlusAssign,
@@ -46,5 +74,6 @@ namespace Tyhp.TyhpLang.Enum
                 TyhpLang.Parser.TyhpParser.T_TYHP_USING_EQUAL => PhpAssignmentOperator.UsingEqual,
                 _ => null
             };
+        }
     }
-} 
+}

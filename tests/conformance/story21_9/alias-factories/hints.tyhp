@@ -1,0 +1,9 @@
+<?tyhp
+declare(strict_types=1);
+namespace Hints;
+
+use App\Types\UserId;
+
+function take(UserId $id): int {
+    return $id;
+}

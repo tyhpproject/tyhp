@@ -150,6 +150,7 @@ exhaustive Done dump.
 |------------|--------|------|
 | `(decimal)` cast | **Open-backlog** if checker-facing; else parse/emit | Guide §4 / §28 ⚠️ |
 | Reserved keyword as class name → clean diagnostic (no NRE abort) | Spillover (parse/visitor) | FOUND generic structs 2026-08-05 §3 |
+| Member access on `Unresolved` receiver is a diagnostic (not silent accept / rewrite) | **Done** | TYHP4197 / `CheckerUnresolvedReceiver`; Story 21.12 C |
 
 ---
 
@@ -188,6 +189,12 @@ exhaustive Done dump.
 8. ~~**Trait members vs dynamic-property blanket suppress**~~ — **Done** (2026-08-06)  
    Resolve used traits for TYHP4134; blanket suppress removed.  
    → RESOLVED Fixed 2026-08-06 / FOUND Story 08 Phase 6 reopen §1.
+
+22. ~~**Unresolved receivers silently satisfy member access**~~ — **Done**
+    `UnresolvedCheckedType` recovery must not mean "this receiver has every member." Diagnose
+    member access / calls / indexing unless the subtree already has an error. Do not change
+    global `Unresolved` assignability.
+    TYHP4197 (`CheckerUnresolvedReceiver`); Story 21.12 C.
 
 ### P1 — suite-red / precision / former ⚠️ promotions
 

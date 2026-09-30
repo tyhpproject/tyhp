@@ -15,6 +15,24 @@ namespace Tyhp.TyhpLang.Binder.Symbols
         private Dictionary<string, string> _fileDeclareDirectives;
         public IReadOnlyDictionary<string, string> FileDeclareDirectives => this._fileDeclareDirectives;
 
+        private readonly List<string> _phpVersionConstraints = [];
+
+        /// <summary>
+        /// File-level (non-block) <c>declare(php=…)</c> constraints ANDed for this file.
+        /// </summary>
+        public IReadOnlyList<string> PhpVersionConstraints => this._phpVersionConstraints;
+
+        /// <summary>
+        /// True when a file-level <c>php</c> gate is unsatisfied or could not be evaluated.
+        /// Declarations from this file are not registered.
+        /// </summary>
+        public bool IsPhpVersionGateInactive { get; set; }
+
+        /// <summary>
+        /// False when a file-level <c>php</c> constraint string is not valid Composer syntax.
+        /// </summary>
+        public bool IsPhpVersionConstraintValid { get; set; } = true;
+
         /// <summary>
         /// Creates a file declaration symbol.
         /// <para>
@@ -42,6 +60,14 @@ namespace Tyhp.TyhpLang.Binder.Symbols
             this.FileName = fileName;
             this.FileHash = fileHash;
             this._fileDeclareDirectives = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        internal void AddPhpVersionConstraint(string constraint)
+        {
+            if (!string.IsNullOrWhiteSpace(constraint))
+            {
+                this._phpVersionConstraints.Add(constraint);
+            }
         }
 
         /// <summary>

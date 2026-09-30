@@ -46,8 +46,46 @@
 >   `abstract` members for the **used** signatures from those targets (PHP still cannot name the class/interface
 >   on the trait). See
 >   [Idea 12](#idea-12--trait-requirement-abstract-members).
+> - **Idea 13 — Anti-glob (`!` prefix) in JSON config glob arrays:** a glob string that starts with `!` excludes
+>   matching paths from the files loaded by the other sibling globs in the same array (`include`, `overlay`,
+>   `tyhpdefInclude`, …). See
+>   [Idea 13](#idea-13--anti-glob--prefix-in-json-config-glob-arrays).
+> - **Idea 14 — Runtime `is Closure<…>` / `is Fiber<…>` via reflection:** best-effort `is` on Closure/Fiber
+>   type arguments using `ReflectionFunction` / a `tyhp/core` helper (PHP runtime types only; Tyhp generics
+>   are erased). Story 21.6 ships compile-time `as` only. See
+>   [Idea 14](#idea-14--runtime-is-closure--is-fiber-via-reflection).
+> - **Idea 15 — Opt-in runtime checks for erased Tyhp contracts:** at public PHP-callable boundaries, assert
+>   struct shapes (and, later, generic bounds) that the checker already proved in Tyhp. Complements Idea 4
+>   (static docblocks). See
+>   [Idea 15](#idea-15--opt-in-runtime-checks-for-erased-tyhp-contracts).
+> - **Idea 16 — Precompiled tyhpdef symbol cache (cold start):** persist a bound-symbol snapshot of
+>   `tyhpdef/php` + runtime package tyhpdefs so a two-file project does not re-bind ~38K stub lines on every
+>   cold CLI run. See
+>   [Idea 16](#idea-16--precompiled-tyhpdef-symbol-cache-cold-start).
+> - **Idea 17 — Async HTTP, filesystem, and database I/O:** non-blocking I/O on `tyhp/async`’s loop so
+>   `async`/`await` has something to await besides timers. See
+>   [Idea 17](#idea-17--async-http-filesystem-and-database-io).
 > - **Appendix A — Eager-resolution optimization for the binder two-pass:** a binder name-resolution performance
 >   optimization (fold resolution into Pass 1 + drain a deferred list in Pass 2).
+
+> **Documentation requirement for every idea here.** Only Idea 1 has phases today; the rest are proposals. When an
+> idea is lifted into its own numbered story, that story must carry a **user documentation & AIDevGuide phase** —
+> the pages under `docs/content/` that describe the shipped surface, plus the affected `AIDevGuide/guide/` and
+> `AIDevGuide/handbook/` sections *and* the matching item in `AIDevGuide/REGEN.md`. The guide bundle is regenerated
+> from that prompt, so an idea that changes the language without updating the prompt will have its correction
+> reverted by the next regeneration. Ideas 2, 3, 5, 6, 7, 8, 11, and 12 change what an author writes and will each
+> need `AIDevGuide/guide/28-availability-gotchas.md` updated as well, since that file's "not in the language yet"
+> list is what an agent trusts to decide whether a construct is usable. Idea 13 is config-string syntax, not a
+> language construct: when scheduled it needs `docs/content/project_optionsList.md`, `faq_project.md`,
+> `tyhpdef_overlays.md`, and a glob-string note in `CONVENTIONS.md` §4 (no new keys; `!` is a prefix on existing
+> glob arrays). Idea 14 is a runtime `is` rewrite (not a new type syntax): when scheduled it needs
+> `docs/content/tyhp_0150_newTypes.md` / `tyhp_0100_typesAndLocals.md` (`is` vs `as` on Closure/Fiber)
+> and `docs/content/cli_interopContract.md` if a `tyhp/core` helper is emitted. Idea 15 is a runtime assert
+> helper plus emit at public boundaries: `docs/content/tyhp_0400_structs.md`, `cli_interopContract.md`,
+> `cli_build.md` (new config key), and `AIDevGuide/handbook/07-runtime-api.md`. Idea 16 is compiler-cache
+> behavior: `docs/content/cli_lint.md` / `cli_build.md` (cache flags) and `faq_cli.md`. Idea 17 is
+> `docs/content/tyhp_2600_asyncAndAwait.md`, `runtime/packages/async`, and `cli_interopContract.md`
+> (new helpers).
 
 > **Roadmap position:** Story 31 — **Tier 4 — Future plans**
 > **Direct dependencies (new numbering):** 06, 08, 08.5, 09, 11, 13, 15, 17, 18, 23, 24, 25
@@ -59,10 +97,10 @@
 
 > **Source:** Autoloading/linking design discussion; Ideas 9–10 from compiler-plugins brainstorm 2026-08-05;
 > Idea 11 from extension-chain emit brainstorm 2026-08-14; Idea 12 from trait-requirements emit brainstorm
-> 2026-08-14
+> 2026-08-14; Idea 13 from JSON glob-array exclude brainstorm 2026-08-26
 > **Branch:** TBD
 > **Generated:** 2026-06-18
-> **Updated:** 2026-08-14 (Idea 12 — trait-requirement abstract members)
+> **Updated:** 2026-09-15 (Ideas 15–17 from `LANGUAGE_ASSESSMENT.md`)
 > **Prerequisites:** Story 06 (built-in types & compile-time constructs), Story 08 (checker), **Story 08.5
 > (symbol-name types — definitions, narrowing, existence verification, typed `nameof()`)**, Story 09/11 (emitter),
 > Story 13 (CLI/composer + profile toggle), Story 15 (interop contract), Story 17/18 (sourcemaps + xdebug proxy),
@@ -99,6 +137,11 @@
 - [Idea 10 — Compiler Plugins v2](#idea-10--compiler-plugins-v2)
 - [Idea 11 — Pipe-Emit Chained Extension Calls (`|>` on PHP 8.5+)](#idea-11--pipe-emit-chained-extension-calls--on-php-85)
 - [Idea 12 — Trait-Requirement Abstract Members](#idea-12--trait-requirement-abstract-members)
+- [Idea 13 — Anti-Glob (`!` Prefix) in JSON Config Glob Arrays](#idea-13--anti-glob--prefix-in-json-config-glob-arrays)
+- [Idea 14 — Runtime `is Closure<…>` / `is Fiber<…>` via Reflection](#idea-14--runtime-is-closure--is-fiber-via-reflection)
+- [Idea 15 — Opt-in Runtime Checks for Erased Tyhp Contracts](#idea-15--opt-in-runtime-checks-for-erased-tyhp-contracts)
+- [Idea 16 — Precompiled Tyhpdef Symbol Cache (Cold Start)](#idea-16--precompiled-tyhpdef-symbol-cache-cold-start)
+- [Idea 17 — Async HTTP, Filesystem, and Database I/O](#idea-17--async-http-filesystem-and-database-io)
 - [Appendix A: Eager-Resolution Optimization for the Binder Two-Pass](#appendix-a-eager-resolution-optimization-for-the-binder-two-pass)
 
 ---
@@ -388,6 +431,31 @@ This is the same model as JS minifiers shipping `.map` files; it is what makes l
 
 ---
 
+## Phase 9: User documentation & AIDevGuide
+
+Linking changes how a built application is laid out and loaded, which is the most visible thing this idea does to an author's project. It needs published documentation, not just config-key registration.
+
+**Published documentation (`docs/content/`):**
+
+- **New** `docs/content/project_linking.md` — the three-tier model, what `debug` and `release` profiles produce, when Composer autoloading is still involved, and what a bundle looks like on disk. Register it in `docs/content/toc.json`.
+- `docs/content/project_optionsList.md` — every `link.*` key from [Configuration](#configuration) with its default.
+- `docs/content/project_composerPackages.md` / `docs/content/cli_build.md` — how linking interacts with Composer autoloading and with the normal build output layout.
+- `docs/content/tyhp_2700_compileTimeConstructs.md` — the `[Preload]` attribute, and that a dependency's `[Preload]` is not honored by default.
+- `docs/content/cli_sourcemapGeneration.md` / `docs/content/cli_xdebugProxy.md` — debugging a release bundle.
+- `docs/content/diagnostics_reference.md` — the codes allocated at implementation time.
+
+**AIDevGuide:** update `AIDevGuide/guide/26-build-cli.md` (the `link.*` keys and the output layout a release build produces), `guide/17-compile-time-helpers.md` (`[Preload]`), `handbook/02-autoloading.md` (linked applications versus Composer autoloading), and `handbook/03-build-cli-workflow.md`. Because `AIDevGuide/` is regenerated from the prompt in `AIDevGuide/REGEN.md`, add linking to prompt item 26 and to the handbook autoloading paragraph — otherwise a regeneration drops it.
+
+**Acceptance:**
+
+- [ ] Every `link.*` key is documented with its default
+- [ ] Docs show what a `release` build produces and how to debug it
+- [ ] `[Preload]` is documented, including the dependency-preload default
+- [ ] `docs/content/toc.json` lists the new page
+- [ ] `AIDevGuide/handbook/02-autoloading.md` covers linked output, and `REGEN.md` would regenerate it
+
+---
+
 ## Configuration
 
 Provisional `tyhp.json` keys (register in `CONVENTIONS.md` §4 when scheduled; `Tyhp/Config/Project.cs` is
@@ -473,6 +541,7 @@ Per `CONVENTIONS.md` §5, add `.tyhp → .php` (+ expected-diagnostics) golden f
 > **Prerequisites:** Story 06 (built-in types & cast tokens), Story 08 (checker / type inference), Story 09/11
 > (emitter expression lowering), Story 15 (interop contract — the emitter may only call the listed `\Tyhp\*`
 > runtime surface). Ties into the existing `operator convert` mechanism (Decimal) — see Decision 5.
+> Native `\Stringable` from `__toString()` (no written `implements`) is **Story 21.7**, not this idea.
 
 ### Summary
 
@@ -841,6 +910,11 @@ PHPStan/Psalm/PhpStorm recover all of it from docblocks. Emitting them means dow
 PHP (vendored Tyhp packages, mixed Tyhp+PHP projects, third parties who never see `.tyhp`) get full type safety and
 IDE support "for free," and the generated code passes a strict static-analysis baseline instead of collapsing to
 `mixed`/`array`.
+
+`LANGUAGE_ASSESSMENT.md` §4.3 / §6.6 names this as the cheapest way to narrow the two-world gap: a struct-typed
+parameter today emits as bare `array`, so PHPStan/Psalm users lose even the shape they would have written by hand.
+`@param array{cents: int, currency: string}` (and `@template` on erased generics) is that recovery. Runtime
+enforcement of the same facts is Idea 15; this idea is static-only.
 
 ### What we can emit ("everything we possibly can")
 
@@ -2430,8 +2504,8 @@ Grow the plugin platform beyond v1’s pre-binder / compile-only / expr-only sur
    **needs rebind** or not; host rebinds when any participant requests it (combine former “typed transform” +
    “project/cross-file context” needs — binder scopes and project symbols are visible here).
 2. **IDE / TextMate for `p` islands** — plugin ships a TextMate grammar (or injection) for its namespace; Story 19.5
-   VS Code extension matches `p"ns:…"`, `p<<<ns`, etc., and applies highlighting; room for further LSP pickup
-   (completion, hover) as the extension evolves.
+   VS Code and PhpStorm clients match `p"ns:…"`, `p<<<ns`, etc., and apply highlighting; room for further LSP pickup
+   (completion, hover) as the extensions evolve.
 3. **Diagnostic spans + fix-its** — accurate offsets inside islands/encaps; suggested fixes consumable by
    `tyhp lint --fix` / IDE.
 4. **Statement-form islands** — `p'ns:…';` / heredoc as statements, not only exprs.
@@ -2460,8 +2534,8 @@ Grow the plugin platform beyond v1’s pre-binder / compile-only / expr-only sur
 ### IDE integration (Story 19.5)
 
 - Plugin manifest may point at a **TextMate grammar** / injection scoped to its namespace.
-- `vscode-tyhp` detects `p` / `p<<<` forms, reads the namespace/label, and activates the matching grammar for the
-  island body (encaps `$vars` can remain Tyhp/PHP scopes).
+- `tyhp-lang` (VS Code + PhpStorm) detect `p` / `p<<<` forms, read the namespace/label, and activate the matching
+  grammar for the island body (encaps `$vars` can remain Tyhp/PHP scopes). Shared grammars from Story 19.5.
 - Additional IDE surfaces (completion, hover, go-to for tables/columns) are desirable but unspecified in detail —
   capture as follow-ons once TextMate injection works.
 
@@ -2722,6 +2796,327 @@ annotate the abstracts later.
 - Trait that never calls into the requirement emits no extra abstracts.
 - Property-only use of the required type does not add a colliding trait property.
 - Existing trait-requirement checker tests (4044/4045) still pass.
+
+---
+
+## Idea 13 — Anti-Glob (`!` Prefix) in JSON Config Glob Arrays
+
+> **Status:** Tier 4, future plans. Config-string syntax only; no language change.
+> **Prerequisites:** Story 10 (`tyhp.json` `include` / `exclude` / `tyhpdefInclude` / `tyhpdefExclude`), Story 21
+> (`extra.tyhp.package` `include` / `overlay`). Idea 9’s `plugin.tyhp.json` if that manifest grows glob arrays.
+> **Related:** `Project.GetProjectSourceFiles()` (`Microsoft.Extensions.FileSystemGlobbing.Matcher` + separate
+> `exclude`), `TyhpdefOverlayApplier.ExpandGlob` (hand-rolled, no exclude today). `extra.tyhp.package` has no
+> `overlayExclude` key — that is the gap this prefix fills.
+> **Source:** JSON glob-array exclude brainstorm, 2026-08-26.
+
+### Summary
+
+Every glob string in a JSON configuration array may start with `!`. That entry is an **anti-glob**: it does not
+load files. After the other sibling globs in the **same array** expand to a path set, any path that matches an
+anti-glob in that array is dropped.
+
+```json
+{
+    "include": [
+        "./src/**/*.tyhp",
+        "!./src/**/*.draft.tyhp",
+        "!./src/generated/**"
+    ]
+}
+```
+
+`./src/app.tyhp` loads. `./src/app.draft.tyhp` and anything under `./src/generated/` do not, even though they
+match `./src/**/*.tyhp`.
+
+The same prefix works in every glob-valued JSON array the toolchain already has, and in any later one:
+
+| File | Arrays |
+| --- | --- |
+| `tyhp.json` | `include`, `exclude`, `tyhpdefInclude`, `tyhpdefExclude` |
+| `extra.tyhp.package` | `include`, `overlay` |
+| `plugin.tyhp.json` (Idea 9) | any glob array that file grows |
+
+No new keys. `!` is a prefix on an existing string, not a sibling `"exclude"` field.
+
+### Why overlay needs this
+
+`tyhp.json` already has `exclude` / `tyhpdefExclude`. `extra.tyhp.package` `"overlay"` does not. Today authors
+split overlay globs so a later pattern cannot recurse into an earlier folder:
+
+```json
+"overlay": [
+    "./_tyhpdef/overlays/stubs/*.tyhpdef",
+    "./_tyhpdef/overlays/*.tyhpdef"
+]
+```
+
+`overlays/*.tyhpdef` does not recurse into `stubs/` only because `*` is one path segment. A recursive glob
+cannot say “everything under overlays except this subtree” without a second key. Anti-glob is that spelling:
+
+```json
+"overlay": [
+    "./_tyhpdef/overlays/**/*.tyhpdef",
+    "!./_tyhpdef/overlays/wip/**"
+]
+```
+
+`tyhp.json` authors may use either a sibling `exclude` array **or** `!` inside `include`. Both remain valid;
+they compose (a path dropped by either mechanism is not loaded).
+
+### Semantics
+
+1. **Leading `!` only.** The first character of the JSON string is `!`. `./!draft.tyhp` is a literal path whose
+   name starts with `!`. Whitespace before `!` is not an anti-glob (`" !foo"` is a normal glob, almost certainly
+   invalid). Strip the `!`, then trim the remainder; a bare `"!"` (empty pattern) is `ConfigInvalidGlobPattern`.
+2. **Per array, not per file.** `!` in `include` does not affect `overlay` or `tyhpdefInclude`. Each array
+   computes its own path set.
+3. **Union then subtract.** Collect the union of all non-`!` siblings. Subtract the union of all `!` siblings.
+   Position of `!` entries in the array does not matter. A later positive glob does **not** re-include a path
+   an anti-glob already dropped (this is not gitignore).
+4. **Anti-globs never add files.** An array that is only `!` patterns yields an empty set (warn once).
+5. **Exclude-style arrays use the same set math.** `"exclude": ["./src/tests/**", "!./src/tests/keep.tyhp"]`
+   produces an exclude set that omits `keep.tyhp` — the `!` subtracts from sibling *exclude* globs, so that file
+   is not excluded. Same rule, different use of the resulting set.
+6. **Overlay last-wins is among remaining files.** Expand positive overlay globs in array order (lexicographic
+   within one glob, as today). Drop any path that matches an anti-glob in that overlay array. Last-wins /
+   `omit` / `partial` then run on what is left. Anti-globs are not overlay files.
+7. **Same glob language as today.** `*`, `**`, `?`; paths relative to the project or package root that already
+   owns the JSON file. Case-matching follows the existing expander for that call site.
+
+### Relationship to `exclude`
+
+| Want | Write |
+| --- | --- |
+| Skip drafts from project sources | `"include": ["./src/**/*.tyhp", "!./src/**/*.draft.tyhp"]` **or** a separate `"exclude"` entry |
+| Skip a subtree from overlays (no `overlayExclude` key) | `"overlay": ["./_tyhpdef/overlays/**/*.tyhpdef", "!./_tyhpdef/overlays/wip/**"]` |
+| Keep stubs listed first, then hand overlays, without pulling stubs twice | Keep today’s two-glob split **or** anti-glob the stubs folder on a recursive hand-overlay glob. Do **not** anti-glob stubs if an earlier sibling is supposed to load them — subtraction applies to the whole array |
+
+The last row is the footgun: `"overlay": ["stubs/*.tyhpdef", "overlays/**/*.tyhpdef", "!overlays/stubs/**"]`
+drops the stub files from **both** siblings. Put the anti-glob only on arrays whose positives should not keep
+those paths.
+
+### Implementation sketch
+
+One shared glob-array expander used by `Project.GetProjectSourceFiles`, tyhpdef include/exclude, overlay
+load, and any later JSON glob list. Split entries on leading `!`; feed positives as includes and anti-globs as
+excludes of **that** matcher (today `Matcher.AddIncludePatterns` / `AddExcludePatterns` already exist for
+`tyhp.json`; overlay’s `ExpandGlob` does not — fold it into the shared helper so last-wins order is preserved
+on the filtered sequence). CLI `--include` / `--exclude` / `--source` that concatenate into those arrays should
+accept the same prefix so JSON and flags stay one language. `tyhp overlay create` still appends a positive glob;
+it never writes `!`.
+
+When scheduled, register the prefix in `CONVENTIONS.md` §4 as glob-string syntax on the existing keys (not a
+new key). Reuse `ConfigInvalidGlobPattern` for empty / malformed anti-globs.
+
+### Decisions (defaults chosen)
+
+1. **`!` prefix, no new keys** — including no `overlayExclude`.
+2. **Union-then-subtract per array** — not gitignore later-wins / re-include.
+3. **Every JSON glob array** — one rule for `tyhp.json`, `extra.tyhp.package`, and future manifests.
+4. **Existing `exclude` / `tyhpdefExclude` stay** — anti-glob is an in-array spelling, not a replacement.
+
+### Risks & Edge Cases
+
+- Recursive overlay glob plus `!stubs/**` unintentionally dropping Layer 2 stubs (document the footgun).
+- Literal filenames that start with `!` — require `./!name.tyhp`.
+- Anti-glob that matches nothing — silent (same as a positive glob that matches nothing today).
+- Duplicate positives and an anti-glob that matches only some of them — subtract once from the union.
+- Windows vs POSIX path separators after `!` — normalize the same way current globs do.
+- Two expanders drifting (`Matcher` vs `ExpandGlob`) until the shared helper lands.
+
+### Golden Fixtures / Tests (Acceptance)
+
+- `include` with `./src/**/*.tyhp` + `!./src/**/*.draft.tyhp` compiles `app.tyhp` and skips `app.draft.tyhp`.
+- `extra.tyhp.package` `"overlay"` recursive glob + `!…/wip/**` does not load `wip/` files; other overlay files
+  still last-wins in array order.
+- `"exclude": ["./src/tests/**", "!./src/tests/keep.tyhp"]` still compiles `keep.tyhp` when `include` matches it.
+- Array of only anti-globs: empty set + warning; no crash.
+- `"!"` / `"!   "` → `ConfigInvalidGlobPattern`.
+- `./!literal.tyhp` is not treated as an anti-glob.
+- Existing overlay goldens (stubs then hand, no `!`) stay byte-identical.
+
+---
+
+## Idea 14 — Runtime `is Closure<…>` / `is Fiber<…>` via Reflection
+
+> **Status:** Tier 4. Story **21.6** ships compile-time `as` only. This idea is the runtime `is` follow-up.
+> **Prerequisites:** Story 21.6 (Closure/Fiber type-system contract), Story 15 (interop bump if a `tyhp/core` helper is emitted), Story 08 (`is` / `instanceof`).
+> **Related:** `ReflectionFunction::getClosureThis()`, `getClosureScopeClass()`, parameter/return types; PHP `Fiber` has no generic metadata.
+> **Source:** Story 21.6 design lock, 2026-09-01.
+
+### Summary
+
+Tyhp generics on PHP’s `final` `\Closure` and `\Fiber` are erased. `is \Closure<callable<int, string>>` cannot be a true runtime generic test unless the compiler rewrites it to **reflection** (and/or a `tyhp/core` helper) that compares **PHP** parameter/return types, bound `$this`, and scope class.
+
+That is **best-effort**: many closures are `mixed` at runtime; Tyhp-only precision is gone. Document the gap. Do not pretend `is` equals the checker.
+
+If emit calls a runtime helper, bump `interopContractVersion` (Story 15).
+
+### Decisions (defaults)
+
+1. **Not in 21.6** — 21.6 uses `as` (compile-time assertion) for narrowing Closure/Fiber type arguments.
+2. **PHP types only** — reflection cannot recover erased Tyhp generics.
+3. **Helper optional** — a `\Tyhp\…` helper is allowed; it is an interop-contract change.
+
+### Acceptance (when scheduled)
+
+- `is \Closure` still uses `instanceof`.
+- `is \Closure<callable<int, string>>` is either rewritten to a documented reflection helper or is a compile error directing users to `as`.
+- Untyped PHP closures do not spuriously match a precise `TCallableShape`.
+- Interop version bumped if and only if emit calls a new runtime helper.
+
+---
+
+## Idea 15 — Opt-in Runtime Checks for Erased Tyhp Contracts
+
+> **Status:** Tier 4, future plans. Self-contained; may be lifted into its own story when scheduled.
+> **Prerequisites:** Story 08 (struct shapes / generic bounds already checked in Tyhp), Story 09/11 (emit at
+> parameter/return boundaries), Story 04 (`tyhp/core` helper), Story 15 (interop bump if a new helper is
+> emitted). Complements Idea 4 (docblocks are static; this is runtime).
+> **Source:** `LANGUAGE_ASSESSMENT.md` §4.3. Two-world discussion in `DESIGN_OPEN_QUESTIONS.md` §16.
+
+### Summary
+
+Every Tyhp-only guarantee that erases — struct shapes, generic bounds, the future `sealed` and refined types — is
+advisory at the PHP boundary. A PHP caller can pass `['cents' => 'abc']` into a `Money` parameter and PHP will
+accept it. Idea 4 tells PHPStan; this idea tells the running program, **when the library author opts in**.
+
+v1 is **struct-shaped parameters and returns on public/protected methods and functions** that PHP can call
+(emitted symbols, not `internal`). A `tyhp/core` helper receives the value plus a `\Tyhp\Type::struct(...)`
+descriptor (already emitted for `typeof` / Mechanism C) and throws `\Tyhp\TypeError` (or a dedicated exception)
+on missing keys, extra required-schema failures, or wrong scalar kinds. Generic class bounds and `sealed` are
+out of v1.
+
+This is the same product shape as `build.runtimeGenericChecks`: off by default, on for libraries that want a
+loud PHP-side failure instead of a silent shape mismatch.
+
+### Decisions (defaults chosen)
+
+1. **Opt-in** — `build.runtimeStructChecks` (provisional; register in `CONVENTIONS.md` §4 when scheduled), default
+   `false`. No per-parameter attribute in v1 (an inverse "skip this parameter" attribute is a later addition).
+2. **Public PHP-callable surface only** — public/protected functions and methods. Private / `internal` skipped.
+3. **Structs only in v1** — not generic `T extends Foo`, not `sealed`, not refined types.
+4. **Throw, do not coerce** — wrong shape is an error, not a cast.
+5. **Descriptor reuse** — `\Tyhp\Type::struct` already exists; do not invent a second schema format.
+6. **Interop** — new helper is an `interopContractVersion` bump.
+
+### Risks & Edge Cases
+
+| # | Issue | Mitigation |
+|---|-------|------------|
+| 1 | Cost on every public call | Default off; only libraries that care turn it on |
+| 2 | Extra keys vs structural typing | Match the checker: extra keys allowed; missing required keys fail |
+| 3 | Nested structs / arrays of structs | Recurse using the same `Type` descriptor |
+| 4 | Overlap with Mechanism C property set checks | Those guard *generic* properties on tracked instances; this guards *struct arrays* at the PHP boundary. Different slot. |
+
+### Golden Fixtures / Tests (Acceptance)
+
+- Public `function pay(Money $m)` with checks on: PHP `pay(['cents' => 1, 'currency' => 'USD'])` succeeds;
+  `pay(['cents' => 'x'])` throws; `pay(1)` throws.
+- Checks off: the same bad array is accepted by PHP (Tyhp callers still type-check).
+- Nested `array<Money>` validates each element.
+- `internal` / private methods are not wrapped.
+
+---
+
+## Idea 16 — Precompiled Tyhpdef Symbol Cache (Cold Start)
+
+> **Status:** Tier 4, future plans. Performance, not a language feature. Related to Appendix A (binder Pass-2
+> drain) but that optimization still *walks* stubs; this idea avoids re-binding them.
+> **Prerequisites:** Story 05 (binder symbol tables), Story 13 / 21 (how `tyhpdef/php` is loaded).
+> **Source:** `LANGUAGE_ASSESSMENT.md` §4.5 (~12.6 s cold / ~0.4 s warm for a 2-file project against
+> `tyhpdef/php` + runtime packages).
+
+### Summary
+
+Cold CLI is dominated by parsing and binding the stub corpus, not the user's two files. There is already an
+on-disk **AST** cache (`--no-cache` on lint). Warm runs are fine; CI and first contact pay the full bind.
+
+Ship (or generate on first install of `tyhpdef/php`) a **bound-symbol snapshot** keyed by package name +
+version + compiler major + `output.phpVersion`, so `tyhp lint` of a hello-world project does not re-bind
+~38K lines of tyhpdef. Invalidation is content-hash / version; a mismatch falls back to today's bind.
+
+This is independent of Appendix A's eager-resolution pass and of Workstream 21.12 D/F. Measure first
+(parse vs bind vs check) before picking the snapshot format.
+
+### Decisions (defaults chosen)
+
+1. **Measure first** — add a verbose timing breakdown (`parse` / `bind tyhpdef` / `bind user` / `check` /
+   `emit`) before choosing a format. If parse dominates, AST cache completeness may be enough.
+2. **Snapshot is compiler-private** — not a user-facing `.tyhpdef` format; may live next to the package
+   or in the CLI cache dir.
+3. **Invalidation** — package version + file hashes + compiler version + PHP target. Never reuse across
+   those.
+4. **Do not** require users to run a separate `tyhp cache warmup` for correctness; a missing snapshot
+   just means a slow first run (today's behavior).
+5. **Out of v1** — pre-binding user `overlay/` files (those change constantly).
+
+### Risks & Edge Cases
+
+| # | Issue | Mitigation |
+|---|-------|------------|
+| 1 | Stale snapshot after overlay edit | Hash overlays into the key; user overlays are not in the shipped snapshot |
+| 2 | Snapshot format churn every compiler commit | Key includes compiler version; treat as cache, not an ABI |
+| 3 | Memory vs time | Snapshot should be cheaper than re-bind; if it is not, do not ship it |
+
+### Golden Fixtures / Tests (Acceptance)
+
+- Timing probe: cold bind of `tyhpdef/php` with a snapshot vs without, recorded in a test that only
+  asserts the snapshot path is used (not a wall-clock SLA in CI).
+- Changing one overlay file misses the shipped snapshot and still type-checks correctly.
+- `--no-cache` ignores the symbol snapshot as well as the AST cache.
+
+---
+
+## Idea 17 — Async HTTP, Filesystem, and Database I/O
+
+> **Status:** Tier 4, future plans. Self-contained; may be lifted into its own story when scheduled.
+> **Prerequisites:** Story 04 (`tyhp/async` event loop, `Promise`, Fibers), Story 08/11 (`async`/`await` emit).
+> **Source:** `LANGUAGE_ASSESSMENT.md` §4.5 / §6.7. Locked onto this story 2026-09-15 (not 21.12).
+
+### Summary
+
+`tyhp/async` already runs a single-threaded loop (microtasks → timers → `stream_select` → Fiber resume).
+PDO, `curl_exec`, and `file_get_contents` still **block** that loop. This idea adds non-blocking **HTTP**,
+**filesystem**, and **database** I/O so `await` has real I/O, not just timers.
+
+v1 stays on **`tyhp/async`’s existing loop**. Do not rewrite the runtime onto Revolt/Amp as a prerequisite.
+A Revolt adapter (or becoming a Revolt driver) is a later addendum if a consumer needs to share a loop with
+Amp 3 / ReactPHP.
+
+Ship as modules of `tyhp/async` (or thin `tyhp/async-http` / `tyhp/async-fs` / `tyhp/async-db` packages that
+`require` `tyhp/async`), written in Tyhp, not hand-edited PHP.
+
+### Decisions (defaults chosen)
+
+1. **Loop** — v1 uses the current `EventLoop` / `stream_select`. One loop per process, as today.
+2. **HTTP** — first-party client: DNS + TLS + `stream_select` sockets, `await`-able request/response, no
+   blocking `curl_exec`. HTTP/1.1 is enough for v1; HTTP/2 is later.
+3. **Filesystem** — non-blocking reads/writes/directory listing via the loop (chunked streams or worker
+   Fibers that do not steal the loop with a long `fread` of a huge file). Document that some OS calls
+   still block; do not pretend `unlink` is async if it isn’t.
+4. **Database** — v1 is a **non-blocking driver for one stack** (pick at schedule time: `pgsql` non-blocking
+   or `mysqlnd` async), plus a documented **do-not-call blocking PDO on the loop** diagnostic or FAQ.
+   Wrapping all of PDO as async is out.
+5. **Interop** — new public types bump `interopContractVersion` if they are in `tyhp/async`.
+6. **Not in v1** — a full framework, an ORM, React/Amp compatibility shims.
+
+### Risks & Edge Cases
+
+| # | Issue | Mitigation |
+|---|-------|------------|
+| 1 | Blocking PDO accidentally used inside `async` | Docs (21.12 E) + a later lint if we can prove a call is blocking |
+| 2 | TLS / DNS complexity | Start with HTTP client against a test server; do not boil the ocean on HTTP/2 |
+| 3 | Two event loops if someone also loads Revolt | v1: unsupported; document “one loop.” Adapter is an addendum |
+| 4 | Scope creep into “write Amp” | Three I/O surfaces, one loop, no framework |
+
+### Golden Fixtures / Tests (Acceptance)
+
+- `await httpGet(url)` returns a body without blocking the loop (a concurrent timer still fires).
+- `await readFile(path)` on a fixture file; a planted blocking `file_get_contents` in an async function
+  is **not** treated as the happy path (docs/test comments say it blocks).
+- One DB round-trip on the chosen driver completes under `await` with the loop pumping.
+- Existing `Promise` / timer tests stay green.
 
 ---
 

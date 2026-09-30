@@ -1,9 +1,12 @@
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
+using Tyhp.Domain.Services;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Checker;
 using Tyhp.TyhpLang.Enum;
+using Tyhp.TyhpLang.Versioning;
 
 namespace Tyhp.TyhpLang.Checker.Rules
 {
@@ -30,10 +33,22 @@ namespace Tyhp.TyhpLang.Checker.Rules
             typeof(PhpFunctionDeclAst),
             typeof(PhpObjectTypeDeclAst),
             typeof(PhpConstDeclListAst),
+            typeof(PhpInlineFunctionAst),
+            typeof(TyhpdefImportFunctionDeclAst),
         ];
 
-        public void Check(IBase2Ast node, CheckerState state, CheckerRuleContext context, DiagnosticBag diagnostics) =>
+        public void Check(IBase2Ast node, CheckerState state, CheckerRuleContext context, DiagnosticBag diagnostics)
+        {
             ValidateDeclarationAttributes(node, state, context, diagnostics);
+            if (node is PhpInlineFunctionAst closure)
+            {
+                ValidateParameterAttributes(closure.Parameters, state, context, diagnostics);
+            }
+            else if (node is TyhpdefImportFunctionDeclAst tyhpdefFunction)
+            {
+                ValidateParameterAttributes(tyhpdefFunction.Parameters, state, context, diagnostics);
+            }
+        }
 
         /// <summary>
         /// Validates attributes attached to a declaration target. Used by <see cref="Check"/> for
@@ -63,10 +78,108 @@ namespace Tyhp.TyhpLang.Checker.Rules
             DiagnosticBag diagnostics)
         {
             ValidateAttributeClass(attribute, state, diagnostics);
-            ValidateAttributeTarget(attribute, target, state, diagnostics);
+            if (PhpTypeAttributeSupport.IsPhpTypeAttribute(attribute))
+            {
+                ValidatePhpTypeAttribute(attribute, target, state, diagnostics);
+                ValidateAttributeArguments(attribute, state, diagnostics);
+                ValidateRepeatability(attribute, target, state, diagnostics);
+                return;
+            }
+
+            if (NativeTypeTestAttributeSupport.IsNativeTypeTestAttribute(attribute))
+            {
+                if (!NativeTypeTestAttributeSupport.IsLegalAttributeHost(target))
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        attribute,
+                        MessageCode.CheckerNativeTypeTestInvalidTarget,
+                        DescribeTarget(target, state));
+                }
+
+                ValidateAttributeArguments(attribute, state, diagnostics);
+                ValidateRepeatability(attribute, target, state, diagnostics);
+                return;
+            }
+
+            if (EraseGenericAttributeSupport.IsEraseGenericAttribute(attribute))
+            {
+                if (!EraseGenericAttributeSupport.IsLegalTarget(target))
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        attribute,
+                        MessageCode.CheckerEraseGenericInvalidTarget,
+                        DescribeTarget(target, state));
+                }
+
+                ValidateAttributeArguments(attribute, state, diagnostics);
+                ValidateRepeatability(attribute, target, state, diagnostics);
+                return;
+            }
+
+            if (GenericRuntimeAttributeSupport.IsGenericRuntimeAttribute(attribute)
+                && !IsTyhpdefAttributeHost(target, state))
+            {
+                CheckerHelpers.ReportWarning(
+                    diagnostics,
+                    state,
+                    attribute,
+                    MessageCode.CheckerGenericRuntimeAuthorWritten);
+            }
+
+            ValidateAttributeTarget(attribute, target, state, context, diagnostics);
             ValidateAttributeArguments(attribute, state, diagnostics);
             ValidateRepeatability(attribute, target, state, diagnostics);
             ValidateOverride(attribute, target, state, context, diagnostics);
+        }
+
+        private static void ValidateParameterAttributes(
+            PhpParameterListAst? parameters,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (parameters is null)
+            {
+                return;
+            }
+
+            foreach (var parameter in parameters.GetAllNotNull())
+            {
+                ValidateDeclarationAttributes(parameter, state, context, diagnostics);
+            }
+        }
+
+        private static void ValidatePhpTypeAttribute(
+            PhpAttributeAst attribute,
+            IBase2Ast target,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (!PhpTypeAttributeSupport.IsAllowedTarget(target))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    attribute,
+                    MessageCode.CheckerPhpTypeInvalidTarget,
+                    DescribeTarget(target, state));
+                return;
+            }
+
+            if (!PhpTypeAttributeSupport.TryReadTypeArgument(attribute, out var spelling)
+                || !PhpTypeAttributeSupport.IsValidPhpTypeHint(spelling))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    attribute,
+                    MessageCode.CheckerPhpTypeInvalidSpelling,
+                    string.IsNullOrEmpty(spelling) ? "<none>" : spelling);
+            }
         }
 
         private static void ValidateAttributeClass(
@@ -113,6 +226,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             PhpAttributeAst attribute,
             IBase2Ast target,
             CheckerState state,
+            CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
             var attributeName = GetAttributeName(attribute.Name);
@@ -121,15 +235,18 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
-            if (IsOverrideAttribute(attribute) && target is not PhpMethodDeclAst)
+            // PHP 8.3+: methods. PHP 8.5+: properties (including promoted constructor params).
+            // Below 8.5 a property is still a target mismatch, even though the Core stub's
+            // `#[Attribute(12)]` already lists TARGET_PROPERTY.
+            if (IsOverrideAttribute(attribute) && !IsLegalOverrideTarget(target, context))
             {
-                CheckerHelpers.ReportError(
-                    diagnostics,
-                    state,
+                ReportAttributeTargetMismatch(
                     attribute,
-                    MessageCode.CheckerAttributeTargetMismatch,
-                    attributeName,
-                    DescribeTarget(target, state));
+                    target,
+                    state,
+                    context,
+                    diagnostics,
+                    attributeName);
                 return;
             }
 
@@ -137,6 +254,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 && target is not PhpPropertyDeclAst
                 && target is not PhpParameterAst)
             {
+                // \AllowUnset is Tyhp-only, not a PHP Core engine attribute — never skipped by
+                // #[\DelayedTargetValidation].
                 CheckerHelpers.ReportError(
                     diagnostics,
                     state,
@@ -169,14 +288,152 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             if ((allowedFlags & requiredFlag.Value) == 0)
             {
-                CheckerHelpers.ReportError(
-                    diagnostics,
-                    state,
+                ReportAttributeTargetMismatch(
                     attribute,
-                    MessageCode.CheckerAttributeTargetMismatch,
-                    attributeName,
-                    DescribeTarget(target, state));
+                    target,
+                    state,
+                    context,
+                    diagnostics,
+                    attributeName);
             }
+        }
+
+        /// <summary>
+        /// TYHP4127 unless <c>#[\DelayedTargetValidation]</c> is on this declaration, the
+        /// attribute is a PHP Core engine class, and <c>output.phpVersion</c> is ≥ 8.5.
+        /// Functional checks (TYHP4129 / TYHP4165) are not gated here.
+        /// </summary>
+        private static void ReportAttributeTargetMismatch(
+            PhpAttributeAst attribute,
+            IBase2Ast target,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics,
+            string attributeName)
+        {
+            if (ShouldSkipCoreAttributeTargetMismatch(attribute, target, context))
+            {
+                return;
+            }
+
+            CheckerHelpers.ReportError(
+                diagnostics,
+                state,
+                attribute,
+                MessageCode.CheckerAttributeTargetMismatch,
+                attributeName,
+                DescribeTarget(target, state));
+        }
+
+        /// <summary>
+        /// PHP 8.5 <c>#[\DelayedTargetValidation]</c> defers TARGET_* errors for <em>internal</em>
+        /// (Core) attributes on the same declaration until <c>ReflectionAttribute::newInstance()</c>.
+        /// Userland attributes are still checked. Below 8.5 the skip is ignored.
+        /// </summary>
+        private static bool ShouldSkipCoreAttributeTargetMismatch(
+            PhpAttributeAst attribute,
+            IBase2Ast target,
+            CheckerRuleContext context)
+            => IsPhpVersionAtLeast85(context.Options.PhpVersion)
+                && IsPhpCoreEngineAttribute(attribute)
+                && DeclarationHasCoreDelayedTargetValidation(target);
+
+        private static bool DeclarationHasCoreDelayedTargetValidation(IBase2Ast target)
+        {
+            foreach (var node in target.AstAttributes)
+            {
+                if (node is PhpAttributeAst attr && IsCoreDelayedTargetValidationAttribute(attr))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsCoreDelayedTargetValidationAttribute(PhpAttributeAst attribute)
+            => MatchesGlobalEngineAttributeName(
+                   GetBoundOrWrittenAttributeName(attribute),
+                   "DelayedTargetValidation")
+               && IsPhpCoreEngineAttribute(attribute);
+
+        /// <summary>
+        /// PHP Core engine attribute classes (<c>\Override</c>, <c>\Deprecated</c>, …). Namespaced
+        /// or userland <c>.tyhp</c> shadows are not Core.
+        /// </summary>
+        private static bool IsPhpCoreEngineAttribute(PhpAttributeAst attribute)
+        {
+            if (attribute.Name is PhpNameAst { BoundSymbol: ObjectDeclarationSymbol obj })
+            {
+                if (!MatchesAnyGlobalEngineAttributeName(obj.FullyQualifiedName)
+                    && !MatchesAnyGlobalEngineAttributeName(obj.Name))
+                {
+                    return false;
+                }
+
+                return IsEngineDeclarationSource(obj.SourceFile);
+            }
+
+            return MatchesAnyGlobalEngineAttributeName(GetAttributeName(attribute.Name));
+        }
+
+        private static string? GetBoundOrWrittenAttributeName(PhpAttributeAst attribute)
+        {
+            if (attribute.Name is PhpNameAst { BoundSymbol: ObjectDeclarationSymbol obj })
+            {
+                return obj.FullyQualifiedName ?? obj.Name;
+            }
+
+            return GetAttributeName(attribute.Name);
+        }
+
+        private static bool MatchesAnyGlobalEngineAttributeName(string? name)
+            => MatchesGlobalEngineAttributeName(name, "Override")
+                || MatchesGlobalEngineAttributeName(name, "Deprecated")
+                || MatchesGlobalEngineAttributeName(name, "NoDiscard")
+                || MatchesGlobalEngineAttributeName(name, "SensitiveParameter")
+                || MatchesGlobalEngineAttributeName(name, "ReturnTypeWillChange")
+                || MatchesGlobalEngineAttributeName(name, "DelayedTargetValidation")
+                || MatchesGlobalEngineAttributeName(name, "Attribute")
+                || MatchesGlobalEngineAttributeName(name, "AllowDynamicProperties");
+
+        /// <summary>
+        /// True when <paramref name="name"/> is exactly the global engine class
+        /// (leading <c>\</c> optional). <c>App\Override</c> does not match <c>Override</c>.
+        /// </summary>
+        private static bool MatchesGlobalEngineAttributeName(string? name, string engineName)
+        {
+            if (name is null)
+            {
+                return false;
+            }
+
+            var bare = name.StartsWith('\\') ? name.AsSpan(1) : name.AsSpan();
+            return bare.Equals(engineName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Engine / stub sources. A user <c>.tyhp</c> class that reuses a Core name is userland.
+        /// Unbound names (empty source) are treated as the engine class — isolated tests have no
+        /// ExtCore <c>Override</c> / <c>DelayedTargetValidation</c> stub. Paths under
+        /// <c>runtime/packages/php/</c>, <c>/packages/php/</c>, or the resolved runtime-src
+        /// <c>php</c> package are engine sources.
+        /// </summary>
+        private static bool IsEngineDeclarationSource(string? sourceFile)
+        {
+            if (string.IsNullOrWhiteSpace(sourceFile))
+            {
+                return true;
+            }
+
+            if (sourceFile.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase)
+                || sourceFile.StartsWith("<tyhpdef:", StringComparison.OrdinalIgnoreCase)
+                || sourceFile.StartsWith("<embedded>", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return RuntimePackagePaths.IsEnginePhpPackageSource(sourceFile);
         }
 
         /// <summary>
@@ -197,26 +454,53 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 PhpEnumCaseAst => "enum case",
                 PhpObjectTypeDeclAst objectType =>
                     objectType.DeclType?.ValueString?.ToLowerInvariant() ?? "class",
+                PhpPropertyHookAst => "property hook",
+                PhpCatchClauseAst => "catch",
+                TyhpTypedVarExprAst => "local variable",
+                PhpInlineFunctionAst => "function",
+                TyhpStructDeclAst => "struct",
+                TyhpTypeAliasAst => "type alias",
                 _ => target.GetType().Name,
             };
+
+        private static bool IsTyhpdefAttributeHost(IBase2Ast target, CheckerState state)
+        {
+            if (string.Equals(target.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase)
+                || target.OwningFile is TyhpdefSrcFileAst)
+            {
+                return true;
+            }
+
+            var file = state.CurrentFileName ?? target.OwningFile?.Identifier ?? "";
+            return file.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase)
+                || file.Contains("<tyhpdef:", StringComparison.OrdinalIgnoreCase);
+        }
 
         /// <summary>
         /// PHP <c>Attribute::TARGET_*</c> bit required for <paramref name="target"/>, or null when
         /// this rule does not validate that kind of declaration.
+        /// Promoted constructor parameters are one declaration that is both a parameter and a
+        /// property: an attribute is legal when it has either <c>TARGET_PARAMETER</c> or
+        /// <c>TARGET_PROPERTY</c>. Version gating for <c>#[\Override]</c> on properties lives in
+        /// <see cref="IsLegalOverrideTarget"/>, not here.
         /// </summary>
         private static long? RequiredTargetFlag(IBase2Ast target, CheckerState state) =>
             target switch
             {
                 PhpMethodDeclAst => AttributeTargetMethod,
                 PhpPropertyDeclAst => AttributeTargetProperty,
+                PhpParameterAst parameter when IsPromotedConstructorParameter(parameter)
+                    => AttributeTargetParameter | AttributeTargetProperty,
                 PhpParameterAst => AttributeTargetParameter,
                 PhpFunctionDeclAst => AttributeTargetFunction,
+                PhpInlineFunctionAst => AttributeTargetFunction,
                 PhpEnumCaseAst => AttributeTargetClassConstant,
                 PhpConstDeclListAst =>
                     state.EnclosingObject is not null
                         ? AttributeTargetClassConstant
                         : AttributeTargetConstant,
                 PhpObjectTypeDeclAst => AttributeTargetClass,
+                TyhpTypeAliasAst => AttributeTargetClass,
                 _ => null,
             };
 
@@ -448,29 +732,133 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
-            // A non-method target is already reported as a target mismatch, and there is no method
-            // name to put in this message.
-            if (target is not PhpMethodDeclAst method)
+            // Constructors are exempt from override semantics at every phpVersion. Report even
+            // inside a trait (no composing-class walk is needed) and even when a parent
+            // constructor exists — this is not TYHP4129.
+            if (target is PhpMethodDeclAst constructorCandidate && IsConstructorMethod(constructorCandidate))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics, state, attribute, MessageCode.CheckerOverrideOnConstructor);
+                return;
+            }
+
+            // A non-method / non-property (at this phpVersion) target is already a mismatch.
+            if (target is not PhpMethodDeclAst
+                && target is not PhpPropertyDeclAst
+                && !IsPromotedConstructorParameter(target))
+            {
+                return;
+            }
+
+            if (target is PhpPropertyDeclAst or PhpParameterAst
+                && !IsPhpVersionAtLeast85(context.Options.PhpVersion))
             {
                 return;
             }
 
             // PHP resolves a trait's `#[Override]` against the composing class, so the trait
-            // declaration itself has nothing to compare against. An unbound method or a missing
-            // enclosing object leaves nothing to walk either — stay quiet rather than guess.
+            // declaration itself has nothing to compare against. A missing enclosing object
+            // leaves nothing to walk either — stay quiet rather than guess.
             if (state.EnclosingObject is null
-                || state.EnclosingObject.ObjectKind == PhpTypeDeclType.Trait
-                || method.BoundSymbol is not ObjectMethodSymbol methodSymbol)
+                || state.EnclosingObject.ObjectKind == PhpTypeDeclType.Trait)
             {
                 return;
             }
 
-            if (!OverridesInheritedMethod(methodSymbol, state.EnclosingObject, context))
+            if (target is PhpMethodDeclAst method)
             {
-                CheckerHelpers.ReportError(
-                    diagnostics, state, attribute, MessageCode.CheckerOverrideNotOverriding, methodSymbol.Name);
+                if (method.BoundSymbol is not ObjectMethodSymbol methodSymbol)
+                {
+                    return;
+                }
+
+                if (!OverridesInheritedMethod(methodSymbol, state.EnclosingObject, context))
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        attribute,
+                        MessageCode.CheckerOverrideNotOverriding,
+                        methodSymbol.Name);
+                }
+
+                return;
+            }
+
+            foreach (var propertyName in EnumerateOverridePropertyNames(target))
+            {
+                if (!OverridesInheritedProperty(propertyName, state.EnclosingObject, context))
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        attribute,
+                        MessageCode.CheckerOverrideNotOverriding,
+                        FormatPropertyName(propertyName));
+                }
             }
         }
+
+        private static bool IsConstructorMethod(PhpMethodDeclAst method) =>
+            method.BoundSymbol is ObjectConstructorMethodSymbol
+            || string.Equals(method.Identifier, "__construct", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsLegalOverrideTarget(IBase2Ast target, CheckerRuleContext context)
+        {
+            if (target is PhpMethodDeclAst)
+            {
+                return true;
+            }
+
+            if (!IsPhpVersionAtLeast85(context.Options.PhpVersion))
+            {
+                return false;
+            }
+
+            return target is PhpPropertyDeclAst || IsPromotedConstructorParameter(target);
+        }
+
+        private static bool IsPromotedConstructorParameter(IBase2Ast target) =>
+            target is PhpParameterAst { Modifiers: not null };
+
+        private static bool IsPhpVersionAtLeast85(string? phpVersion)
+        {
+            var text = string.IsNullOrWhiteSpace(phpVersion)
+                ? CompilationOptions.DefaultPhpVersionWhenUnset
+                : phpVersion;
+            return PhpVersion.TryParse(text, out var parsed) && parsed >= new PhpVersion(8, 5, 0);
+        }
+
+        private static IEnumerable<string> EnumerateOverridePropertyNames(IBase2Ast target)
+        {
+            if (target is PhpPropertyDeclAst propertyDecl)
+            {
+                foreach (var prop in propertyDecl.Properties?.GetAllNotNull() ?? [])
+                {
+                    var name = prop.Identifier ?? "";
+                    if (string.IsNullOrEmpty(name) || string.Equals(name, "<error>", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    yield return name;
+                }
+
+                yield break;
+            }
+
+            if (target is PhpParameterAst parameter)
+            {
+                var name = parameter.Name;
+                if (!string.IsNullOrEmpty(name))
+                {
+                    yield return name;
+                }
+            }
+        }
+
+        private static string FormatPropertyName(string name) =>
+            name.StartsWith('$') ? name : "$" + name;
 
         private static bool IsAttributeClass(ObjectDeclarationSymbol symbol)
         {
@@ -511,7 +899,17 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     || name.EndsWith("\\AllowUnset", StringComparison.OrdinalIgnoreCase)
                     // PHP 8.5; ExtCore stub lands in Story 21 — allow unbound use until then.
                     || string.Equals(name, "NoDiscard", StringComparison.OrdinalIgnoreCase)
-                    || name.EndsWith("\\NoDiscard", StringComparison.OrdinalIgnoreCase));
+                    || name.EndsWith("\\NoDiscard", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(name, "DelayedTargetValidation", StringComparison.OrdinalIgnoreCase)
+                    || name.EndsWith("\\DelayedTargetValidation", StringComparison.OrdinalIgnoreCase)
+                    // PHP 8.4; class stays gated in tyhpdef, but use-site TYHP4500 is not.
+                    || string.Equals(name, "Deprecated", StringComparison.OrdinalIgnoreCase)
+                    || name.EndsWith("\\Deprecated", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(name, "NativeTypeTest", StringComparison.OrdinalIgnoreCase)
+                    || name.EndsWith("\\NativeTypeTest", StringComparison.OrdinalIgnoreCase)
+                    // Compile-time PHP version gate (Story 20.5). Omitted variants skip bind,
+                    // so the attribute name may have no BoundSymbol on the checker walk.
+                    || PhpVersionRule.IsTyhpPhpFullyQualifiedName(name));
 
         private static bool IsAllowUnsetAttribute(PhpAttributeAst attribute)
         {
@@ -596,7 +994,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
         private static bool IsBitwiseOr(PhpBinaryOpAst binary) =>
             binary.Operator is not null
-            && PhpBinaryOperatorExtensions.FromToken(binary.Operator.TokenValue)
+            && PhpBinaryOperatorExtensions.FromToken(binary.Operator.TokenValue, binary.Operator.ValueString)
                 == PhpBinaryOperator.BitwiseOr;
 
         private static bool IsIsRepeatableConstantName(IExpression? member)
@@ -623,9 +1021,38 @@ namespace Tyhp.TyhpLang.Checker.Rules
             ObjectMethodSymbol methodSymbol,
             ObjectDeclarationSymbol enclosingObject,
             CheckerRuleContext context)
+            => WalksInheritedMember(
+                enclosingObject,
+                context,
+                ancestor =>
+                    ancestor.Members.TryGetValue(methodSymbol.Name, out var member)
+                    && member is ObjectMethodSymbol ancestorMethod
+                    && (ancestorMethod.Visibility & MemberModifier.Private) == 0);
+
+        /// <summary>
+        /// True when a same-name non-private property exists on a parent class or implemented
+        /// (or, for an interface, extended) interface. PHP 8.5 <c>#[Override]</c> on properties
+        /// uses the same parent + interface graph as methods.
+        /// </summary>
+        private static bool OverridesInheritedProperty(
+            string propertyName,
+            ObjectDeclarationSymbol enclosingObject,
+            CheckerRuleContext context)
+            => WalksInheritedMember(
+                enclosingObject,
+                context,
+                ancestor => AncestorHasNonPrivateProperty(ancestor, propertyName));
+
+        /// <summary>
+        /// BFS over <c>extends</c> / <c>implements</c> (and interface <c>extends</c>). A cyclic
+        /// hierarchy is reported elsewhere but still reaches this walk, so the visited set is
+        /// what stops it from spinning forever.
+        /// </summary>
+        private static bool WalksInheritedMember(
+            ObjectDeclarationSymbol enclosingObject,
+            CheckerRuleContext context,
+            Func<ObjectDeclarationSymbol, bool> foundOnAncestor)
         {
-            // A cyclic hierarchy (`class A extends B` / `class B extends A`) is reported elsewhere but
-            // still reaches this walk, so the visited set is what stops it from spinning forever.
             var visited = new HashSet<ObjectDeclarationSymbol> { enclosingObject };
             var pending = new Queue<ObjectDeclarationSymbol>();
             pending.Enqueue(enclosingObject);
@@ -642,11 +1069,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
                     pending.Enqueue(ancestor);
 
-                    // PHP keeps a private method out of the inheritance slot, so a same-named method
-                    // below it does not override it.
-                    if (ancestor.Members.TryGetValue(methodSymbol.Name, out var member)
-                        && member is ObjectMethodSymbol ancestorMethod
-                        && (ancestorMethod.Visibility & MemberModifier.Private) == 0)
+                    if (foundOnAncestor(ancestor))
                     {
                         return true;
                     }
@@ -655,6 +1078,40 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             return false;
         }
+
+        private static bool AncestorHasNonPrivateProperty(
+            ObjectDeclarationSymbol ancestor,
+            string propertyName)
+        {
+            var bare = propertyName.StartsWith('$') ? propertyName[1..] : propertyName;
+            if (string.IsNullOrEmpty(bare))
+            {
+                return false;
+            }
+
+            if (TryGetNonPrivateProperty(ancestor, "$" + bare)
+                || TryGetNonPrivateProperty(ancestor, bare))
+            {
+                return true;
+            }
+
+            foreach (var candidate in ancestor.Members.Values.OfType<ObjectPropertySymbol>())
+            {
+                var candidateBare = candidate.Name.StartsWith('$') ? candidate.Name[1..] : candidate.Name;
+                if (string.Equals(candidateBare, bare, StringComparison.OrdinalIgnoreCase)
+                    && (candidate.Visibility & MemberModifier.Private) == 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetNonPrivateProperty(ObjectDeclarationSymbol ancestor, string key) =>
+            ancestor.Members.TryGetValue(key, out var member)
+            && member is ObjectPropertySymbol property
+            && (property.Visibility & MemberModifier.Private) == 0;
 
         private static string? GetAttributeName(IExpression? expression) =>
             expression switch

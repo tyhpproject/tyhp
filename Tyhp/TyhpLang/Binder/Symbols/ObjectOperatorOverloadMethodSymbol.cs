@@ -30,7 +30,8 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         /// <summary>
         /// Resolved type that this extension operator applies to — an
         /// <see cref="ObjectDeclarationSymbol"/> (class/interface/…) or a
-        /// <see cref="BuiltInTypeSymbol"/> (e.g. <c>string</c>, <c>int</c>).
+        /// value-bearing <see cref="BuiltInTypeSymbol"/> (e.g. <c>string</c>, <c>int</c>).
+        /// Non-instantiable builtins are rejected (TYHP3025) and leave this null.
         /// </summary>
         public IBaseSymbol? ExtensionTargetSymbol { get; internal set; }
 
@@ -42,9 +43,15 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         public ObjectOperatorOverloadMethodSymbol(
             string name,
             OverloadableOperator overloadOperator,
-            string? sourceFile = null
+            string? sourceFile = null,
+            IBase2Ast? declaringNode = null
         )
-            : base(name, sourceFile: sourceFile ?? string.Empty, symbolType: SymbolType.ObjectOperatorOverload)
+            : base(
+                name,
+                declaringNode,
+                sourceFile ?? string.Empty,
+                MemberModifier.None,
+                SymbolType.ObjectOperatorOverload)
         {
             this.Operator = overloadOperator;
         }

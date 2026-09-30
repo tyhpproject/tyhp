@@ -14,8 +14,9 @@ namespace Tyhp.TyhpLang.Ast
         public PhpModifierListAst? Modifiers => Children.ElementAtOrDefault(1) as PhpModifierListAst;
 
         /// <summary>
-        /// Optional type annotation from a typed class constant (<c>const string X = …</c>, PHP 8.3+).
-        /// Null for untyped class constants and for top-level (file-scope) constants.
+        /// Optional type annotation. Set for typed class constants and for file-level
+        /// <c>const int X = …</c> (parsed so the checker can reject that form in Tyhp source).
+        /// Null when the declaration has no written type.
         /// </summary>
         public ITypeExpression? Type => Children.ElementAtOrDefault(2) as ITypeExpression;
 

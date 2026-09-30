@@ -74,6 +74,77 @@ public class CheckerStateVariableTests
     }
 
     [Fact]
+    public void DeclareVariable_DuplicateTypedLocal_LabelsFirstDeclaration()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(): void {
+                int $x = 1;
+                int $x = 2;
+            }
+            """);
+
+        var error = diagnostics.Errors
+            .Should()
+            .ContainSingle(d => d.Code == MessageCode.BinderDuplicateSymbolDeclaration)
+            .Subject;
+        error.Labels.Should().ContainSingle();
+        error.Labels[0].Message.Should().Be(Tyhp.CLI.Message.Localize("CLI_DiagnosticLabelDeclaredHere"));
+        error.Labels[0].Span.FileName.Should().Be(error.FileName);
+        error.Labels[0].Span.Line.Should().BeLessThan(error.Line);
+    }
+
+    [Fact]
+    public void DuplicateGenericParameter_FullPipeline_ChecksWithoutCrashing()
+    {
+        // The duplicate `T` is reported (BinderDuplicateGenericParameter, TYHP3011) and dropped
+        // from GenericParameters rather than registered twice (Workstream F.1). Confirms the
+        // checker/emitter pipeline still runs to completion on the surviving single parameter.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Box<T, T> {
+                private T $value;
+
+                function __construct(T $value) {
+                    $this->value = $value;
+                }
+
+                function get(): T {
+                    return $this->value;
+                }
+            }
+
+            function demo(): void {
+                $box = new Box<int, int>(5);
+                $x = $box->get();
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.BinderDuplicateGenericParameter);
+    }
+
+    private static DiagnosticBag CompileAndCheck(string content)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var filePath = Path.Combine(tempDir, "test.tyhp");
+        File.WriteAllText(filePath, content);
+
+        try
+        {
+            using var compilationService = new CompilationService();
+            var options = IsolatedCompilation.CreateOptions(tempDir);
+            var result = compilationService.ParseFiles([filePath], options);
+            result.GlobalScope.Should().NotBeNull("bind should succeed");
+            return result.Diagnostics;
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
     public void LookupVariable_StopsAtFunctionBoundary()
     {
         var outer = new CheckerState { ScopeType = ScopeType.FunctionDeclaration };
@@ -150,6 +221,24 @@ public class TypeInferrerTests
     }
 
     [Fact]
+    public void InferExpressionType_NativeSpaceship_ReturnsMinusOneZeroOneUnion()
+    {
+        var (checker, file, _) = CompileForChecker("""
+            <?tyhp
+            function compare(): int {
+                return 1 <=> 2;
+            }
+            """);
+
+        var binary = FindBinaryOperator(file, PhpBinaryOperator.Spaceship);
+        binary.Should().NotBeNull();
+
+        var type = checker.ResolveExpressionType(binary!, new CheckerState());
+        type.Should().Be(CheckedTypes.SpaceshipResult);
+        type.DisplayName.Should().Be("-1|0|1");
+    }
+
+    [Fact]
     public void ResolveTypeAnnotation_UnionType_ResolvesMembers()
     {
         var (checker, file, global) = CompileForChecker("""
@@ -213,14 +302,7 @@ public class TypeInferrerTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             var bindErrors = result.Diagnostics.Errors.Where(e => (int)e.Code < 4000).ToList();
             bindErrors.Should().BeEmpty(

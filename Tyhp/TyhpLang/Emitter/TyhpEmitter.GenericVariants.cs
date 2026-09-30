@@ -1,5 +1,6 @@
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Enum;
@@ -192,6 +193,105 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         /// <summary>
+        /// Extension-method Mechanism D pair: same Closure binder as a free function, emitted as
+        /// <c>public static</c> members of the extension backer class. Delegation uses
+        /// <c>static::</c> so a subclass of the backer (unusual, but consistent with static methods)
+        /// still reaches the binder.
+        /// </summary>
+        private void EmitExtensionGenericVariantPair(
+            PhpFunctionDeclAst function,
+            EmitItem parent,
+            IReadOnlyList<GenericTypeParameterSymbol> variantGenerics)
+        {
+            var wrapperSignature = "public static function " + this.BuildWrapperFacingSignature(function);
+            var wrapperBlock = this.ApplyDocComment(
+                function,
+                EmitItem.BlockBraceNextLine(
+                    function, EmitType.ObjectStaticMethods, wrapperSignature, "}", parent));
+            this.AttachAttributes(function, wrapperBlock);
+            this.EmitExtensionVariantDelegationBody(function, variantGenerics, wrapperBlock);
+
+            var previous = this._currentVariantGenericParams;
+            this._currentVariantGenericParams = variantGenerics;
+            try
+            {
+                this.EmitGenericVariantBinderExtensionMethod(function, parent);
+            }
+            finally
+            {
+                this._currentVariantGenericParams = previous;
+            }
+        }
+
+        private void EmitExtensionVariantDelegationBody(
+            PhpFunctionDeclAst function,
+            IReadOnlyList<GenericTypeParameterSymbol> variantGenerics,
+            EmitItem wrapperBlock)
+        {
+            var typeArgs = this.BuildWrapperDelegatingTypeArguments(function.Parameters, variantGenerics);
+            var binderCall = "static::"
+                + this.BuildVariantName(function.Identifier)
+                + "(" + string.Join(", ", typeArgs) + ")";
+            var valueArgs = this.BuildDeclaredForwardedArguments(function.Parameters);
+
+            if (function.ReturnsRef)
+            {
+                EmitItem.Line(
+                    function,
+                    EmitType.FunctionStatement,
+                    $"$fn = {binderCall};",
+                    wrapperBlock);
+                EmitItem.Line(
+                    function,
+                    EmitType.FunctionStatement,
+                    $"return $fn({valueArgs});",
+                    wrapperBlock);
+                return;
+            }
+
+            var invoke = $"{binderCall}({valueArgs})";
+            EmitItem.Line(
+                function,
+                EmitType.FunctionStatement,
+                !this.IsAsyncModifiers(function) && ReturnsNoValue(function.ReturnType)
+                    ? invoke + ";"
+                    : "return " + invoke + ";",
+                wrapperBlock);
+        }
+
+        private void EmitGenericVariantBinderExtensionMethod(PhpFunctionDeclAst function, EmitItem parent)
+        {
+            var binderSig = "public static " + this.BuildVariantBinderFunctionSignature(function);
+            var binderBlock = EmitItem.BlockBraceNextLine(
+                function,
+                EmitType.ObjectStaticMethods,
+                binderSig,
+                "}",
+                parent);
+            EmitItem.AttachDocComment(this.BuildVariantBinderDocComment(function), binderBlock);
+            this.AttachAttributes(function, binderBlock);
+
+            this.EmitVariantTypeArgPrologue(function, binderBlock);
+
+            var closureBlock = this.OpenVariantValueClosure(
+                function,
+                binderBlock,
+                function.Parameters,
+                function.ReturnType,
+                function.ReturnsRef,
+                this.IsAsyncModifiers(function));
+
+            if (this.IsAsyncModifiers(function))
+            {
+                this.EmitAsyncWrappedBody(function, closureBlock, captureThis: false);
+            }
+            else
+            {
+                this.EmitFunctionBody(function.Body, closureBlock);
+            }
+        }
+
+        /// <summary>
         /// The signature the wrapper (or bodyless declaration) presents under the declared name. An
         /// <c>async</c> callable's outward-facing form returns a <c>\Tyhp\Promise</c> rather than the
         /// declared type, so both halves of the pair have to be built by the same rule the
@@ -274,6 +374,11 @@ namespace Tyhp.TyhpLang.Emitter
             bool isAsync)
         {
             var paramParts = new List<string>();
+            if (!string.IsNullOrEmpty(this._extensionReceiverParameterText))
+            {
+                paramParts.Add(this._extensionReceiverParameterText);
+            }
+
             foreach (var parameter in parameters?.GetAllNotNull() ?? [])
             {
                 var type = parameter.Type != null
@@ -314,7 +419,7 @@ namespace Tyhp.TyhpLang.Emitter
 
         /// <summary>
         /// The wrapper's body: invoke the binder with type args (null, or a callable-return
-        /// inference expression when a value parameter is typed <c>callable&lt;…, T&gt;</c>), then
+        /// inference expression when a value parameter is typed <c>callable(...): T</c>), then
         /// apply the declared value arguments to the returned Closure. Return-by-ref uses a temporary
         /// so the reference is not broken by a by-value return of a nested call expression.
         /// </summary>
@@ -422,9 +527,11 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         /// <summary>
-        /// Finds a value parameter typed as <c>callable&lt;…, T&gt;</c> / <c>Closure&lt;…, T&gt;</c>
-        /// whose last type argument names <paramref name="genericName"/> — the PHP return type of
-        /// that callable is then a runtime source for <paramref name="genericName"/>.
+        /// Finds a value parameter typed as <c>callable(...): T</c> or
+        /// <c>\Closure&lt;(callable(...): T)&gt;</c> whose callable-shape return type names
+        /// <paramref name="genericName"/> — the PHP return type of that callable is then a
+        /// runtime source for <paramref name="genericName"/>. Closure class type arguments are
+        /// not return-last; the return lives on <c>TCallableShape</c>.
         /// </summary>
         private static string? TryFindCallableReturnInferenceParameter(
             PhpParameterListAst? parameters,
@@ -442,13 +549,14 @@ namespace Tyhp.TyhpLang.Emitter
                     continue;
                 }
 
-                if (TryGetCallableOrClosureTypeArguments(parameter.Type) is not { Count: > 0 } typeArgs)
+                if (!TryGetCallableReturnLastTypeArgument(parameter.Type, out var returnArg)
+                    || returnArg is null)
                 {
                     continue;
                 }
 
                 if (string.Equals(
-                        Checker.Rules.CheckerHelpers.SoleTypeName(typeArgs[^1]),
+                        Checker.Rules.CheckerHelpers.SoleTypeName(returnArg),
                         genericName,
                         StringComparison.Ordinal))
                 {
@@ -457,6 +565,57 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Return type of a <c>callable(…): R</c> shape. For <c>\Closure&lt;C&gt;</c>, <c>C</c>
+        /// is the callable shape — not Closure's last class type argument.
+        /// </summary>
+        private static bool TryGetCallableReturnLastTypeArgument(
+            ITypeExpression type,
+            out ITypeExpression? returnArg)
+        {
+            if (TyhpCallableShapeAst.Find(type) is { } shape)
+            {
+                returnArg = shape.ReturnType;
+                return returnArg is not null;
+            }
+
+            returnArg = null;
+            if (TryGetCallableOrClosureTypeArguments(type) is not { Count: > 0 } typeArgs)
+            {
+                return false;
+            }
+
+            if (IsClosureTypeExpression(type))
+            {
+                return TryGetCallableReturnLastTypeArgument(typeArgs[0], out returnArg);
+            }
+
+            returnArg = typeArgs[^1];
+            return true;
+        }
+
+        private static bool IsClosureTypeExpression(ITypeExpression type)
+        {
+            while (type is PhpTypeExpressionAst { IsNullable: false, Types: { } members })
+            {
+                var only = members.GetAllNotNull().ToList();
+                if (only.Count != 1 || only[0] is not ITypeExpression inner)
+                {
+                    break;
+                }
+
+                type = inner;
+            }
+
+            return type switch
+            {
+                PhpNamedTypeAst named => IsClosureTypeSpelling(named),
+                TyhpGenericIdentifierAst g => IsClosureTypeSpelling(g),
+                PhpNameAst name => IsClosureTypeSpelling(name),
+                _ => false,
+            };
         }
 
         private static IReadOnlyList<ITypeExpression>? TryGetCallableOrClosureTypeArguments(
@@ -514,6 +673,12 @@ namespace Tyhp.TyhpLang.Emitter
         private string BuildDeclaredForwardedArguments(PhpParameterListAst? parameters)
         {
             var parts = new List<string>();
+            if (!string.IsNullOrEmpty(this._extensionReceiverParameterText)
+                && this._context.ExtensionReceiverThisAlias is { } receiverAlias)
+            {
+                parts.Add(receiverAlias);
+            }
+
             foreach (var parameter in parameters?.GetAllNotNull() ?? [])
             {
                 if (string.IsNullOrWhiteSpace(parameter.Name))
@@ -762,8 +927,33 @@ namespace Tyhp.TyhpLang.Emitter
         /// </summary>
         private string? TryBuildGenericVariantCall(PhpDereferenceableAst dereferenceable, PhpCallAst call)
         {
-            if (!this._context.GenericCallTargets.TryGetValue(call, out var callee)
-                || !this._context.RequiresGenericVariantFor(callee))
+            if (!this._context.GenericCallTargets.TryGetValue(call, out var callee))
+            {
+                // Extension instance calls are rewritten to FQ static calls with a fresh PhpCallAst
+                // that is not in GenericCallTargets. The rewrite stamps BoundSymbol on the
+                // dereferenceable so Mechanism D still routes.
+                callee = dereferenceable.BoundSymbol;
+            }
+
+            if (callee is null)
+            {
+                return null;
+            }
+
+            var foreign = this._context.HasForeignGenericRuntime(callee);
+            if (!foreign && !this._context.RequiresGenericVariantFor(callee))
+            {
+                return null;
+            }
+
+            if (TryGetCallSiteTypeArguments(dereferenceable.Base) is not { Count: > 0 })
+            {
+                // `$h->zero()` without type arguments is the wrapper, which already delegates
+                // into the binder with nulls. Do not rewrite that call.
+                return null;
+            }
+
+            if (!this.GenericRuntimeLayoutIsSupported(callee, call))
             {
                 return null;
             }
@@ -783,6 +973,39 @@ namespace Tyhp.TyhpLang.Emitter
 
             var typeArgs = TryGetCallSiteTypeArguments(dereferenceable.Base);
             var leadingArgs = this.BuildVariantTypeArguments(genericParams, typeArgs);
+            var typeArgsList = string.Join(", ", leadingArgs);
+            var declaredArgs = this.FormatArgumentList(call.Arguments);
+
+            if (foreign)
+            {
+                this._context.RequirePackage("tyhp/core");
+                var savedPending = this._pendingVariantCallName;
+                this._pendingVariantCallName = null;
+                string fccBase;
+                try
+                {
+                    fccBase = this.BuildDereferenceableBase(dereferenceable.Base);
+                }
+                finally
+                {
+                    this._pendingVariantCallName = savedPending;
+                }
+
+                var bindTarget = fccBase + "(...)";
+                var bindArgs = string.IsNullOrEmpty(typeArgsList)
+                    ? bindTarget
+                    : bindTarget + ", " + typeArgsList;
+                return "\\Tyhp\\Generic::bind(" + bindArgs + ")(" + declaredArgs + ")";
+            }
+
+            var storedBinder = GenericRuntimeAttributeSupport.TryRead(callee)?.Binder?.Trim();
+            if (!string.IsNullOrEmpty(storedBinder)
+                && storedBinder.Contains("::", StringComparison.Ordinal)
+                && !this._context.HasForeignGenericRuntime(callee))
+            {
+                return this.FormatStoredGenericBinder(callee, storedBinder)
+                    + "(" + typeArgsList + ")(" + declaredArgs + ")";
+            }
 
             var previous = this._pendingVariantCallName;
             this._pendingVariantCallName = nameNode;
@@ -796,8 +1019,6 @@ namespace Tyhp.TyhpLang.Emitter
                 this._pendingVariantCallName = previous;
             }
 
-            var declaredArgs = this.FormatArgumentList(call.Arguments);
-            var typeArgsList = string.Join(", ", leadingArgs);
             return baseText + "(" + typeArgsList + ")(" + declaredArgs + ")";
         }
 
@@ -823,6 +1044,42 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             return parts;
+        }
+
+        /// <summary>
+        /// Compiled-library extension binders are stored as <c>Backer::name__tyhpGeneric</c>
+        /// (the mapping class does not host the Closure). Qualify a namespace-relative backer
+        /// with the callee's owning namespace.
+        /// </summary>
+        private string FormatStoredGenericBinder(IBaseSymbol callee, string binder)
+        {
+            var split = binder.Split(["::"], 2, StringSplitOptions.None);
+            var className = split[0].Trim();
+            var member = split.Length > 1 ? split[1].Trim() : "";
+            var qualifiedClass = this.QualifyStoredBinderClass(callee, className);
+            return string.IsNullOrEmpty(member) ? qualifiedClass : qualifiedClass + "::" + member;
+        }
+
+        private string QualifyStoredBinderClass(IBaseSymbol callee, string className)
+        {
+            if (className.Contains('\\', StringComparison.Ordinal))
+            {
+                return className.StartsWith('\\') ? className : "\\" + className;
+            }
+
+            var ownerFqn = callee switch
+            {
+                ObjectMethodSymbol method when method.ContainingScope is ObjectDeclarationScope obj =>
+                    obj.DeclarationSymbol?.FullyQualifiedName ?? "",
+                _ => callee.FullyQualifiedName ?? "",
+            };
+
+            var owner = ownerFqn.Trim().TrimStart('\\');
+            var slash = owner.LastIndexOf('\\');
+            var prefix = slash >= 0 ? owner[..slash] : "";
+            return string.IsNullOrEmpty(prefix)
+                ? "\\" + className.TrimStart('\\')
+                : "\\" + prefix + "\\" + className.TrimStart('\\');
         }
 
         /// <summary>

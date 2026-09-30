@@ -2,7 +2,7 @@
   <img src="https://tyhplang.com/assets/images/tyhp-logo-alt.svg" alt="Tyhp Logo" width="132">
 </p>
 <p align="center">
-  <strong>A strongly typed superset of PHP.</strong><br>
+  <strong>A typed superset of the PHP language.</strong><br>
 </p>
 
 <p align="center">
@@ -19,16 +19,16 @@
   <a href="https://tyhplang.com"><img src="https://img.shields.io/badge/docs-tyhplang.com-34A4F4" alt="Documentation"></a>
   <a href="https://www.php.net"><img src="https://img.shields.io/badge/PHP-8.2--8.5-777BB4?logo=php&logoColor=white" alt="PHP 8.2 to 8.5"></a>
   <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache%202.0-34A4F4" alt="Apache License 2.0"></a>
-  <a href="https://github.com/tyhpproject/tyhp/releases"><img src="https://img.shields.io/badge/status-805.0.0--alpha.1-orange" alt="Alpha 805.0.0-alpha.1"></a>
+  <a href="https://github.com/tyhpproject/tyhp/releases"><img src="https://img.shields.io/badge/status-805.1.0--beta.1-orange" alt="Beta 805.1.0-beta.1"></a>
 </p>
 
 ---
 
-PHP is one of the web's most established runtimes, backed by a vast ecosystem and a deployment story teams already understand. Tyhp builds on that foundation with a **real type system** — required types, null safety, generics, structs, `async`/`await`, extension methods, and expression trees — then emits readable PHP 8.2–8.5.
+Tyhp is a typed superset of the PHP language. You write `.tyhp` (and can keep `.php` in the same project). The compiler type-checks the Tyhp source and emits readable PHP 8.2–8.5.
 
-**Compile with Tyhp. Deploy with PHP.** Keep your Composer packages, existing infrastructure, and familiar runtime.
+**Compile with Tyhp. Deploy with PHP.** Required types, null safety, generics, structs, `async`/`await`, extension methods, and expression trees are part of Tyhp; the output is ordinary PHP that runs on a PHP runtime. Composer packages and existing hosting stay in the picture.
 
-> **Public alpha (`805.0.0-alpha.1`).** The compiler, type checker, emitter, and CLI work today. Language Server, sourcemaps, and the VS Code extension are still ahead. Syntax may still change.
+> **Public beta (`805.1.0-beta.1`).** The compiler, type checker, emitter, and CLI work today. Syntax may still change.
 
 ## Write this. Ship PHP.
 
@@ -42,10 +42,10 @@ namespace App;
 
 type UserId = int;
 
-struct Address {
+type Address = struct {
     string $city;
     string $country;
-}
+};
 
 class User {
     public function __construct(
@@ -58,12 +58,12 @@ class User {
 }
 
 class UserQuery {
-    public function where(\Tyhp\Expression<User, bool> $pred): static {
+    public function where(\Tyhp\Expression<callable(User): bool> $pred): static {
         // The lambda is captured as an expression tree — SQL, not a closure.
         return $this;
     }
 
-    public function orderBy(\Tyhp\PropertyPath<User, string> $path): static {
+    public function orderBy(\Tyhp\PropertyPath<callable(User): string> $path): static {
         return $this;
     }
 
@@ -162,15 +162,15 @@ function loadAdults(\App\UserQuery $users): \Tyhp\Promise
 
 </details>
 
-That `fn ($u) => $u->age >= 18` is not “just a closure.” When the parameter is `\Tyhp\Expression<…>` or `\Tyhp\PropertyPath<…>`, Tyhp **captures the tree** — the same idea that powers C# LINQ — so query builders and ORMs can see *what you wrote*, not only *what it returns*.
+When the parameter is `\Tyhp\Expression<…>` or `\Tyhp\PropertyPath<…>`, that `fn ($u) => $u->age >= 18` is captured as an expression tree, not only compiled as a closure. Query builders can inspect the tree.
 
 ## Why Tyhp
 
-**It is still PHP.** The compiler type-checks `.tyhp`, then emits human-readable `.php`. Deploy anywhere PHP already runs. Mix `.tyhp` and `.php` in one project. Describe existing PHP libraries with `.tyhpdef` files.
+**It compiles to PHP.** The compiler type-checks `.tyhp`, then emits human-readable `.php`. Deploy on a PHP runtime. Mix `.tyhp` and `.php` in one project. Describe existing PHP libraries with `.tyhpdef` files.
 
-**The type system is the language, not a linter plugin.** Every variable, parameter, property, and return is typed or inferred. Types are **non-nullable by default**. `mixed` has to be narrowed before you use it.
+**Types are part of the language.** Every variable, parameter, property, and return is typed or inferred. Types are **non-nullable by default**. `mixed` has to be narrowed before you use it.
 
-**The features PHP has been reaching for.** Generics with type erasure. Structs that compile to arrays. `async`/`await` on Fibers. Operator overloads. Extension methods. Deterministic `using` / `:=` disposal. Compile-time `nameof`, `typeof`, and `default`.
+**Extra syntax on top of PHP.** Generics with type erasure. Structs that compile to arrays. `async`/`await` on Fibers. Operator overloads. Extension methods. Deterministic `using` / `:=` disposal. Compile-time `nameof`, `typeof`, and `default`.
 
 ```mermaid
 flowchart LR
@@ -181,15 +181,15 @@ flowchart LR
   E --> F["Readable PHP 8.2–8.5"]
 ```
 
-## A type system that means it
+## Required types
 
 ```php
 <?tyhp
 namespace App;
 
-string $name = 'Ada';
-$count = 42;                       // inferred as int — and stays int
-?string $nickname = null;          // null is opt-in
+$sum = 0;                          // inferred as int
+$name = 'Ada';                     // inferred as string
+?string $nickname = null;          // explicit when inference is not enough
 array<string> $names = ['Ada', 'Grace'];
 
 function label(mixed $value): string {
@@ -200,10 +200,10 @@ function label(mixed $value): string {
 }
 ```
 
-Tyhp's extra type syntax is erased after the checker proves the program is safe.
+Tyhp's extra type syntax is erased after the checker accepts the program.
 
 <details>
-<summary>Emitted PHP from <code>tyhp build</code> — <code>$value is string</code> → <code>\Tyhp\Type::is</code></summary>
+<summary>Emitted PHP from <code>tyhp build</code> — <code>$value is string</code> → <code>\is_string($value)</code></summary>
 
 <br>
 
@@ -222,7 +222,7 @@ namespace App;
 
 function label(mixed $value): string
 {
-    if (\Tyhp\Type::is($value, \Tyhp\Type::string())) {
+    if (\is_string($value)) {
         return \strtoupper($value);
     }
     return '';
@@ -243,9 +243,9 @@ declare(strict_types=1);
 namespace App;
 require_once __DIR__ . '/vendor/autoload.php';
 
-$name = 'Ada';
+$sum = 0;
 
-$count = 42;
+$name = 'Ada';
 
 $nickname = null;
 
@@ -254,7 +254,7 @@ $names = ['Ada', 'Grace'];
 
 </details>
 
-## Language that feels modern
+## What Tyhp adds
 
 **Generics** — write reusable classes that preserve specific types from construction through every method call:
 
@@ -262,6 +262,7 @@ $names = ['Ada', 'Grace'];
 <?tyhp
 namespace App;
 
+#[\Tyhp\EraseGeneric]
 class Box<T> {
     public function __construct(private T $value): void {}
     public fn getValue(): T => $this->value;
@@ -271,10 +272,10 @@ Box<int> $box = new Box<int>(42);
 int $value = $box->getValue();     // checked as int, never mixed
 ```
 
-The compiler checks `T` end to end, then erases it from the PHP output.
+`#[\Tyhp\EraseGeneric]` opts this `Box` out of runtime tracking, so the PHP is a normal class. Without it, a generic-typed property like `$value` keeps tracking (`HasGenerics` / factories) even with no `typeof(T)` or other runtime use. Compiled-library call sites use `\Tyhp\Generic::bind`.
 
 <details>
-<summary>Emitted PHP from <code>tyhp build</code> — generic type arguments erased after checking</summary>
+<summary>Emitted PHP from <code>tyhp build</code> — <code>#[\Tyhp\EraseGeneric]</code> keeps this <code>Box</code> untracked, so PHP is a normal class</summary>
 
 <br>
 
@@ -291,6 +292,10 @@ declare(strict_types=1);
 
 namespace App;
 
+/**
+ * @template T
+ */
+#[\Tyhp\GenericRuntime(erased: true, layouts: [1], compiler: "805.1.0.0")]
 class Box
 {
     public function __construct(private mixed $value)
@@ -302,6 +307,8 @@ class Box
     }
 }
 ```
+
+Every emitted generic class is stamped `#[\Tyhp\GenericRuntime]` — even this erased one — so foreign compiled-library call sites always have something to route through `\Tyhp\Generic::bind`.
 
 `build/generics.php`
 
@@ -330,10 +337,10 @@ $value = $box->getValue();
 <?tyhp
 namespace App;
 
-struct Point {
+type Point = struct {
     float $x;
     float $y;
-}
+};
 
 Point $p = new Point() with [x => 10.5, y => 20.3];
 Point $moved = clone $p with [x => 5.0];
@@ -481,8 +488,8 @@ class DatabaseConnection implements \Tyhp\Contracts\IsDisposable {
     public function dispose(): void {}
 }
 
-extension Strings {
-    function toCamelCase(extends string $this): string {
+extension Strings extends string {
+    function toCamelCase(): string {
         return $this;
     }
 }
@@ -573,27 +580,37 @@ function demo(string $dsn): string
 
 | You write | What you get |
 | --- | --- |
-| Generics, type aliases, literal unions | Compile-time safety, erased from PHP |
-| Structs + `with` | Array-backed data with a schema |
-| `async` / `await` | `Promise<T>` on Fibers |
+| Generics, type aliases, literal unions | Compile-time checks; PHP is a normal class/function unless `T` is tracked |
+| Structs + `with` | PHP `array`; no runtime shape check |
+| `async` / `await` | `Promise::_async` / `_await` on Fibers |
 | Parsable lambdas | Expression trees and property paths |
 | Extension methods & operator overloads | Static calls in the emitted PHP |
 | `using` / `:=` | Deterministic resource cleanup |
 | `.tyhpdef` files | Typed interop with existing PHP |
 
-Full syntax: the [quick reference](https://tyhplang.com/quickref.html) and [`docs/content/quickref.md`](docs/content/quickref.md).
+Full syntax: the [quick reference](https://tyhplang.com/quickref.html).
 
 ## Install the compiler
 
-Download a binary from [GitHub Releases](https://github.com/tyhpproject/tyhp/releases), or:
+**Composer** (PHP-first): `tyhp/compiler` is a supported install path.
+
+```bash
+composer require --dev tyhp/compiler
+vendor/bin/tyhp init
+composer update
+vendor/bin/tyhp build
+# or: composer tyhp build
+```
+
+`vendor/bin/tyhp --install-binary` downloads the native compiler (the root `post-autoload-dump` script `tyhp init` writes does this for you). Use `composer update`, not `composer install`, after `tyhp init` — the `composer.lock` from `composer require` predates the `tyhpdef/php` / `tyhp/core` packages init just added. Full steps: [Install the compiler](https://tyhplang.com/intro_installation.html).
+
+**GitHub Releases** (native binary on `PATH`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tyhpproject/tyhp/main/scripts/install.sh | bash -s --
 ```
 
-The script picks OS/arch and prefers a self-contained build (no .NET install). Pass `--framework-dependent` if you already have [.NET 9](https://dotnet.microsoft.com/en-us/download/dotnet/9.0). On Windows, use [`scripts/install.ps1`](scripts/install.ps1).
-
-Verify with `tyhp version`. There is no `composer global require tyhp/compiler` package in this alpha.
+The script picks OS/arch and prefers a self-contained build (no .NET install). Pass `--framework-dependent` if you already have [.NET 9](https://dotnet.microsoft.com/en-us/download/dotnet/9.0). On Windows, use [`scripts/install.ps1`](scripts/install.ps1). Verify with `tyhp version`. If you already have `tyhp` and still need Composer: `tyhp install composer` (writes `./composer.phar` by default; `--global` → `~/.local/bin/composer`). That is not `tyhp composer install`, which runs Composer’s own `install`.
 
 **To run compiled output** you need PHP 8.2+ and Composer. **To compile**, you need the Tyhp binary — deployment servers never do.
 
@@ -602,50 +619,51 @@ Verify with `tyhp version`. There is no `composer global require tyhp/compiler` 
 ```bash
 mkdir my-tyhp-project && cd my-tyhp-project
 tyhp init
-tyhp build
-php build/index.php
-```
-
-`tyhp init` writes `tyhp.json`, `src/index.tyhp`, and a `composer.json` that pins `tyhp/php` and `tyhp/core`. `tyhp build` emits PHP under `build/`. `tyhp lint` type-checks without emitting.
-
-After Packagist is live:
-
-```bash
 composer install
+tyhp build
+php build/src/index.php
 ```
 
-Until then, clone this repository and let the compiler inject **path repositories** that point at `runtime/packages/` in the checkout.
+`tyhp init` writes `tyhp.json`, `src/index.tyhp`, and a `composer.json` with `tyhp/core` as `@dev` in `require`, `tyhpdef/php` as `@dev` in `require-dev`, `tyhp/compiler` in `require-dev`, and Composer scripts for `vendor/bin/tyhp`. Init does not run `composer install`. `tyhp build` emits PHP under `build/`. `tyhp lint` type-checks without emitting.
+
+Until Packagist lists the runtime packages, clone [tyhp-runtime-src](https://github.com/tyhpproject/tyhp-runtime-src) beside this checkout (or set `TYHP_RUNTIME_SRC` to that clone). The compiler uses `packages/` there for local path repositories. When a package fails to compile, fix the Tyhp compiler or its tyhpdefs first.
 
 ## Runtime packages
 
 | Package | Role |
 | --- | --- |
-| [`tyhp/php`](https://github.com/tyhpproject/php) | Type definitions for PHP builtins (PHP 8.2 baseline) |
-| [`tyhp/core`](https://github.com/tyhpproject/core) | Runtime support (generics, typed variables, property accessors) |
-| [`tyhp/async`](https://github.com/tyhpproject/async) | Promise, event loop, cancellation |
-| [`tyhp/decimal`](https://github.com/tyhpproject/decimal) | Arbitrary-precision decimal |
-| [`tyhp/lambda`](https://github.com/tyhpproject/lambda) | Expression-tree / PropertyPath runtime |
+| [`tyhpdef/php`](https://github.com/tyhpproject-packages/php) | Type definitions for PHP builtins (PHP 8.2 baseline) |
+| [`tyhp/core`](https://github.com/tyhpproject-packages/core) | Runtime support (generics, typed variables, property accessors) |
+| [`tyhp/async`](https://github.com/tyhpproject-packages/async) | Promise, event loop, cancellation |
+| [`tyhp/decimal`](https://github.com/tyhpproject-packages/decimal) | Arbitrary-precision decimal |
+| [`tyhp/lambda`](https://github.com/tyhpproject-packages/lambda) | Expression-tree / PropertyPath runtime |
 
-## What ships in this alpha
+## What ships in this beta
 
-Done through roadmap **Tier 1** (stories 01–16.5): parser, binder, checker, emitter, `tyhp build` / `tyhp lint` / `tyhp init`, diagnostics, the PHP interop contract, parsable lambdas, and callable signature utilities.
+Done through roadmap **Tier 2**: parser, binder, checker, emitter, `tyhp build` / `tyhp lint` / `tyhp init`, diagnostics, the PHP interop contract, parsable lambdas, callable signature utilities, sourcemaps, the Xdebug proxy, the language server, [IDE clients](https://github.com/tyhpproject/tyhp-ide-plugin), `tyhp generate_tyhpdef` (including `--php-targets` gated emit), and `package.tyhpdef` on `tyhp build`.
 
 <details>
-<summary>Not in this alpha</summary>
+<summary>Not in this beta</summary>
 
 <br>
 
-Language Server / VS Code extension, sourcemaps, Xdebug proxy, tyhpdef generator CLI, optimizer, <code>internal</code>, web playground, and a complete PHP-stub catalog. See the <a href="https://tyhplang.com">docs</a> for the full roadmap.
+Optimizer, web playground, and a complete PHP-stub catalog. See the <a href="https://tyhplang.com">docs</a> for the full roadmap.
 
 </details>
 
 ## Documentation & community
 
 - Site: [https://tyhplang.com](https://tyhplang.com)
-- Docs source: [`docs/content/`](docs/content/)
+- Docs source: [tyhp-docs-src](https://github.com/tyhpproject/tyhp-docs-src)
+- IDE plugins: [tyhp-ide-plugin](https://github.com/tyhpproject/tyhp-ide-plugin)
 - Versioning: [`VERSIONING.md`](VERSIONING.md)
 - Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - License: [Apache License 2.0](LICENSE.txt)
-- Alpha release checklist (maintainers): [`dev-docs/ALPHA_RELEASE.md`](dev-docs/ALPHA_RELEASE.md)
+- Branding (names, taglines, marks): [`BRANDING.md`](BRANDING.md)
+- Third-party acknowledgments: [`THIRD_PARTY.md`](THIRD_PARTY.md)
 
-Issues and pull requests are welcome.
+## Acknowledgments
+
+PHP is a trademark of the PHP Group. Tyhp is not affiliated with, endorsed, or sponsored by the PHP Group.
+
+Tyhp downloads official PHP Windows builds, StaticPHP (formerly static-php-cli) portable CLIs, and — if those are unavailable — Homebrew bottles, plus community stub corpora for tyhpdef enrichment. Extension generation may also download php.net HTML manuals (PHP Documentation Group) to build doc comments. Those projects remain under their own licenses. Full credits: [`THIRD_PARTY.md`](THIRD_PARTY.md).

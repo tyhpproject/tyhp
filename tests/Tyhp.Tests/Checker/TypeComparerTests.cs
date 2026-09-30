@@ -108,6 +108,39 @@ public class TypeComparerTests
     }
 
     [Fact]
+    public void ExpandTypeAliases_UnrelatedClassLikes_PreservesIntersection()
+    {
+        var left = new ObjectDeclarationSymbol("A");
+        var right = new ObjectDeclarationSymbol("B");
+        var intersection = new IntersectionCheckedType(
+            [CheckedTypes.FromSymbol(left), CheckedTypes.FromSymbol(right)]);
+
+        var expanded = TypeComparer.ExpandTypeAliases(
+            intersection,
+            _symbolTree,
+            _globalScope,
+            (_, _) => CheckedTypes.Unresolved);
+
+        expanded.Should().BeOfType<IntersectionCheckedType>();
+        expanded.IsNever.Should().BeFalse();
+        expanded.Kind.Should().Be(CheckedTypeKind.Intersection);
+    }
+
+    [Fact]
+    public void ExpandTypeAliases_IntAndString_CollapsesToNever()
+    {
+        var intersection = new IntersectionCheckedType([CheckedTypes.Int, CheckedTypes.String]);
+
+        var expanded = TypeComparer.ExpandTypeAliases(
+            intersection,
+            _symbolTree,
+            _globalScope,
+            (_, _) => CheckedTypes.Unresolved);
+
+        expanded.IsNever.Should().BeTrue();
+    }
+
+    [Fact]
     public void IsAssignableTo_ArrayToIterable_ReturnsTrue()
     {
         var array = BuiltIn("array");
@@ -270,6 +303,69 @@ public class TypeComparerTests
         var typed = new CallableCheckedType([CheckedTypes.String], CheckedTypes.Int);
         TypeComparer.IsAssignableTo(typed, untyped, _symbolTree, _globalScope)
             .Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsAssignableTo_KnownArity_ToAnyArity_MatchingReturn_ReturnsTrue()
+    {
+        var anyBool = new CallableCheckedType([], CheckedTypes.Bool, isAnyArity: true);
+        var oneArg = new CallableCheckedType([CheckedTypes.Int], CheckedTypes.Bool);
+        var twoArg = new CallableCheckedType(
+            [CheckedTypes.String, CheckedTypes.Int], CheckedTypes.Bool);
+
+        TypeComparer.IsAssignableTo(oneArg, anyBool, _symbolTree, _globalScope).Should().BeTrue();
+        TypeComparer.IsAssignableTo(twoArg, anyBool, _symbolTree, _globalScope).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsAssignableTo_KnownArity_ToAnyArity_MismatchReturn_ReturnsFalse()
+    {
+        var anyBool = new CallableCheckedType([], CheckedTypes.Bool, isAnyArity: true);
+        var returnsInt = new CallableCheckedType([CheckedTypes.Int], CheckedTypes.Int);
+
+        TypeComparer.IsAssignableTo(returnsInt, anyBool, _symbolTree, _globalScope).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsAssignableTo_AnyArity_ToKnownArity_ReturnsFalse()
+    {
+        var anyBool = new CallableCheckedType([], CheckedTypes.Bool, isAnyArity: true);
+        var zeroArg = new CallableCheckedType([], CheckedTypes.Bool);
+        var oneArg = new CallableCheckedType([CheckedTypes.Int], CheckedTypes.Bool);
+
+        TypeComparer.IsAssignableTo(anyBool, zeroArg, _symbolTree, _globalScope).Should().BeFalse();
+        TypeComparer.IsAssignableTo(anyBool, oneArg, _symbolTree, _globalScope).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsAssignableTo_OneArgCallable_ToZeroArgCallable_ReturnsFalse()
+    {
+        var zeroArg = new CallableCheckedType([], CheckedTypes.Bool);
+        var oneArg = new CallableCheckedType([CheckedTypes.Int], CheckedTypes.Bool);
+
+        TypeComparer.IsAssignableTo(oneArg, zeroArg, _symbolTree, _globalScope).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsAssignableTo_AnyArity_ToAnyArity_UsesReturnSubtyping()
+    {
+        var anyBool = new CallableCheckedType([], CheckedTypes.Bool, isAnyArity: true);
+        var anyMixed = new CallableCheckedType([], CheckedTypes.Mixed, isAnyArity: true);
+
+        TypeComparer.IsAssignableTo(anyBool, anyMixed, _symbolTree, _globalScope).Should().BeTrue();
+        TypeComparer.IsAssignableTo(anyBool, anyBool, _symbolTree, _globalScope).Should().BeTrue();
+        TypeComparer.IsAssignableTo(anyMixed, anyBool, _symbolTree, _globalScope).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AreTypesEqual_AnyArity_IsNotZeroArgFacet()
+    {
+        var anyBool = new CallableCheckedType([], CheckedTypes.Bool, isAnyArity: true);
+        var zeroArg = new CallableCheckedType([], CheckedTypes.Bool);
+
+        TypeComparer.AreTypesEqual(anyBool, zeroArg).Should().BeFalse();
+        anyBool.DisplayName.Should().Be("callable(...): bool");
+        zeroArg.DisplayName.Should().Contain("callable(");
     }
 
     [Fact]
@@ -629,6 +725,52 @@ public class TypeComparerTests
         var nullable = new NullableCheckedType(CheckedTypes.String);
         var narrowed = TypeComparer.NarrowType(nullable, CheckedTypes.String, _symbolTree, _globalScope);
         narrowed.Should().Be(CheckedTypes.String);
+    }
+
+    [Fact]
+    public void NarrowType_CallableToArray_IsArray()
+    {
+        var callable = BuiltIn("callable");
+        var array = BuiltIn("array");
+        var narrowed = TypeComparer.NarrowType(callable, array, _symbolTree, _globalScope);
+        TypeComparer.AreTypesEqual(narrowed, array).Should().BeTrue();
+        TypeComparer.IsNeverType(narrowed).Should().BeFalse();
+    }
+
+    [Fact]
+    public void NarrowType_CallableToString_IsString()
+    {
+        var callable = BuiltIn("callable");
+        var narrowed = TypeComparer.NarrowType(callable, CheckedTypes.String, _symbolTree, _globalScope);
+        TypeComparer.AreTypesEqual(narrowed, CheckedTypes.String).Should().BeTrue();
+    }
+
+    [Fact]
+    public void NarrowType_CallableToObject_IsObject()
+    {
+        var callable = BuiltIn("callable");
+        var obj = BuiltIn("object");
+        var narrowed = TypeComparer.NarrowType(callable, obj, _symbolTree, _globalScope);
+        TypeComparer.AreTypesEqual(narrowed, obj).Should().BeTrue();
+        TypeComparer.IsNeverType(narrowed).Should().BeFalse();
+    }
+
+    [Fact]
+    public void NarrowTypeNegative_NullableStringExcludingNull_IsString()
+    {
+        var nullable = new NullableCheckedType(CheckedTypes.String);
+        var remaining = TypeComparer.NarrowTypeNegative(
+            nullable, CheckedTypes.Null, _symbolTree, _globalScope);
+        remaining.Should().Be(CheckedTypes.String);
+    }
+
+    [Fact]
+    public void NarrowType_IntToArray_KeepsAssertion()
+    {
+        var array = BuiltIn("array");
+        var narrowed = TypeComparer.NarrowType(CheckedTypes.Int, array, _symbolTree, _globalScope);
+        TypeComparer.AreTypesEqual(narrowed, array).Should().BeTrue();
+        TypeComparer.IsNeverType(narrowed).Should().BeFalse();
     }
 
     [Fact]

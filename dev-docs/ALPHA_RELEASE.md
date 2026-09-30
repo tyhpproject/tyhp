@@ -1,13 +1,13 @@
 # Alpha release walkthrough (`805.0.0-alpha.1`)
 
-This file is the HUMAN checklist. The compiler repo already has the AI prep (docs, `tyhp/php`, scripts, CI). **Do not skip the history wipe.** Do not run the publish/release scripts until the matching step below.
+This file is the HUMAN checklist. The compiler repo already has the AI prep (docs, `tyhpdef/php`, scripts, CI). **Do not skip the history wipe.** Do not run the publish/release scripts until the matching step below.
 
-GitHub org is **`tyhpproject`**. Composer vendor is **`tyhp/`**. Those names stay different on purpose.
+The compiler and package **source** live on GitHub org **`tyhpproject`**. Published `tyhp/*` and `tyhpdef/*` package repositories live on **[`tyhpproject-packages`](https://github.com/tyhpproject-packages)**. Composer vendors stay **`tyhp/`** (runtime + compiler) and **`tyhpdef/`** (PHP stubs, extension stubs, library companions). Those names stay different from either GitHub org on purpose.
 
 ## 0. Packagist account (can be done anytime; submit packages last)
 
 1. Create a [Packagist](https://packagist.org) account.
-2. Log in with GitHub and grant Packagist access to the **`tyhpproject` organization** (GitHub → Settings → Applications → Packagist → Organization access).
+2. Log in with GitHub and grant Packagist access to the **`tyhpproject-packages` organization** (GitHub → Settings → Applications → Packagist → Organization access). That is the org Packagist clones. Access on `tyhpproject` does not cover the package repos.
 3. Spot-check [packagist.org/packages/tyhp/](https://packagist.org/packages/tyhp/) — it should be unused. The first submitted `tyhp/*` package claims the vendor.
 4. **Do not submit any package URLs yet.** Packagist clones git; a later history wipe does not un-clone old history.
 
@@ -33,7 +33,7 @@ Do this **after** step 2 (new public `tyhpproject/tyhp`). Linking the old privat
    - Repository: `tyhpproject/tyhp`
    - CLA: the Gist from above (https://gist.github.com/pristinesource/2e15358ca36027e181773c01b6309872)
    - Require a signature for any file change (minimum files = 1 is the usual setting)
-2. Optional: link the same Gist to `tyhpproject/{core,async,decimal,lambda,php}` if those repos will take outside PRs. The compiler repo is the one that matters for alpha.
+2. Optional: link the same Gist to published package repos on `tyhpproject-packages` (`core`, `async`, `decimal`, `lambda`, `php`, and later php-ext / composer-lib repos) if those will take outside PRs. That requires the CLA Assistant app on **`tyhpproject-packages`**, not only on `tyhpproject`. The compiler repo is the one that matters for alpha.
 3. In the CLA Assistant dashboard, **allow bot users** that cannot sign: at least `dependabot[bot]` (and `github-actions[bot]` if a workflow opens PRs).
 4. Open a throwaway PR from a second GitHub account (or an unsigned account) and confirm:
    - CLA Assistant comments on the PR
@@ -92,20 +92,24 @@ Do **not** `git push --force` rewritten history to a repo that was ever public o
 
 ## 3. Publish runtime packages
 
-Empty private sibling repos already exist: `tyhpproject/{core,async,decimal,lambda,php}`.
+Published package repos belong on **`tyhpproject-packages`**, not `tyhpproject`. Repos that already exist as `tyhpproject/{core,async,decimal,lambda,php}` (and any other published package repo) are re-created on `tyhpproject-packages` with the same names. Packagist packages that already point at `https://github.com/tyhpproject/<repo>` are updated to `https://github.com/tyhpproject-packages/<repo>`. Do not submit a second Packagist package for a Composer name that already exists.
 
-1. Flip those five repos to **Public**.
-2. From a compiler checkout that can build:
+`publish-runtime-packages.sh`, `ensure-existing-github-repos.sh`, and `new-proposed-composer-libs.sh` still set `GITHUB_ORG=tyhpproject` until Story 27.3 changes that constant. Until then, do not pass `--create-github-repos` (it would create package repos on `tyhpproject`).
+
+1. Create the package repos on `tyhpproject-packages` and make them **Public** (re-create any that already exist on `tyhpproject`).
+2. After Story 27.3 sets package-repo `GITHUB_ORG` to `tyhpproject-packages`, from a compiler checkout that can build:
 
 ```bash
 dotnet build tyhp.csproj
 scripts/publish-runtime-packages.sh
 ```
 
-That script runs `runtime/packages/build-all.sh` (PHP 8.2, 8.3, 8.4, and 8.5 dist trees), then for **each**
-sibling repo commits and tags **four** Packagist versions (no `v` prefix — Packagist version = git tag).
-Tags are `80N.{X.Y}` from **that package's** `composer.json`, not the compiler version. With
-source `0.0` that is:
+That script runs `runtime/packages/base-build-all.sh` (PHP 8.2, 8.3, 8.4, and 8.5 dist trees) for compiled
+`tyhp/*` helpers, then for **each** sibling repo commits and tags Packagist versions (no `v` prefix —
+Packagist version = git tag).
+
+Compiled packages (`core`, `async`, `decimal`, `lambda`) get **four** tags `80N.{X.Y}` from **that
+package's** `composer.json`, not the compiler version. With source `0.0` that is:
 
 | Git tag | PHP constraint |
 |---------|----------------|
@@ -114,18 +118,33 @@ source `0.0` that is:
 | `804.0.0` | `~8.4.0` |
 | `805.0.0` | `~8.5.0` |
 
-`main` is left on the 805 tree. Libraries or PHP majors and keep **that package's** X
+`main` is left on the 805 tree. Libraries OR PHP majors and keep **that package's** X
 (`803.0.* || 804.0.* || 805.0.*` while it is on `0.y`). Packages can bump `X.Y` without a compiler release.
 
-3. On Packagist, submit each package repo URL:
+`tyhpdef/*` packages (`php`, `php-ext-*`, Composer-lib wrappers) get **one** tag: the `version` field
+in that package's `composer.json` (for example `0.0.1` or `0.1`). They keep `"php": ">=8.2"` and do
+not use `80N.X.Y`.
+
+Composer-lib wrappers live at `runtime/packages/<vendor>-<name>/<upstream>/` (one folder per
+upstream version; folder name is the upstream string, e.g. `psr-log/3.0.2`). They publish to a
+single `tyhpproject-packages/<vendor>-<name>` repo. The git tag is the Tyhp four-part version from that
+folder's `composer.json` (for example `3.0.2.0`). PHP-ext, `php`, `core`, `async`,
+`decimal`, and `lambda` stay flat (no version folder). Missing GitHub repos are skipped with a
+warning. `--create-github-repos` creates the missing repo on `GITHUB_ORG` (empty public `gh repo create`,
+no README / license / `.gitignore`). Pass that flag only after `GITHUB_ORG` is `tyhpproject-packages`.
+Pass `--package php` to publish only `tyhpdef/php`.
+
+3. On Packagist, submit each **new** package repo URL, or pass `--create-packagist-packages` (reads
+   gitignored `scripts/packagist.credentials` with the MAIN API token). For a Composer name that
+   already points at `tyhpproject/<repo>`, update that package’s repository URL instead of submitting again:
 
 | GitHub repo | Composer name |
 |-------------|---------------|
-| `https://github.com/tyhpproject/core` | `tyhp/core` |
-| `https://github.com/tyhpproject/async` | `tyhp/async` |
-| `https://github.com/tyhpproject/decimal` | `tyhp/decimal` |
-| `https://github.com/tyhpproject/lambda` | `tyhp/lambda` |
-| `https://github.com/tyhpproject/php` | `tyhp/php` |
+| `https://github.com/tyhpproject-packages/core` | `tyhp/core` |
+| `https://github.com/tyhpproject-packages/async` | `tyhp/async` |
+| `https://github.com/tyhpproject-packages/decimal` | `tyhp/decimal` |
+| `https://github.com/tyhpproject-packages/lambda` | `tyhp/lambda` |
+| `https://github.com/tyhpproject-packages/php` | `tyhpdef/php` |
 
 Do **not** submit `tyhpproject/tyhp` — Packagist reads the root `composer.json`, and this repo is the .NET compiler.
 
@@ -147,13 +166,24 @@ curl -fsSL https://raw.githubusercontent.com/tyhpproject/tyhp/main/scripts/insta
 
 ## 5. Docs site
 
-`tyhpproject/tyhp-docs` is already public (CNAME `tyhplang.com`). This deploy does not wait on the compiler wipe, but running it after honest docs is enough:
+`tyhpproject/tyhp-docs` is already public (CNAME `tyhplang.com`). The site source is [tyhp-docs-src](https://github.com/tyhpproject/tyhp-docs-src). This deploy does not wait on the compiler wipe, but running it after honest docs is enough. From that checkout:
 
 ```bash
 scripts/publish-docs.sh
 ```
 
-Needs PHP, Composer, and `sass`. It replaces the “Coming Soon” landing page with the generated docs TOC.
+Needs PHP, Composer, `sass`, and `zip`. It replaces the “Coming Soon” landing page with the generated docs TOC.
+
+## CI polish (optional, after the public compiler repo exists)
+
+`.github/workflows/tests.yml` already runs `dotnet test` on push and pull_request. That is not an alpha-publish blocker. When outside contributors show up, consider adding (same workflow file, not a new one; not Story 21.12 / not Story 31):
+
+- PHP on the runner if Story 21.12 Workstream D (emit-and-run) is not already wired
+- A separate PHPUnit job (`PhpUnit_RuntimePackages_AllPass` stays skipped until FOUND #1 / #2 are decided)
+- Coverage report (no coverage gate required for alpha)
+- Extra OS runners (`windows-latest`, `macos-latest`) if the suite is actually green there
+
+Do not un-skip FOUND #1 / #2 to make CI look greener.
 
 ## Order summary
 
@@ -162,6 +192,6 @@ Needs PHP, Composer, and `sass`. It replaces the “Coming Soon” landing page 
 3. Merge to `main`
 4. History wipe + new public `tyhpproject/tyhp`
 5. Link [cla-assistant.io](https://cla-assistant.io/) to `tyhpproject/tyhp` (re-link if the repo was recreated)
-6. Flip package repos public → `publish-runtime-packages.sh` → Packagist submit
+6. Re-create package repos on `tyhpproject-packages` (Story 27.3 retargets `GITHUB_ORG`) → `publish-runtime-packages.sh` → Packagist create or **update repository URL** to `tyhpproject-packages` (do not re-submit a Composer name that already exists)
 7. `scripts/release.sh 805.0.0-alpha.1`
-8. `scripts/publish-docs.sh` (if the live site is still stale)
+8. From `tyhp-docs-src`: `scripts/publish-docs.sh` (if the live site is still stale)

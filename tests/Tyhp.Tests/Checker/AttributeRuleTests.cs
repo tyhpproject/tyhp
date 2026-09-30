@@ -232,6 +232,502 @@ public class AttributeRuleTests
     }
 
     [Fact]
+    public void Check_OverrideOnProperty_Php85_NoParent_Reports4129()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class C {
+                #[\Override]
+                public int $x = 0;
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerOverrideNotOverriding);
+        diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerOverrideNotOverriding).Should().Be(1);
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerAttributeTargetMismatch
+            || d.Code == MessageCode.CheckerNotAnAttributeClass
+            || d.Code == MessageCode.CheckerOverrideOnConstructor);
+    }
+
+    [Fact]
+    public void Check_OverrideOnProperty_Php85_ParentProperty_DoesNotReport4129()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Base {
+                public int $x = 0;
+            }
+            class Child extends Base {
+                #[\Override]
+                public int $x = 1;
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerOverrideNotOverriding
+            || d.Code == MessageCode.CheckerAttributeTargetMismatch
+            || d.Code == MessageCode.CheckerNotAnAttributeClass);
+    }
+
+    [Fact]
+    public void Check_OverrideOnProperty_Php85_GrandparentProperty_DoesNotReport4129()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Base {
+                public int $x = 0;
+            }
+            class Middle extends Base {}
+            class Child extends Middle {
+                #[\Override]
+                public int $x = 1;
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerOverrideNotOverriding
+            || d.Code == MessageCode.CheckerAttributeTargetMismatch);
+    }
+
+    [Fact]
+    public void Check_OverrideOnProperty_Php85_InterfaceProperty_DoesNotReport4129()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            interface HasX { public int $x; }
+            class C implements HasX {
+                #[\Override]
+                public int $x = 0;
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerOverrideNotOverriding
+            || d.Code == MessageCode.CheckerAttributeTargetMismatch);
+    }
+
+    [Fact]
+    public void Check_OverrideOnProperty_Php85_ExtendedInterfaceProperty_DoesNotReport4129()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            interface Base { public int $x; }
+            interface Middle extends Base {}
+            class C implements Middle {
+                #[\Override]
+                public int $x = 0;
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerOverrideNotOverriding
+            || d.Code == MessageCode.CheckerAttributeTargetMismatch);
+    }
+
+    [Fact]
+    public void Check_OverrideOnProperty_Php85_PrivateParent_Reports4129()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Base {
+                private int $x = 0;
+            }
+            class Child extends Base {
+                #[\Override]
+                public int $x = 1;
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerOverrideNotOverriding);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerAttributeTargetMismatch);
+    }
+
+    [Fact]
+    public void Check_OverrideOnProperty_Php85_InsideTrait_DoesNotReport4129()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            trait T {
+                #[\Override]
+                public int $x = 0;
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerOverrideNotOverriding
+            || d.Code == MessageCode.CheckerAttributeTargetMismatch);
+    }
+
+    [Fact]
+    public void Check_OverrideOnPromotedProperty_Php85_ParentProperty_DoesNotReport4129()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Base {
+                public int $x = 0;
+            }
+            class Child extends Base {
+                public function __construct(
+                    #[\Override]
+                    public int $x
+                ) {}
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerOverrideNotOverriding
+            || d.Code == MessageCode.CheckerAttributeTargetMismatch
+            || d.Code == MessageCode.CheckerOverrideOnConstructor);
+    }
+
+    [Fact]
+    public void Check_BoundOverrideOnPromotedProperty_Php85_ParentProperty_DoesNotReport4127Or4129()
+    {
+        // Isolated compiles leave \Override unbound, which skips the generic TARGET_* check.
+        // A real bound stub with TARGET_METHOD|TARGET_PROPERTY (Core's #[Attribute(12)]) must
+        // still treat a promoted constructor parameter as a property target, not a parameter.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            #[\Attribute(\Attribute::TARGET_METHOD | \Attribute::TARGET_PROPERTY)]
+            final class Override {}
+
+            class Base {
+                public int $x = 0;
+            }
+            class Child extends Base {
+                public function __construct(
+                    #[\Override]
+                    public int $x
+                ) {}
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerAttributeTargetMismatch
+            || d.Code == MessageCode.CheckerOverrideNotOverriding
+            || d.Code == MessageCode.CheckerOverrideOnConstructor
+            || d.Code == MessageCode.CheckerNotAnAttributeClass);
+    }
+
+    [Fact]
+    public void Check_BoundOverrideOnPromotedProperty_Php85_NoParent_Reports4129Not4127()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            #[\Attribute(\Attribute::TARGET_METHOD | \Attribute::TARGET_PROPERTY)]
+            final class Override {}
+
+            class C {
+                public function __construct(
+                    #[\Override]
+                    public int $x
+                ) {}
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerOverrideNotOverriding);
+        diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerOverrideNotOverriding).Should().Be(1);
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerAttributeTargetMismatch
+            || d.Code == MessageCode.CheckerOverrideOnConstructor
+            || d.Code == MessageCode.CheckerNotAnAttributeClass);
+    }
+
+    [Fact]
+    public void Check_BoundOverrideOnPromotedProperty_Below85_Reports4127Not4129()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            #[\Attribute(\Attribute::TARGET_METHOD | \Attribute::TARGET_PROPERTY)]
+            final class Override {}
+
+            class Base {
+                public int $x = 0;
+            }
+            class Child extends Base {
+                public function __construct(
+                    #[\Override]
+                    public int $x
+                ) {}
+            }
+            """, phpVersion: "8.4");
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerAttributeTargetMismatch);
+        diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerAttributeTargetMismatch).Should().Be(1);
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerOverrideNotOverriding
+            || d.Code == MessageCode.CheckerOverrideOnConstructor
+            || d.Code == MessageCode.CheckerNotAnAttributeClass);
+    }
+
+    [Fact]
+    public void Check_PropertyOnlyAttributeOnPromotedConstructorParameter_DoesNotReport4127()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            #[\Attribute(\Attribute::TARGET_PROPERTY)]
+            final class PropOnly {}
+
+            class C {
+                public function __construct(#[PropOnly] public int $x) {}
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerAttributeTargetMismatch
+            || d.Code == MessageCode.CheckerNotAnAttributeClass);
+    }
+
+    [Fact]
+    public void Check_ParameterOnlyAttributeOnPromotedConstructorParameter_DoesNotReport4127()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            #[\Attribute(\Attribute::TARGET_PARAMETER)]
+            final class ParamOnly {}
+
+            class C {
+                public function __construct(#[ParamOnly] public int $x) {}
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerAttributeTargetMismatch
+            || d.Code == MessageCode.CheckerNotAnAttributeClass);
+    }
+
+    [Theory]
+    [InlineData("8.2")]
+    [InlineData("8.4")]
+    [InlineData("8.5")]
+    public void Check_OverrideOnConstruct_Reports4339_EvenWhenParentConstructorExists(string phpVersion)
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Base {
+                public function __construct() {}
+            }
+            class Child extends Base {
+                #[\Override]
+                public function __construct() {}
+            }
+            """, phpVersion);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerOverrideOnConstructor);
+        diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerOverrideOnConstructor).Should().Be(1);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerOverrideNotOverriding);
+    }
+
+    [Fact]
+    public void Check_OverrideOnConstruct_WithoutParent_Reports4339Not4129()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class C {
+                #[\Override]
+                public function __construct() {}
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerOverrideOnConstructor);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerOverrideNotOverriding);
+    }
+
+    [Fact]
+    public void Check_OverrideOnConstruct_InsideTrait_Reports4339()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            trait T {
+                #[\Override]
+                public function __construct() {}
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerOverrideOnConstructor);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerOverrideNotOverriding);
+    }
+
+    [Fact]
+    public void Check_DelayedTargetValidation_OverrideOnProperty_Php85_ParentProperty_NoTargetMismatch()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Base {
+                public int $x = 0;
+            }
+            class Child extends Base {
+                #[\DelayedTargetValidation]
+                #[\Override]
+                public int $x = 1;
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerAttributeTargetMismatch
+            || d.Code == MessageCode.CheckerOverrideNotOverriding
+            || d.Code == MessageCode.CheckerNotAnAttributeClass);
+    }
+
+    [Fact]
+    public void Check_DelayedTargetValidation_OverrideOnProperty_Php85_NoParent_Still4129()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class C {
+                #[\DelayedTargetValidation]
+                #[\Override]
+                public int $x = 0;
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerOverrideNotOverriding);
+        diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerOverrideNotOverriding).Should().Be(1);
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerAttributeTargetMismatch
+            || d.Code == MessageCode.CheckerNotAnAttributeClass);
+    }
+
+    [Theory]
+    [InlineData("8.2")]
+    [InlineData("8.4")]
+    public void Check_DelayedTargetValidation_OverrideOnProperty_Below85_StillTargetMismatch(string phpVersion)
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Base {
+                public int $x = 0;
+            }
+            class Child extends Base {
+                #[\DelayedTargetValidation]
+                #[\Override]
+                public int $x = 1;
+            }
+            """, phpVersion);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerAttributeTargetMismatch);
+        diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerAttributeTargetMismatch).Should().Be(1);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerOverrideNotOverriding);
+    }
+
+    [Fact]
+    public void Check_DelayedTargetValidation_OverrideOnNonOverridingMethod_Php85_Still4129()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class C {
+                #[\DelayedTargetValidation]
+                #[\Override]
+                public function alone(): void {}
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerOverrideNotOverriding);
+        diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerOverrideNotOverriding).Should().Be(1);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerAttributeTargetMismatch);
+    }
+
+    [Fact]
+    public void Check_DelayedTargetValidation_OverrideOnClass_Php85_SkipsTargetMismatch()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            #[\DelayedTargetValidation]
+            #[\Override]
+            class C {}
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerAttributeTargetMismatch
+            || d.Code == MessageCode.CheckerOverrideNotOverriding
+            || d.Code == MessageCode.CheckerNotAnAttributeClass);
+    }
+
+    [Fact]
+    public void Check_DelayedTargetValidation_UserlandTargetMismatch_Php85_Still4127()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            #[\Attribute(\Attribute::TARGET_METHOD)]
+            class OnlyMethod {}
+
+            class C {
+                #[\DelayedTargetValidation]
+                #[OnlyMethod]
+                public int $x = 0;
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerAttributeTargetMismatch);
+        diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerAttributeTargetMismatch).Should().Be(1);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerNotAnAttributeClass);
+    }
+
+    [Fact]
+    public void Check_DelayedTargetValidation_ReversedAttributeOrder_Php85_StillSkips()
+    {
+        // Locked decision does not require a specific attribute order; #[\Override] written
+        // before #[\DelayedTargetValidation] must skip the property TARGET mismatch exactly
+        // like the DelayedTargetValidation-first order covered above.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Base {
+                public int $x = 0;
+            }
+            class Child extends Base {
+                #[\Override]
+                #[\DelayedTargetValidation]
+                public int $x = 1;
+            }
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerAttributeTargetMismatch
+            || d.Code == MessageCode.CheckerOverrideNotOverriding
+            || d.Code == MessageCode.CheckerNotAnAttributeClass);
+    }
+
+    [Fact]
+    public void Check_DelayedTargetValidation_UserShadowClass_Php85_DoesNotSkipTargetMismatch()
+    {
+        // A userland class literally named `DelayedTargetValidation` (bound to a real, non-Core
+        // source file) must not be mistaken for the PHP Core attribute just because the name
+        // matches — the skip is keyed off the *source* of the bound symbol, not the bare name.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class DelayedTargetValidation {}
+
+            #[DelayedTargetValidation]
+            #[\Override]
+            function standalone(): void {}
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerAttributeTargetMismatch);
+        diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerAttributeTargetMismatch).Should().Be(1);
+    }
+
+    [Fact]
+    public void Check_DelayedTargetValidation_NamespacedUserShadowClass_Php85_DoesNotSkipTargetMismatch()
+    {
+        // Same shadow scenario as above, but the userland lookalike lives in a namespace and is
+        // referenced unqualified from inside that namespace.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            namespace App;
+
+            class DelayedTargetValidation {}
+
+            #[DelayedTargetValidation]
+            #[\Override]
+            function standalone(): void {}
+            """, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerAttributeTargetMismatch);
+        diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerAttributeTargetMismatch).Should().Be(1);
+    }
+
+    [Fact]
     public void Check_UserAttributeClass_OnEachTargetKind_DoesNotReport4126()
     {
         var diagnostics = CompileAndCheck("""
@@ -476,7 +972,7 @@ public class AttributeRuleTests
         diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerNotAnAttributeClass).Should().Be(2);
     }
 
-    private static DiagnosticBag CompileAndCheck(string content)
+    private static DiagnosticBag CompileAndCheck(string content, string phpVersion = "8.4")
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
@@ -486,20 +982,14 @@ public class AttributeRuleTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, phpVersion: phpVersion, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
 
             var symbolTree = new SymbolTree(result.GlobalScope!);
-            var checker = new TyhpChecker(result.Diagnostics, symbolTree, result.GlobalScope!);
+            var checker = new TyhpChecker(
+                result.Diagnostics, symbolTree, result.GlobalScope!, options.Checker);
             checker.Check(result.ParsedFiles!);
             return result.Diagnostics;
         }

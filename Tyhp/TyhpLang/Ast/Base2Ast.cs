@@ -23,6 +23,12 @@ namespace Tyhp.TyhpLang.Ast {
         public SrcFileAst? OwningFile { get; set; }
 
         /// <summary>
+        /// When this node was synthesized by a rewrite, the original source node it replaces.
+        /// Sourcemaps (Story 17) use this as the Tyhp location. Not serialized.
+        /// </summary>
+        public Interfaces.IBase2Ast? OriginalAst { get; set; }
+
+        /// <summary>
         /// NodeType - type of the node, read only value determined by registry
         /// </summary>
         public virtual byte NodeType => AstNodeTypeRegistry.GetNodeTypeId(this.GetType());
@@ -225,6 +231,60 @@ namespace Tyhp.TyhpLang.Ast {
                 }
             }
         }
+
+        /// <summary>
+        /// Copies this node's attributes onto the receiver (same node references).
+        /// </summary>
+        public void CopyAttributesFrom(Interfaces.IBase2Ast other)
+        {
+            foreach (var attribute in other.AstAttributes)
+            {
+                Attributes.Add(attribute);
+            }
+        }
+
+        /// <summary>
+        /// Adds overlay attributes. An incoming attribute whose type name matches an
+        /// existing one replaces it (last-wins); other existing attributes are kept.
+        /// </summary>
+        public void MergeAttributesLastWins(Interfaces.IBase2Ast overlay)
+        {
+            foreach (var item in overlay.AstAttributes)
+            {
+                if (item is not PhpAttributeAst incoming)
+                {
+                    Attributes.Add(item);
+                    continue;
+                }
+
+                var incomingName = AttributeTypeName(incoming);
+                for (var i = Attributes.Count - 1; i >= 0; i--)
+                {
+                    if (Attributes[i] is PhpAttributeAst existing
+                        && AttributeTypeNamesEqual(AttributeTypeName(existing), incomingName))
+                    {
+                        Attributes.RemoveAt(i);
+                    }
+                }
+
+                Attributes.Add(incoming);
+            }
+        }
+
+        private static string AttributeTypeName(PhpAttributeAst attribute)
+        {
+            var written = attribute.Name switch
+            {
+                PhpNameAst name => name.ValueString,
+                TokenValueAst token => token.ValueString,
+                Interfaces.IExpression expr => expr.Identifier,
+                _ => null,
+            };
+            return written?.Trim().TrimStart('\\') ?? "";
+        }
+
+        private static bool AttributeTypeNamesEqual(string left, string right)
+            => string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
 
         public void AddGrammarAddon(string key, Interfaces.IBase2Ast? addon)
         {

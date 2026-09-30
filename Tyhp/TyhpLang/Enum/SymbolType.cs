@@ -56,7 +56,7 @@ namespace Tyhp.TyhpLang.Enum {
         BuiltInType, // like int, string, float, array, void, null, bool, etc.
 
         /// <summary>
-        /// Built-in checker utility type in the <c>\Tyhp</c> namespace (e.g. <c>\Tyhp\Partial&lt;T&gt;</c>).
+        /// Built-in checker utility type in global scope (e.g. <c>__Partial&lt;T&gt;</c>).
         /// </summary>
         BuiltInUtilityType,
 
@@ -294,6 +294,8 @@ namespace Tyhp.TyhpLang.Enum {
             (SymbolType.InstanceObjectProperty, true),
             (SymbolType.StaticObjectProperty, true),
             (SymbolType.ObjectTypeAlias, true),
+            // Class-member `type Name = struct { }` binds as a nested named struct.
+            (SymbolType.ObjectTypeDeclaration, true),
             (SymbolType.InstanceObjectMethod, true),
             (SymbolType.InstanceObjectAccessorMethod, true),
             (SymbolType.ObjectConstructor, true),

@@ -47,5 +47,14 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
             this.BackingTypeName = backingTypeName;
             this.GenericParameterRequirements = genericParameterRequirements;
         }
+
+        /// <summary>
+        /// True when <paramref name="typeName"/> cannot be a value-bearing extension-operator
+        /// <c>self</c> (<c>void</c>, <c>never</c>, <c>null</c>, <c>mixed</c>, <c>resource</c>,
+        /// <c>true</c>, <c>false</c>). These would emit illegal PHP such as <c>instanceof void</c>.
+        /// </summary>
+        public static bool IsNonInstantiableExtensionOperatorTarget(string typeName) =>
+            typeName.ToLowerInvariant() is "void" or "never" or "null" or "mixed"
+                or "resource" or "true" or "false";
     }
 }

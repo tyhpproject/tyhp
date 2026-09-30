@@ -1,0 +1,33 @@
+<?tyhp
+type Named = object {
+    public function __construct(string $name): void;
+    public function ping(): string;
+};
+
+class Greeter {
+    public function __construct(string $name): void {
+        $this->name = $name;
+    }
+
+    private string $name;
+
+    public function ping(): string {
+        return $this->name;
+    }
+}
+
+function spinUp(__ClassName<__New<Named>> $cls, string $name): Named {
+    return new $cls($name);
+}
+
+function main(): void {
+    echo spinUp(Greeter::class, "hi")->ping();
+    echo "\n";
+    string $raw = Greeter::class;
+    if (\class_exists<__New<Named>>($raw)) {
+        echo spinUp($raw, "ok")->ping();
+        echo "\n";
+    }
+}
+
+main();

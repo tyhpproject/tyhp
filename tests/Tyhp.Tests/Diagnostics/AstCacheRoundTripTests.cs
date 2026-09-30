@@ -1,9 +1,11 @@
 using Microsoft.Extensions.Configuration;
 using Tyhp.Config;
+using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Services;
+using Tyhp.Tests.TestHelpers;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
-using Tyhp.Tests.TestHelpers;
+using Tyhp.TyhpLang.Emitter;
 
 namespace Tyhp.Tests.Diagnostics;
 
@@ -126,7 +128,7 @@ public class AstCacheRoundTripTests
         var previous = Project.Singleton;
         try
         {
-            _ = new Project(new ConfigurationBuilder()
+            Project.Singleton = new Project(new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["*project_file_path"] = layout.RealProjectFile,
@@ -146,14 +148,14 @@ public class AstCacheRoundTripTests
     [Fact]
     public void TyhpdefParseContent_SecondCall_HitsAstCacheAndReturnsFreshTree()
     {
-        // Use a real package tyhpdef so the path is Absolute/GetRelativePath-friendly (unlike
-        // synthetic <tyhpdef:embedded:...> names that depend on CWD).
+        // Use a real on-disk fixture tyhpdef so the path is Absolute/GetRelativePath-friendly
+        // (unlike synthetic <tyhpdef:embedded:...> names that depend on CWD). C# unit tests
+        // must not load `runtime/packages`; see `IsolatedCompilation`.
         var tyhpdefPath = Path.Combine(
-            TestFileManager.GetRepoRoot(),
-            "runtime",
-            "php-extensions",
-            "php8.2.9",
-            "ExtJson.tyhpdef");
+            TestFileManager.GetTestProjectDirectory(),
+            "Fixtures",
+            "AstCache",
+            "sample.tyhpdef");
         File.Exists(tyhpdefPath).Should().BeTrue();
 
         var content = File.ReadAllText(tyhpdefPath);
@@ -289,6 +291,221 @@ public class AstCacheRoundTripTests
         }
     }
 
+    [Fact]
+    public void TyhpdefParseContent_CacheHit_PreservesIsInlineExtension()
+    {
+        const string tyhpdef = """
+            <?tyhpdef
+            class Money {
+                extension operator +(self $left, self $right): self => $left->plus($right);
+            }
+            """;
+
+        using var scope = IsolatedAstCacheScope.Create("<?tyhp\n", tyhpdef);
+        try
+        {
+            AstCacheService.Clear();
+            var tyhpdefPath = scope.TyhpdefPath!;
+            var diagnostics = new DiagnosticBag();
+
+            var first = Tyhp.TyhpLang.Binder.BuiltIn.Tyhpdef.ParseContent(
+                tyhpdef,
+                tyhpdefPath,
+                Tyhp.TyhpLang.Enum.ParseMode.Tyhpdef,
+                diagnostics);
+            first.Should().NotBeNull();
+            diagnostics.HasErrors.Should().BeFalse();
+            FlattenOperators(first!).Should().ContainSingle().Which.IsInlineExtension.Should().BeTrue();
+
+            AstCacheService.FlushMemory();
+            AstCacheService.ClearMemory();
+
+            var secondDiagnostics = new DiagnosticBag();
+            var second = Tyhp.TyhpLang.Binder.BuiltIn.Tyhpdef.ParseContent(
+                tyhpdef,
+                tyhpdefPath,
+                Tyhp.TyhpLang.Enum.ParseMode.Tyhpdef,
+                secondDiagnostics);
+            second.Should().NotBeNull();
+            secondDiagnostics.HasErrors.Should().BeFalse();
+            ReferenceEquals(first, second).Should().BeFalse();
+            FlattenOperators(second!).Should().ContainSingle().Which.IsInlineExtension.Should().BeTrue(
+                "a tyhpdef AST cache hit must keep IsInlineExtension so mapped operators stay splices");
+        }
+        finally
+        {
+            AstCacheService.Clear();
+        }
+    }
+
+    [Fact]
+    public void TyhpdefParseContent_CorruptCache_WarnsRemovesFileAndParsesSource()
+    {
+        const string tyhpdef = """
+            <?tyhpdef
+            class Foo {}
+            """;
+
+        using var scope = IsolatedAstCacheScope.Create("<?tyhp\n", tyhpdef);
+        try
+        {
+            AstCacheService.Clear();
+            var tyhpdefPath = scope.TyhpdefPath!;
+            var firstDiagnostics = new DiagnosticBag();
+            var first = Tyhp.TyhpLang.Binder.BuiltIn.Tyhpdef.ParseContent(
+                tyhpdef,
+                tyhpdefPath,
+                Tyhp.TyhpLang.Enum.ParseMode.Tyhpdef,
+                firstDiagnostics);
+            first.Should().NotBeNull();
+            firstDiagnostics.HasErrors.Should().BeFalse();
+            firstDiagnostics.HasWarnings.Should().BeFalse();
+
+            var cacheFile = Directory.GetFiles(AstCacheService.GetCacheDirectoryPath(), "*.ast")
+                .Should().ContainSingle().Subject;
+            var corrupt = new byte[] { 1, 2, 3, 4 };
+            File.WriteAllBytes(cacheFile, corrupt);
+            AstCacheService.ClearMemory();
+
+            var diagnostics = new DiagnosticBag();
+            var ast = Tyhp.TyhpLang.Binder.BuiltIn.Tyhpdef.ParseContent(
+                tyhpdef,
+                tyhpdefPath,
+                Tyhp.TyhpLang.Enum.ParseMode.Tyhpdef,
+                diagnostics);
+
+            ast.Should().NotBeNull();
+            diagnostics.HasErrors.Should().BeFalse();
+            var warning = diagnostics.Warnings.Should().ContainSingle().Subject;
+            warning.Code.Should().Be(Tyhp.Domain.Exceptions.MessageCode.ParserUnknownError);
+            warning.Message.Should().Contain("Failed to read AST cache for tyhpdef");
+            warning.Message.Should().Contain("Corrupt AST cache file");
+            warning.Message.Should().NotContain("WARNING_TYHP1001");
+            warning.Message.Should().NotContain("{0}");
+            File.Exists(cacheFile).Should().BeTrue("a successful reparse writes a fresh cache");
+            File.ReadAllBytes(cacheFile).Should().NotBeEquivalentTo(corrupt);
+        }
+        finally
+        {
+            AstCacheService.Clear();
+        }
+    }
+
+    [Fact]
+    public void TyhpdefParseContent_CacheWriteFailure_WarnsAndLeavesNoPartialFile()
+    {
+        const string tyhpdef = """
+            <?tyhpdef
+            class Foo {}
+            """;
+
+        using var scope = IsolatedAstCacheScope.Create("<?tyhp\n", tyhpdef);
+        var cacheDir = AstCacheService.GetCacheDirectoryPath();
+        Directory.CreateDirectory(cacheDir);
+        var dirInfo = new DirectoryInfo(cacheDir);
+        var previousMode = dirInfo.UnixFileMode;
+        try
+        {
+            AstCacheService.ClearMemory();
+            dirInfo.UnixFileMode = UnixFileMode.UserRead | UnixFileMode.UserExecute;
+
+            var diagnostics = new DiagnosticBag();
+            var ast = Tyhp.TyhpLang.Binder.BuiltIn.Tyhpdef.ParseContent(
+                tyhpdef,
+                scope.TyhpdefPath!,
+                Tyhp.TyhpLang.Enum.ParseMode.Tyhpdef,
+                diagnostics);
+
+            ast.Should().NotBeNull();
+            diagnostics.HasErrors.Should().BeFalse();
+            var warning = diagnostics.Warnings.Should().ContainSingle().Subject;
+            warning.Code.Should().Be(Tyhp.Domain.Exceptions.MessageCode.ParserUnknownError);
+            warning.Message.Should().Contain("Failed to cache tyhpdef AST:");
+            warning.Message.Should().NotContain("WARNING_TYHP1001");
+            warning.Message.Should().NotContain("{0}");
+            var detail = warning.Message.Split("Failed to cache tyhpdef AST:", 2)[1].Trim();
+            detail.Should().NotBeNullOrWhiteSpace();
+            Directory.GetFiles(cacheDir, "*.ast", SearchOption.AllDirectories).Should().BeEmpty();
+        }
+        finally
+        {
+            try { dirInfo.UnixFileMode = previousMode; } catch { /* best effort */ }
+            try { AstCacheService.Clear(); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public void DiskCacheReload_MappedExtensionOperator_EmitsAddNotMagicMethod()
+    {
+        var tyhp = """
+            <?tyhp
+            function add(\DateTime $dt, \DateInterval $interval): \DateTime {
+                return $dt + $interval;
+            }
+            function sub(\DateTime $dt, \DateInterval $interval): \DateTime {
+                return $dt - $interval;
+            }
+            """;
+
+        using var scope = IsolatedAstCacheScope.Create(tyhp, SyntheticPhpStubs.DateTimeOperators);
+        try
+        {
+            AstCacheService.Clear();
+
+            var firstPhp = CompileAndEmit(scope);
+            firstPhp.Should().Contain("$dt->add($interval)");
+            firstPhp.Should().Contain("$dt->sub($interval)");
+            firstPhp.Should().NotContain("__add");
+            firstPhp.Should().NotContain("__subtract");
+
+            AstCacheService.FlushMemory();
+            AstCacheService.ClearMemory();
+
+            var secondPhp = CompileAndEmit(scope);
+            secondPhp.Should().Contain("$dt->add($interval)");
+            secondPhp.Should().Contain("$dt->sub($interval)");
+            secondPhp.Should().NotContain("$dt + $interval");
+            secondPhp.Should().NotContain("$dt - $interval");
+            secondPhp.Should().NotContain("__add");
+            secondPhp.Should().NotContain("__subtract");
+        }
+        finally
+        {
+            AstCacheService.Clear();
+        }
+    }
+
+    private static string CompileAndEmit(IsolatedAstCacheScope scope)
+    {
+        using var compilationService = new CompilationService();
+        var includes = new List<string>();
+        if (scope.TyhpdefPath != null)
+        {
+            includes.Add(scope.TyhpdefPath);
+        }
+
+        var result = compilationService.ParseFiles(
+            [scope.SourceFilePath],
+            IsolatedCompilation.CreateOptions(
+                scope.ProjectPath,
+                phpVersion: "8.4",
+                tyhpdefIncludePaths: includes));
+
+        var unexpectedErrors = result.Diagnostics.Errors
+            .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        unexpectedErrors.Should().BeEmpty(
+            $"unexpected errors: {string.Join(", ", unexpectedErrors.Select(e => $"{e.Code}: {e.Message}"))}");
+        result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
+
+        var context = EmitContext.Create(result.GlobalScope, result.Diagnostics, Project.Singleton!);
+        var outputFiles = new TyhpEmitter(context).Emit(result.ParsedFiles!);
+        return string.Join('\n', outputFiles.Select(f => f.GeneratedContent ?? string.Empty));
+    }
+
+    private static IEnumerable<TyhpOperatorOverloadAst> FlattenOperators(IBase2Ast root)
+        => EnumerateAll(root).OfType<TyhpOperatorOverloadAst>();
+
     private static SrcFileAst ParseSource(string content, out System.Action cleanup)
     {
         var filePath = WriteTempFile(content, out cleanup);
@@ -302,9 +519,9 @@ public class AstCacheRoundTripTests
         {
             EnableAstCache = false,
             PhpVersion = "8.2",
-            ProjectPath = TestFileManager.GetRepoRoot(),
-            TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
+            ProjectPath = Path.GetDirectoryName(filePath)!,
             SkipChecking = true,
+            SuppressedWarnings = IsolatedCompilation.MissingPackageWarnings,
         };
         var result = compilationService.ParseFiles([filePath], options);
         result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
@@ -362,16 +579,25 @@ public class AstCacheRoundTripTests
         private readonly string _rootDir;
         private bool _disposed;
 
-        private IsolatedAstCacheScope(Project? previousProject, string rootDir, string sourceFilePath)
+        private IsolatedAstCacheScope(
+            Project? previousProject,
+            string rootDir,
+            string sourceFilePath,
+            string projectPath,
+            string? tyhpdefPath)
         {
             _previousProject = previousProject;
             _rootDir = rootDir;
             SourceFilePath = sourceFilePath;
+            ProjectPath = projectPath;
+            TyhpdefPath = tyhpdefPath;
         }
 
         public string SourceFilePath { get; }
+        public string ProjectPath { get; }
+        public string? TyhpdefPath { get; }
 
-        public static IsolatedAstCacheScope Create(string sourceContent)
+        public static IsolatedAstCacheScope Create(string sourceContent, string? tyhpdefContent = null)
         {
             var previous = Project.Singleton;
             var rootDir = Path.Combine(
@@ -388,6 +614,13 @@ public class AstCacheRoundTripTests
             var sourceFilePath = Path.Combine(projectDir, "test.tyhp");
             File.WriteAllText(sourceFilePath, sourceContent);
 
+            string? tyhpdefPath = null;
+            if (tyhpdefContent != null)
+            {
+                tyhpdefPath = Path.Combine(projectDir, "types.tyhpdef");
+                File.WriteAllText(tyhpdefPath, tyhpdefContent);
+            }
+
             var configuration = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
@@ -395,9 +628,9 @@ public class AstCacheRoundTripTests
                     ["cache-dir"] = cacheDir,
                 })
                 .Build();
-            _ = new Project(configuration);
+            Project.Singleton = new Project(configuration);
 
-            return new IsolatedAstCacheScope(previous, rootDir, sourceFilePath);
+            return new IsolatedAstCacheScope(previous, rootDir, sourceFilePath, projectDir, tyhpdefPath);
         }
 
         public void Dispose()

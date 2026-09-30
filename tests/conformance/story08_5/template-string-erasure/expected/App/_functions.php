@@ -8,6 +8,11 @@ declare(strict_types=1);
 
 namespace App;
 
+function ApiMethod(): \Tyhp\Type
+{
+    return \Tyhp\Type::string();
+}
+
 function demo(): void
 {
     $method = 'GET';

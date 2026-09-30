@@ -2,6 +2,8 @@ using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Binder;
+using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Enum;
 
@@ -25,17 +27,18 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
-            // Progressive left→right narrowing for `&&` / `and`: after the left operand is
-            // proven (short-circuit), the right is type-checked under the left's positive
-            // narrowing. Without this, `\is_array($x) && \array_key_exists(0, $x)` still sees
-            // `$x` as `mixed` in the second call. Child traversal is suppressed for these ops
-            // so this walk is the sole visitor. The narrowing is applied to a disposable probe
-            // (not the ambient `state`) — this node is not necessarily an if/while/ternary/switch
-            // condition (real branch narrowing for those goes through a dedicated
-            // `ApplyConditionNarrowing(..., thenState/loopState, ...)` call elsewhere), so without
-            // a probe a bare `\is_string($x) && …;` expression statement would leak `$x`'s
-            // narrowed type forward into unrelated code that follows it.
-            if (TypeNarrowingRule.IsLogicalAnd(op)
+            // Progressive left→right narrowing for short-circuit logic. `&&` / `and`: the right
+            // is only evaluated when the left is true, so it is checked under the left's positive
+            // narrowing (`\is_array($x) && \array_key_exists(0, $x)`). `||` / `or`: the right is
+            // only evaluated when the left is false, so it is checked under the left's negative
+            // narrowing (`!\class_exists($n) || \is_subclass_of($n, $base)`). Child traversal is
+            // suppressed for these ops so this walk is the sole visitor. The narrowing is applied
+            // to a disposable probe (not the ambient `state`) — this node is not necessarily an
+            // if/while/ternary/switch condition (real branch narrowing for those goes through a
+            // dedicated `ApplyConditionNarrowing(..., thenState/loopState, ...)` call elsewhere),
+            // so without a probe a bare `\is_string($x) && …;` expression statement would leak
+            // `$x`'s narrowed type forward into unrelated code that follows it.
+            if (TypeNarrowingRule.IsShortCircuitLogical(op)
                 && binary.Left is IExpression leftExpr
                 && binary.Right is not null)
             {
@@ -45,7 +48,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 CheckerHelpers.ReportMixedRequiresNarrowing(
                     diagnostics, state, leftExpr, context.ResolveExpressionType(leftExpr, probe));
                 TypeNarrowingRule.ApplyConditionNarrowing(
-                    leftExpr, probe, context, context.SymbolTree, context.GlobalScope, positive: true);
+                    leftExpr, probe, context, context.SymbolTree, context.GlobalScope,
+                    positive: TypeNarrowingRule.IsLogicalAnd(op));
                 context.CheckNode(binary.Right, probe);
                 CheckerHelpers.ReportMixedRequiresNarrowing(
                     diagnostics, state, binary.Right,
@@ -55,13 +59,69 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             if (!IsAssignmentOperator(op))
             {
+                if (CheckerHelpers.IsInstanceofLikeOperator(binary) && binary.Right is not null)
+                {
+                    CheckerHelpers.ResolveInstanceofTargetType(
+                        binary.Right,
+                        state,
+                        context,
+                        context.SymbolTree,
+                        context.GlobalScope,
+                        diagnostics);
+                }
+
                 CheckMixedRestrictedBinaryOperands(binary, op, state, context, diagnostics);
+                CheckObjectOperatorOverloadApplicability(binary, op, state, context, diagnostics);
                 return;
             }
 
             if (binary.Left is null || binary.Right is null)
             {
                 return;
+            }
+
+            if (op == "="
+                && ArrayAccessDestructureSupport.TryGetPattern(binary.Left, out var destructurePattern))
+            {
+                var destructureSource = context.ResolveExpressionType(binary.Right, state);
+                ArrayAccessDestructureSupport.Check(
+                    destructurePattern,
+                    destructureSource,
+                    binary,
+                    state,
+                    context,
+                    diagnostics);
+                return;
+            }
+
+            // Simple `$recv->prop =` / `$recv[$k] =` skips child traversal of the left
+            // (NullSafetyRule treats it as a write, not a read). Still validate the receiver
+            // for mixed (TYHP4160) and Unresolved (TYHP4197) use-sites.
+            //
+            // `??=`'s left is an existence probe, not a plain write target: NullSafetyRule
+            // re-visits it under `IsExistenceProbeContext` (same as bare `??`) so a receiver
+            // the checker could not resolve does not report there. Checking it again here,
+            // unconditionally and before that probe flag is set (`TypeCompatibilityRule` runs
+            // before `NullSafetyRule` for this same node), would report TYHP4197 / TYHP4160 on
+            // `$hole->x ??= 1` / `$m->x ??= 1` even though `$hole->x ?? 1` / `$m->x ?? 1` are
+            // correctly silent — so skip the early check for `??=` and let NullSafetyRule's
+            // probed re-visit be the sole check, matching bare `??`.
+            if (op != "??=" && binary.Left is PhpDereferenceableAst leftDeref)
+            {
+                context.MarkImportNames(leftDeref, state);
+                CheckDereferenceable(leftDeref, state, context, diagnostics);
+            }
+
+            if (state.TrackArrayAccessShapeOffsetSetCoverage
+                && op == "="
+                && binary.Right is PhpVariableAst valueVar
+                && !string.IsNullOrEmpty(state.ArrayAccessShapeValueParameterName)
+                && string.Equals(
+                    CheckerHelpers.GetVariableName(valueVar),
+                    state.ArrayAccessShapeValueParameterName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                state.HasArrayAccessShapeCoverage = true;
             }
 
             // Compound arithmetic/bitwise/concat assigns read the left as an operand of a
@@ -74,79 +134,126 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 CheckerHelpers.ReportMixedRequiresNarrowing(
                     diagnostics, state, binary.Right,
                     context.ResolveExpressionType(binary.Right, state));
+                CheckObjectOperatorOverloadApplicability(binary, op, state, context, diagnostics);
             }
 
-            if (binary.Right is PhpNewAst newExpr)
+            ICheckedType? assignmentTargetForContext = null;
+            if (op is "=" or "??=")
             {
-                CheckNew(newExpr, state, context, diagnostics);
+                assignmentTargetForContext = ResolveAssignmentTargetType(binary.Left, state, context);
             }
 
-            // For a compound assignment (`+=`, `.=`, etc.) the value assigned back to the target is
-            // the RESULT of the operation, not the bare right operand. Resolving the whole binary
-            // node routes through the operator inference (including operator overloads, which yield
-            // an unknown/permissive type for object operands), matching how plain `$a + $b` is
-            // treated. Using only `binary.Right` here wrongly rejected `$money += 10;`.
-            var isCompoundAssignment = op != "=";
-            var sourceType = isCompoundAssignment
-                ? context.ResolveExpressionType(binary, state)
-                : context.ResolveExpressionType(binary.Right, state);
-            var targetType = ResolveAssignmentTargetType(binary.Left, state, context);
-
-            if (targetType is not UnresolvedCheckedType)
+            var previousExpected = state.ExpectedExpressionType;
+            if (ContextualNewInference.IsUsableExpectedType(assignmentTargetForContext))
             {
-                // `??=` assigns the right operand when the left is null, so a bag literal on
-                // the right is the value that lands in the target — same as plain `=`.
-                var bagChecked = op is "=" or "??="
-                    && StructBagLiteralChecker.TryCheck(
-                        binary.Right, targetType, state, context, diagnostics);
-                if (!bagChecked
-                    && !context.IsAssignable(sourceType, targetType, state)
-                    && !CheckerHelpers.IsArrayCallableLiteral(binary.Right, targetType, context, state))
+                state.ExpectedExpressionType = assignmentTargetForContext;
+            }
+
+            try
+            {
+                if (binary.Right is PhpNewAst newExpr)
                 {
-                    if (!SymbolNameTypeAssignability.TryReportLiteralExistenceFailure(
-                            sourceType, targetType, state, context.SymbolTree, context.GlobalScope,
-                            diagnostics, binary))
+                    CheckNew(newExpr, state, context, diagnostics);
+                }
+
+                // For a compound assignment (`+=`, `.=`, etc.) the value assigned back to the target is
+                // the RESULT of the operation, not the bare right operand. Resolving the whole binary
+                // node routes through the operator inference (including operator overloads, which yield
+                // an unknown/permissive type for object operands), matching how plain `$a + $b` is
+                // treated. Using only `binary.Right` here wrongly rejected `$money += 10;`.
+                var isCompoundAssignment = op != "=";
+                var sourceType = isCompoundAssignment
+                    ? context.ResolveExpressionType(binary, state)
+                    : context.ResolveExpressionType(binary.Right, state);
+
+                // `$arr[] = $v` / `$arr[$k] = $v` on an unannotated / empty array local: grow a
+                // concrete map/list type (`array<int, …>` / `array<K, …>`) so later `\implode` /
+                // `\array_reverse` see resolved keys. Skip the element-vs-placeholder check
+                // (`int` ↛ `never`) when we just refined.
+                var refinedOpenArrayAppend = op == "="
+                    && ArrayAppendInference.TryRefineLocal(
+                        binary.Left,
+                        sourceType,
+                        state,
+                        context.SymbolTree,
+                        context.GlobalScope,
+                        expr => context.ResolveExpressionType(expr, state));
+
+                var targetType = assignmentTargetForContext
+                    ?? ResolveAssignmentTargetType(binary.Left, state, context);
+
+                if (!refinedOpenArrayAppend && targetType is not UnresolvedCheckedType)
+                {
+                    // `??=` assigns the right operand when the left is null, so a bag literal on
+                    // the right is the value that lands in the target — same as plain `=`.
+                    var bagChecked = op is "=" or "??="
+                        && StructBagLiteralChecker.TryCheck(
+                            binary.Right, targetType, state, context, diagnostics);
+                    if (GeneratorBodyInference.TryHandleYieldSendAssignment(binary.Right, targetType, state))
                     {
-                        CheckerHelpers.ReportError(
-                            diagnostics, state, binary, MessageCode.CheckerTypeMismatch,
-                            sourceType.DisplayName, targetType.DisplayName);
+                        // Unpinned TSend: yield currently types as mixed; the assignment target
+                        // constrains TSend instead of reporting mixed↛T.
+                    }
+                    else if (!bagChecked
+                        && !context.IsAssignable(sourceType, targetType, state)
+                        && !CheckerHelpers.IsArrayCallableLiteral(binary.Right, targetType, context, state))
+                    {
+                        if (!CheckerHelpers.TryReportObjectShapeRequiresGuard(
+                                diagnostics, state, binary, sourceType, targetType)
+                            && !CheckerHelpers.TryReportCallableShapeRequiresGuard(
+                                diagnostics, state, binary, sourceType, targetType)
+                            && !CheckerHelpers.TryReportNewConstraintFailure(
+                                diagnostics, state, binary, sourceType, targetType,
+                                context.SymbolTree, context.GlobalScope)
+                            && !SymbolNameTypeAssignability.TryReportLiteralExistenceFailure(
+                                sourceType, targetType, state, context.SymbolTree, context.GlobalScope,
+                                diagnostics, binary))
+                        {
+                            CheckerHelpers.ReportError(
+                                diagnostics, state, binary, MessageCode.CheckerTypeMismatch,
+                                sourceType.DisplayName, targetType.DisplayName);
+                        }
                     }
                 }
-            }
 
-            if (IsReadonlyAssignmentTarget(binary.Left, state))
-            {
-                var memberName = binary.Left is PhpDereferenceableAst
+                if (IsReadonlyAssignmentTarget(binary.Left, state))
                 {
-                    Suffix: PhpInstanceMemberAccessAst memberAccess
+                    var memberName = binary.Left is PhpDereferenceableAst
+                    {
+                        Suffix: PhpInstanceMemberAccessAst memberAccess
+                    }
+                        ? GetExpressionText(memberAccess.MemberName)
+                        : null;
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        binary,
+                        MessageCode.CheckerReadonlyPropertyReassigned,
+                        memberName ?? "?");
                 }
-                    ? GetExpressionText(memberAccess.MemberName)
-                    : null;
-                CheckerHelpers.ReportError(
-                    diagnostics,
-                    state,
-                    binary,
-                    MessageCode.CheckerReadonlyPropertyReassigned,
-                    memberName ?? "?");
-            }
 
-            if (binary.Left is PhpVariableAst variable)
-            {
-                var name = CheckerHelpers.GetVariableName(variable);
-                if (name is not null)
+                if (binary.Left is PhpVariableAst variable)
                 {
-                    // Drop index/member-access narrowing keyed on this receiver — AssignVariable
-                    // overwrites the variable's own NarrowedType, but structural maps are separate.
-                    TypeNarrowingRule.ResetNarrowingOnAssignment(name, state);
-                    state.AssignVariable(name, sourceType, diagnostics);
+                    var name = CheckerHelpers.GetVariableName(variable);
+                    if (name is not null)
+                    {
+                        // Drop index/member-access narrowing keyed on this receiver — AssignVariable
+                        // overwrites the variable's own NarrowedType, but structural maps are separate.
+                        TypeNarrowingRule.ResetNarrowingOnAssignment(name, state);
+                        state.AssignVariable(name, sourceType, diagnostics);
+                    }
+                }
+                else if (TypeNarrowingRule.TryGetTrackedPropertyKey(binary.Left, state, out var propertyKey)
+                    && IsDefinitePropertyInitializingAssignment(op))
+                {
+                    // Track both definite init and post-assignment type so later `$this->prop !== null`
+                    // / `self::$prop` reads see the RHS (mirrors AssignVariable for locals).
+                    state.AssignPropertyType(propertyKey!, sourceType);
                 }
             }
-            else if (TryGetThisPropertyAssignmentTarget(binary.Left, out var propertyKey)
-                && IsDefinitePropertyInitializingAssignment(op))
+            finally
             {
-                // Track both definite init and post-assignment type so later `$this->prop !== null`
-                // / reads see the RHS (mirrors AssignVariable for locals).
-                state.AssignPropertyType(propertyKey!, sourceType);
+                state.ExpectedExpressionType = previousExpected;
             }
         }
 
@@ -189,7 +296,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
         private static bool IsMixedAllowedBinaryOperator(string op) =>
             op is "==" or "!=" or "===" or "!==" or "<" or ">" or "<=" or ">=" or "<=>"
                 or "??"
-                or "instanceof" or "is" or "isa" or "isan" or "is_a" or "is_an";
+                or "instanceof" or "is";
 
         /// <summary>
         /// True only for the two operators that guarantee <c>$this->prop</c> holds a value
@@ -205,33 +312,6 @@ namespace Tyhp.TyhpLang.Checker.Rules
         private static bool IsDefinitePropertyInitializingAssignment(string op) =>
             op is "=" or "??=";
 
-        /// <summary>
-        /// True when <paramref name="left"/> is <c>$this->prop</c> (plain property write target).
-        /// </summary>
-        private static bool TryGetThisPropertyAssignmentTarget(IExpression left, out string? propertyKey)
-        {
-            propertyKey = null;
-            if (left is not PhpDereferenceableAst { Suffix: PhpInstanceMemberAccessAst memberAccess } dereferenceable)
-            {
-                return false;
-            }
-
-            if (dereferenceable.Base is not PhpVariableAst receiver
-                || !CheckerHelpers.IsThisVariable(receiver))
-            {
-                return false;
-            }
-
-            var memberName = GetExpressionText(memberAccess.MemberName);
-            if (memberName is null || memberName.StartsWith('{'))
-            {
-                return false;
-            }
-
-            propertyKey = memberName.StartsWith('$') ? memberName : "$" + memberName;
-            return true;
-        }
-
         // An assignment must conform to the variable's DECLARED type, not its currently narrowed type.
         // A narrowed variable (e.g. inside `if ($x instanceof T)`) may still be reassigned any value of
         // its declared type, so checking against the narrowed type would wrongly reject the assignment.
@@ -245,6 +325,19 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 && state.LookupVariable(name) is { NarrowedType: not null, DeclaredType: { } declared })
             {
                 return declared;
+            }
+
+            // `$this->prop` / `self::$prop` — assignment is against the declared slot type, not
+            // the current refinement. Inside `if (self::$x === null) { self::$x = new self(); }`
+            // the then-branch has narrowed the read to null; writing must still see `?self`.
+            if (left is IExpression leftExpr
+                && TypeNarrowingRule.TryGetTrackedPropertyKey(leftExpr, state, out var trackedKey)
+                && state.LookupPropertyInit(trackedKey!) is not null
+                && state.EnclosingObject is { } enclosingObject
+                && context.SymbolTree.ResolveMember(trackedKey!, enclosingObject, new DiagnosticBag())
+                    is ObjectPropertySymbol { DeclaredType: { } declaredAst })
+            {
+                return context.ResolveTypeAnnotation(declaredAst, state);
             }
 
             // `$arr[1] = value` — index-access control-flow narrowing (e.g. from a prior
@@ -336,6 +429,42 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
+            if (TryReportObjectShapeUsedAsClass(classRef, state, context, diagnostics)
+                || TryReportTypeAliasUsedAsNewTarget(classRef, state, context, diagnostics))
+            {
+                return;
+            }
+
+            var classType = context.ResolveExpressionType(newExpr, state);
+            if (TryGetGenericTypeParameter(classRef, classType, state, out var typeParam))
+            {
+                var paramType = CheckedTypes.FromSymbol(typeParam);
+                if (TypeComparer.TryGetNewUtility(paramType, out var newUtility))
+                {
+                    if (IsObjectGenericSimpleName(typeParam.Name, state))
+                    {
+                        context.MarkRequiresRuntimeGenericTracking(state.EnclosingObject);
+                    }
+
+                    ValidateNewShapeConstructorArguments(
+                        newExpr, typeParam.Name, newUtility, state, context, diagnostics);
+                    return;
+                }
+
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    newExpr,
+                    MessageCode.CheckerNewTypeParameterRequiresNew,
+                    typeParam.Name);
+                return;
+            }
+
+            if (TryCheckNewOnClassNameBrand(newExpr, classRef, state, context, diagnostics))
+            {
+                return;
+            }
+
             // `new T()` where T is an object generic type parameter → runtime tracking.
             if (IsObjectGenericTypeParameterName(classRef, state))
             {
@@ -352,7 +481,6 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // Prefer the expression-inferred type (same path as InferNew): named structs often
             // resolve as StructCheckedType via type annotation, which TryGetObjectDeclaration
             // cannot unwrap. Expression inference yields SimpleCheckedType + ObjectDeclarationSymbol.
-            var classType = context.ResolveExpressionType(newExpr, state);
             var objectDecl = CheckerHelpers.TryGetObjectDeclaration(classType)
                 ?? classRef.BoundSymbol as ObjectDeclarationSymbol
                 ?? CheckerHelpers.TryGetObjectDeclaration(ResolveNewClassType(classRef, state, context));
@@ -367,6 +495,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         annotationType.DisplayName);
                 }
 
+                return;
+            }
+
+            if (objectDecl.IsExtern)
+            {
                 return;
             }
 
@@ -441,7 +574,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             ValidateNamedArguments(newExpr.Arguments, state, newExpr, diagnostics);
             // Pass the constructed receiver (`new static<T>` → `Promise<T>`) so constructor
-            // parameters like `callable<TReturn>` substitute class generics the same way
+            // parameters like `callable(): TReturn` substitute class generics the same way
             // instance-method calls already do via ResolveMemberDeclaredType.
             ValidateArgumentTypes(
                 newExpr.Arguments,
@@ -510,6 +643,248 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             return state.ObjectGenerics.Any(gp => string.Equals(gp.Name, name, StringComparison.Ordinal));
         }
+
+        private static bool TryGetGenericTypeParameter(
+            IClassNameReference classRef,
+            ICheckedType classType,
+            CheckerState state,
+            out GenericTypeParameterSymbol typeParam)
+        {
+            if (classType is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol fromType })
+            {
+                typeParam = fromType;
+                return true;
+            }
+
+            var name = GetClassNameText(classRef)?.TrimStart('\\');
+            if (string.IsNullOrEmpty(name) || name.Contains('\\'))
+            {
+                typeParam = null!;
+                return false;
+            }
+
+            typeParam = state.FunctionGenerics.FirstOrDefault(gp =>
+                    string.Equals(gp.Name, name, StringComparison.Ordinal))
+                ?? state.ObjectGenerics.FirstOrDefault(gp =>
+                    string.Equals(gp.Name, name, StringComparison.Ordinal))!;
+            return typeParam is not null;
+        }
+
+        /// <summary>
+        /// <c>new $cls(...)</c> when <c>$cls</c> is a <c>__ClassName&lt;T&gt;</c> brand.
+        /// Shape brands without <c>__New</c> are TYHP4356; <c>__ClassName&lt;__New&lt;Shape&gt;&gt;</c>
+        /// checks arguments against the shape constructor (TYHP4357). Bare
+        /// <c>__ClassName</c> / <c>__ClassName&lt;object&gt;</c> / <c>__ClassName&lt;Nominal&gt;</c>
+        /// keep existing dynamic-<c>new</c> (allowed, no shape ctor check).
+        /// </summary>
+        private static bool TryCheckNewOnClassNameBrand(
+            PhpNewAst newExpr,
+            IClassNameReference classRef,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var classNameType = ResolveNewClassType(classRef, state, context);
+            if (!SymbolNameTypeHelper.TryGetClassNameBrandArgument(classNameType, out var brand))
+            {
+                return false;
+            }
+
+            if (TypeComparer.TryGetNewUtility(brand, out var newUtility))
+            {
+                var display = GetClassNameBrandNewDisplay(classRef, classNameType);
+                ValidateNewShapeConstructorArguments(
+                    newExpr, display, newUtility, state, context, diagnostics);
+                return true;
+            }
+
+            if (IsClassNameBrandShapeWithoutNew(brand))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    newExpr,
+                    MessageCode.CheckerNewClassNameRequiresNew,
+                    GetClassNameBrandNewDisplay(classRef, classNameType),
+                    classNameType.DisplayName);
+                return true;
+            }
+
+            return true;
+        }
+
+        private static bool IsClassNameBrandShapeWithoutNew(ICheckedType brand)
+        {
+            if (TypeComparer.TryGetNewUtility(brand, out _))
+            {
+                return false;
+            }
+
+            if (brand is SimpleCheckedType
+                {
+                    ResolvedSymbol: GenericTypeParameterSymbol { ResolvedConstraint: { } constraint },
+                })
+            {
+                return IsClassNameBrandShapeWithoutNew(constraint);
+            }
+
+            return TypeComparer.IsStructuralClassNameBrandArgument(brand);
+        }
+
+        private static string GetClassNameBrandNewDisplay(
+            IClassNameReference classRef,
+            ICheckedType classNameType)
+        {
+            if (classRef is PhpVariableAst variable)
+            {
+                var name = CheckerHelpers.GetVariableName(variable);
+                if (!string.IsNullOrEmpty(name))
+                {
+                    return name;
+                }
+            }
+
+            var written = GetClassNameText(classRef)?.TrimStart('$', '\\');
+            return string.IsNullOrEmpty(written) ? classNameType.DisplayName : written;
+        }
+
+        /// <summary>
+        /// <c>new T(...)</c> / <c>new $cls(...)</c> argument lists are checked against the
+        /// <em>shape</em> constructor (TYHP4357), not every prefix the eventual class happens
+        /// to accept. Named arguments (<c>new T(b: 1, a: $s)</c>) are matched against the
+        /// selected facet's <see cref="CallableCheckedType.ParameterNames"/> the same way a
+        /// nominal <c>new Foo(...)</c> matches them against <c>ParameterInfo.Name</c> — the
+        /// shape ctor arity is not just the positional-argument count.
+        /// </summary>
+        private static void ValidateNewShapeConstructorArguments(
+            PhpNewAst newExpr,
+            string targetDisplay,
+            GenericCheckedType newUtility,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var shapeType = newUtility.TypeArguments[0];
+            var ctor = TypeComparer.GetShapeConstructorCallable(
+                shapeType, context.SymbolTree, context.GlobalScope);
+
+            if (newExpr.Arguments is not null)
+            {
+                ValidateNamedArguments(newExpr.Arguments, state, newExpr, diagnostics);
+            }
+
+            var positionalCount = CallableArityFacetBuilder.CountPositionalArguments(newExpr.Arguments);
+            var namedCount = CountNamedArguments(newExpr.Arguments);
+            if (!CallableArityFacetBuilder.TrySelectCallableFacet(
+                    ctor, positionalCount + namedCount, out var facet)
+                || facet is null)
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    newExpr,
+                    MessageCode.CheckerObjectShapeConstructorArgumentMismatch,
+                    targetDisplay,
+                    shapeType.DisplayName);
+                return;
+            }
+
+            if (newExpr.Arguments is null)
+            {
+                return;
+            }
+
+            var index = 0;
+            foreach (var arg in newExpr.Arguments.GetAllNotNull())
+            {
+                if (arg.IsVariadic || arg.Expression is null)
+                {
+                    continue;
+                }
+
+                ICheckedType expected;
+                if (arg.Name is not null)
+                {
+                    var namedIndex = FindFacetParameterIndexByName(facet, arg.Name.ValueString);
+                    if (namedIndex < 0)
+                    {
+                        CheckerHelpers.ReportError(
+                            diagnostics,
+                            state,
+                            arg,
+                            MessageCode.CheckerObjectShapeConstructorArgumentMismatch,
+                            targetDisplay,
+                            shapeType.DisplayName);
+                        continue;
+                    }
+
+                    expected = facet.ParameterTypes[namedIndex];
+                }
+                else if (facet.LastParameterIsVariadic && index >= facet.ParameterTypes.Count - 1)
+                {
+                    expected = facet.ParameterTypes[^1];
+                }
+                else if (index < facet.ParameterTypes.Count)
+                {
+                    expected = facet.ParameterTypes[index];
+                }
+                else
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        newExpr,
+                        MessageCode.CheckerObjectShapeConstructorArgumentMismatch,
+                        targetDisplay,
+                        shapeType.DisplayName);
+                    return;
+                }
+
+                var argType = context.ResolveExpressionType(arg.Expression, state);
+                if (!context.IsAssignable(argType, expected, state)
+                    && !CheckerHelpers.IsArrayCallableLiteral(arg.Expression, expected, context, state))
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        arg,
+                        MessageCode.CheckerObjectShapeConstructorArgumentMismatch,
+                        targetDisplay,
+                        shapeType.DisplayName);
+                }
+
+                if (arg.Name is null)
+                {
+                    index++;
+                }
+            }
+        }
+
+        private static int CountNamedArguments(PhpArgumentListAst? arguments)
+        {
+            if (arguments is null)
+            {
+                return 0;
+            }
+
+            var count = 0;
+            foreach (var argument in arguments.GetAllNotNull())
+            {
+                if (!argument.IsVariadic && argument.Name is not null)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        /// <summary>
+        /// Case-insensitive lookup of <paramref name="name"/> (no leading <c>$</c>, matching
+        /// PHP named-argument syntax) in the selected facet's parameter names.
+        /// </summary>
+        private static int FindFacetParameterIndexByName(CallableCheckedType facet, string? name) =>
+            CallableArityFacetBuilder.FindParameterIndexByName(facet, name);
 
         private static bool GenericTypeArgsReferenceObjectParam(TyhpGenericIdentifierAst genericId, CheckerState state)
         {
@@ -583,6 +958,63 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             return false;
+        }
+
+        private static bool TryReportObjectShapeUsedAsClass(
+            IBase2Ast node,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var scope = state.NameResolutionScope
+                ?? state.EnclosingCallable?.ContainingScope
+                ?? state.EnclosingObject?.ContainingScope
+                ?? (IBaseScope)context.GlobalScope;
+
+            if (!ObjectShapeSupport.TryResolveObjectShapeAlias(
+                    node, scope, context.SymbolTree, out var alias))
+            {
+                return false;
+            }
+
+            CheckerHelpers.ReportError(
+                diagnostics,
+                state,
+                node,
+                MessageCode.CheckerObjectShapeUsedAsClass,
+                alias.Name);
+            return true;
+        }
+
+        /// <summary>
+        /// <c>new Foo()</c> where <c>Foo</c> is a <c>type</c> alias is never instantiating a
+        /// class, even when the alias expands to one. Shape aliases (including a rename or
+        /// generic wrapper of a shape) stay TYHP4347; every other alias is TYHP4069.
+        /// Direct shape aliases are already reported by
+        /// <see cref="TryReportObjectShapeUsedAsClass"/>.
+        /// </summary>
+        private static bool TryReportTypeAliasUsedAsNewTarget(
+            IClassNameReference classRef,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var scope = state.NameResolutionScope
+                ?? state.EnclosingCallable?.ContainingScope
+                ?? state.EnclosingObject?.ContainingScope
+                ?? (IBaseScope)context.GlobalScope;
+
+            if (!ObjectShapeSupport.TryResolveTypeAlias(
+                    classRef, scope, context.SymbolTree, out var alias))
+            {
+                return false;
+            }
+
+            var code = ObjectShapeSupport.AliasResolvesToObjectShape(alias)
+                ? MessageCode.CheckerObjectShapeUsedAsClass
+                : MessageCode.CheckerCannotInstantiateNonClass;
+            CheckerHelpers.ReportError(diagnostics, state, classRef, code, alias.Name);
+            return true;
         }
 
         private static bool IsObjectGenericSimpleName(string? name, CheckerState state)
@@ -673,10 +1105,189 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 CheckerHelpers.ReportMixedRequiresNarrowing(
                     diagnostics, state, unary.Operand, operandType);
             }
+
+            CheckObjectUnaryOperatorOverloadApplicability(unary, op, operandType, state, context, diagnostics);
         }
 
         private static bool IsMixedRestrictedUnaryOperator(string op) =>
             op is "+" or "-" or "~" or "++" or "--" or "!";
+
+        /// <summary>
+        /// Object operands cannot use native PHP arithmetic / bitwise / concat. Require a matching
+        /// Story 11 overload form (unary vs binary are distinct — a unary <c>+</c> does not satisfy
+        /// binary <c>$a + $b</c>). Comparisons stay on the native PHP path. Concat is native when
+        /// every operand is scalar or <c>\Stringable</c> (including <c>__toString</c> auto-implement).
+        /// </summary>
+        private static void CheckObjectOperatorOverloadApplicability(
+            PhpBinaryOpAst binary,
+            string opText,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (binary.Left is null || binary.Right is null)
+            {
+                return;
+            }
+
+            var overloadOp = MapBinaryOpTextToOverloadable(opText);
+            if (overloadOp == OverloadableOperator.Invalid
+                || IsNativeComparableWithoutOverload(overloadOp))
+            {
+                return;
+            }
+
+            var leftType = context.ResolveExpressionType(binary.Left, state);
+            var rightType = context.ResolveExpressionType(binary.Right, state);
+
+            // Unresolved is a checker error-recovery marker (undefined symbol, unhandled AST shape,
+            // not-yet-inferred generic, …) — a resolution failure already reported elsewhere. Reporting
+            // TYHP4029 on top would cascade a second diagnostic from that same failure.
+            if (TypeComparer.IsUnresolvedType(leftType) || TypeComparer.IsUnresolvedType(rightType))
+            {
+                return;
+            }
+
+            if (!OperandRequiresObjectOperatorOverload(leftType)
+                && !OperandRequiresObjectOperatorOverload(rightType))
+            {
+                return;
+            }
+
+            if (context.HasMatchingBinaryOperatorOverload(overloadOp, leftType, rightType, state))
+            {
+                return;
+            }
+
+            // PHP concatenates Stringable objects by calling __toString; that is not an
+            // operator overload. Non-Stringable objects still need a concat form (TYHP4029).
+            if (overloadOp == OverloadableOperator.Concat
+                && CheckerHelpers.IsStringableType(leftType, context.SymbolTree, context.GlobalScope)
+                && CheckerHelpers.IsStringableType(rightType, context.SymbolTree, context.GlobalScope))
+            {
+                return;
+            }
+
+            // Prefer the underlying binary spelling in diagnostics (`+` not `+=`).
+            var displayOp = StripCompoundAssignSuffix(opText);
+            CheckerHelpers.ReportError(
+                diagnostics,
+                state,
+                binary,
+                MessageCode.CheckerInvalidOperatorForType,
+                displayOp,
+                leftType.DisplayName,
+                rightType.DisplayName);
+        }
+
+        private static void CheckObjectUnaryOperatorOverloadApplicability(
+            PhpUnaryOpAst unary,
+            string opText,
+            ICheckedType operandType,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var overloadOp = MapUnaryOpTextToOverloadable(opText);
+            if (overloadOp == OverloadableOperator.Invalid)
+            {
+                return;
+            }
+
+            if (TypeComparer.IsUnresolvedType(operandType))
+            {
+                return;
+            }
+
+            if (!OperandRequiresObjectOperatorOverload(operandType))
+            {
+                return;
+            }
+
+            if (context.HasMatchingUnaryOperatorOverload(overloadOp, operandType, state))
+            {
+                return;
+            }
+
+            CheckerHelpers.ReportError(
+                diagnostics,
+                state,
+                unary,
+                MessageCode.CheckerInvalidOperatorForType,
+                opText,
+                operandType.DisplayName,
+                operandType.DisplayName);
+        }
+
+        private static bool OperandRequiresObjectOperatorOverload(ICheckedType type)
+        {
+            var unwrapped = type is NullableCheckedType nullable ? nullable.InnerType : type;
+            if (unwrapped is LiteralCheckedType literal)
+            {
+                unwrapped = literal.UnderlyingType;
+            }
+
+            // Structs are not on the class operator-overload path; builtins use native PHP / extensions.
+            return CheckerHelpers.TryGetObjectDeclaration(unwrapped) is { IsStruct: false };
+        }
+
+        /// <summary>
+        /// PHP compares objects natively; overloads are optional enhancements, not required.
+        /// </summary>
+        private static bool IsNativeComparableWithoutOverload(OverloadableOperator op) =>
+            op is OverloadableOperator.CompareEqual
+                or OverloadableOperator.CompareNotEqual
+                or OverloadableOperator.CompareIdentical
+                or OverloadableOperator.CompareNotIdentical
+                or OverloadableOperator.CompareLessThan
+                or OverloadableOperator.CompareLessThanOrEqualTo
+                or OverloadableOperator.CompareGreaterThan
+                or OverloadableOperator.CompareGreaterThanOrEqualTo
+                or OverloadableOperator.CompareSpaceship;
+
+        private static OverloadableOperator MapBinaryOpTextToOverloadable(string op) =>
+            op switch
+            {
+                "+" or "+=" => OverloadableOperator.Add,
+                "-" or "-=" => OverloadableOperator.Subtract,
+                "*" or "*=" => OverloadableOperator.Multiply,
+                "/" or "/=" => OverloadableOperator.Divide,
+                "%" or "%=" => OverloadableOperator.Mod,
+                "**" or "**=" => OverloadableOperator.Pow,
+                "." or ".=" => OverloadableOperator.Concat,
+                "&" or "&=" => OverloadableOperator.BitwiseAnd,
+                "|" or "|=" => OverloadableOperator.BitwiseOr,
+                "^" or "^=" => OverloadableOperator.BitwiseXor,
+                "<<" or "<<=" => OverloadableOperator.BitwiseShiftLeft,
+                ">>" or ">>=" => OverloadableOperator.BitwiseShiftRight,
+                "==" => OverloadableOperator.CompareEqual,
+                "!=" => OverloadableOperator.CompareNotEqual,
+                "===" => OverloadableOperator.CompareIdentical,
+                "!==" => OverloadableOperator.CompareNotIdentical,
+                "<" => OverloadableOperator.CompareLessThan,
+                "<=" => OverloadableOperator.CompareLessThanOrEqualTo,
+                ">" => OverloadableOperator.CompareGreaterThan,
+                ">=" => OverloadableOperator.CompareGreaterThanOrEqualTo,
+                "<=>" => OverloadableOperator.CompareSpaceship,
+                _ => OverloadableOperator.Invalid,
+            };
+
+        private static OverloadableOperator MapUnaryOpTextToOverloadable(string op) =>
+            op switch
+            {
+                "+" => OverloadableOperator.Plus,
+                "-" => OverloadableOperator.Minus,
+                "~" => OverloadableOperator.BitwiseNot,
+                "++" => OverloadableOperator.Increment,
+                "--" => OverloadableOperator.Decrement,
+                // `!` is natively valid on objects (truthiness); do not require an overload.
+                _ => OverloadableOperator.Invalid,
+            };
+
+        private static string StripCompoundAssignSuffix(string op) =>
+            op.Length >= 2 && op[^1] == '=' && op is not ("==" or "!=" or "===" or "!==" or "<=" or ">=" or "<=>" or "??=")
+                ? op[..^1]
+                : op;
 
         private static bool IsObjectType(ICheckedType type) =>
             CheckerHelpers.TryGetObjectDeclaration(type) is not null
@@ -715,20 +1326,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
-            var seenKeys = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var pair in array.ArrayPairs?.GetAllNotNull() ?? [])
+            var seenKeys = new Dictionary<string, PhpArrayPairAst>(StringComparer.Ordinal);
+            foreach (var pair in array.ArrayPairs?.GetAllExcludingSkippedSlots() ?? [])
             {
-                if (pair.KeyExpr is null)
-                {
-                    continue;
-                }
-
-                var keyText = GetExpressionText(pair.KeyExpr) ?? pair.KeyExpr.ToString() ?? string.Empty;
-                if (!seenKeys.Add(keyText))
-                {
-                    CheckerHelpers.ReportError(
-                        diagnostics, state, pair, MessageCode.CheckerDuplicateArrayKey, keyText);
-                }
+                ReportDuplicateArrayKeyIfNeeded(pair, seenKeys, state, diagnostics);
 
                 if (pair.ValueExpr is not null)
                 {
@@ -743,28 +1344,71 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
-            foreach (var pair in pairList.GetAllNotNull())
+            // Array literals share this node type with `list()` / `[]` destructure.
+            // Spread-in-destructure (4095) and non-array sources (4094) are checked from
+            // assignment / foreach via ArrayAccessDestructureSupport — not here, so nested
+            // array literals like `[[1, 2], 3]` are not reported as illegal spread.
+            // Parsed `[…]` / `array(…)` literals are this node (not `PhpArrayAst`), so
+            // duplicate keys are checked here. Skip-slot trailing commas are not keys.
+            _ = context;
+            var seenKeys = new Dictionary<string, PhpArrayPairAst>(StringComparer.Ordinal);
+            foreach (var pair in pairList.GetAllExcludingSkippedSlots())
             {
-                if (pair.ValueExpr is PhpArrayPairListAst)
-                {
-                    CheckerHelpers.ReportError(
-                        diagnostics, state, pair, MessageCode.CheckerDestructuringSpread);
-                }
-
-                if (pair.KeyExpr is PhpArrayPairListAst destructuring)
-                {
-                    var sourceType = pair.ValueExpr is not null
-                        ? context.ResolveExpressionType(pair.ValueExpr, state)
-                        : CheckedTypes.Unresolved;
-                    if (!CheckerHelpers.IsArrayOrStringType(sourceType) && sourceType is not UnresolvedCheckedType)
-                    {
-                        CheckerHelpers.ReportError(
-                            diagnostics, state, pair, MessageCode.CheckerDestructuringNonArray, sourceType.DisplayName);
-                    }
-
-                    CheckArrayPairList(destructuring, state, context, diagnostics);
-                }
+                ReportDuplicateArrayKeyIfNeeded(pair, seenKeys, state, diagnostics);
             }
+        }
+
+        private static void ReportDuplicateArrayKeyIfNeeded(
+            PhpArrayPairAst pair,
+            Dictionary<string, PhpArrayPairAst> seenKeys,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (pair.IsSkippedSlot || pair.KeyExpr is null)
+            {
+                return;
+            }
+
+            var keyText = GetArrayKeyText(pair.KeyExpr);
+            if (string.IsNullOrEmpty(keyText))
+            {
+                return;
+            }
+
+            if (seenKeys.TryGetValue(keyText, out var firstPair))
+            {
+                var fileName = CheckerHelpers.ResolveDiagnosticFileName(state, pair);
+                diagnostics.AddDuplicateFromAst(
+                    MessageCode.CheckerDuplicateArrayKey,
+                    pair,
+                    fileName,
+                    firstPair,
+                    fileName,
+                    keyText);
+                return;
+            }
+
+            seenKeys[keyText] = pair;
+        }
+
+        private static string? GetArrayKeyText(IExpression key) =>
+            key switch
+            {
+                PhpEncapsListAst list => GetEncapsListKeyText(list),
+                PhpEncapsStringAst encaps => encaps.ValueString ?? encaps.TokenValue?.ValueString,
+                PhpScalarAst scalar => scalar.ValueString ?? scalar.ValueInt64?.ToString(),
+                _ => GetExpressionText(key),
+            };
+
+        private static string? GetEncapsListKeyText(PhpEncapsListAst list)
+        {
+            var parts = list.GetAllNotNull().ToList();
+            if (parts.Count == 0 || parts.Any(part => part is not PhpEncapsStringAst))
+            {
+                return null;
+            }
+
+            return string.Concat(parts.Select(part => part.ValueString ?? ""));
         }
 
         private static void CheckTypedVar(
@@ -789,7 +1433,14 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 var target = context.ResolveTypeAnnotation(typedVar.TypeExpression, state);
                 if (!context.IsAssignable(source, target, state))
                 {
-                    if (!SymbolNameTypeAssignability.TryReportLiteralExistenceFailure(
+                    if (!CheckerHelpers.TryReportObjectShapeRequiresGuard(
+                            diagnostics, state, typedVar, source, target)
+                        && !CheckerHelpers.TryReportCallableShapeRequiresGuard(
+                            diagnostics, state, typedVar, source, target)
+                        && !CheckerHelpers.TryReportNewConstraintFailure(
+                            diagnostics, state, typedVar, source, target,
+                            context.SymbolTree, context.GlobalScope)
+                        && !SymbolNameTypeAssignability.TryReportLiteralExistenceFailure(
                             source, target, state, context.SymbolTree, context.GlobalScope,
                             diagnostics, typedVar)
                         && !context.TryReportTemplateStringBudgetExceeded(typedVar, state))

@@ -17,8 +17,10 @@ namespace Tyhp.TyhpLang.Ast
     ///
     /// Also used for <c>use extension</c> inside tyhpdef class bodies (<c>#tyhpdefClassUseExtension</c>).
     /// </summary>
-    public class TyhpImportExtensionAst : Base2Ast, ITopStatement, IClassMember
+    public class TyhpImportExtensionAst : Base2Ast, IStatement, IClassMember
     {
+        private const short IS_GLOBAL_FLAG = -30;
+
         /// <summary>
         /// The list of extension import declarations being imported.
         /// </summary>
@@ -30,16 +32,28 @@ namespace Tyhp.TyhpLang.Ast
         /// </summary>
         public PhpTraitAdaptationListAst? Adaptations => Children.ElementAtOrDefault(1) as PhpTraitAdaptationListAst;
 
+        /// <summary>
+        /// <c>global use extension</c>: activates the listed extensions for every file in the
+        /// compilation (C# <c>global using</c>, not PHP <c>global $var</c>).
+        /// </summary>
+        public bool IsGlobal
+        {
+            get => HasFlag(IS_GLOBAL_FLAG);
+            set => SetFlag(IS_GLOBAL_FLAG, value);
+        }
+
         public static TyhpImportExtensionAst Create(
             PhpImportDeclListAst useDeclarations,
             PhpTraitAdaptationListAst? adaptations,
             ParserRuleContext context,
-            string? languageMode = null)
+            string? languageMode = null,
+            bool isGlobal = false)
         {
             var result = new TyhpImportExtensionAst
             {
                 Children = [useDeclarations, adaptations],
             };
+            result.IsGlobal = isGlobal;
             result.SetContext(context, languageMode);
             return result;
         }

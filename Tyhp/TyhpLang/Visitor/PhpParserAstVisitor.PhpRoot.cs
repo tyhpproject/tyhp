@@ -12,14 +12,33 @@ namespace Tyhp.TyhpLang.Visitor
         /// This is the entry point for parsing PHP source files.
         /// </summary>
         public override Ast.PhpSrcFileAst VisitPhpSrcFile([NotNull] TyhpParser.PhpSrcFileContext context)
-            => Ast.PhpSrcFileAst.Create(
-                this._filename,
-                this._fileHash,
-                [
-                    .. context._startingInlineOutput?.Select(VisitPhpInlineOutput) ?? [],
-                    .. context._codeBlocks?.Select(VisitCodeBlock) ?? [],
-                    .. context._endingInlineOutput?.Select(VisitPhpInlineOutput) ?? []
-                ]);
+        {
+            // phpSrcFile labels the first block as firstCodeBlock and only later
+            // ?>…<?php blocks as codeBlocks+=. Skipping firstCodeBlock dropped every
+            // statement in a typical single-block PHP file (PHP-source harvest).
+            var children = new List<Ast.Interfaces.ISrcElement?>();
+            if (context._startingInlineOutput != null)
+            {
+                children.AddRange(context._startingInlineOutput.Select(this.VisitPhpInlineOutput));
+            }
+
+            if (context.firstCodeBlock != null)
+            {
+                children.Add(this.VisitCodeBlock(context.firstCodeBlock));
+            }
+
+            if (context._codeBlocks != null)
+            {
+                children.AddRange(context._codeBlocks.Select(this.VisitCodeBlock));
+            }
+
+            if (context._endingInlineOutput != null)
+            {
+                children.AddRange(context._endingInlineOutput.Select(this.VisitPhpInlineOutput));
+            }
+
+            return Ast.PhpSrcFileAst.Create(this._filename, this._fileHash, children);
+        }
 
         public Ast.Interfaces.ISrcElement? VisitCodeBlock([NotNull] TyhpParser.CodeBlockContext context)
             => context switch {
@@ -51,55 +70,10 @@ namespace Tyhp.TyhpLang.Visitor
             return result;
         }
 
-        public override Ast.PhpTopStatementListAst VisitPhpEchoBlock([NotNull] TyhpParser.PhpEchoBlockContext context)
-            => this.VisitPhpEchoBlock(context, false);
 
-        public Ast.PhpTopStatementListAst VisitPhpEchoBlock([NotNull] TyhpParser.PhpEchoBlockContext context, bool isCurrentTopStatementList)
-        {
-            var result = Ast.PhpTopStatementListAst.Create(null, context, GetCurrentLanguageMode(context));
-            if (isCurrentTopStatementList) {
-                this.CurrentTopStatementList = result;
-            }
-            result.Add(Ast.PhpEchoStatementAst.Create(this.VisitEchoExprList(context.Expr), context));
-            return result;
-        }
 
-        public override Ast.PhpInlineOutputAst? VisitPhpInlineOutput([NotNull] TyhpParser.PhpInlineOutputContext context)
-        {
-            if (context.InlineHtml != null) {
-                return Ast.PhpInlineOutputAst.Create(context.InlineHtml.Text, context);
-            } else if (context.PhpEchoBlock != null) {
-                return Ast.PhpInlineOutputAst.Create(this.VisitPhpEchoBlock(context.PhpEchoBlock, true), context);
-            }
 
-            return null;
-        }
 
-        public override Ast.PhpInlineOutputListAst? VisitPhpInlineOutputStatement([NotNull] TyhpParser.PhpInlineOutputStatementContext context)
-        {
-            Ast.PhpInlineOutputListAst? result = null;
-            
-            // save the current top statement list
-            var currentTopStatementList = this.CurrentTopStatementList;
 
-            if (context._InlineOutput != null) {
-                result = Ast.PhpInlineOutputListAst.Create(context._InlineOutput.Select(VisitPhpInlineOutput), context);
-            } else if (context.T_INLINE_HTML() != null) {
-                result = Ast.PhpInlineOutputListAst.Create([Ast.PhpInlineOutputAst.Create(context.T_INLINE_HTML().GetText(), context)], context);
-            } else if (context.phpInlineOutputStatementGrammarAddon() != null) {
-                result = this.VisitPhpInlineOutputStatementGrammarAddon(context.phpInlineOutputStatementGrammarAddon());
-            }
-
-            // restore the current top statement list
-            this.CurrentTopStatementList = currentTopStatementList;
-
-            return result;
-        }
-
-        public override Ast.PhpInlineOutputListAst? VisitPhpInlineOutputStatementGrammarAddon([NotNull] TyhpParser.PhpInlineOutputStatementGrammarAddonContext context)
-            => null;
-
-        public override Ast.TokenValueAst? VisitPossibleComma([NotNull] TyhpParser.PossibleCommaContext context)
-            => context.T_SYM_COMMA() != null ? Ast.TokenValueAst.Create(context.T_SYM_COMMA().Symbol, context) : null;
     }
 }

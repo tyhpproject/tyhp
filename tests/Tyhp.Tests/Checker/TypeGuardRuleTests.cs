@@ -357,7 +357,7 @@ public class TypeGuardRuleTests
     [Fact]
     public void Check_ClassExists_ElseBranch_DoesNotKeepClassNameNarrowing()
     {
-        // Negative polarity must use the tyhpdef guard path (not only the positive SymbolNameGuards map).
+        // Negative polarity must use the tyhpdef `$param is` return, not a name map.
         var diagnostics = CompileAndCheck("""
             <?tyhp
             function demo(string $name): void {
@@ -395,7 +395,7 @@ public class TypeGuardRuleTests
         // checked against that callable and must not collapse to callable(): void.
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(callable<string, mixed, bool> $handler, string $name, mixed $out): bool {
+            function demo(callable(string, mixed): bool $handler, string $name, mixed $out): bool {
                 return \call_user_func($handler, $name, $out) === true;
             }
             """);
@@ -411,7 +411,7 @@ public class TypeGuardRuleTests
         // Rest unpack accepts the two trailing arguments; must not report TYHP4143.
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(callable<string, mixed, bool> $handler, string $name, mixed $out): bool {
+            function demo(callable(string, mixed): bool $handler, string $name, mixed $out): bool {
                 return \call_user_func($handler, $name, $out) === true;
             }
             """);
@@ -621,6 +621,114 @@ public class TypeGuardRuleTests
     }
 
     [Fact]
+    public void Check_IsOnNullableClass_ClearsPossiblyNull()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Foo {}
+            function demo(?Foo $x): void {
+                if ($x is Foo) {
+                    Foo $y = $x;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_IsAFunctionCall_NarrowsLikeTyhpdefGuard()
+    {
+        var result = IsolatedCompilation.ParseSnippet(
+            """
+            <?tyhp
+            class User {}
+            function demo(object $obj): void {
+                if (\is_a($obj, User::class)) {
+                    User $typed = $obj;
+                }
+            }
+            """,
+            """
+            <?tyhpdef
+            function is_a<T1 extends object, T2 extends object>(T1 $object_or_class, __ClassName<T2> $class, bool $allow_string = false): $object_or_class is T2;
+            """);
+
+        result.Diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_IsNullableClass_PositiveBranch_AllowsNullOrClass()
+    {
+        // FOUND_BUGS #21: `$x is ?A` must narrow to `?A` (null or A), not plain `A` — the
+        // resolved target type has to stay nullable through the synthetic `?` unary wrapper.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class A {}
+            function demo(mixed $x): void {
+                if ($x is ?A) {
+                    ?A $y = $x;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_IsNullableClass_PositiveBranch_RejectsNonNullableUse()
+    {
+        // Soundness: narrowing must not silently drop the nullability that `?A` demands — using
+        // the narrowed value as non-nullable `A` must still be rejected.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class A {}
+            function demo(mixed $x): void {
+                if ($x is ?A) {
+                    A $y = $x;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerTypeMismatch
+            || d.Code == MessageCode.CheckerVariablePossiblyNull);
+    }
+
+    [Fact]
+    public void Check_IsNullableClass_OnAlreadyNullableParameter_ClearsToNullableClass()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class A {}
+            function demo(?A $x): void {
+                if ($x is ?A) {
+                    ?A $y = $x;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_IsThenTernary_NarrowsToNonNullableClassNotNullable()
+    {
+        // `$x is A ? $x : null` is is-then-ternary, not `$x is ?A` — the `is` guard narrows the
+        // ternary's own condition to plain `A` (non-nullable), so the ternary's true-branch use
+        // of `$x` must type-check as non-nullable `A`, not `?A`.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class A {}
+            function demo(mixed $x): ?A {
+                return $x is A ? $x : null;
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Check_NestedForLoop_InnerLoopDoesNotClobberOuterNarrowing()
     {
         var diagnostics = CompileAndCheck("""
@@ -665,6 +773,179 @@ public class TypeGuardRuleTests
                 if (\is_array($x) && \array_key_exists(0, $x) && \array_key_exists(1, $x)) {
                     mixed $a = $x[0];
                 }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_OrChain_ProgressiveNegativeNarrowing_AllowsStrlenAfterNotIsString()
+    {
+        // Dual of &&: later `||` operands are checked under the left's *negative* narrowing
+        // (the right only runs when the left is false). `!\is_string($x) || \strlen($x)` must
+        // see `$x` as `string` in the second call.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(mixed $x): void {
+                if (!\is_string($x) || \strlen($x) === 0) {
+                    return;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_OrChain_ClassExistsGuard_AllowsClassNameUse()
+    {
+        // `!\class_exists($name)` is a type guard (`$name is __ClassName<object>`). In an
+        // `||` chain that guard's negation (class_exists is true) must apply before a later
+        // operand so `$name` is `__ClassName`, not bare `string`.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function needsClassName(\__ClassName<object> $c): bool {
+                return true;
+            }
+
+            function demo(string $name): void {
+                if (!\class_exists($name) || !needsClassName($name)) {
+                    return;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_OrChain_ClassExistsGuard_AllowsIsSubclassOf()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(string $name, \__ClassName $base): void {
+                if (!\class_exists($name) || !\is_subclass_of($name, $base)) {
+                    return;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_OrChain_ThreeOperands_ClassExistsGuard_AllowsIsSubclassOf()
+    {
+        // Same shape as PropertyAccessorObject: identity || !class_exists || !is_subclass_of.
+        // Left-associative `||` must still apply class_exists' positive guard to the third call.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(string $name, \__ClassName $base): void {
+                if ($name === $base || !\class_exists($name) || !\is_subclass_of($name, $base)) {
+                    return;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_AndChain_ClassExistsGuard_AllowsIsSubclassOf()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(string $name, \__ClassName $base): void {
+                if (\class_exists($name) && \is_subclass_of($name, $base)) {
+                    return;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_GetParentClass_ClassNameArgument_DoesNotBindTToClassName()
+    {
+        // `T|__ClassName<T>` with `T extends object` must take the brand arm: `__ClassName<object>`
+        // binds `T = object`, not `T = __ClassName<object>` (TYHP4035).
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(\__ClassName $name): void {
+                $parent = \get_parent_class($name);
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied);
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_GetParentClass_ObjectClassMagic_DoesNotBindTToClassName()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(object $host): void {
+                $parent = \get_parent_class($host::class);
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_GetParentClass_NullableClassNameCoalescedWithObjectClass()
+    {
+        // PropertyAccessorObject::parentGet — `?__ClassName ?? $host::class`.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(?\__ClassName $declaringClass, object $host): void {
+                $parent = \get_parent_class($declaringClass ?? $host::class);
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_GetParentClass_StringArgument_BindsClassNameObject()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(string $class): void {
+                $parent = \get_parent_class($class);
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_GetParentClass_NullableStringCoalescedWithObjectClass()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(?string $declaringClass, object $host): void {
+                $parent = \get_parent_class($declaringClass ?? $host::class);
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_UnionClassNameParameter_UserFunction_AcceptsClassName()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function parentOf<T extends object>(T|\__ClassName<T> $x): \__ClassName<object>|false {
+                return false;
+            }
+
+            function demo(\__ClassName $name): void {
+                $parent = parentOf($name);
             }
             """);
 
@@ -1601,6 +1882,245 @@ public class TypeGuardRuleTests
         diagnostics.Errors.Should().BeEmpty();
     }
 
+    [Fact]
+    public void Check_IndexAccessGuard_ValidDeclaration_No4032()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function hasStringAt(int $key, array $array): $array[$key] is string
+            {
+                return true;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerTypeGuardInvalidReturn);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.TyhpdefParseError);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.ParserUnexpectedError);
+    }
+
+    [Fact]
+    public void Check_IndexAccessGuard_MissingIndexParameter_Reports4032()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function hasStringAt(array $array): $array[$key] is string
+            {
+                return false;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerTypeGuardInvalidReturn);
+    }
+
+    [Fact]
+    public void Check_IndexAccessGuard_ConstantIndex_NarrowsUseSite()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function hasStringAt(int $key, array $array): $array[$key] is string
+            {
+                return true;
+            }
+
+            function demo(array $arr): void {
+                if (hasStringAt(0, $arr)) {
+                    string $s = $arr[0];
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_IndexAccessGuard_VariableIndex_NarrowsUseSite()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function hasStringAt(int $key, array $array): $array[$key] is string
+            {
+                return true;
+            }
+
+            function demo(array $arr, int $k): void {
+                if (hasStringAt($k, $arr)) {
+                    string $s = $arr[$k];
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_IndexAccessGuard_VariableIndex_DoesNotNarrowOtherKey()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function hasStringAt(int $key, array $array): $array[$key] is string
+            {
+                return true;
+            }
+
+            function demo(array $arr, int $k, int $other): string {
+                if (hasStringAt($k, $arr)) {
+                    return $arr[$other];
+                }
+                return '';
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerIncompatibleReturnType
+            || d.Code == MessageCode.CheckerTypeMismatch
+            || d.Code == MessageCode.CheckerMixedRequiresNarrowing);
+    }
+
+    [Fact]
+    public void Check_TyhpdefIndexAccessGuard_ParsesAndNarrows()
+    {
+        var result = IsolatedCompilation.ParseSnippet(
+            """
+            <?tyhp
+            function demo(array $arr, int $k): void {
+                if (has_string_at(0, $arr)) {
+                    string $atZero = $arr[0];
+                }
+                if (has_string_at($k, $arr)) {
+                    string $atK = $arr[$k];
+                }
+            }
+            """,
+            """
+            <?tyhpdef
+            function has_string_at(int $key, array $array): $array[$key] is string;
+            """);
+
+        result.Diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_ArrayKeyExistsOverlay_ConstantAndVariableIndex_Typecheck()
+    {
+        // A small standalone stand-in for the real `array_key_exists` overload in
+        // `runtime/packages/php/_tyhpdef/overlays/Ext.Standard.tyhpdef` (kept in sync by
+        // hand). C# unit tests must not load `runtime/packages`; see `IsolatedCompilation`.
+        var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var overlayPath = Path.Combine(tempDir, "overlay.tyhpdef");
+        File.WriteAllText(overlayPath, """
+            <?tyhpdef
+            // @overlay-against: function array_key_exists(mixed $key, array $array): bool
+            function array_key_exists<TKey extends int|string, TValue>(TKey $key, array<TKey, TValue> $array): $array[$key] is TValue;
+            """);
+
+        try
+        {
+            var result = IsolatedCompilation.ParseSnippet(
+                """
+                <?tyhp
+                function demo(array $arr, int $k): void {
+                    if (\array_key_exists(0, $arr)) {
+                        mixed $a = $arr[0];
+                    }
+                    if (\array_key_exists($k, $arr)) {
+                        mixed $b = $arr[$k];
+                    }
+                }
+                """,
+                configure: o => o.TyhpdefOverlayPaths = [overlayPath]);
+
+            result.Diagnostics.Errors.Should().BeEmpty();
+            result.Diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.TyhpdefParseError);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public void Check_IsArrayOnCallable_NarrowsToArray_AllowsIndexAccess()
+    {
+        // PHP callables include `[$obj|$class, $method]` arrays. `is_array($callable)` must
+        // refine to `array`, not `never` (array is not assignable to callable in general).
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(callable $callable): void {
+                if (\is_array($callable)
+                    && \array_key_exists(0, $callable)
+                    && \array_key_exists(1, $callable)
+                    && \is_string($callable[1])
+                ) {
+                    mixed $rawTarget = $callable[0];
+                    string $methodName = $callable[1];
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_IsArrayOnInt_NarrowsToArray()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(int $x): void {
+                if (\is_array($x)) {
+                    mixed $first = $x[0];
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_IsCallable_NarrowsToCallable()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(mixed $x): void {
+                if (\is_callable($x)) {
+                    callable $c = $x;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_IsCallableSyntaxOnlyTrue_DoesNotNarrow()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(mixed $x): void {
+                if (\is_callable($x, true)) {
+                    callable $c = $x;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerTypeMismatch);
+    }
+
+    [Fact]
+    public void Check_IsNumeric_NarrowsToNumericUnion()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(mixed $x): void {
+                if (\is_numeric($x)) {
+                    int|float|string $n = $x;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
     private static DiagnosticBag CompileAndCheck(string content)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
@@ -1611,14 +2131,7 @@ public class TypeGuardRuleTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

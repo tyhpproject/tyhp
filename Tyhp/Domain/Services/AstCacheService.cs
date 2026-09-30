@@ -250,6 +250,65 @@ public static class AstCacheService
     }
 
     /// <summary>
+    /// Drops the on-disk cache blob for <paramref name="filename"/> and its in-memory entry.
+    /// Does not rewrite the blob. Used when a read or write failed and the file may be corrupt or partial.
+    /// </summary>
+    public static void DeleteCacheFile(string filename)
+    {
+        if (string.IsNullOrWhiteSpace(filename)) {
+            return;
+        }
+
+        string relative;
+        try {
+            relative = GetRelativePath(filename);
+        } catch (Exception ex) when (ex is not OutOfMemoryException) {
+            return;
+        }
+
+        CacheFiles.TryRemove(relative, out _);
+        var groupingKey = GetGroupingKey(relative);
+        IndexRemove(relative, groupingKey);
+        UnwrittenCacheFileGroupingKeys.TryRemove(groupingKey, out _);
+
+        string cacheFilePath;
+        try {
+            cacheFilePath = GetGroupedCacheFilePath(groupingKey);
+        } catch (Exception ex) when (ex is not OutOfMemoryException) {
+            return;
+        }
+
+        try {
+            if (File.Exists(cacheFilePath)) {
+                File.Delete(cacheFilePath);
+            }
+        } catch {
+            // The caller already reports the original I/O failure.
+        }
+    }
+
+    /// <summary>
+    /// Writes the dirty cache blob for <paramref name="filename"/> to disk.
+    /// A failed write deletes any partial file and rethrows.
+    /// </summary>
+    public static void FlushFile(string filename)
+    {
+        if (string.IsNullOrWhiteSpace(filename)) {
+            return;
+        }
+
+        var relative = GetRelativePath(filename);
+        var groupingKey = GetGroupingKey(relative);
+        lock (FlushMemoryLock) {
+            if (!UnwrittenCacheFileGroupingKeys.TryRemove(groupingKey, out _)) {
+                return;
+            }
+
+            WriteCacheFileFromMemory(groupingKey);
+        }
+    }
+
+    /// <summary>
     /// Clear the in-memory cache for the given filename
     /// </summary>
     /// <param name="filename">The filename to clear the in-memory cache for</param>
@@ -322,18 +381,26 @@ public static class AstCacheService
     private static readonly object PruneLock = new();
 
     /// <summary>
-    /// Root cache directory shared by every format version and compiler build. Honors a project's
-    /// explicit <c>cache-dir</c>, otherwise falls back to the per-assembly-version local app data dir.
+    /// Root cache directory shared by AST blobs and incremental build state. Honors an explicit
+    /// <c>cache-dir</c>; when that is omitted or blank, uses the per-assembly-version local
+    /// application data directory.
+    /// </summary>
+    public static string ResolveCacheRootDirectory(string? configuredCacheDir)
+    {
+        if (String.IsNullOrWhiteSpace(configuredCacheDir)) {
+            var version = new Message.VersionHelper().GetAssemblyVersion();
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tyhp" + version, "Cache");
+        }
+
+        return configuredCacheDir;
+    }
+
+    /// <summary>
+    /// Root cache directory shared by every format version and compiler build. Honors the active
+    /// project's explicit <c>cache-dir</c>, otherwise falls back to the per-assembly-version local app data dir.
     /// </summary>
     private static string GetCacheRootDir()
-    {
-        var version = new Message.VersionHelper().GetAssemblyVersion();
-        var cacheDir = Config.Project.Singleton?.CacheDir;
-        if (String.IsNullOrWhiteSpace(cacheDir)) {
-            cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tyhp" + version, "Cache");
-        }
-        return cacheDir;
-    }
+        => ResolveCacheRootDirectory(Config.Project.Singleton?.CacheDir);
 
     private static string GetCacheDir()
     {
@@ -566,16 +633,45 @@ public static class AstCacheService
 
         byte[] data = File.ReadAllBytes(cacheFilename);
         if (data.Length < 32) {
-            return;
+            throw new InvalidDataException("Corrupt AST cache file: " + cacheFilename);
         }
         byte[] groupingPrefix = data[..32];
         string groupingKey = Convert.ToHexString(groupingPrefix).ToLowerInvariant();
+        var expectedKey = Path.GetFileNameWithoutExtension(cacheFilename);
+        if (!string.Equals(groupingKey, expectedKey, StringComparison.OrdinalIgnoreCase)) {
+            throw new InvalidDataException("Corrupt AST cache file: " + cacheFilename);
+        }
+
+        var blocks = new List<(string filename, byte[] blockData)>();
+        int offset = 32;
+        if (offset >= data.Length) {
+            throw new InvalidDataException("Corrupt AST cache file: " + cacheFilename);
+        }
+        while (offset < data.Length) {
+            if (offset + 4 > data.Length) {
+                throw new InvalidDataException("Corrupt AST cache file: " + cacheFilename);
+            }
+            int blockSize = BitConverter.ToInt32(data, offset);
+            if (blockSize <= 0 || offset + blockSize > data.Length) {
+                throw new InvalidDataException("Corrupt AST cache file: " + cacheFilename);
+            }
+            // Store the original serialized block verbatim. We read only the file name from its
+            // header (via TryReadSrcFileKey); re-serializing a partially deserialized node would
+            // discard all children/flags/attributes (dropping every top-level declaration on a
+            // cross-process cache hit), so the raw bytes are preserved as-is. Do not change this
+            // to store a re-serialized node.
+            var blockData = data[offset..(offset + blockSize)];
+            if (!Base2Ast.TryReadSrcFileKey(blockData, out var identifier, out _)) {
+                throw new InvalidDataException("Corrupt AST cache file: " + cacheFilename);
+            }
+            blocks.Add((GetRelativePath(identifier), blockData));
+            offset += blockSize;
+        }
 
         var cacheGroupingLock = GetCacheGroupingLock(groupingKey);
 
         lock (cacheGroupingLock) {
             var lastWriteTime = File.GetLastWriteTimeUtc(cacheFilename).ToBinary();
-            int offset = 32;
 
             // Members previously in this group that are not found in the file are stale and removed
             // afterward. Using the group index avoids scanning the entire cache dictionary.
@@ -583,28 +679,14 @@ public static class AstCacheService
                 ? new HashSet<string>(members.Keys)
                 : [];
 
-            while (offset < data.Length) {
-                int blockSize = BitConverter.ToInt32(data, offset);
-                if (blockSize <= 0 || offset + blockSize > data.Length) {
-                    break;
-                }
-                // Store the original serialized block verbatim. We read only the file name from its
-                // header (via TryReadSrcFileKey); re-serializing a partially deserialized node would
-                // discard all children/flags/attributes (dropping every top-level declaration on a
-                // cross-process cache hit), so the raw bytes are preserved as-is. Do not change this
-                // to store a re-serialized node.
-                var blockData = data[offset..(offset + blockSize)];
-                if (Base2Ast.TryReadSrcFileKey(blockData, out var identifier, out _)) {
-                    var filename = GetRelativePath(identifier);
-                    CacheFiles.AddOrUpdate(
-                        filename,
-                        (lastWriteTime, DateTime.UtcNow.ToBinary(), blockData),
-                        (k, existing) => (lastWriteTime, DateTime.UtcNow.ToBinary(), blockData)
-                    );
-                    IndexAdd(filename, groupingKey);
-                    stale.Remove(filename);
-                }
-                offset += blockSize;
+            foreach (var (filename, blockData) in blocks) {
+                CacheFiles.AddOrUpdate(
+                    filename,
+                    (lastWriteTime, DateTime.UtcNow.ToBinary(), blockData),
+                    (k, existing) => (lastWriteTime, DateTime.UtcNow.ToBinary(), blockData)
+                );
+                IndexAdd(filename, groupingKey);
+                stale.Remove(filename);
             }
 
             foreach (var key in stale) {
@@ -652,7 +734,18 @@ public static class AstCacheService
             if (folderPath != null && !Directory.Exists(folderPath)) {
                 Directory.CreateDirectory(folderPath);
             }
-            File.WriteAllBytes(cacheFilePath, data);
+            try {
+                File.WriteAllBytes(cacheFilePath, data);
+            } catch (Exception ex) when (ex is not OutOfMemoryException) {
+                try {
+                    if (File.Exists(cacheFilePath)) {
+                        File.Delete(cacheFilePath);
+                    }
+                } catch {
+                    // The caller deletes again and reports the original failure.
+                }
+                throw;
+            }
 
             var cacheFileLastWriteTime = File.GetLastWriteTimeUtc(cacheFilePath).ToBinary();
             foreach (var name in memberNames) {

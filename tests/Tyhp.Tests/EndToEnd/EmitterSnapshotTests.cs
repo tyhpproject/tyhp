@@ -1,13 +1,15 @@
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Enums;
-using Tyhp.Domain.Exceptions;
 using Tyhp.Domain.Services;
-using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Emitter;
 using Tyhp.Tests.TestHelpers;
 
 namespace Tyhp.Tests.EndToEnd;
 
+/// <summary>
+/// Emitter fixture snapshots. Language-rule fixtures compile against
+/// <see cref="IsolatedCompilation"/> stubs.
+/// </summary>
 [Trait("Category", "EndToEnd")]
 [Trait("Category", "Emitter")]
 public class SnapshotTests
@@ -36,19 +38,8 @@ public class SnapshotTests
         SnapshotManager.AssertMatchesSnapshot(php, snapshotName, "Emitter");
     }
 
-    private static CompilationResult Compile(string filePath)
-    {
-        using var compilationService = new CompilationService();
-        var options = new CompilationOptions
-        {
-            EnableAstCache = false,
-            PhpVersion = "8.4",
-            ProjectPath = TestFileManager.GetRepoRoot(),
-            TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-        };
-
-        return compilationService.ParseFiles([filePath], options);
-    }
+    internal static CompilationResult Compile(string filePath)
+        => IsolatedCompilation.ParseExistingFiles([filePath], phpVersion: "8.4");
 }
 
 [Trait("Category", "EndToEnd")]
@@ -108,16 +99,7 @@ public class PhpOutputValidationTests
             return;
         }
 
-        using var compilationService = new CompilationService();
-        var result = compilationService.ParseFiles(
-            [inputPath],
-            new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+        var result = SnapshotTests.Compile(inputPath);
 
         result.Diagnostics.Errors.Should().BeEmpty();
         var context = EmitContext.Create(result.GlobalScope, result.Diagnostics);

@@ -73,6 +73,155 @@ namespace Tyhp.TyhpLang.Visitor
             return docCommentText;
         }
 
+        /// <summary>
+        /// Returns the compact <c>// @overlay-against:</c> stamp immediately preceding
+        /// <paramref name="beforeToken"/>, or null when none is present.
+        /// </summary>
+        public string? FindPossibleOverlayAgainst(Antlr4.Runtime.IToken? beforeToken)
+        {
+            if (beforeToken == null || this._tokens == null)
+            {
+                return null;
+            }
+
+            string? stamp = null;
+            for (int i = beforeToken.TokenIndex - 1; i >= 0; i--)
+            {
+                var previousToken = this._tokens.Get(i);
+                if (previousToken == null)
+                {
+                    break;
+                }
+
+                if (previousToken.Channel == TyhpLexer.WhiteSpaceChannel
+                    || previousToken.Channel == TokenConstants.HiddenChannel)
+                {
+                    continue;
+                }
+
+                if (previousToken.Channel == TyhpLexer.SimpleCommentsChannel)
+                {
+                    var extracted = ExtractOverlayAgainstStamp(previousToken.Text);
+                    if (extracted != null)
+                    {
+                        stamp = extracted;
+                    }
+
+                    continue;
+                }
+
+                if (previousToken.Channel == TyhpLexer.DocBlockCommentsChannel)
+                {
+                    continue;
+                }
+
+                break;
+            }
+
+            return stamp;
+        }
+
+        /// <summary>
+        /// Returns the <c>// @provided-by:</c> package name immediately preceding
+        /// <paramref name="beforeToken"/>, or null when none is present. Unknown
+        /// <c>@</c> tags are skipped; the nearest matching comment wins.
+        /// </summary>
+        public string? FindPossibleProvidedBy(Antlr4.Runtime.IToken? beforeToken)
+        {
+            if (beforeToken == null || this._tokens == null)
+            {
+                return null;
+            }
+
+            for (int i = beforeToken.TokenIndex - 1; i >= 0; i--)
+            {
+                var previousToken = this._tokens.Get(i);
+                if (previousToken == null)
+                {
+                    break;
+                }
+
+                if (previousToken.Channel == TyhpLexer.WhiteSpaceChannel
+                    || previousToken.Channel == TokenConstants.HiddenChannel)
+                {
+                    continue;
+                }
+
+                if (previousToken.Channel == TyhpLexer.SimpleCommentsChannel)
+                {
+                    var extracted = ExtractProvidedByPackage(previousToken.Text);
+                    if (extracted != null)
+                    {
+                        return extracted;
+                    }
+
+                    continue;
+                }
+
+                if (previousToken.Channel == TyhpLexer.DocBlockCommentsChannel)
+                {
+                    continue;
+                }
+
+                break;
+            }
+
+            return null;
+        }
+
+        internal static string? ExtractOverlayAgainstStamp(string? commentText)
+        {
+            if (string.IsNullOrWhiteSpace(commentText))
+            {
+                return null;
+            }
+
+            var text = commentText.Trim();
+            if (text.StartsWith("//", StringComparison.Ordinal))
+            {
+                text = text[2..].TrimStart();
+            }
+            else if (text.StartsWith("/*", StringComparison.Ordinal) && text.EndsWith("*/", StringComparison.Ordinal))
+            {
+                text = text[2..^2].Trim();
+            }
+
+            const string marker = "@overlay-against:";
+            if (!text.StartsWith(marker, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return text[marker.Length..].Trim();
+        }
+
+        internal static string? ExtractProvidedByPackage(string? commentText)
+        {
+            if (string.IsNullOrWhiteSpace(commentText))
+            {
+                return null;
+            }
+
+            var text = commentText.Trim();
+            if (text.StartsWith("//", StringComparison.Ordinal))
+            {
+                text = text[2..].TrimStart();
+            }
+            else if (text.StartsWith("/*", StringComparison.Ordinal) && text.EndsWith("*/", StringComparison.Ordinal))
+            {
+                text = text[2..^2].Trim();
+            }
+
+            const string marker = "@provided-by:";
+            if (!text.StartsWith(marker, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var package = text[marker.Length..].Trim();
+            return string.IsNullOrEmpty(package) ? null : package;
+        }
+
         public void ResetDocComment(Antlr4.Runtime.ParserRuleContext context)
             => this.ResetDocComment(context.Start);
 
@@ -84,9 +233,11 @@ namespace Tyhp.TyhpLang.Visitor
         public static string GetCurrentLanguageMode(Antlr4.Runtime.RuleContext? context)
         {
             do {
-                if (context is TyhpParser.TyhpdefBlockContext) {
+                if (context is TyhpParser.TyhpdefBlockContext
+                    || context is TyhpdefParser.TyhpdefBlockContext) {
                     return "tyhpdef";
-                } else if (context is TyhpParser.TyhpdefTaglessFileContext) {
+                } else if (context is TyhpParser.TyhpdefTaglessFileContext
+                    || context is TyhpdefParser.TyhpdefTaglessFileContext) {
                     return "tyhpdef";
                 } else if (context is TyhpParser.TyhpBlockContext) {
                     return "tyhp";
@@ -98,6 +249,7 @@ namespace Tyhp.TyhpLang.Visitor
                     context is TyhpParser.PhpSrcFileContext ||
                     context is TyhpParser.TyhpSrcFileContext ||
                     context is TyhpParser.TyhpdefSrcFileContext ||
+                    context is TyhpdefParser.TyhpdefSrcFileContext ||
                     context == null
                 ) {
                     return "";

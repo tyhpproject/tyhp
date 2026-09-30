@@ -7,7 +7,13 @@ namespace Tyhp.TyhpLang.Enum
         Class,
         Interface,
         Trait,
-        Enum
+        Enum,
+        /// <summary>
+        /// Kind-unspecified tyhpdef <c>extern \Name;</c> placeholder. Compatible with a later
+        /// real <see cref="Class"/>, <see cref="Interface"/>, or <see cref="Enum"/> of the
+        /// same name. Not a PHP declaration kind.
+        /// </summary>
+        Unspecified
     }
     
     public static class PhpTypeDeclTypeExtensions

@@ -21,7 +21,7 @@ public class ClassConstantVisibilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Owner {
-                private const SECRET = 's';
+                private const string SECRET = 's';
             }
 
             class Reader {
@@ -40,7 +40,7 @@ public class ClassConstantVisibilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Owner {
-                private const SECRET = 's';
+                private const string SECRET = 's';
 
                 public function read(): string {
                     return self::SECRET;
@@ -57,7 +57,7 @@ public class ClassConstantVisibilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Owner {
-                private const SECRET = 's';
+                private const string SECRET = 's';
             }
 
             function read(): string {
@@ -74,7 +74,7 @@ public class ClassConstantVisibilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Owner {
-                public const TAG = 't';
+                public const string TAG = 't';
             }
 
             class Reader {
@@ -94,7 +94,7 @@ public class ClassConstantVisibilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Owner {
-                const TAG = 't';
+                const string TAG = 't';
             }
 
             class Reader {
@@ -151,7 +151,7 @@ public class ClassConstantVisibilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Owner {
-                private const SECRET = 's';
+                private const string SECRET = 's';
             }
 
             class Reader {
@@ -173,7 +173,7 @@ public class ClassConstantVisibilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Owner {
-                protected const SECRET = 's';
+                protected const string SECRET = 's';
             }
 
             class Reader {
@@ -196,14 +196,7 @@ public class ClassConstantVisibilityTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.3",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.3", skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

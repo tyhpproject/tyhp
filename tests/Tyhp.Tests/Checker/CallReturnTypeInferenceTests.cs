@@ -319,8 +319,8 @@ public class CallReturnTypeInferenceTests
             <?tyhp
             namespace Test;
             class Box {
-                public \Closure<int, string> $formatter;
-                public function __construct(\Closure<int, string> $formatter): void {
+                public \Closure<callable(int): string> $formatter;
+                public function __construct(\Closure<callable(int): string> $formatter): void {
                     $this->formatter = $formatter;
                 }
                 public function run(): int {
@@ -338,21 +338,21 @@ public class CallReturnTypeInferenceTests
     public void NewSelfWithTypeArg_SubstitutesConstructorParameter()
     {
         // FOUND #16 async / relative-types audit: `new self<T>($fn)` must type the constructor's
-        // `callable<TReturn>` as `callable<T>`, not leave class-level `TReturn` unbound against the
+        // `callable(): TReturn` as `callable(): T`, not leave class-level `TReturn` unbound against the
         // method generic. Factories use `: self<T>` (parameterized `static<…>` is forbidden).
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
             final class Promise<TReturn extends void|mixed = void> {
-                public function __construct(callable<TReturn> $executor): void {}
-                public static function async<T extends void|mixed>(callable<T> $fn): self<T> {
+                public function __construct(callable(): TReturn $executor): void {}
+                public static function async<T extends void|mixed>(callable(): T $fn): self<T> {
                     return new self<T>($fn);
                 }
             }
             """);
 
         errors.Should().BeEmpty(
-            $"new self<T>($fn) must accept callable<T>: {Describe(errors)}");
+            $"new self<T>($fn) must accept callable(): T: {Describe(errors)}");
     }
 
     [Fact]
@@ -509,7 +509,7 @@ public class CallReturnTypeInferenceTests
     [Fact]
     public void ArrayMap_InfersTResultFromCallbackReturn_AssignableToTypedArray()
     {
-        // FOUND Story 11 §4 — callable<TValue, TResult> must unify TResult from the arrow return.
+        // FOUND Story 11 §4 — callable(TValue): TResult must unify TResult from the arrow return.
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
@@ -655,6 +655,66 @@ public class CallReturnTypeInferenceTests
             d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied,
             $"array_reverse return TKey must resolve in callee FunctionGenerics: {Describe(errors)}");
         errors.Should().BeEmpty($"array_reverse call should type-check: {Describe(errors)}");
+    }
+
+    [Fact]
+    public void MaxOverloads_SpreadAfterTwoFloats_InfersTNotUnbound()
+    {
+        // Overlay primary is `max(array<T>): T`; the two-or-more form is `max(T, T, T...): T`.
+        // A spread used to freeze selection on the primary, so `\max($a, $b, ...$rest)` returned
+        // unbound `T` (TYHP4009 vs `: float`).
+        var errors = CompileAndCheck(
+            """
+            <?tyhp
+            function demo(float $a, float $b, float ...$rest): float {
+                return \max($a, $b, ...$rest);
+            }
+            """,
+            """
+            <?tyhpdef
+            function max<T extends int|float>(array<T> $values): T;
+            function max<T extends int|float>(T $a, T $b, T ...$rest): T;
+            """);
+
+        errors.Should().BeEmpty($"spread max should infer T as float: {Describe(errors)}");
+    }
+
+    [Fact]
+    public void MaxOverloads_SpreadAfterOneInt_InfersTNotUnbound()
+    {
+        var errors = CompileAndCheck(
+            """
+            <?tyhp
+            function demo(int $a, int ...$rest): int {
+                return \max($a, ...$rest);
+            }
+            """,
+            """
+            <?tyhpdef
+            function max<T extends int|float>(array<T> $values): T;
+            function max<T extends int|float>(T $a, T $b, T ...$rest): T;
+            """);
+
+        errors.Should().BeEmpty($"spread max after one value should infer T as int: {Describe(errors)}");
+    }
+
+    [Fact]
+    public void MaxOverloads_SingleArrayArgument_StillUsesArrayForm()
+    {
+        var errors = CompileAndCheck(
+            """
+            <?tyhp
+            function demo(array<float> $values): float {
+                return \max($values);
+            }
+            """,
+            """
+            <?tyhpdef
+            function max<T extends int|float>(array<T> $values): T;
+            function max<T extends int|float>(T $a, T $b, T ...$rest): T;
+            """);
+
+        errors.Should().BeEmpty($"array max should still infer T as float: {Describe(errors)}");
     }
 
     [Fact]
@@ -854,8 +914,25 @@ public class CallReturnTypeInferenceTests
     /// packages (which currently carry an unrelated, pre-existing bind error), so diagnostics
     /// from other files are filtered out to keep these regression tests focused.
     /// </summary>
-    private static IReadOnlyList<IDiagnostic> CompileAndCheck(string content)
+    private static IReadOnlyList<IDiagnostic> CompileAndCheck(string content, string? tyhpdef = null)
     {
+        if (tyhpdef is not null)
+        {
+            var result = IsolatedCompilation.ParseSnippet(content, tyhpdef, skipChecking: true);
+            result.GlobalScope.Should().NotBeNull("bind should succeed");
+            result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
+
+            var symbolTree = new SymbolTree(result.GlobalScope!);
+            var checker = new TyhpChecker(result.Diagnostics, symbolTree, result.GlobalScope!);
+            checker.Check(result.ParsedFiles!);
+
+            return result.Diagnostics.Errors
+                .Where(e => e.FileName is not null
+                    && e.FileName.Replace('\\', '/').EndsWith(".tyhp", StringComparison.Ordinal)
+                    && !e.FileName.Replace('\\', '/').EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         var fileName = Guid.NewGuid().ToString("N") + ".tyhp";
@@ -865,14 +942,7 @@ public class CallReturnTypeInferenceTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

@@ -12,7 +12,7 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
             globalScope.AddChildSymbol(new BuiltInTypeSymbol("null"));
             globalScope.AddChildSymbol(new BuiltInTypeSymbol("array", backingTypeName: null, genericParameterRequirements: GenericParameterRequirements.ArrayLike()));
             globalScope.AddChildSymbol(new BuiltInTypeSymbol("bool"));
-            globalScope.AddChildSymbol(new BuiltInTypeSymbol("callable", backingTypeName: null, genericParameterRequirements: GenericParameterRequirements.Callable()));
+            globalScope.AddChildSymbol(new BuiltInTypeSymbol("callable", backingTypeName: null, genericParameterRequirements: GenericParameterRequirements.ZeroArity()));
             globalScope.AddChildSymbol(new BuiltInTypeSymbol("false"));
             globalScope.AddChildSymbol(new BuiltInTypeSymbol("true"));
             globalScope.AddChildSymbol(new BuiltInTypeSymbol("float"));

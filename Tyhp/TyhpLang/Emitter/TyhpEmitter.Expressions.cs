@@ -4,6 +4,7 @@ using Tyhp.TyhpLang.Binder.Resolution;
 using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Checker;
 using Tyhp.TyhpLang.Checker.Rules;
 using Tyhp.TyhpLang.Enum;
@@ -36,6 +37,7 @@ namespace Tyhp.TyhpLang.Emitter
                 PhpArrayAst array => this.BuildArrayExpression(array),
                 PhpNewAst newExpr => this.BuildNewExpression(newExpr),
                 PhpInlineFunctionAst inlineFn => this.BuildInlineFunctionExpression(inlineFn),
+                TyhpAsyncBlockAst asyncBlock => this.BuildAsyncBlockExpression(asyncBlock),
                 PhpYieldAst yield => this.BuildYieldExpression(yield),
                 PhpConditionalAst conditional when !conditional.IsMatchSyntax => this.BuildSwitchExpression(conditional),
                 PhpConditionalAst conditional => this.BuildMatchExpression(conditional),
@@ -312,8 +314,9 @@ namespace Tyhp.TyhpLang.Emitter
             var right = this.ParenthesizeIfNeeded(binary.Right, rightNeedsParens);
 
             if (binary.Operator != null
-                && (binary.Operator.ValueInt64 == TyhpParser.T_TYHP_USING_EQUAL
-                    || PhpAssignmentOperatorExtensions.FromToken((int)binary.Operator.ValueInt64) == PhpAssignmentOperator.UsingEqual))
+                && PhpAssignmentOperatorExtensions.FromToken(
+                    binary.Operator.TokenValue,
+                    binary.Operator.ValueString) == PhpAssignmentOperator.UsingEqual)
             {
                 if (binary.Left is PhpVariableAst varAst)
                 {
@@ -333,15 +336,36 @@ namespace Tyhp.TyhpLang.Emitter
                 return $"{leftVar} = {scopeVar}->using({rightVar})";
             }
 
+            // `$x is ?T`: the RHS is a synthetic prefix `?` unary wrapping the real target
+            // (FOUND_BUGS #21 — the nullable marker has to survive parsing, but there is no PHP
+            // `instanceof ?ClassName` syntax). Always reify to `\Tyhp\Type::is($x,
+            // \Tyhp\Type::nullable(<target>))`; never emit the native operator here, since it
+            // cannot express nullability at all.
+            if (IsInstanceofLikeOperator(binary)
+                && Checker.Rules.CheckerHelpers.IsNullableInstanceofMarker(binary.Right, out var nullableTarget))
+            {
+                this._context.RequirePackage("tyhp/core");
+                var innerType = this.BuildInstanceofTargetRuntimeType(nullableTarget as IExpression);
+                return $"{RuntimeTypeClass}::is({left}, {RuntimeTypeClass}::nullable({innerType}))";
+            }
+
             // `$x instanceof T` / `$x is T` against an in-scope generic type parameter has no PHP
             // class named like the parameter. Reify to `\Tyhp\Type::is($x, <typeof(T)>)` using the
             // same Mechanism D binder / Mechanism C GenericObject lookup `typeof(T)` already emits (FOUND_BUGS #37).
             // Parameterized nominals (`static<T>`, `Box<int>`) likewise erase under native
             // `instanceof`, so reify those to `\Tyhp\Type::is($x, Type::generic(...))`.
+            // Type aliases are Type factories, including an alias of a class — never native
+            // `instanceof` of the underlying class.
             if (IsInstanceofLikeOperator(binary)
                 && this.TryBuildReifiedInstanceofCheck(binary, left) is { } reified)
             {
                 return reified;
+            }
+
+            // PER-CS 3.0: when a `??` expression already wraps, the operator starts the continuation line.
+            if (op == "??" && (left.Contains('\n') || right.Contains('\n')))
+            {
+                return $"{left}\n    ?? {right}";
             }
 
             return $"{left} {op} {right}";
@@ -430,7 +454,7 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             // TokenValue already collapses missing ValueInt64 to -1.
-            return PhpBinaryOperatorExtensions.FromToken(op.TokenValue) == PhpBinaryOperator.Pipe;
+            return PhpBinaryOperatorExtensions.FromToken(op.TokenValue, op.ValueString) == PhpBinaryOperator.Pipe;
         }
 
         /// <summary>
@@ -455,15 +479,54 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         /// <summary>
-        /// When the RHS of <c>instanceof</c>/<c>is</c> needs a runtime type brand — a builtin
-        /// scalar (<c>int</c>, <c>string</c>, …), a bare in-scope generic parameter, or a
-        /// class/self/static/parent name with type arguments — returns
+        /// When the RHS of <c>is</c>/<c>instanceof</c> needs a runtime type brand — a builtin
+        /// scalar (<c>int</c>, <c>string</c>, …), a type alias, a bare in-scope generic
+        /// parameter, or a class/self/static/parent name with type arguments — returns
         /// <c>\Tyhp\Type::is(…, …)</c>; otherwise null so the caller emits native PHP
         /// <c>instanceof</c>.
         /// </summary>
         private string? TryBuildReifiedInstanceofCheck(PhpBinaryOpAst binary, string leftText)
         {
             var right = UnwrapParenExpressions(binary.Right);
+
+            // Parameterized aliases (`Predicate<int>`, `Optional<int>`) must use the alias
+            // factory / inlined descriptor, not `Type::generic('Predicate', …)` (that path
+            // treats the name as a class). Shape aliases have no PHP class.
+            if (right is PhpNameAst parameterizedAlias
+                && GetGenericTypeArgumentAddon(parameterizedAlias) is { Count: > 0 }
+                && this.TryBuildAliasInstanceofCheck(parameterizedAlias, leftText) is { } parameterizedAliasCheck)
+            {
+                return parameterizedAliasCheck;
+            }
+
+            // Parameterized nominals (`static<T>`, `Box<int>`) erase under native instanceof
+            // and are not an exact NativeTypeTest `T`.
+            if (right is PhpNameAst parameterized
+                && GetGenericTypeArgumentAddon(parameterized) is { Count: > 0 })
+            {
+                this._context.RequirePackage("tyhp/core");
+                var className = ResolveRuntimeClassName(
+                    parameterized.BoundSymbol, parameterized, written: parameterized.ValueString);
+                var runtimeType = this.BuildRuntimeGenericFromClassAndArgs(
+                    className, GetGenericTypeArgumentAddon(parameterized)!, preferCtorLocals: false);
+                return $"{RuntimeTypeClass}::is({leftText}, {runtimeType})";
+            }
+
+            // A NativeTypeTest host's own body naturally contains `$param is T` / `$param
+            // instanceof T` for its own guarded T (that expression *is* the real native check).
+            // Routing it back through the lookup would call the host from itself and recurse
+            // forever, so the host's own callable is excluded from the lookup here; the checks
+            // below fall through to the real native mechanism (`instanceof`, `\Tyhp\Type::is`, …).
+            if (NativeTypeTestAttributeSupport.TryLookup(
+                    right,
+                    this._context.NativeTypeTests,
+                    written => this.TryResolveTypeAliasByWrittenName(written)
+                        ?? this.TryResolveObjectByName(written),
+                    out var nativeTest)
+                && !NativeTypeTestAttributeSupport.SameCallable(nativeTest, this._currentEmittingCallable))
+            {
+                return NativeTypeTestAttributeSupport.SpellCall(nativeTest, leftText);
+            }
 
             if (TryBuildBuiltinInstanceofCheck(right, leftText) is { } builtinCheck)
             {
@@ -475,20 +538,34 @@ namespace Tyhp.TyhpLang.Emitter
                 return null;
             }
 
-            // `static<T>` / `Foo<Bar>` — native instanceof drops the type arguments.
-            var typeArgs = GetGenericTypeArgumentAddon(name);
-            if (typeArgs is { Count: > 0 })
+            if (this.TryBuildAliasInstanceofCheck(name, leftText) is { } aliasCheck)
             {
-                this._context.RequirePackage("tyhp/core");
-                var className = ResolveRuntimeClassName(
-                    name.BoundSymbol, name, written: name.ValueString);
-                var runtimeType = this.BuildRuntimeGenericFromClassAndArgs(
-                    className, typeArgs, preferCtorLocals: false);
-                return $"{RuntimeTypeClass}::is({leftText}, {runtimeType})";
+                return aliasCheck;
             }
 
             var simpleName = (name.ValueString ?? string.Empty).Trim().TrimStart('\\');
-            if (simpleName.Length == 0 || simpleName.Contains('\\'))
+            if (simpleName.Length == 0)
+            {
+                return null;
+            }
+
+            // Unmarked structs are array shapes — native `instanceof` is the wrong PHP operator.
+            // Qualified names (`C\Point`) still take this path when BoundSymbol is the nested struct.
+            var structDecl = name.BoundSymbol is ObjectDeclarationSymbol { IsStruct: true } boundStruct
+                ? boundStruct
+                : !simpleName.Contains('\\')
+                    && this.TryResolveObjectByName(simpleName) is { IsStruct: true } resolvedStruct
+                    ? resolvedStruct
+                    : null;
+            if (structDecl is not null)
+            {
+                this._context.RequirePackage("tyhp/core");
+                var runtimeType = this.BuildRuntimeStructType(
+                    structDecl, typeArgs: null, preferCtorLocals: false);
+                return $"{RuntimeTypeClass}::is({leftText}, {runtimeType})";
+            }
+
+            if (simpleName.Contains('\\'))
             {
                 return null;
             }
@@ -526,11 +603,94 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         /// <summary>
+        /// <c>$x is Alias</c> / <c>$x instanceof Alias</c> lower to
+        /// <c>\Tyhp\Type::is($x, Alias())</c> (or an inlined tyhpdef body). An alias of a
+        /// class still uses <c>Type::is</c> — never native <c>instanceof</c> of the underlying class.
+        /// Callable-shape aliases use the same path (factory or <c>Type::callableShape</c>).
+        /// </summary>
+        private string? TryBuildAliasInstanceofCheck(PhpNameAst name, string leftText)
+        {
+            if (this.TryBuildAliasInstanceofRuntimeType(name) is not { } runtimeType)
+            {
+                return null;
+            }
+
+            return $"{RuntimeTypeClass}::is({leftText}, {runtimeType})";
+        }
+
+        /// <summary>
+        /// The alias factory / inlined-tyhpdef runtime type expression for an <c>instanceof</c>/
+        /// <c>is</c> RHS target, or null when <paramref name="name"/> does not name a type alias
+        /// (shared by <see cref="TryBuildAliasInstanceofCheck"/> and the nullable-target path in
+        /// <see cref="BuildInstanceofTargetRuntimeType"/>).
+        /// </summary>
+        private string? TryBuildAliasInstanceofRuntimeType(PhpNameAst name)
+        {
+            if (name.BoundSymbol is ObjectDeclarationSymbol
+                || name.BoundSymbol is GenericTypeParameterSymbol)
+            {
+                return null;
+            }
+
+            var written = name.ValueString ?? name.Identifier ?? "";
+            var simple = written.Trim().TrimStart('\\');
+            IBaseSymbol? alias = name.BoundSymbol is TypeAliasSymbol or ObjectTypeAliasSymbol
+                ? name.BoundSymbol
+                : null;
+
+            if (alias is null)
+            {
+                if (this.IsVariantGenericParamName(simple)
+                    || this.IsObjectGenericParamName(simple)
+                    || this.IsErasedGenericParamName(simple))
+                {
+                    return null;
+                }
+
+                alias = this.TryResolveTypeAliasByWrittenName(written);
+            }
+
+            if (alias is null)
+            {
+                return null;
+            }
+
+            this._context.RequirePackage("tyhp/core");
+            var typeArgs = GetGenericTypeArgumentAddon(name);
+            if (!this.GenericRuntimeLayoutIsSupported(alias, name))
+            {
+                return null;
+            }
+
+            return IsTyhpdefAliasSymbol(alias)
+                    && GenericRuntimeAttributeSupport.TryRead(alias)?.HasAliasFactory != true
+                ? this.BuildInlinedTyhpdefAliasRuntimeType(alias, typeArgs, preferCtorLocals: false)
+                : this.BuildSourceAliasFactoryCall(
+                    alias, typeArgs, preferCtorLocals: false, writtenName: written);
+        }
+
+        /// <summary>
         /// PHP <c>instanceof</c> requires a class name. Tyhp <c>is int</c> / <c>instanceof string</c>
         /// (and the other scalar factories on <c>\Tyhp\Type</c>) reify to
         /// <c>\Tyhp\Type::is($x, \Tyhp\Type::int())</c> so the emitted file is valid PHP.
         /// </summary>
         private string? TryBuildBuiltinInstanceofCheck(IExpression? right, string leftText)
+        {
+            if (this.TryBuildBuiltinInstanceofRuntimeType(right) is not { } runtimeType)
+            {
+                return null;
+            }
+
+            return $"{RuntimeTypeClass}::is({leftText}, {runtimeType})";
+        }
+
+        /// <summary>
+        /// The <c>\Tyhp\Type::&lt;scalar&gt;()</c> factory call for a builtin scalar
+        /// <c>instanceof</c>/<c>is</c> target, or null when <paramref name="right"/> is not a
+        /// bare scalar spelling (shared by <see cref="TryBuildBuiltinInstanceofCheck"/> and the
+        /// nullable-target path in <see cref="BuildInstanceofTargetRuntimeType"/>).
+        /// </summary>
+        private string? TryBuildBuiltinInstanceofRuntimeType(IExpression? right)
         {
             var spelling = right switch
             {
@@ -558,7 +718,49 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             this._context.RequirePackage("tyhp/core");
-            return $"{RuntimeTypeClass}::is({leftText}, {RuntimeTypeClass}::{spelling}())";
+            return $"{RuntimeTypeClass}::{spelling}()";
+        }
+
+        /// <summary>
+        /// Builds a <c>\Tyhp\Type</c> runtime value for an <c>instanceof</c>/<c>is</c> RHS target,
+        /// always — unlike <see cref="TryBuildReifiedInstanceofCheck"/>, this never falls back to
+        /// native PHP <c>instanceof</c> text, because the only caller
+        /// (<c>$x is ?T</c>, FOUND_BUGS #21) needs a <c>Type</c> value to wrap in
+        /// <c>\Tyhp\Type::nullable(…)</c> — native <c>instanceof ?ClassName</c> is not valid PHP
+        /// even for a plain declared class.
+        /// </summary>
+        private string BuildInstanceofTargetRuntimeType(IExpression? right)
+        {
+            right = UnwrapParenExpressions(right);
+
+            if (this.TryBuildBuiltinInstanceofRuntimeType(right) is { } builtinType)
+            {
+                return builtinType;
+            }
+
+            if (right is not PhpNameAst name)
+            {
+                this._context.RequirePackage("tyhp/core");
+                return $"{RuntimeTypeClass}::mixed()";
+            }
+
+            if (this.TryBuildAliasInstanceofRuntimeType(name) is { } aliasType)
+            {
+                return aliasType;
+            }
+
+            var typeArgs = GetGenericTypeArgumentAddon(name);
+            if (typeArgs is { Count: > 0 })
+            {
+                this._context.RequirePackage("tyhp/core");
+                var className = ResolveRuntimeClassName(
+                    name.BoundSymbol, name, written: name.ValueString);
+                return this.BuildRuntimeGenericFromClassAndArgs(
+                    className, typeArgs, preferCtorLocals: false);
+            }
+
+            this._context.RequirePackage("tyhp/core");
+            return this.BuildTypeofFromName(name);
         }
 
         private string BuildUnaryExpression(PhpUnaryOpAst unary)
@@ -601,7 +803,7 @@ namespace Tyhp.TyhpLang.Emitter
             {
                 // Word-keyword prefix operators (return, yield, print, throw, clone, await, ...)
                 // need a space before their operand, e.g. `return $x`. Cast operators need a space
-                // after the closing paren per PSR-12 §6.1: `(int) $x`. Other symbolic operators
+                // after the closing paren per PER-CS §6.1: `(int) $x`. Other symbolic operators
                 // (`!`, `-`, `~`, ...) bind directly, e.g. `!$x`.
                 if (op.Length > 0 && char.IsLetter(op[op.Length - 1]))
                 {
@@ -627,7 +829,7 @@ namespace Tyhp.TyhpLang.Emitter
         /// <c>(void)</c> has no runtime effect beyond discarding the value (and suppressing
         /// NoDiscard-style warnings in the checker). On &lt; 8.5 the cast token is unknown, so
         /// statement form <c>(void)$x;</c> becomes <c>$x;</c> and for-list items drop the cast.
-        /// Native emit preserves source cast spelling and spaces after the cast per PSR-12 §6.1.
+        /// Native emit preserves source cast spelling and spaces after the cast per PER-CS §6.1.
         /// </remarks>
         private string BuildVoidCastExpression(PhpUnaryOpAst unary, string op)
         {
@@ -687,7 +889,7 @@ namespace Tyhp.TyhpLang.Emitter
             {
                 // Plan allows `\Closure::fromCallable('exit')`; that only works ≥ 8.4 (native path).
                 // Equivalent: static arrow matching the ExtCore tyhpdef signature.
-                return $"(static fn(string | int $status = 0) => {op}($status))";
+                return $"(static fn(string|int $status = 0) => {op}($status))";
             }
 
             var args = argumentList.GetAllNotNull().ToList();
@@ -796,11 +998,21 @@ namespace Tyhp.TyhpLang.Emitter
             if (ternary.TrueExpr == null)
             {
                 var falseExpr = this.ParenthesizeIfNeeded(ternary.FalseExpr, IsNestedBinaryOrTernary(ternary.FalseExpr));
+                if (condition.Contains('\n') || falseExpr.Contains('\n'))
+                {
+                    return $"{condition}\n    ?: {falseExpr}";
+                }
+
                 return $"{condition} ?: {falseExpr}";
             }
 
             var trueExpr = this.ParenthesizeIfNeeded(ternary.TrueExpr, IsNestedBinaryOrTernary(ternary.TrueExpr));
             var falseExprFull = this.ParenthesizeIfNeeded(ternary.FalseExpr, IsNestedBinaryOrTernary(ternary.FalseExpr));
+            if (condition.Contains('\n') || trueExpr.Contains('\n') || falseExprFull.Contains('\n'))
+            {
+                return $"{condition}\n    ? {trueExpr}\n    : {falseExprFull}";
+            }
+
             return $"{condition} ? {trueExpr} : {falseExprFull}";
         }
 
@@ -914,10 +1126,16 @@ namespace Tyhp.TyhpLang.Emitter
 
         private string BuildArrayExpression(PhpArrayAst array)
         {
-            var pairs = array.ArrayPairs?.GetAllNotNull().ToList() ?? [];
-            var pairTexts = pairs.Select(this.BuildArrayPair);
-            var inner = string.Join(", ", pairTexts);
-            return array.IsShortSyntax ? $"[{inner}]" : $"array({inner})";
+            // This same PhpArrayPairListAst shape backs both array-as-value literals and
+            // destructuring assignment/foreach targets (`[, $b] = $o`), so interior skip slots
+            // must round-trip (Story 21.7, ArrayAccessDestructureEmitterTests). Only a *trailing*
+            // skip slot is ever a parser artifact from a trailing comma (`[1, 2,]`) — trim just
+            // that, mirroring ArrayAccessDestructureSupport.BindPattern's trim — otherwise
+            // GetAllNotNull() kept the trailing artifact and multi-line literals with a trailing
+            // comma emitted an invalid `, ,` in the PHP output.
+            var pairs = array.ArrayPairs?.GetAllTrimmingTrailingSkippedSlots().ToList() ?? [];
+            var pairTexts = pairs.Select(this.BuildArrayPair).ToList();
+            return JoinPhpArrayLiteral(pairTexts, array.IsShortSyntax);
         }
 
         // Short array literals (`[]`, `[$a, $b => $c]`) parse to a PhpArrayPairListAst rather than a
@@ -925,12 +1143,19 @@ namespace Tyhp.TyhpLang.Emitter
         // to an empty string (e.g. `$flattened = ;`).
         private string BuildArrayPairList(PhpArrayPairListAst list)
         {
-            var pairs = list.GetAllNotNull().Select(this.BuildArrayPair);
-            return "[" + string.Join(", ", pairs) + "]";
+            // See BuildArrayExpression above: trim only a trailing-comma skip-slot artifact,
+            // keep interior skips for destructuring targets.
+            var pairs = list.GetAllTrimmingTrailingSkippedSlots().Select(this.BuildArrayPair).ToList();
+            return JoinPhpArrayLiteral(pairs, shortSyntax: true);
         }
 
         private string BuildArrayPair(PhpArrayPairAst pair)
         {
+            if (pair.IsSkippedSlot)
+            {
+                return string.Empty;
+            }
+
             if (pair.IsExpansion)
             {
                 return "..." + this.BuildExpression(pair.ValueExpr);
@@ -949,11 +1174,13 @@ namespace Tyhp.TyhpLang.Emitter
             var formattedArgs = newExpr.Arguments != null
                 ? this.FormatArgumentList(newExpr.Arguments)
                 : "";
+            // PER-CS 2.0 §8: anonymous classes MUST omit empty `()`. Named `new Foo()` keeps parens.
             var args = "(" + formattedArgs + ")";
 
             if (newExpr.AnonymousClass is { } anonymousClass)
             {
-                return this.BuildAnonymousClassInline(anonymousClass, args);
+                var anonymousArgs = string.IsNullOrEmpty(formattedArgs) ? "" : args;
+                return this.BuildAnonymousClassInline(anonymousClass, anonymousArgs);
             }
 
             if (this.TryBuildNewGenericTypeParameterExpression(newExpr, args) is { } dynamicNew)
@@ -1034,7 +1261,7 @@ namespace Tyhp.TyhpLang.Emitter
                 }
 
                 return lines.Count == 0
-                    ? "{\n}"
+                    ? "{}"
                     : "{\n" + string.Join("\n", lines.Select(l => "    " + l)) + "\n}";
             }
             finally
@@ -1051,7 +1278,7 @@ namespace Tyhp.TyhpLang.Emitter
         // EmitStatement keeps inline bodies consistent with regular function/method bodies.
         //
         // Children are emitted at indent 0 so callers can apply their own relative indentation
-        // (PSR-12 closure / switch bodies) without fighting an extra Empty-parent indent level.
+        // (PER-CS closure / switch bodies) without fighting an extra Empty-parent indent level.
         private string BuildStatementContent(IStatement statement)
         {
             var root = EmitItem.Empty(statement, EmitType.FunctionStatement);
@@ -1122,7 +1349,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             var useClause = useParts.Count > 0 ? " use (" + string.Join(", ", useParts) + ")" : "";
             var body = this.BuildMethodBodyInline(inlineFn.Body);
-            // PSR-12 §7: space after `function` (and after `&` when returning by reference).
+            // PER-CS §7: space after `function` (and after `&` when returning by reference).
             var functionKeyword = inlineFn.ReturnsRef ? "function &" : "function ";
             return $"{modifiers}{functionKeyword}({paramsText}){useClause}{returnType} {body}";
         }
@@ -1136,17 +1363,19 @@ namespace Tyhp.TyhpLang.Emitter
             if (inlineFn.ReturnType != null)
             {
                 var authored = this.BuildTypeExpression(inlineFn.ReturnType);
-                return string.IsNullOrWhiteSpace(authored) ? "" : ": " + authored;
+                var suffix = string.IsNullOrWhiteSpace(authored) ? "" : ": " + authored;
+                return this.SpellInlineFunctionReturnPhpType(inlineFn, suffix);
             }
 
             if (!this._context.TryGetInferredClosureSignature(inlineFn, out var inferred)
                 || inferred?.ReturnType is null)
             {
-                return "";
+                return this.SpellInlineFunctionReturnPhpType(inlineFn, "");
             }
 
             var spelled = this.BuildCheckedTypeExpression(inferred.ReturnType);
-            return ShouldOmitInferredPhpTypehint(spelled) ? "" : ": " + spelled;
+            var inferredSuffix = ShouldOmitInferredPhpTypehint(spelled) ? "" : ": " + spelled;
+            return this.SpellInlineFunctionReturnPhpType(inlineFn, inferredSuffix);
         }
 
         /// <summary>
@@ -1181,21 +1410,18 @@ namespace Tyhp.TyhpLang.Emitter
                 return "";
             }
 
-            if (formatted.Any(p => p.Contains('\n')))
-            {
-                var inner = string.Join(",\n", formatted.Select(p => IndentPhpBlock(p, 4)));
-                return "\n" + inner + "\n";
-            }
-
-            return string.Join(", ", formatted);
+            return JoinPhpCommaList(formatted);
         }
 
         private string BuildCheckedTypeExpression(ICheckedType? type)
-            => TypeSpellingHelper.SpellCheckedType(
+        {
+            this.ReportInternalErrorIfExternCheckedType(type);
+            return TypeSpellingHelper.SpellCheckedType(
                 type,
                 this._context.TypeAliasMap,
                 this._context.GlobalScope,
                 this._context.Config.NamespacePrefix);
+        }
 
         /// <summary>
         /// <c>mixed</c> / empty inferred hints add no PHP surface beyond an untyped param/return, so
@@ -1262,12 +1488,12 @@ namespace Tyhp.TyhpLang.Emitter
             var arms = conditional.Arms?.GetAllNotNull().ToList() ?? [];
             if (arms.Count == 0)
             {
-                return $"match ({expr}) {{\n}}";
+                return FormatControlStructureOpen("match", expr) + "\n}";
             }
 
             // Multiline match body so control-structure brace sniffs stay happy (and soft line
             // length improves for large arm lists).
-            var lines = new List<string> { $"match ({expr}) {{" };
+            var lines = new List<string> { FormatControlStructureOpen("match", expr) };
             for (var i = 0; i < arms.Count; i++)
             {
                 var armText = this.BuildMatchArm(arms[i]);
@@ -1528,13 +1754,16 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         private string FormatArgumentList(PhpArgumentListAst? arguments)
+            => JoinPhpCommaList(this.FormatArgumentItems(arguments));
+
+        private List<string> FormatArgumentItems(PhpArgumentListAst? arguments)
         {
             if (arguments == null)
             {
-                return "";
+                return [];
             }
 
-            return string.Join(", ", arguments.GetAllNotNull().Select(this.FormatArgument));
+            return arguments.GetAllNotNull().Select(this.FormatArgument).ToList();
         }
 
         private string FormatArgument(PhpArgumentAst argument)
@@ -1591,82 +1820,216 @@ namespace Tyhp.TyhpLang.Emitter
         /// <summary>
         /// Materializes <c>typeof(T)</c> into a runtime <c>\Tyhp\Type</c> value.
         ///
-        /// A bareword reference to an in-scope generic type parameter (which the binder intentionally
-        /// leaves unbound, see <c>CompileTimeRule.CheckTypeof</c>) is read from the runtime
-        /// generic-tracking lookup supplied by the <c>GenericObject</c> trait. Classes that use
-        /// <c>typeof(T)</c> are flagged <c>RequiresRuntimeGenericTracking</c> so the emitter injects
-        /// that trait and constructor initialization (Story 11 Phase 8).
+        /// A bareword reference to an in-scope generic type parameter (which the binder
+        /// leaves unbound when emit runs without a full check, see <c>CompileTimeRule.CheckTypeof</c>)
+        /// is read from the runtime generic-tracking lookup supplied by the <c>GenericObject</c>
+        /// trait. Classes that use <c>typeof(T)</c> are flagged <c>RequiresRuntimeGenericTracking</c>
+        /// so the emitter injects that trait and constructor initialization.
         ///
         /// A reference to a declared type emits <c>\Tyhp\Type::fromClassName(Foo::class)</c>, and a
         /// built-in scalar keyword emits the matching <c>\Tyhp\Type</c> factory (e.g. <c>::string()</c>).
+        /// Unions, nullability, and generic arguments use <c>BuildRuntimeTypeExpression</c>.
         /// </summary>
         private string BuildTypeofExpression(TyhpTypeofAst typeofExpr)
         {
-            var expr = typeofExpr.Expression;
-
-            if (expr is PhpNameAst name)
+            var typeExpr = typeofExpr.TypeExpression;
+            if (typeExpr is null)
             {
-                var simpleName = (name.ValueString ?? string.Empty).Trim();
-
-                // typeof of a declared class -> \Tyhp\Type::fromClassName(ShortName::class).
-                // The binder intentionally leaves typeof args unbound (see CompileTimeRule.CheckTypeof),
-                // so a bound symbol is not available; resolve the name against the bound global scope
-                // to tell a real declared class apart from a generic type parameter / unbound bareword.
-                // With no bound scope (parse-only emit) nothing resolves and the generic-lookup path
-                // below is taken, matching type parameters and unbound names.
-                if (simpleName.Length > 0
-                    && !simpleName.Contains('\\')
-                    && this.TryResolveDeclaredClass(simpleName))
-                {
-                    return $"{RuntimeTypeClass}::fromClassName('{simpleName}'::class)";
-                }
-
-                if (name.BoundSymbol is ObjectDeclarationSymbol)
-                {
-                    return $"{RuntimeTypeClass}::fromClassName('{GetShortName(name.ValueString)}'::class)";
-                }
-
-                if (name.BoundSymbol is null
-                    && simpleName.Length > 0
-                    && !simpleName.Contains('\\'))
-                {
-                    // A generic the callable declares itself arrives as a binder-captured parameter of the
-                    // Mechanism D variant, which is what makes it work in a static method or a free
-                    // function where there is no instance to read from.
-                    if (this.IsVariantGenericParamName(simpleName))
-                    {
-                        return this.BuildVariantTypeofLookup(simpleName);
-                    }
-
-                    // A class generic parameter is recorded on the instance, so the lookup cannot run
-                    // without `$this`. CompileTimeRule rejects that shape (TYHP4148); fall back to
-                    // `mixed` here so a path that bypasses the checker still emits valid PHP.
-                    if (this._currentMemberIsStatic && this.IsObjectGenericParamName(simpleName))
-                    {
-                        return $"{RuntimeTypeClass}::mixed()";
-                    }
-
-                    // Parenthesized: a bare method-call lookup is fine under most operators, but
-                    // cast prefixes bind tighter than `->` in some mental models and tests assert
-                    // a grouped form for typeof(T).
-                    return this.BuildGenericResolvedTypeLookupCall(simpleName) is { } lookup
-                        ? $"($this->{lookup})"
-                        : $"{RuntimeTypeClass}::mixed()";
-                }
+                return $"{RuntimeTypeClass}::mixed()";
             }
 
-            if (expr is PhpBuiltinTypeAst builtin
-                && builtin.Identifier is { } identifier
+            if (this.TryBuildAliasFactoryRuntimeType(typeExpr, preferCtorLocals: false) is { } aliasType)
+            {
+                return aliasType;
+            }
+
+            if (!IsSimpleTypeofSpelling(typeExpr, out var name, out var builtin))
+            {
+                return this.BuildRuntimeTypeExpression(typeExpr, preferCtorLocals: false);
+            }
+
+            if (builtin is { } builtinType
+                && builtinType.Identifier is { } identifier
                 && ScalarTypeFactoryNames.Contains(identifier))
             {
                 return $"{RuntimeTypeClass}::{identifier}()";
             }
 
+            if (name is null)
+            {
+                return this.BuildRuntimeTypeExpression(typeExpr, preferCtorLocals: false);
+            }
+
+            return this.BuildTypeofFromName(name);
+        }
+
+        /// <summary>
+        /// True when <paramref name="typeExpr"/> is a non-nullable, non-composite spelling that
+        /// typeof can lower with the historical name / builtin path (class, generic param, scalar).
+        /// Parameterized builtins such as <c>array&lt;int&gt;</c> are not simple.
+        /// </summary>
+        private static bool IsSimpleTypeofSpelling(
+            ITypeExpression typeExpr,
+            out PhpNameAst? name,
+            out PhpBuiltinTypeAst? builtin)
+        {
+            name = null;
+            builtin = null;
+
+            if (typeExpr is PhpBuiltinTypeAst directBuiltin)
+            {
+                // Parameterized builtins (`array<int>`, `iterable<string, T>`) are not a bare
+                // `Type::array()` / `Type::iterable()` factory — they need NamedType labels.
+                if (GetGenericTypeArgumentAddon(directBuiltin) is { Count: > 0 })
+                {
+                    return false;
+                }
+
+                builtin = directBuiltin;
+                return true;
+            }
+
+            if (typeExpr is PhpNameAst directName)
+            {
+                if (GetGenericTypeArgumentAddon(directName) is { Count: > 0 })
+                {
+                    return false;
+                }
+
+                name = directName;
+                return true;
+            }
+
+            if (typeExpr is PhpNamedTypeAst named)
+            {
+                if (GetGenericTypeArgumentAddon(named) is { Count: > 0 }
+                    || (named.Name is IBase2Ast nameNode && GetGenericTypeArgumentAddon(nameNode) is { Count: > 0 }))
+                {
+                    return false;
+                }
+
+                switch (named.Name)
+                {
+                    case PhpBuiltinTypeAst namedBuiltin:
+                        builtin = namedBuiltin;
+                        return true;
+                    case PhpNameAst namedName:
+                        name = namedName;
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+
+            if (typeExpr is PhpTypeExpressionAst { IsNullable: false, TypeKind: PhpTypeKind.Simple } composite
+                && composite.Types is { } members)
+            {
+                var list = members.GetAllNotNull().OfType<ITypeExpression>().ToList();
+                if (list.Count == 1)
+                {
+                    return IsSimpleTypeofSpelling(list[0], out name, out builtin);
+                }
+            }
+
+            return false;
+        }
+
+        private string BuildTypeofFromName(PhpNameAst name)
+        {
+            var simpleName = (name.ValueString ?? string.Empty).Trim();
+            var paramName = simpleName.TrimStart('\\');
+
+            // `self` / `parent` / `static` are relative class keywords, not generic parameters
+            // and not undeclared class names. Inside a class they reify to `self::class` (etc.);
+            // outside a class the checker reports TYHP4064 and this fallback stays valid PHP.
+            if (IsRelativeClassKeywordName(paramName) && this._currentObjectFqn is not null)
+            {
+                var keyword = paramName.ToLowerInvariant();
+                return $"{RuntimeTypeClass}::fromClassName({keyword}::class)";
+            }
+
+            // typeof of a declared class -> \Tyhp\Type::fromClassName(ShortName::class).
+            // A bound symbol is preferred; parse-only emit resolves against the bound global scope
+            // to tell a real declared class apart from a generic type parameter / unbound bareword.
+            if (simpleName.Length > 0
+                && !simpleName.Contains('\\')
+                && this.TryResolveObjectByName(simpleName) is { IsStruct: true } typeofStruct)
+            {
+                return this.BuildRuntimeStructType(typeofStruct, typeArgs: null, preferCtorLocals: false);
+            }
+
+            if (simpleName.Length > 0
+                && !simpleName.Contains('\\')
+                && this.TryResolveDeclaredClass(simpleName))
+            {
+                return $"{RuntimeTypeClass}::fromClassName('{simpleName}'::class)";
+            }
+
+            if (name.BoundSymbol is ObjectDeclarationSymbol { IsStruct: true } boundStruct)
+            {
+                return this.BuildRuntimeStructType(boundStruct, typeArgs: null, preferCtorLocals: false);
+            }
+
+            if (name.BoundSymbol is ObjectDeclarationSymbol)
+            {
+                return $"{RuntimeTypeClass}::fromClassName('{GetShortName(name.ValueString)}'::class)";
+            }
+
+            var isGenericParam = name.BoundSymbol is GenericTypeParameterSymbol
+                || this.IsVariantGenericParamName(paramName)
+                || this.IsObjectGenericParamName(paramName);
+            if (isGenericParam
+                && paramName.Length > 0
+                && !paramName.Contains('\\'))
+            {
+                // A generic the callable declares itself arrives as a binder-captured parameter of the
+                // Mechanism D variant, which is what makes it work in a static method or a free
+                // function where there is no instance to read from.
+                if (this.IsVariantGenericParamName(paramName))
+                {
+                    return this.BuildVariantTypeofLookup(paramName);
+                }
+
+                // A class generic parameter is recorded on the instance, so the lookup cannot run
+                // without `$this`. CompileTimeRule rejects that shape (TYHP4148); fall back to
+                // `mixed` here so a path that bypasses the checker still emits valid PHP.
+                if (this._currentMemberIsStatic && this.IsObjectGenericParamName(paramName))
+                {
+                    return $"{RuntimeTypeClass}::mixed()";
+                }
+
+                // Parenthesized: a bare method-call lookup is fine under most operators, but
+                // cast prefixes bind tighter than `->` in some mental models and tests assert
+                // a grouped form for typeof(T).
+                return this.BuildGenericResolvedTypeLookupCall(paramName) is { } lookup
+                    ? $"($this->{lookup})"
+                    : $"{RuntimeTypeClass}::mixed()";
+            }
+
             return $"{RuntimeTypeClass}::mixed()";
         }
 
+        private static bool IsRelativeClassKeywordName(string? name) =>
+            !string.IsNullOrEmpty(name)
+            && (string.Equals(name, "self", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "parent", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "static", StringComparison.OrdinalIgnoreCase));
+
         private string BuildDefaultExpression(TyhpDefaultAst defaultExpr)
         {
+            var typeAst = defaultExpr.TypeExpression;
+            if (typeAst is PhpTypeExpressionAst { IsNullable: true })
+            {
+                return "null";
+            }
+
+            if (typeAst is not null
+                && this.TryBuildAliasFactoryRuntimeType(typeAst, preferCtorLocals: false) is { } aliasType)
+            {
+                this._context.RequirePackage("tyhp/core");
+                return aliasType + "->defaultValue()";
+            }
+
             var typeText = this.BuildTypeExpression(defaultExpr.TypeExpression);
             if (typeText.StartsWith('?'))
             {

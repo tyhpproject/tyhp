@@ -7,9 +7,21 @@ namespace Tyhp.TyhpLang.Ast
 {
     public class PhpImportDeclAst : Base2Ast
     {
+        private const short IS_GLOBAL_FLAG = -30;
+
         public TokenValueAst? UseType => Children.ElementAtOrDefault(0) as TokenValueAst;
         
         public string? NamespaceName => ValueString;
+
+        /// <summary>
+        /// <c>global use</c> (C# <c>global using</c>): applies to the entire compilation, not
+        /// PHP <c>global $var</c>.
+        /// </summary>
+        public bool IsGlobal
+        {
+            get => HasFlag(IS_GLOBAL_FLAG);
+            set => SetFlag(IS_GLOBAL_FLAG, value);
+        }
                 
         public static PhpImportDeclAst Create(TokenValueAst? useType, string? namespaceName, string? aliasedAs, ParserRuleContext context, string? languageMode = null)
         {

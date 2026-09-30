@@ -21,7 +21,7 @@ Many story plans still show unchecked phase acceptance boxes even though the wor
 | 04 | Substantially complete | Coverage ≥80% gate unverified; self-host of runtime still not green |
 | 05 | Complete | None material |
 | 06 | Complete | Doc checkboxes stale only |
-| 07 | Substantially complete | Phase 10 CI/CD deferred; runtime self-host milestone |
+| 07 | Substantially complete | Phase 10 core Actions workflow shipped; leftover CI polish is `ALPHA_RELEASE.md`; runtime self-host milestone |
 | 08 | Substantially complete | Trait dynamic-property binding; residual generics edge cases — see [`CHECKER_GAPS.md`](CHECKER_GAPS.md) |
 | 08.5 | Substantially complete | Fixture breadth (struct/`__MethodName` utilities) — see Story 10.5 residual / [`CHECKER_GAPS.md`](CHECKER_GAPS.md) |
 | 09 | Substantially complete | Stale emitter `OutputFileWriter` placeholders (clean/dry-run live in `OutputWriterService`) |
@@ -109,10 +109,11 @@ No incomplete story items (phase checkboxes in the plan doc remain stale).
 
 ### Incomplete
 
-1. **Phase 10 — CI/CD pipeline (explicitly DEFERRED)**  
-   - No `.github/workflows` in the repo.  
+1. **Phase 10 — CI/CD pipeline**  
+   - **Core: shipped.** `.github/workflows/tests.yml` runs `dotnet test` on push/PR. `CONTRIBUTING.md` points at it. The “no `.github/workflows`” line from the 2026-07-31 audit is stale.  
+   - **Still out:** PHPUnit job, coverage, extra OS, fuller `tests/readme.md` — `ALPHA_RELEASE.md` public-contributor wave, not Story 21.12 or Story 31. Emit-and-run (21.12 D) extends this same workflow.  
    - **Bug files:** Not tracked in FOUND/RESOLVED.  
-   - **To finish (when ready):** GitHub Actions on push/PR for `dotnet test`, optional PHPUnit job, coverage report, category filters documented in `tests/readme.md`.
+   - **To finish (when public contributors show up):** optional PHPUnit job, coverage report, category notes in `tests/readme.md`. Do not un-skip FOUND #1 / #2.
 
 2. **Runtime self-host conformance milestone**  
    - `SelfHostRuntimeConformanceTests` + allowlist hardening exist (Story 10.5), but allowlist is empty and no package is asserted as compiling.  

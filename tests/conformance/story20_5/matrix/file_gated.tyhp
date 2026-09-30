@@ -1,0 +1,5 @@
+<?tyhp
+declare(php=">=8.5");
+namespace App\Gated;
+
+function file_gated_85(): void {}

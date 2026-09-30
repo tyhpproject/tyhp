@@ -1,0 +1,3 @@
+<?tyhp
+#[\Tyhp\Php]
+function still_bound(): void {}

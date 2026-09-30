@@ -1,10 +1,13 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Resolution;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
+using Tyhp.TyhpLang.Emitter.SourceMap;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Emitter
@@ -15,7 +18,29 @@ namespace Tyhp.TyhpLang.Emitter
         public SrcFileAst? SourceFileAst { get; set; }
         public string? GeneratedContent { get; set; }
         public EmitItem? RootEmitItem { get; set; }
-        public List<object>? SourceMappings { get; set; }
+
+        /// <summary>
+        /// When set to a non-null collector before <see cref="Generate"/> runs, sourcemap tracking
+        /// is active during generation and <see cref="SourceMap"/> reads the populated collector
+        /// afterward. Left <see langword="null"/> ⇒ no sourcemap (fast path).
+        /// </summary>
+        public SourceMapCollector? SourceMapCollector { get; set; }
+
+        /// <summary>
+        /// Original <c>.tyhp</c> source path this output file was generated from. Set by
+        /// <see cref="FromAstTree"/>; registered on the collector at the start of tracking
+        /// <see cref="Generate"/>.
+        /// </summary>
+        public string? SourceFileName { get; set; }
+
+        /// <summary>
+        /// <c>sourceRoot</c> prefix passed to <see cref="SourceMapGenerator"/>. Must share a
+        /// resolvable prefix with registered collector paths (filesystem directory or string
+        /// prefix) or <c>sources</c> entries stay unrelativized. URL-style values such as
+        /// <c>../src/</c> (relative to the output file) do not match project-relative paths like
+        /// <c>src/App.tyhp</c>.
+        /// </summary>
+        public string? SourceRoot { get; set; }
 
         public List<PhpDeclareAst> FileDeclares { get; set; } = [];
         public ITopStatement? FileNameSpace { get; set; }
@@ -44,7 +69,8 @@ namespace Tyhp.TyhpLang.Emitter
         {
             // Late post-walk pass: fold in AdditionalImports (runtime classes the inline emitter
             // referenced during the walk) and drop imports that should never appear in output —
-            // erased types (type aliases, generic type parameters, structs) and extension-class
+            // erased types (tyhpdef aliases, generic type parameters, structs), source type-alias
+            // imports whose factory is unused or only fully-qualified, and extension-class
             // imports whose call sites were rewritten to fully-qualified static calls.
             this.ConsolidateAdditionalImports(context);
             this.DropErasedAndFullyQualifiedImports(context);
@@ -105,18 +131,74 @@ namespace Tyhp.TyhpLang.Emitter
                 this.HasAutoloadDeclare = true;
                 this.AutoloadDeclare = other.AutoloadDeclare;
             }
+
+            this.ReconcileSourceMapState(other);
+        }
+
+        /// <summary>
+        /// After merging emit trees, sourcemap tracking state on <paramref name="other"/> must
+        /// land on this file so a later <see cref="Generate"/> still tracks. Existing collector
+        /// contents are discarded — they describe the pre-merge PHP and would double-count if
+        /// <see cref="Generate"/> ran again without a reset. The new collector's
+        /// <see cref="SourceMapCollector.ProjectRoot"/> is carried over the same way
+        /// <see cref="SourceFileName"/> / <see cref="SourceRoot"/> are below.
+        /// </summary>
+        private void ReconcileSourceMapState(PHPOutputFile other)
+        {
+            if (string.IsNullOrWhiteSpace(this.SourceFileName))
+            {
+                this.SourceFileName = other.SourceFileName;
+            }
+
+            if (string.IsNullOrWhiteSpace(this.SourceRoot))
+            {
+                this.SourceRoot = other.SourceRoot;
+            }
+
+            var trackingEnabled = this.SourceMapCollector != null || other.SourceMapCollector != null;
+            if (trackingEnabled)
+            {
+                // Carry ProjectRoot across the reset the same way SourceFileName / SourceRoot
+                // survive above: keep this file's when set (both are always assigned the same
+                // EmitConfig.SourceRoot by GenerateAll, so either side agrees), otherwise take
+                // other's. Losing it here would silently revert OwningFile-based lookups in
+                // ResolveSourceIndex to the un-relativized SrcFileAst.FileName for every mapping
+                // recorded after this merge.
+                this.SourceMapCollector = new SourceMapCollector
+                {
+                    ProjectRoot = this.SourceMapCollector?.ProjectRoot ?? other.SourceMapCollector?.ProjectRoot,
+                };
+            }
         }
 
         public string Generate(EmitContext context)
         {
+            var collector = this.SourceMapCollector;
+            if (collector != null)
+            {
+                // Generate() owns the collector: a second call (duplicate output paths / merge
+                // then re-emit) must not append onto a stale cursor or duplicate mappings.
+                collector.Reset();
+                if (!string.IsNullOrWhiteSpace(this.SourceFileName))
+                {
+                    collector.RegisterSourceFile(this.SourceFileName);
+                }
+            }
+
             var sb = new StringBuilder();
-            // PSR-12 §3: opening tag is its own header block and must be followed by a blank line.
-            sb.Append("<?php\n\n");
+            void AppendPreamble(string text)
+            {
+                sb.Append(text);
+                collector?.AddContent(text, null);
+            }
+
+            // PER-CS §3: opening tag is its own header block and must be followed by a blank line.
+            AppendPreamble("<?php\n\n");
 
             if (context.Config.IncludeComments)
             {
-                // File-level docblock (not a // comment) so it remains a valid PSR-12 header block.
-                sb.Append("/**\n * Generated by Tyhp compiler.\n */\n\n");
+                // File-level docblock (not a // comment) so it remains a valid PER-CS header block.
+                AppendPreamble("/**\n * Generated by Tyhp compiler.\n */\n\n");
             }
 
             var declaresEmitted = false;
@@ -125,15 +207,15 @@ namespace Tyhp.TyhpLang.Emitter
                 var declareText = this.FormatDeclare(declare);
                 if (!string.IsNullOrWhiteSpace(declareText))
                 {
-                    sb.Append(declareText);
-                    sb.Append('\n');
+                    AppendPreamble(declareText);
+                    AppendPreamble("\n");
                     declaresEmitted = true;
                 }
             }
 
             if (context.Config.StrictTypes && !this.HasStrictTypesDeclare())
             {
-                sb.Append("declare(strict_types=1);\n");
+                AppendPreamble("declare(strict_types=1);\n");
                 declaresEmitted = true;
             }
 
@@ -146,14 +228,14 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (entryPointRequire != null && !hasNamespace)
             {
-                sb.Append(entryPointRequire);
-                sb.Append('\n');
+                AppendPreamble(entryPointRequire);
+                AppendPreamble("\n");
                 declaresEmitted = true;
             }
 
             if (declaresEmitted)
             {
-                sb.Append('\n');
+                AppendPreamble("\n");
             }
 
             var isBlockNamespace = this.FileNameSpace is PhpBlockNamespaceDeclAst;
@@ -162,71 +244,124 @@ namespace Tyhp.TyhpLang.Emitter
             if (this.FileNameSpace is PhpNamespaceDeclAst statementNamespace)
             {
                 var namespaceName = ApplyNamespacePrefix(statementNamespace.Identifier, context);
-                sb.Append(string.IsNullOrWhiteSpace(namespaceName)
+                AppendPreamble(string.IsNullOrWhiteSpace(namespaceName)
                     ? "namespace;\n"
                     : $"namespace {namespaceName};\n");
 
                 if (entryPointRequire != null)
                 {
-                    sb.Append(entryPointRequire);
-                    sb.Append('\n');
+                    AppendPreamble(entryPointRequire);
+                    AppendPreamble("\n");
                 }
             }
             else if (this.FileNameSpace is PhpBlockNamespaceDeclAst blockNamespace)
             {
                 var namespaceName = ApplyNamespacePrefix(blockNamespace.Identifier, context);
-                sb.Append(string.IsNullOrWhiteSpace(namespaceName)
+                AppendPreamble(string.IsNullOrWhiteSpace(namespaceName)
                     ? "namespace {\n"
                     : $"namespace {namespaceName} {{\n");
 
                 if (entryPointRequire != null)
                 {
-                    sb.Append("    ");
-                    sb.Append(entryPointRequire);
-                    sb.Append('\n');
+                    AppendPreamble("    ");
+                    AppendPreamble(entryPointRequire);
+                    AppendPreamble("\n");
                 }
             }
 
             var importText = this.FormatImports(context);
             if (!string.IsNullOrWhiteSpace(importText))
             {
-                // PSR-12 §3: exactly one blank line before the first use group.
+                // PER-CS §3: exactly one blank line before the first use group.
                 // Declares already leave a trailing blank when present and there is no namespace;
                 // with a namespace (or with neither declare nor namespace) we still need one here.
                 if (hasNamespace || !declaresEmitted)
                 {
-                    sb.Append('\n');
+                    AppendPreamble("\n");
                 }
 
-                sb.Append(importText);
-                sb.Append('\n');
+                AppendPreamble(importText);
+                AppendPreamble("\n");
             }
 
-            var body = this.EmitBody(context, bodyIndent);
-            if (!string.IsNullOrWhiteSpace(body))
+            // Peek the body without the collector first: the pre-body blank-line separator below
+            // must be appended (to both `sb` and `collector`) BEFORE the tracked body emission
+            // begins, or every mapping in the body would be recorded one line too early (the
+            // collector would still be sitting at the position from before that separator existed).
+            var bodyPeek = this.EmitBody(context, bodyIndent, collector: null);
+            if (!string.IsNullOrWhiteSpace(bodyPeek))
             {
-                // PSR-12 §3: exactly one blank line before the remainder of the file.
+                // PER-CS §3: exactly one blank line before the remainder of the file.
                 // Declares already leave that blank when there is no namespace and no imports;
                 // otherwise we still need a separator after the namespace / use block.
                 var needsBlankBeforeBody = hasNamespace
                     || !string.IsNullOrWhiteSpace(importText)
                     || !declaresEmitted;
-                if (needsBlankBeforeBody && !body.StartsWith('\n'))
+                if (needsBlankBeforeBody && !bodyPeek.StartsWith('\n'))
                 {
-                    sb.Append('\n');
+                    AppendPreamble("\n");
                 }
 
-                sb.Append(body.TrimEnd());
-                sb.Append('\n');
+                var bodyStartLine = collector?.CurrentGeneratedLine ?? 0;
+                var bodyStartColumn = collector?.CurrentGeneratedColumn ?? 0;
+                var body = collector != null ? this.EmitBody(context, bodyIndent, collector) : bodyPeek;
+
+                var trimmedBody = body.TrimEnd();
+                sb.Append(trimmedBody);
+
+                // TrimEnd() only strips trailing whitespace, which the tracked emit above already
+                // advanced the collector through (whitespace-only content never carries a mapping,
+                // so no mapping needs correcting) — but the collector's *position* is now ahead of
+                // what was actually written to `sb`. Recompute it from the trimmed text so the next
+                // AddContent (or the closing `}` below) records against the real generated position.
+                if (collector != null && trimmedBody.Length != body.Length)
+                {
+                    var (line, column) = ComputeAdvancedPosition(bodyStartLine, bodyStartColumn, trimmedBody);
+                    collector.SetPosition(line, column);
+                }
+
+                AppendPreamble("\n");
             }
 
             if (isBlockNamespace)
             {
-                sb.Append("}\n");
+                AppendPreamble("}\n");
+            }
+            else if (hasNamespace
+                && string.IsNullOrWhiteSpace(importText)
+                && string.IsNullOrWhiteSpace(bodyPeek))
+            {
+                // PER-CS §3: a statement-style namespace must be followed by a blank line
+                // even when the file has no imports or body (erased type-alias-only files).
+                AppendPreamble("\n");
             }
 
             this.GeneratedContent = sb.ToString().Replace("\r\n", "\n");
             return this.GeneratedContent;
+        }
+
+        /// <summary>
+        /// Simulates <see cref="SourceMapCollector"/>'s own position tracking for
+        /// <paramref name="content"/> starting from an explicit <paramref name="startLine"/> /
+        /// <paramref name="startColumn"/>, without touching a collector. Used to recompute the
+        /// correct generated position after trimming trailing whitespace that a collector already
+        /// advanced through (see <see cref="Generate"/>).
+        /// </summary>
+        private static (int Line, int Column) ComputeAdvancedPosition(int startLine, int startColumn, string content)
+        {
+            var line = startLine;
+            var lastNewline = -1;
+            for (var i = 0; i < content.Length; i++)
+            {
+                if (content[i] == '\n')
+                {
+                    line++;
+                    lastNewline = i;
+                }
+            }
+
+            var column = lastNewline >= 0 ? content.Length - lastNewline - 1 : startColumn + content.Length;
+            return (line, column);
         }
 
         private string? GetEntryPointRequireLine(EmitContext context)
@@ -252,72 +387,109 @@ namespace Tyhp.TyhpLang.Emitter
                 .TrimStart('/');
             var relativeFromEntry = ResolveAutoloaderPathFromEntryPoint(
                 this.OutputFilePath,
-                context.Config.OutputPath,
+                context.Config.PublishPath,
                 autoloaderRelativeToOutput);
             return $"require_once __DIR__ . '/{relativeFromEntry}';";
         }
 
         /// <summary>
         /// Builds a path from the entry-point file's directory to
-        /// <c>{outputPath}/{autoloaderRelativeToOutput}</c>, suitable for
-        /// <c>require_once __DIR__ . '/…'</c>. Nested entry points (e.g.
-        /// <c>build/src/TestEmitter/test.php</c>) become
-        /// <c>../../vendor/autoload.php</c>.
+        /// <c>{publishPath}/{autoloaderRelativeToPublish}</c>, suitable for
+        /// <c>require_once __DIR__ . '/…'</c>. With the default publish root
+        /// (<c>.</c>), <c>src/index.php</c> becomes <c>../vendor/autoload.php</c>.
+        /// When the publish root is <c>publish/</c> and PHP is under
+        /// <c>publish/src/</c>, the same entry becomes <c>../vendor/autoload.php</c>.
         /// </summary>
         internal static string ResolveAutoloaderPathFromEntryPoint(
             string outputFilePath,
-            string outputPath,
-            string autoloaderRelativeToOutput)
+            string publishPath,
+            string autoloaderRelativeToPublish)
         {
-            var entryRelativeToOutput = GetPathRelativeToOutput(outputFilePath, outputPath);
-            var entryDir = Path.GetDirectoryName(entryRelativeToOutput)?.Replace('\\', '/') ?? "";
-            if (string.IsNullOrWhiteSpace(entryDir) || entryDir == ".")
-            {
-                return autoloaderRelativeToOutput;
-            }
-
-            var depth = entryDir.Split('/', StringSplitOptions.RemoveEmptyEntries).Length;
-            var ups = string.Join("/", Enumerable.Repeat("..", depth));
-            return ups + "/" + autoloaderRelativeToOutput;
+            var entryDir = NormalizeRelativeDirectory(Path.GetDirectoryName(NormalizeRelative(outputFilePath)));
+            var autoloader = CombineRelative(
+                NormalizeRelativeDirectory(publishPath),
+                NormalizeRelative(autoloaderRelativeToPublish));
+            return GetRelativeUnixPath(entryDir, autoloader);
         }
 
-        private static string GetPathRelativeToOutput(string outputFilePath, string outputPath)
+        private static string GetRelativeUnixPath(string fromDirectory, string toFile)
         {
-            var normalized = outputFilePath.Replace('\\', '/');
-            var prefix = outputPath.Replace('\\', '/').TrimEnd('/');
-            if (string.IsNullOrWhiteSpace(prefix))
-            {
-                return normalized.TrimStart('/');
-            }
-
-            // Handle "./build" vs "build" and optional leading "./" on the file path.
-            var normalizedPrefix = prefix.StartsWith("./", StringComparison.Ordinal)
-                ? prefix[2..]
-                : prefix;
-            var normalizedFile = normalized.StartsWith("./", StringComparison.Ordinal)
-                ? normalized[2..]
-                : normalized;
-
-            if (normalizedFile.StartsWith(normalizedPrefix + "/", StringComparison.OrdinalIgnoreCase))
-            {
-                return normalizedFile[(normalizedPrefix.Length + 1)..];
-            }
-
-            if (normalizedFile.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase))
-            {
-                return normalizedFile[(prefix.Length + 1)..];
-            }
-
-            return normalizedFile.TrimStart('/');
+            var dummyRoot = Path.GetFullPath(Path.Combine(Path.DirectorySeparatorChar.ToString(), "tyhp-rel-root"));
+            var from = string.IsNullOrEmpty(fromDirectory)
+                ? dummyRoot
+                : Path.GetFullPath(Path.Combine(dummyRoot, fromDirectory.Replace('/', Path.DirectorySeparatorChar)));
+            var to = string.IsNullOrEmpty(toFile)
+                ? dummyRoot
+                : Path.GetFullPath(Path.Combine(dummyRoot, toFile.Replace('/', Path.DirectorySeparatorChar)));
+            var relative = Path.GetRelativePath(from, to).Replace('\\', '/');
+            return string.IsNullOrEmpty(relative) || relative == "." ? toFile : relative;
         }
 
-        public string SourceMap()
+        private static string NormalizeRelative(string path)
         {
-            // PLACEHOLDER_STORY_17: Generate source map JSON
-            throw new NotImplementedException();
+            var normalized = (path ?? "").Replace('\\', '/').Trim();
+            while (normalized.StartsWith("./", StringComparison.Ordinal))
+            {
+                normalized = normalized[2..];
+            }
+
+            return normalized.Trim('/');
         }
 
-        private string EmitBody(EmitContext context, int indentLevel)
+        private static string NormalizeRelativeDirectory(string? path)
+        {
+            var normalized = NormalizeRelative(path ?? "");
+            return normalized == "." ? "" : normalized;
+        }
+
+        private static string CombineRelative(string left, string right)
+        {
+            if (string.IsNullOrEmpty(left))
+            {
+                return right;
+            }
+
+            if (string.IsNullOrEmpty(right))
+            {
+                return left;
+            }
+
+            return left.TrimEnd('/') + "/" + right.TrimStart('/');
+        }
+
+        /// <summary>
+        /// Build Source Map v3 JSON from mappings collected during a tracking <see cref="Generate"/>.
+        /// </summary>
+        /// <param name="includeSourcesContent">
+        /// When <see langword="true"/>, embed original source text via
+        /// <paramref name="sourceContentProvider"/>.
+        /// </param>
+        /// <param name="sourceContentProvider">
+        /// Callback invoked with each original registered source path (not the relativized
+        /// <c>sources</c> entry). Ignored when <paramref name="includeSourcesContent"/> is false.
+        /// </param>
+        /// <returns>
+        /// JSON string, or empty when <see cref="SourceMapCollector"/> is null (tracking was not
+        /// enabled for <see cref="Generate"/>).
+        /// </returns>
+        public string SourceMap(
+            bool includeSourcesContent = false,
+            Func<string, string?>? sourceContentProvider = null)
+        {
+            if (this.SourceMapCollector == null)
+            {
+                return string.Empty;
+            }
+
+            var generatedFileName = Path.GetFileName(this.OutputFilePath) ?? string.Empty;
+            var generator = new SourceMapGenerator(generatedFileName, this.SourceRoot);
+            return generator.Generate(
+                this.SourceMapCollector,
+                includeSourcesContent,
+                sourceContentProvider);
+        }
+
+        private string EmitBody(EmitContext context, int indentLevel, SourceMapCollector? collector = null)
         {
             if (this.RootEmitItem == null)
             {
@@ -325,13 +497,17 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             var sb = new StringBuilder();
-            this.AppendBodyChildren(sb, this.RootEmitItem, indentLevel);
+            this.AppendBodyChildren(sb, this.RootEmitItem, indentLevel, collector);
             return sb.ToString();
         }
 
-        private void AppendBodyChildren(StringBuilder sb, EmitItem parent, int indentLevel)
+        private void AppendBodyChildren(
+            StringBuilder sb,
+            EmitItem parent,
+            int indentLevel,
+            SourceMapCollector? collector)
         {
-            var parts = new List<string>();
+            var first = true;
             foreach (var child in parent.SortedChildren())
             {
                 if (child.value.EmitType is EmitType.FileDeclare
@@ -343,27 +519,50 @@ namespace Tyhp.TyhpLang.Emitter
 
                 if (child.value.EmitType == EmitType.BlockNamespaceDeclaration)
                 {
-                    var nested = new StringBuilder();
-                    this.AppendBodyChildren(nested, child.value, indentLevel);
-                    var nestedText = nested.ToString();
-                    if (!string.IsNullOrWhiteSpace(nestedText))
+                    var nestedPeek = new StringBuilder();
+                    this.AppendBodyChildren(nestedPeek, child.value, indentLevel, collector: null);
+                    var nestedText = nestedPeek.ToString();
+                    if (string.IsNullOrWhiteSpace(nestedText))
                     {
-                        parts.Add(nestedText);
+                        continue;
                     }
 
+                    if (!first)
+                    {
+                        sb.Append("\n\n");
+                        collector?.AddContent("\n\n", null);
+                    }
+
+                    if (collector != null)
+                    {
+                        this.AppendBodyChildren(sb, child.value, indentLevel, collector);
+                    }
+                    else
+                    {
+                        sb.Append(nestedText);
+                    }
+
+                    first = false;
                     continue;
                 }
 
-                var text = child.value.emit(indentLevel);
-                if (!string.IsNullOrWhiteSpace(text))
+                var peekText = child.value.emit(indentLevel);
+                if (string.IsNullOrWhiteSpace(peekText))
                 {
-                    parts.Add(text);
+                    continue;
                 }
-            }
 
-            // Separate top-level declarations (classes, functions, root statements) with a blank
-            // line so they don't run together when a file contributes more than one.
-            sb.Append(string.Join("\n\n", parts));
+                if (!first)
+                {
+                    sb.Append("\n\n");
+                    collector?.AddContent("\n\n", null);
+                }
+
+                sb.Append(collector != null
+                    ? child.value.emit(indentLevel, collector)
+                    : peekText);
+                first = false;
+            }
         }
 
         private void PruneEmitItemImports(EmitContext context, HashSet<string> usedNames)
@@ -435,8 +634,11 @@ namespace Tyhp.TyhpLang.Emitter
         /// <summary>
         /// Late pass step 2: drop imports that must never reach the output file header.
         /// <list type="bullet">
-        /// <item>Erased types — type aliases, object-scoped type aliases, generic type parameters, and
-        /// struct declarations (structs erase to <c>array</c>), so a <c>use</c> for them is dead.</item>
+        /// <item>Erased types — tyhpdef type aliases, object-scoped type aliases, generic type
+        /// parameters, and struct declarations (structs erase to <c>array</c>).</item>
+        /// <item>Source file-level type aliases whose factory is not referenced by short name
+        /// (hints-only or fully-qualified <c>\Ns\Alias()</c> calls). When the factory is used as
+        /// <c>Alias()</c>, the class-kind Tyhp <c>use</c> is rewritten to <c>use function</c>.</item>
         /// <item>Extension-class imports whose call sites were rewritten to fully-qualified static
         /// calls (e.g. <c>\Tyhp\Extensions\StringExtensions::method()</c>) — the leading backslash makes
         /// the <c>use</c> clause redundant.</item>
@@ -455,8 +657,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             var resolver = new NameResolver(context.GetSymbolTree(), context.Diagnostics);
 
-            // Computed lazily and only when a fully-qualified-static-call import is present: the drop
-            // for those must not remove a `use` that a bare (non-fully-qualified) reference still needs.
+            // Computed lazily: FQ static-call drop and type-alias factory rewrite both inspect body text.
             string? bodyText = null;
 
             foreach (var list in this.FileImports)
@@ -486,6 +687,12 @@ namespace Tyhp.TyhpLang.Emitter
                     }
 
                     if (IsErasedTypeImport(resolver, fqn))
+                    {
+                        continue;
+                    }
+
+                    if (TryHandleSourceTypeAliasImport(resolver, import, fqn, context, ref bodyText)
+                        is false)
                     {
                         continue;
                     }
@@ -522,18 +729,156 @@ namespace Tyhp.TyhpLang.Emitter
             return !withoutFullyQualified.Contains(shortName, StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// Source file-level aliases emit a PHP function. Keep the Tyhp class-kind
+        /// <c>use App\Types\UserId</c> as <c>use function</c> when the factory is referenced by
+        /// short name; drop it for hints-only usage or fully-qualified <c>\App\Types\UserId()</c>.
+        /// Returns <see langword="null"/> when the import is not a source type-alias factory,
+        /// <see langword="true"/> when it was rewritten and should be kept, and
+        /// <see langword="false"/> when it should be dropped.
+        /// </summary>
+        private bool? TryHandleSourceTypeAliasImport(
+            NameResolver resolver,
+            PhpImportDeclAst import,
+            string fqn,
+            EmitContext context,
+            ref string? bodyText)
+        {
+            var symbol = resolver.ResolveQualifiedName(fqn.Split('\\'));
+            if (symbol is not TypeAliasSymbol)
+            {
+                return null;
+            }
+
+            if (IsTyhpdefAliasSymbol(symbol)
+                && GenericRuntimeAttributeSupport.TryRead(symbol)?.HasAliasFactory != true)
+            {
+                return false;
+            }
+
+            bodyText ??= this.EmitBody(context, indentLevel: 0);
+            if (!TypeAliasFactoryIsUsedByShortName(import, fqn, bodyText))
+            {
+                return false;
+            }
+
+            RewriteImportAsUseFunction(import);
+            return true;
+        }
+
+        private static bool TypeAliasFactoryIsUsedByShortName(
+            PhpImportDeclAst import,
+            string fqn,
+            string bodyText)
+        {
+            var shortName = string.IsNullOrWhiteSpace(import.Identifier)
+                ? fqn.Split('\\')[^1]
+                : import.Identifier;
+            if (string.IsNullOrEmpty(shortName))
+            {
+                return false;
+            }
+
+            var withoutFullyQualified = bodyText.Replace("\\" + fqn, string.Empty, StringComparison.Ordinal);
+            var codeOnly = StripPhpStringLiteralsAndComments(withoutFullyQualified);
+
+            // Word-boundary aware: a bare substring `Contains(shortName + "(")` false-positives on
+            // an unrelated call whose name merely ends with the alias's short name (`getUserId(`
+            // "contains" `UserId(`) or is prefixed by a namespace/class qualifier (`Other\UserId(`,
+            // `Foo::UserId(`). Require the short name to start a PHP identifier (not preceded by a
+            // word character or `\`) immediately before the call parens.
+            var pattern = @"(?<![\w\\])" + Regex.Escape(shortName) + @"\s*\(";
+            return Regex.IsMatch(codeOnly, pattern, RegexOptions.IgnoreCase);
+        }
+
+        /// <summary>
+        /// Best-effort removal of PHP single-line (<c>//</c>, <c>#</c>) and block (<c>/* … */</c>)
+        /// comments and <c>'…'</c> / <c>"…"</c> string literal contents, so factory-usage text
+        /// scanning (<see cref="TypeAliasFactoryIsUsedByShortName"/>) does not treat a mention of
+        /// the alias name inside a doc comment or string literal as an actual call site. Heredoc /
+        /// nowdoc bodies are not specially handled (rare in generated code and, at worst, only risk
+        /// keeping an unnecessary import).
+        /// </summary>
+        private static string StripPhpStringLiteralsAndComments(string php)
+        {
+            var sb = new StringBuilder(php.Length);
+            var i = 0;
+            while (i < php.Length)
+            {
+                var c = php[i];
+
+                if (c == '/' && i + 1 < php.Length && php[i + 1] == '*')
+                {
+                    var end = php.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                    i = end < 0 ? php.Length : end + 2;
+                    continue;
+                }
+
+                if ((c == '/' && i + 1 < php.Length && php[i + 1] == '/')
+                    || (c == '#' && !(i + 1 < php.Length && php[i + 1] == '[')))
+                {
+                    var end = php.IndexOf('\n', i + 1);
+                    i = end < 0 ? php.Length : end;
+                    continue;
+                }
+
+                if (c is '\'' or '"')
+                {
+                    sb.Append(' ');
+                    i++;
+                    while (i < php.Length && php[i] != c)
+                    {
+                        i += php[i] == '\\' && i + 1 < php.Length ? 2 : 1;
+                    }
+
+                    i++;
+                    continue;
+                }
+
+                sb.Append(c);
+                i++;
+            }
+
+            return sb.ToString();
+        }
+
+        private static void RewriteImportAsUseFunction(PhpImportDeclAst import)
+        {
+            if (string.Equals(import.UseType?.ValueString, "function", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            import.SetUseType(TokenValueAst.CreateFromContext("function", 0, import));
+        }
+
         private static bool IsErasedTypeImport(NameResolver resolver, string fqn)
         {
             var segments = fqn.Split('\\');
             var symbol = resolver.ResolveQualifiedName(segments);
             return symbol switch
             {
-                TypeAliasSymbol => true,
-                ObjectTypeAliasSymbol => true,
+                TypeAliasSymbol alias when IsTyhpdefAliasSymbol(alias)
+                    && GenericRuntimeAttributeSupport.TryRead(alias)?.HasAliasFactory != true => true,
+                ObjectTypeAliasSymbol objectAlias
+                    when GenericRuntimeAttributeSupport.TryRead(objectAlias)?.HasAliasFactory != true
+                    && IsTyhpdefAliasSymbol(objectAlias) => true,
                 GenericTypeParameterSymbol => true,
                 ObjectDeclarationSymbol obj when obj.IsStruct => true,
                 _ => false,
             };
+        }
+
+        private static bool IsTyhpdefAliasSymbol(IBaseSymbol symbol)
+        {
+            var file = symbol.SourceFile ?? "";
+            if (file.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase)
+                || file.Contains("<tyhpdef:", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return symbol is BaseSymbol { DeclaringAstNode.LanguageMode: "tyhpdef" };
         }
 
         private bool ImportEmitItemIsUsed(EmitItem item, HashSet<string> usedNames)
@@ -713,7 +1058,7 @@ namespace Tyhp.TyhpLang.Emitter
                 .OrderBy(g => ImportGroupRank(g.Key))
                 .ToList();
 
-            // PSR-12 §3: one import per statement; blank line between class / function / const groups.
+            // PER-CS §3: one import per statement; blank line between class / function / const groups.
             var groupTexts = new List<string>();
             foreach (var group in imports)
             {
@@ -786,7 +1131,9 @@ namespace Tyhp.TyhpLang.Emitter
 
         private static bool IsTyhpOnlyDeclareKey(string? identifier) =>
             string.Equals(identifier, "output_file", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(identifier, "autoload", StringComparison.OrdinalIgnoreCase);
+            || string.Equals(identifier, "autoload", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(identifier, "php", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(identifier, "ext", StringComparison.OrdinalIgnoreCase);
 
         private bool HasStrictTypesDeclare()
             => this.FileDeclares.Any(d => GetDeclareValue(d, "strict_types") == "1");

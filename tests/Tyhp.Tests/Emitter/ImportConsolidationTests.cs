@@ -85,8 +85,10 @@ public class ImportConsolidationTests
     }
 
     /// <summary>
-    /// Sub-task 3: <c>use</c> statements for erased types (type aliases, generic type parameters, struct
-    /// declarations) are dropped even when the short name appears in the body. A real class import is kept.
+    /// Sub-task 3: <c>use</c> statements for erased types (generic type parameters, struct
+    /// declarations, tyhpdef aliases) are dropped even when the short name appears in the body.
+    /// A source type-alias import is also dropped here because the body does not call the factory.
+    /// A real class import is kept.
     /// </summary>
     [Fact]
     public void PruneFileImports_DropsImportsForErasedTypes()
@@ -94,7 +96,7 @@ public class ImportConsolidationTests
         var result = Compile("""
             <?tyhp
             namespace App\Models;
-            struct MyStruct { int $x = 0; }
+            type MyStruct = struct { int $x = 0; };
             type MyAlias = int;
             class RealClass {}
             """);
@@ -117,7 +119,8 @@ public class ImportConsolidationTests
         var output = file.Generate(context);
 
         output.Should().NotContain("use App\\Models\\MyStruct;", "structs erase to array");
-        output.Should().NotContain("use App\\Models\\MyAlias;", "type aliases are erased");
+        output.Should().NotContain("use App\\Models\\MyAlias;",
+            "type-alias imports are dropped unless the factory is called by short name");
         output.Should().Contain("use App\\Models\\RealClass;", "real class import is kept");
     }
 
@@ -249,12 +252,7 @@ public class ImportConsolidationTests
         File.WriteAllText(filePath, content);
 
         using var compilationService = new CompilationService();
-        var options = new CompilationOptions
-        {
-            EnableAstCache = false,
-            PhpVersion = "8.4",
-            ProjectPath = tempDir,
-        };
+        var options = IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4");
 
         return compilationService.ParseFiles([filePath], options);
     }

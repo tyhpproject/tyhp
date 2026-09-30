@@ -7,6 +7,8 @@ bin/
 obj/
 TestResults/
 
+# Package sources live in tyhp-runtime-src. This repo does not ship packages/compiler/bin.
+
 # Compiler / publish output
 build/
 dist/
@@ -18,16 +20,12 @@ out/
 # Python
 __pycache__/
 
-# Docs site generator
-docs/output/
-
-# Runtime package emit + Composer installs
-runtime/packages/dist/
-runtime/packages/*/vendor/
+# Package emit and Composer installs live in tyhp-runtime-src.
 
 # Written by a running tyhp process in any nested tyhp.json project
 tyhp.pid
 .tyhp-cache/
+tyhp-build-state.json
 
 # lint --fix backups
 *.bak
@@ -39,6 +37,13 @@ tyhp.pid
 
 # Local-only (keep on disk, do not ship)
 .cursor/
+# Sibling-checkout paths for Story 27.3 (machine-local; already covered by .cursor/).
+# Do not `git add -f` .cursor/rules/sibling-repos.mdc.
+.cursor/rules/sibling-repos.mdc
+sponsorship/
+# Packagist MAIN API token for scripts/publish-runtime-packages.sh --create-packagist-packages
+packagist.credentials
+scripts/packagist.credentials
 dev-docs/RESOLVED_BUGS.md
 DebugProject/
 Examples/
@@ -46,3 +51,11 @@ backup/
 scratch.md
 tools/*
 !tools/genTyhpdef.php
+# Story 20 Layer 2: fetched Psalm/PHPStan/Phan/PhpStorm stubs (also covered by tools/*)
+tools/stub-cache/
+
+# generate_tyhpdef Reflection JSON snapshots (cwd/tyhpdef_gen/)
+tyhpdef_gen/
+
+TODO.md
+LANGUAGE_ASSESSMENT.md

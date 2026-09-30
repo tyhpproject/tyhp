@@ -1,0 +1,23 @@
+<?tyhp
+type ClockShape = object {
+    public function now(): int;
+};
+
+class WallClock {
+    public function now(): int {
+        return 1;
+    }
+
+    public function extra(): void {}
+}
+
+function formatNow(ClockShape $c): int {
+    return $c->now();
+}
+
+function main(): void {
+    echo formatNow(new WallClock());
+    echo "\n";
+}
+
+main();

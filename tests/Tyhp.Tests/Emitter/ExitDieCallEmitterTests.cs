@@ -28,17 +28,18 @@ public class ExitDieCallEmitterTests
         {
             var project = CreateProject(phpVersion);
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = phpVersion,
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                Checker = new CheckerOptions
-                {
-                    PhpVersion = phpVersion,
-                },
-            });
+            var result = compilationService.ParseFiles(
+                [filePath],
+                IsolatedCompilation.CreateOptions(
+                    tempDir,
+                    phpVersion: phpVersion,
+                    configure: o =>
+                    {
+                        o.Checker = new CheckerOptions
+                        {
+                            PhpVersion = phpVersion,
+                        };
+                    }));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))
@@ -228,7 +229,7 @@ public class ExitDieCallEmitterTests
             }
             """, phpVersion);
 
-        php.Should().Contain("(static fn(string | int $status = 0) => exit($status))");
+        php.Should().Contain("(static fn(string|int $status = 0) => exit($status))");
         php.Should().NotContain("exit(...)");
     }
 
@@ -244,7 +245,7 @@ public class ExitDieCallEmitterTests
             }
             """, phpVersion);
 
-        php.Should().Contain("(static fn(string | int $status = 0) => die($status))");
+        php.Should().Contain("(static fn(string|int $status = 0) => die($status))");
         php.Should().NotContain("die(...)");
     }
 }

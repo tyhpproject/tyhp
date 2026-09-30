@@ -11,7 +11,6 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
     public static partial class Tyhpdef
     {
         private const int PackageLoadOrderBase = 100;
-        private const string PackageManifestFileName = "package.tyhp.json";
         private const string EmbeddedPackageSource = "<embedded>";
 
         private static void LoadPackageTyhpdefs(
@@ -21,13 +20,32 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
             HashSet<string> loadedPaths
         )
         {
-            var manifestPaths = DiscoverPackageManifestPaths(context.Options);
+            var manifestPaths = DiscoverPackageManifestPaths(context.Options).ToList();
+            var superseded = new Dictionary<string, TyhpdefPackageOwnership.SupersededImpl>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var item in TyhpdefPackageOwnership.FindImplsSupersededByBundledPhp(manifestPaths))
+            {
+                superseded[item.ManifestPath] = item;
+            }
+
             var loadOrder = PackageLoadOrderBase;
 
             foreach (var manifestPath in manifestPaths)
             {
+                if (superseded.TryGetValue(manifestPath, out var skipped))
+                {
+                    diagnostics.AddWarning(
+                        MessageCode.TyhpdefBundledPackagePreferred,
+                        manifestPath,
+                        0,
+                        0,
+                        skipped.PhpPackageName,
+                        skipped.ImplPackageName);
+                    continue;
+                }
+
                 TrackLoadedPackage(manifestPath, context);
-                LoadPackageManifest(manifestPath, loadOrder++, results, diagnostics, loadedPaths);
+                LoadPackageManifest(manifestPath, loadOrder++, results, diagnostics, loadedPaths, context);
             }
         }
 
@@ -39,9 +57,14 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
             // Package dependencies are resolved strictly relative to the project's tyhp.json
             // location — never from the compiler binary directory or the current working
             // directory, and without walking up to ancestor monorepo roots. A project sees only:
-            //   1. packages installed under its own vendor/, and
-            //   2. package.tyhp.json manifests listed explicitly via tyhpdefInclude / include.
-            // There is no silent scan of runtime/packages or runtime/php-extensions.
+            //   1. vendor/<vendor>/<package>/composer.json with extra.tyhp.package as an object, and
+            //   2. composer.json files listed explicitly via tyhpdefInclude / include that have
+            //      that same sentinel. The compiling project's composer.json is not auto-loaded.
+            // There is no silent scan of runtime/packages.
+            // extra.tyhp.impl on a public metapackage is not a load path. extra.tyhp.tyhpdef
+            // names a sibling package; that sibling loads through its own extra.tyhp.package
+            // once it is installed. When a PHP package and tyhpdef/<vendor>-<name>-impl both
+            // have extra.tyhp.package, the PHP package wins (TYHP7523).
             var projectRoot = GetProjectRoot(options);
 
             CollectVendorPackageManifests(projectRoot, manifests, phpVersion);
@@ -69,16 +92,20 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
                 foreach (var packageDir in Directory.EnumerateDirectories(vendorDir))
                 {
                     var packageDirName = Path.GetFileName(packageDir);
-                    var isVersionedPhpExtension = string.Equals(vendorName, "tyhp", StringComparison.OrdinalIgnoreCase)
-                        && packageDirName.StartsWith("php-", StringComparison.OrdinalIgnoreCase);
-                    if (isVersionedPhpExtension
+                    // Legacy tyhp/php-8.2 or tyhpdef/php-8.2 directories only — not php-ext-* stubs.
+                    var isLegacyVersionedPhp = (string.Equals(vendorName, "tyhp", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(vendorName, "tyhpdef", StringComparison.OrdinalIgnoreCase))
+                        && TryGetLegacyPhpVendorMinor(packageDirName, out _);
+                    if (isLegacyVersionedPhp
                         && !IsMatchingPhpExtensionVendorPackage(packageDirName, phpVersion))
                     {
                         continue;
                     }
 
-                    var manifestPath = Path.Combine(packageDir, PackageManifestFileName);
-                    if (File.Exists(manifestPath))
+                    var manifestPath = Path.Combine(
+                        packageDir,
+                        ComposerExtraTyhpPackageManifest.ComposerJsonFileName);
+                    if (ComposerExtraTyhpPackageManifest.HasPackageObject(manifestPath))
                     {
                         manifests.Add(PathCanonicalizer.GetCanonicalFullPath(manifestPath));
                     }
@@ -87,10 +114,11 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
         }
 
         /// <summary>
-        /// Collects <c>package.tyhp.json</c> paths from the project's explicit
+        /// Collects <c>composer.json</c> paths from the project's explicit
         /// <c>tyhpdefInclude</c> / <c>include</c> patterns. Direct paths and globs are both
-        /// supported (e.g. <c>./runtime/packages/core/package.tyhp.json</c>). Raw
-        /// <c>.tyhpdef</c>/<c>.tyhp</c> includes are handled separately by
+        /// supported (e.g. <c>./runtime/packages/core/composer.json</c>). Files that are not
+        /// <c>composer.json</c> or that lack <c>extra.tyhp.package</c> as an object are
+        /// skipped. Raw <c>.tyhpdef</c>/<c>.tyhp</c> includes are handled separately by
         /// <see cref="LoadUserTyhpdefs"/>.
         /// </summary>
         private static void CollectIncludedPackageManifests(
@@ -113,7 +141,7 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
 
                 foreach (var matchedPath in ResolveIncludePattern(projectRoot, includePattern))
                 {
-                    if (IsPackageManifestPath(matchedPath))
+                    if (ShouldLoadExplicitComposerManifest(matchedPath))
                     {
                         manifests.Add(PathCanonicalizer.GetCanonicalFullPath(matchedPath));
                     }
@@ -122,19 +150,25 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
         }
 
         private static bool IncludePatternMayMatchPackageManifest(string includePattern)
-        {
-            var normalized = includePattern.Replace('\\', '/');
-            return normalized.EndsWith(PackageManifestFileName, StringComparison.OrdinalIgnoreCase)
-                || normalized.Contains(PackageManifestFileName, StringComparison.OrdinalIgnoreCase)
-                || normalized.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
-        }
+            => ComposerExtraTyhpPackageManifest.PatternMayMatchComposerJson(includePattern);
 
         private static bool IsPackageManifestPath(string path)
+            => ComposerExtraTyhpPackageManifest.IsComposerJsonFileName(path);
+
+        private static bool ShouldLoadExplicitComposerManifest(string path)
         {
-            return string.Equals(
-                Path.GetFileName(path),
-                PackageManifestFileName,
-                StringComparison.OrdinalIgnoreCase);
+            if (!IsPackageManifestPath(path))
+            {
+                return false;
+            }
+
+            return ComposerExtraTyhpPackageManifest.Inspect(path) switch
+            {
+                ComposerExtraTyhpPackageManifest.InspectResult.HasPackage
+                    or ComposerExtraTyhpPackageManifest.InspectResult.InvalidJson
+                    or ComposerExtraTyhpPackageManifest.InspectResult.Unreadable => true,
+                _ => false,
+            };
         }
 
         private static void LoadPackageManifest(
@@ -142,7 +176,8 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
             int loadOrder,
             List<TyhpdefSourceFile> results,
             DiagnosticBag diagnostics,
-            HashSet<string> loadedPaths
+            HashSet<string> loadedPaths,
+            TyhpdefLoadContext context
         )
         {
             string manifestContent;
@@ -168,10 +203,29 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
                 return;
             }
 
-            IReadOnlyList<string> includePatterns;
+            JsonElement package;
             try
             {
-                includePatterns = ReadIncludePatterns(manifestContent, manifestPath, diagnostics);
+                using var document = JsonDocument.Parse(manifestContent);
+                if (!ComposerExtraTyhpPackageManifest.TryGetPackageElement(document.RootElement, out package))
+                {
+                    return;
+                }
+
+                package = package.Clone();
+            }
+            catch (JsonException ex)
+            {
+                diagnostics.AddError(MessageCode.TyhpdefInvalidFormat, manifestPath, 0, 0, ex.Message);
+                return;
+            }
+
+            IReadOnlyList<string> includePatterns;
+            IReadOnlyList<string> excludePatterns;
+            try
+            {
+                includePatterns = ComposerExtraTyhpPackageManifest.ReadStringArray(package, "include");
+                excludePatterns = ComposerExtraTyhpPackageManifest.ReadStringArray(package, "exclude");
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -179,21 +233,29 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
                 return;
             }
 
-            if (includePatterns.Count == 0)
+            var excludedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var excludePattern in excludePatterns)
             {
-                diagnostics.AddError(MessageCode.TyhpdefInvalidFormat, manifestPath, 0, 0, manifestPath);
-                return;
+                foreach (var matchedPath in ResolveIncludePattern(packageRoot, excludePattern))
+                {
+                    excludedPaths.Add(matchedPath);
+                }
             }
 
             // Honor the package's own tagless setting: a package may publish its type
             // definition files with or without open tags independently of the consuming
             // project's source.tagless configuration.
-            var tagless = ReadTaglessSetting(manifestContent);
+            var tagless = ComposerExtraTyhpPackageManifest.TryReadTagless(package);
 
             foreach (var includePattern in includePatterns)
             {
                 foreach (var matchedPath in ResolveIncludePattern(packageRoot, includePattern))
                 {
+                    if (excludedPaths.Contains(matchedPath))
+                    {
+                        continue;
+                    }
+
                     TryLoadPackageFile(
                         matchedPath,
                         packageRoot,
@@ -204,75 +266,40 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
                         tagless);
                 }
             }
-        }
 
-        /// <summary>
-        /// Reads the optional tagless setting from a <c>package.tyhp.json</c> manifest.
-        /// Supports the nested <c>source.tagless</c> form (matching the <c>tyhp.json</c>
-        /// project schema) and a convenience top-level <c>tagless</c> boolean. Defaults to
-        /// <c>false</c> (classic mode, open tags required) when absent or malformed.
-        /// </summary>
-        private static bool ReadTaglessSetting(string manifestContent)
-        {
+            if (context.Options?.ApplyTyhpdefOverlays == false)
+            {
+                return;
+            }
+
+            IReadOnlyList<string> overlayPatterns;
             try
             {
-                using var document = JsonDocument.Parse(manifestContent);
-                var root = document.RootElement;
-
-                if (root.ValueKind == JsonValueKind.Object
-                    && root.TryGetProperty("source", out var source)
-                    && source.ValueKind == JsonValueKind.Object
-                    && source.TryGetProperty("tagless", out var nested)
-                    && (nested.ValueKind == JsonValueKind.True || nested.ValueKind == JsonValueKind.False))
-                {
-                    return nested.GetBoolean();
-                }
-
-                if (root.ValueKind == JsonValueKind.Object
-                    && root.TryGetProperty("tagless", out var topLevel)
-                    && (topLevel.ValueKind == JsonValueKind.True || topLevel.ValueKind == JsonValueKind.False))
-                {
-                    return topLevel.GetBoolean();
-                }
+                overlayPatterns = ComposerExtraTyhpPackageManifest.ReadStringArray(package, "overlay");
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                // Malformed manifest JSON is already surfaced by ReadIncludePatterns; default to classic mode.
+                diagnostics.AddError(MessageCode.TyhpdefInvalidFormat, manifestPath, 0, 0, ex.Message);
+                return;
             }
 
-            return false;
-        }
-
-        private static IReadOnlyList<string> ReadIncludePatterns(
-            string manifestContent,
-            string manifestPath,
-            DiagnosticBag diagnostics
-        )
-        {
-            using var document = JsonDocument.Parse(manifestContent);
-            if (!document.RootElement.TryGetProperty("include", out var includeElement)
-                || includeElement.ValueKind != JsonValueKind.Array)
+            foreach (var overlayPattern in overlayPatterns)
             {
-                diagnostics.AddError(MessageCode.TyhpdefInvalidFormat, manifestPath, 0, 0, manifestPath);
-                return Array.Empty<string>();
-            }
-
-            var patterns = new List<string>();
-            foreach (var item in includeElement.EnumerateArray())
-            {
-                if (item.ValueKind != JsonValueKind.String)
+                foreach (var matchedPath in ResolveIncludePattern(packageRoot, overlayPattern)
+                    .OrderBy(static path => path, StringComparer.Ordinal))
                 {
-                    continue;
-                }
-
-                var pattern = item.GetString();
-                if (!string.IsNullOrWhiteSpace(pattern))
-                {
-                    patterns.Add(pattern);
+                    TryLoadPackageFile(
+                        matchedPath,
+                        packageRoot,
+                        loadOrder,
+                        results,
+                        diagnostics,
+                        loadedPaths,
+                        tagless,
+                        isOverlay: true,
+                        overlaySequence: context.NextOverlaySequence++);
                 }
             }
-
-            return patterns;
         }
 
         private static IEnumerable<string> ResolveIncludePattern(string packageRoot, string includePattern)
@@ -422,7 +449,9 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
             List<TyhpdefSourceFile> results,
             DiagnosticBag diagnostics,
             HashSet<string> loadedPaths,
-            bool tagless = false
+            bool tagless = false,
+            bool isOverlay = false,
+            int overlaySequence = 0
         )
         {
             var normalizedPath = PathCanonicalizer.GetCanonicalFullPath(filePath);
@@ -450,6 +479,8 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
                     Ast = ast,
                     PackageSource = packageSource,
                     LoadOrder = loadOrder,
+                    IsOverlay = isOverlay,
+                    OverlaySequence = overlaySequence,
                 });
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)

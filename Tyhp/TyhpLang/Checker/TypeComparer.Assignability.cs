@@ -1,6 +1,7 @@
 using Tyhp.TyhpLang.Binder;
 using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Checker
 {
@@ -26,6 +27,18 @@ namespace Tyhp.TyhpLang.Checker
             if (AreTypesEqualCore(source, target, new HashSet<(ICheckedType, ICheckedType)>()))
             {
                 return true;
+            }
+
+            if (ParameterPack.TryGetSlice(target, out var targetSlice)
+                && ParameterPack.TryGetSliceParameterAt(targetSlice, 0, out var targetSlot))
+            {
+                return IsAssignableToCore(source, targetSlot, symbolTree, globalScope, visited);
+            }
+
+            if (ParameterPack.TryGetSlice(source, out var sourceSlice)
+                && ParameterPack.TryGetSliceParameterAt(sourceSlice, 0, out var sourceSlot))
+            {
+                return IsAssignableToCore(sourceSlot, target, symbolTree, globalScope, visited);
             }
 
             // Late-bound `static`: only values already typed as `static` (same declaring class)
@@ -55,6 +68,45 @@ namespace Tyhp.TyhpLang.Checker
                     ResolvedSymbol: GenericTypeParameterSymbol { ResolvedConstraint: { } constraint }
                 }
                 && IsAssignableToCore(constraint, target, symbolTree, globalScope, visited))
+            {
+                return true;
+            }
+
+            // A deferred `__CallableReturnType<TCallableShape>` whose callable argument is
+            // still an unbound generic parameter reduces to that parameter's own constraint's
+            // return type — e.g. `TCallableShape extends callable(int ...): TReturn` makes
+            // `__CallableReturnType<TCallableShape>` structurally the same as `TReturn` even
+            // while checking the generic function's own body (where TCallableShape/TReturn are
+            // still open, not yet bound by a call site). Without this, `return $callback(...)`
+            // against a `: TReturn` declared return type never matches (int_map / Phase 8).
+            if (source is GenericCheckedType { TypeArguments: [var sourceCallableArg, ..] } sourceUtility
+                && SymbolNameTypeHelper.TryGetUtilitySymbol(sourceUtility, out var sourceUtilitySymbol)
+                && sourceUtilitySymbol.Behavior is UtilityBehavior.CallableReturnType or UtilityBehavior.ReturnType
+                && sourceCallableArg is SimpleCheckedType
+                {
+                    ResolvedSymbol: GenericTypeParameterSymbol { ResolvedConstraint: { } callableConstraint },
+                })
+            {
+                var constraintFacets = CallableArityFacetBuilder.GetCallableFacets(callableConstraint);
+                if (constraintFacets.Count > 0
+                    && IsAssignableToCore(
+                        constraintFacets[0].ReturnType, target, symbolTree, globalScope, visited))
+                {
+                    return true;
+                }
+            }
+
+            // Deferred `__SuperType<T>` is always an object type (T plus parents, or
+            // `object` when T has no parent). Keep the wrapper so substitution can
+            // still expand the parent chain; only the `object` bound is granted here.
+            if (IsBuiltInName(target, "object")
+                && MagicUtilityTypeResolver.IsSuperTypeUtility(source))
+            {
+                return true;
+            }
+
+            // `__New<Shape>` values are object instances (shape plus constructability).
+            if (IsBuiltInName(target, "object") && IsNewUtilityType(source))
             {
                 return true;
             }
@@ -146,9 +198,19 @@ namespace Tyhp.TyhpLang.Checker
                 return IsAssignableToCore(nonNullSource, nullableTarget.InnerType, symbolTree, globalScope, visited);
             }
 
+            if (IsReconstructedCallableAssignableTo(source, target))
+            {
+                return true;
+            }
+
             if (TryCheckIterableAssignability(source, target, symbolTree, globalScope, visited, out var iterableResult))
             {
                 return iterableResult;
+            }
+
+            if (IsStringAssignableToObjectOrWideClassName(source, target))
+            {
+                return true;
             }
 
             if (target is UnionCheckedType unionTarget)
@@ -178,6 +240,14 @@ namespace Tyhp.TyhpLang.Checker
                     IsAssignableToCore(source, member, symbolTree, globalScope, visited));
             }
 
+            // A raw generic (`new Box()` when the expected type's members disagree, so inference
+            // falls back to the open class) is gradual relative to any instantiation of that class.
+            // Field checks still report unbound `T`; the returned value is not a second error.
+            if (IsOpenGenericAssignableToSameDeclaration(source, target))
+            {
+                return true;
+            }
+
             // Intersection on both sides: each target member must be covered by *some* source
             // member, not by one member covering the whole target. Callable arity facets make the
             // difference visible — no single facet satisfies two arities, so a function with three
@@ -187,11 +257,8 @@ namespace Tyhp.TyhpLang.Checker
             {
                 return coveredTarget.Members.All(targetMember =>
                     coveringSource.Members.Any(sourceMember =>
-                        targetMember is StructCheckedType structTarget
-                            ? SourceSatisfiesStruct(
-                                sourceMember, structTarget, symbolTree, globalScope, visited)
-                            : IsAssignableToCore(
-                                sourceMember, targetMember, symbolTree, globalScope, visited)));
+                        TargetIntersectionMemberIsSatisfiedBy(
+                            sourceMember, targetMember, symbolTree, globalScope, visited)));
             }
 
             if (source is IntersectionCheckedType intersectionSource)
@@ -205,9 +272,8 @@ namespace Tyhp.TyhpLang.Checker
                 // Struct members are checked structurally (§3.2 rule 15): the source object/struct must
                 // declare every property of the struct shape. Non-struct members use nominal assignability.
                 return intersectionTarget.Members.All(member =>
-                    member is StructCheckedType structMember
-                        ? SourceSatisfiesStruct(source, structMember, symbolTree, globalScope, visited)
-                        : IsAssignableToCore(source, member, symbolTree, globalScope, visited));
+                    TargetIntersectionMemberIsSatisfiedBy(
+                        source, member, symbolTree, globalScope, visited));
             }
 
             if (source is LiteralCheckedType literalSource)
@@ -297,12 +363,31 @@ namespace Tyhp.TyhpLang.Checker
                     visited);
             }
 
+            // Typed facets (including any-arity) assign to opaque untyped `callable`.
+            if (source is CallableCheckedType && IsBuiltInName(target, "callable"))
+            {
+                return true;
+            }
+
             // A callable signature type originates from a closure/arrow-function literal (e.g.
             // `fn() => ...` or `function () { ... }`), which is always an instance of `\Closure`
             // in PHP. Allow such values to satisfy a nominal `\Closure` target so that returning or
             // assigning a closure literal where `\Closure` is expected type-checks.
-            if (source is CallableCheckedType && IsClosureType(target, symbolTree, globalScope))
+            if (source is CallableCheckedType facetSource && IsClosureType(target, symbolTree, globalScope))
             {
+                if (target is GenericCheckedType { TypeArguments.Count: > 0 } genericTarget)
+                {
+                    var facets = CallableArityFacetBuilder.GetCallableFacets(genericTarget.TypeArguments[0]);
+                    if (facets.Count == 0)
+                    {
+                        return true;
+                    }
+
+                    return facets.Any(facet =>
+                        AreCallableTypesCompatible(
+                            facetSource, facet, symbolTree, globalScope, visited));
+                }
+
                 return true;
             }
 
@@ -317,6 +402,13 @@ namespace Tyhp.TyhpLang.Checker
                 TryGetStructShapeForAssignability(source, symbolTree, globalScope) is { } structShape)
             {
                 return IsStructAssignableToArray(structShape, target, symbolTree, globalScope, visited);
+            }
+
+            // Unbound `__Properties<T>` erases to array; until T is known, any array is gradual
+            // (the clone tyhpdef default `= []` is this case).
+            if (UtilityTypeResolver.IsDeferredPropertiesType(target) && IsArrayLikeType(source))
+            {
+                return true;
             }
 
             // Bare `array` is the gradual any-array: assignable to and from `array<K, V>` /
@@ -364,8 +456,31 @@ namespace Tyhp.TyhpLang.Checker
                         return true;
                     }
 
+                    // `__ClassName<Shape>` / `__ClassName<__New<Shape>>` are structural brands:
+                    // a class whose instances match A also matches B when A is assignable to B.
+                    // Nominal `__ClassName<Foo>` stays invariant (exact name).
+                    if (IsClassNameStructuralBrandAssignable(
+                            source, target, symbolTree, globalScope, visited))
+                    {
+                        return true;
+                    }
+
+                    if (TryGetNewUtility(target, out var sameBaseNew))
+                    {
+                        return SourceSatisfiesNewConstraint(
+                            source, sameBaseNew, symbolTree, globalScope, visited);
+                    }
+
                     return false;
                 }
+            }
+
+            // Built-in `struct` is the unconstrained bound (`T extends struct`). Named structs
+            // and anonymous shapes inhabit it; the empty `struct{}` algebra encoding is a
+            // `StructCheckedType` and is handled by the structural block below.
+            if (IsBuiltInName(target, "struct"))
+            {
+                return IsStructInhabitant(source);
             }
 
             // Named struct declarations erase to PHP arrays and use structural (schema) typing,
@@ -381,6 +496,28 @@ namespace Tyhp.TyhpLang.Checker
             {
                 return IsStructAssignableToStruct(
                     namedSourceShape, namedTargetShape, symbolTree, globalScope, visited);
+            }
+
+            if (TryGetNewUtility(target, out var targetNew))
+            {
+                return SourceSatisfiesNewConstraint(
+                    source, targetNew, symbolTree, globalScope, visited);
+            }
+
+            if (TryGetNewUtility(source, out var sourceNew))
+            {
+                return IsAssignableToCore(
+                    sourceNew.TypeArguments[0], target, symbolTree, globalScope, visited);
+            }
+
+            if (TryAsObjectShape(target) is { } targetShape)
+            {
+                return SourceSatisfiesObjectShape(source, targetShape, symbolTree, globalScope, visited);
+            }
+
+            if (IsBuiltInName(target, "object") && TryAsObjectShape(source) is not null)
+            {
+                return true;
             }
 
             if (TryGetObjectDeclaration(source) is not null &&
@@ -400,6 +537,12 @@ namespace Tyhp.TyhpLang.Checker
                 // `__CompatibleTypeName<Animal>` when the named type is a subtype of the brand arg.
                 if (SymbolNameTypeHelper.IsCompatibleBrandAssignable(
                         source, target, symbolTree, globalScope))
+                {
+                    return true;
+                }
+
+                if (IsClassNameStructuralBrandAssignable(
+                        source, target, symbolTree, globalScope, visited))
                 {
                     return true;
                 }
@@ -427,6 +570,32 @@ namespace Tyhp.TyhpLang.Checker
             return false;
         }
 
+        private static bool TargetIntersectionMemberIsSatisfiedBy(
+            ICheckedType source,
+            ICheckedType targetMember,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            HashSet<(ICheckedType, ICheckedType)> visited)
+        {
+            if (targetMember is StructCheckedType structMember)
+            {
+                return SourceSatisfiesStruct(source, structMember, symbolTree, globalScope, visited);
+            }
+
+            if (TryAsObjectShape(targetMember) is { } shapeMember)
+            {
+                return SourceSatisfiesObjectShape(source, shapeMember, symbolTree, globalScope, visited);
+            }
+
+            if (TryGetNewUtility(targetMember, out var newMember))
+            {
+                return SourceSatisfiesNewConstraint(
+                    source, newMember, symbolTree, globalScope, visited);
+            }
+
+            return IsAssignableToCore(source, targetMember, symbolTree, globalScope, visited);
+        }
+
         /// <summary>
         /// True when <paramref name="type"/> is a bool literal checked type with the given value
         /// (used so <c>LiteralCheckedType(true, …)</c> matches a declared <c>true</c> target that
@@ -452,5 +621,83 @@ namespace Tyhp.TyhpLang.Checker
                 IsBuiltInName(m, "false") || IsBoolLiteralValue(m, false));
             return hasTrue && hasFalse;
         }
+
+        private static bool IsStringAssignableToObjectOrWideClassName(ICheckedType source, ICheckedType target)
+        {
+            if (!IsBuiltInName(source, "string") || source is LiteralCheckedType || target is not UnionCheckedType union)
+            {
+                return false;
+            }
+
+            var sawObject = false;
+            var sawWideBrand = false;
+            foreach (var member in union.Members)
+            {
+                if (IsBuiltInName(member, "object"))
+                {
+                    sawObject = true;
+                    continue;
+                }
+
+                if (IsNullLiteral(member) || IsBuiltInName(member, "null"))
+                {
+                    continue;
+                }
+
+                if (IsWideObjectClassNameBrand(member))
+                {
+                    sawWideBrand = true;
+                    continue;
+                }
+
+                return false;
+            }
+
+            return sawObject && sawWideBrand;
+        }
+
+        private static bool IsWideObjectClassNameBrand(ICheckedType type)
+        {
+            if (!SymbolNameTypeHelper.TryGetBehavior(type, out var behavior)
+                || !SymbolNameTypeHelper.IsOptionalSingleObjectBrand(behavior))
+            {
+                return false;
+            }
+
+            if (type is not GenericCheckedType generic || generic.TypeArguments.Count == 0)
+            {
+                return true;
+            }
+
+            return generic.TypeArguments.Count == 1
+                && IsBuiltInName(generic.TypeArguments[0], "object");
+        }
+
+        private static bool IsOpenGenericAssignableToSameDeclaration(ICheckedType source, ICheckedType target)
+        {
+            if (OpenGenericDeclaration(source) is not ObjectDeclarationSymbol sourceObj
+                || TryGetObjectDeclaration(target) is not ObjectDeclarationSymbol targetObj)
+            {
+                return false;
+            }
+
+            if (target is GenericCheckedType { TypeArguments.Count: > 0 })
+            {
+                return ReferenceEquals(sourceObj, targetObj);
+            }
+
+            return false;
+        }
+
+        private static ObjectDeclarationSymbol? OpenGenericDeclaration(ICheckedType type) =>
+            type switch
+            {
+                SimpleCheckedType { ResolvedSymbol: ObjectDeclarationSymbol obj }
+                    when obj.GenericParameters.Count > 0 => obj,
+                GenericCheckedType { TypeArguments.Count: 0 } generic
+                    when TryGetObjectDeclaration(generic) is ObjectDeclarationSymbol obj
+                    && obj.GenericParameters.Count > 0 => obj,
+                _ => null,
+            };
     }
 }

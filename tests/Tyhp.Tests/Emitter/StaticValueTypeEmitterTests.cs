@@ -51,8 +51,8 @@ public class StaticValueTypeEmitterTests
             function b(int|'red' $c): void {}
             """);
 
-        php.Should().Contain("function a(false | string $c): void");
-        php.Should().Contain("function b(int | string $c): void");
+        php.Should().Contain("function a(false|string $c): void");
+        php.Should().Contain("function b(int|string $c): void");
     }
 
     [Theory]
@@ -92,13 +92,7 @@ public class StaticValueTypeEmitterTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

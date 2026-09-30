@@ -13,6 +13,7 @@ namespace Tyhp.TyhpLang.Enum {
         Async = 128,
         Operator = 256,
         Var = 512,
+        Internal = 1024,
     }
 
     public static class MemberModifierHelper
@@ -30,6 +31,7 @@ namespace Tyhp.TyhpLang.Enum {
                 TyhpLang.Parser.TyhpParser.T_FINAL => MemberModifier.Final,
                 TyhpLang.Parser.TyhpParser.T_READONLY => MemberModifier.Readonly,
                 TyhpLang.Parser.TyhpParser.T_TYHP_ASYNC => MemberModifier.Async,
+                TyhpLang.Parser.TyhpParser.T_TYHP_INTERNAL => MemberModifier.Internal,
                 TyhpLang.Parser.TyhpParser.T_TYHP_OPERATOR => MemberModifier.Operator,
                 TyhpLang.Parser.TyhpParser.T_VAR => MemberModifier.Var,
                 _ => MemberModifier.None

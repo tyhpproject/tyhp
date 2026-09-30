@@ -30,12 +30,12 @@ function dieNamed(): void
 
 function exitFcc(): void
 {
-    $fn = (static fn(string | int $status = 0) => exit($status));
+    $fn = (static fn(string|int $status = 0) => exit($status));
     $fn(0);
 }
 
 function dieFcc(): void
 {
-    $fn = (static fn(string | int $status = 0) => die($status));
+    $fn = (static fn(string|int $status = 0) => die($status));
     $fn(1);
 }

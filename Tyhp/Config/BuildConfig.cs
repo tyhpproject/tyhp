@@ -76,6 +76,12 @@ namespace Tyhp.Config
         /// <summary>Treat warnings as errors.</summary>
         public bool StrictMode { get; set; } = false;
 
+        /// <summary>
+        /// Write stale extras onto root <c>require-dev</c> and Composer-update those packages
+        /// (<c>tyhp build --fix</c>). Distinct from <c>lint.fix</c>.
+        /// </summary>
+        public bool Fix { get; set; } = false;
+
         /// <summary>Watch source files and rebuild on change (not yet implemented).</summary>
         public bool Watch { get; set; } = false;
 
@@ -203,6 +209,8 @@ namespace Tyhp.Config
                 "build:runtimeGenericChecks",
                 this.RuntimeGenericChecks);
 
+            this.StrictMode = ReadBool(configuration, "build:strictMode", this.StrictMode);
+
             // CLI argument overlays (command line wins over tyhp.json)
             if (configuration.GetSection("clean").Exists())
             {
@@ -222,6 +230,11 @@ namespace Tyhp.Config
             if (configuration.GetSection("strict").Exists())
             {
                 this.StrictMode = configuration["strict"].ParseBool();
+            }
+
+            if (configuration.GetSection("fix").Exists())
+            {
+                this.Fix = configuration["fix"].ParseBool();
             }
 
             if (configuration.GetSection("watch").Exists())

@@ -3,7 +3,6 @@ using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Enum;
-using Tyhp.TyhpLang.Parser;
 
 namespace Tyhp.TyhpLang.Checker.Rules
 {
@@ -204,7 +203,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             foreach (var child in node.AstChildren)
             {
-                if (child is null || child is PhpStatementBlockAst || child is PhpInlineFunctionAst)
+                if (child is null || child is PhpStatementBlockAst || child is PhpInlineFunctionAst
+                    || child is TyhpAsyncBlockAst)
                 {
                     continue;
                 }
@@ -229,7 +229,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             foreach (var child in node.AstChildren)
             {
-                if (child is null || child is PhpInlineFunctionAst)
+                if (child is null || child is PhpInlineFunctionAst || child is TyhpAsyncBlockAst)
                 {
                     continue;
                 }
@@ -365,7 +365,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             foreach (var child in node.AstChildren)
             {
-                if (child is null || child is PhpInlineFunctionAst)
+                if (child is null || child is PhpInlineFunctionAst || child is TyhpAsyncBlockAst)
                 {
                     continue;
                 }
@@ -404,15 +404,14 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerHelpers.ImplementsInterface(type, "AsyncIsDisposable", context.SymbolTree, context.GlobalScope);
 
         private static bool IsUsingEqualOperator(PhpBinaryOpAst binary) =>
-            GetTokenType(binary.Operator) == TyhpParser.T_TYHP_USING_EQUAL
-            || PhpAssignmentOperatorExtensions.FromToken(GetTokenType(binary.Operator))
-                == PhpAssignmentOperator.UsingEqual;
+            PhpAssignmentOperatorExtensions.FromToken(
+                GetTokenType(binary.Operator),
+                binary.Operator?.ValueString) == PhpAssignmentOperator.UsingEqual;
 
         private static bool IsPlainAssignment(PhpBinaryOpAst binary) =>
-            binary.Operator?.ValueString == "="
-            || GetTokenType(binary.Operator) == TyhpParser.T_SYM_EQUAL
-            || PhpAssignmentOperatorExtensions.FromToken(GetTokenType(binary.Operator))
-                == PhpAssignmentOperator.Assign;
+            PhpAssignmentOperatorExtensions.FromToken(
+                GetTokenType(binary.Operator),
+                binary.Operator?.ValueString) == PhpAssignmentOperator.Assign;
 
         private static int GetTokenType(TokenValueAst? token) =>
             token?.ValueInt64 is long value ? (int)value : -1;

@@ -11,6 +11,12 @@ namespace Tyhp.TyhpLang.Checker.Rules
     /// </summary>
     public sealed class TypeAnnotationRule : ICheckerRule
     {
+        /// <summary>
+        /// TYHP4016 argument for a missing function/method return type. The message template
+        /// wraps <c>{0}</c> in backticks and must not prefix <c>$</c> or the word "variable".
+        /// </summary>
+        internal const string ReturnTypeSubject = "return type";
+
         // PhpMethodDeclAst is intentionally absent: CheckObjectBody calls CheckMethod directly
         // (not CheckNode), so method return-type checks run via CheckMethodReturnType from that path.
         // Registering methods here would double-fire if members were ever routed through CheckNode.
@@ -19,6 +25,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             typeof(TyhpTypedVarExprAst),
             typeof(PhpFunctionDeclAst),
             typeof(PhpParameterAst),
+            typeof(PhpConstDeclListAst),
         ];
 
         public bool SuppressChildTraversal(IBase2Ast node) =>
@@ -37,6 +44,47 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 case PhpParameterAst parameter:
                     CheckParameterType(parameter, state, context);
                     break;
+                case PhpConstDeclListAst constList:
+                    CheckFileLevelTypedConsts(constList, state, diagnostics);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// File-level <c>const int X = 1;</c> parses so this diagnostic can fire; PHP (and Tyhp
+        /// source) allow types only on class-level constants. Class const lists are checked from
+        /// <c>CheckClassConstants</c> (object-body traversal is suppressed). Object-shape member
+        /// consts reuse <see cref="PhpConstDeclListAst"/> but are not file-level — the visitor
+        /// stamps <c>objectShapeMember</c> so they skip TYHP4193 the same way
+        /// <c>EnclosingObject</c> skips class consts.
+        /// </summary>
+        private static void CheckFileLevelTypedConsts(
+            PhpConstDeclListAst constList,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            // `fallback const int X = 1;` is the one file-level const that carries a type: the type is
+            // a Tyhp fact and the emitted `\define(…)` has no PHP type.
+            if (state.EnclosingObject is not null
+                || constList.AstGrammarAddons.ContainsKey("objectShapeMember")
+                || FallbackDeclaration.IsFallback(constList))
+            {
+                return;
+            }
+
+            foreach (var constant in constList.GetAllNotNull())
+            {
+                if (constant.Type is null
+                    || !string.Equals(constant.LanguageMode, "tyhp", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    constant.Type,
+                    MessageCode.CheckerFileLevelTypedConstNotAllowed);
             }
         }
 
@@ -52,74 +100,116 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
+            AttributeRule.ValidateDeclarationAttributes(typedVar, state, context, diagnostics);
+
             ICheckedType? declaredType = null;
-
-            if (typedVar.AssignedExpression is PhpInlineFunctionAst closure)
-            {
-                if (typedVar.TypeExpression is not null)
-                {
-                    ClosureParameterInference.SetExpectedClosureTypeFromAnnotation(
-                        context.ResolveTypeAnnotation(typedVar.TypeExpression, state), state);
-                }
-
-                context.CheckNode(closure, state);
-            }
-            else if (typedVar.AssignedExpression is PhpNewAst newExpr)
-            {
-                context.CheckNode(newExpr, state);
-            }
-            else if (typedVar.AssignedExpression is not null)
-            {
-                context.CheckNode(typedVar.AssignedExpression, state);
-            }
-
             if (typedVar.TypeExpression is not null)
             {
                 context.CheckNode(typedVar.TypeExpression, state);
                 declaredType = context.ResolveTypeAnnotation(typedVar.TypeExpression, state);
             }
-            else if (typedVar.AssignedExpression is not null)
+
+            var previousExpected = state.ExpectedExpressionType;
+            if (ContextualNewInference.IsUsableExpectedType(declaredType))
             {
-                declaredType = context.ResolveExpressionType(typedVar.AssignedExpression, state);
-                if (declaredType.Kind == CheckedTypeKind.Unresolved)
+                state.ExpectedExpressionType = declaredType;
+            }
+
+            try
+            {
+                if (typedVar.AssignedExpression is PhpInlineFunctionAst closure)
                 {
-                    CheckerHelpers.ReportError(
-                        context, state, typedVar, MessageCode.CheckerVariableTypeRequired, varName);
-                    return;
+                    if (declaredType is not null)
+                    {
+                        ClosureParameterInference.SetExpectedClosureTypeFromAnnotation(declaredType, state);
+                    }
+
+                    context.CheckNode(closure, state);
+                }
+                else if (typedVar.AssignedExpression is not null)
+                {
+                    context.CheckNode(typedVar.AssignedExpression, state);
                 }
             }
-            else
+            finally
             {
-                CheckerHelpers.ReportError(
-                    context, state, typedVar, MessageCode.CheckerVariableTypeRequired, varName);
-                return;
+                state.ExpectedExpressionType = previousExpected;
+            }
+
+            if (typedVar.TypeExpression is null)
+            {
+                if (typedVar.AssignedExpression is not null)
+                {
+                    declaredType = context.ResolveExpressionType(typedVar.AssignedExpression, state);
+                    if (declaredType.Kind == CheckedTypeKind.Unresolved)
+                    {
+                        CheckerHelpers.ReportError(
+                            context, state, typedVar, MessageCode.CheckerVariableTypeRequired,
+                            CheckerHelpers.FormatTypeRequiredName(varName));
+                        return;
+                    }
+                }
+                else
+                {
+                    CheckerHelpers.ReportError(
+                        context, state, typedVar, MessageCode.CheckerVariableTypeRequired,
+                        CheckerHelpers.FormatTypeRequiredName(varName));
+                    return;
+                }
             }
 
             if (typedVar.AssignedExpression is not null)
             {
                 var sourceType = context.ResolveExpressionType(typedVar.AssignedExpression, state);
-                var bagChecked = declaredType is not null
-                    && StructBagLiteralChecker.TryCheck(
-                        typedVar.AssignedExpression, declaredType, state, context, diagnostics);
-                if (!bagChecked
-                    && !context.IsAssignable(sourceType, declaredType, state)
-                    && !CheckerHelpers.IsArrayCallableLiteral(
-                        typedVar.AssignedExpression, declaredType!, context, state))
+                if (declaredType is not null
+                    && GeneratorBodyInference.TryHandleYieldSendAssignment(
+                        typedVar.AssignedExpression, declaredType, state))
                 {
-                    if (!SymbolNameTypeAssignability.TryReportLiteralExistenceFailure(
-                            sourceType, declaredType!, state, context.SymbolTree, context.GlobalScope,
-                            diagnostics, typedVar)
-                        && !context.TryReportTemplateStringBudgetExceeded(typedVar, state))
+                    // Unpinned TSend: yield currently types as mixed; the declared target
+                    // constrains TSend instead of reporting mixed↛T.
+                }
+                else
+                {
+                    var bagChecked = declaredType is not null
+                        && StructBagLiteralChecker.TryCheck(
+                            typedVar.AssignedExpression, declaredType, state, context, diagnostics);
+                    var expressionCapture = typedVar.AssignedExpression is PhpInlineFunctionAst inlineFn
+                        && declaredType is not null
+                        && (ExpressionTreeSupport.TryValidateInlineFnCapture(
+                                inlineFn, declaredType, state, diagnostics, typedVar)
+                            || PropertyPathSupport.TryValidateInlineFnCapture(
+                                inlineFn, declaredType, state, diagnostics, typedVar));
+                    if (!bagChecked
+                        && !expressionCapture
+                        && !context.IsAssignable(sourceType, declaredType, state)
+                        && !CheckerHelpers.IsArrayCallableLiteral(
+                            typedVar.AssignedExpression, declaredType!, context, state))
                     {
-                        CheckerHelpers.ReportError(
-                            context, state, typedVar, MessageCode.CheckerTypeMismatch,
-                            sourceType.DisplayName, declaredType!.DisplayName);
+                        if (!CheckerHelpers.TryReportObjectShapeRequiresGuard(
+                                diagnostics, state, typedVar, sourceType, declaredType!)
+                            && !CheckerHelpers.TryReportCallableShapeRequiresGuard(
+                                diagnostics, state, typedVar, sourceType, declaredType!)
+                            && !CheckerHelpers.TryReportNewConstraintFailure(
+                                diagnostics, state, typedVar, sourceType, declaredType!,
+                                context.SymbolTree, context.GlobalScope)
+                            && !SymbolNameTypeAssignability.TryReportLiteralExistenceFailure(
+                                sourceType, declaredType!, state, context.SymbolTree, context.GlobalScope,
+                                diagnostics, typedVar)
+                            && !context.TryReportTemplateStringBudgetExceeded(typedVar, state))
+                        {
+                            CheckerHelpers.ReportError(
+                                context, state, typedVar, MessageCode.CheckerTypeMismatch,
+                                sourceType.DisplayName, declaredType!.DisplayName);
+                        }
                     }
                 }
 
                 state.DeclareVariable(
                     varName,
-                    new Binder.Symbols.VariableSymbol(varName),
+                    new Binder.Symbols.VariableSymbol(
+                        varName,
+                        (IBase2Ast?)typedVar.Variable ?? typedVar,
+                        CheckerHelpers.ResolveDiagnosticFileName(state, typedVar)),
                     declaredType,
                     isAssigned: true,
                     diagnostics);
@@ -146,7 +236,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 state.DeclareVariable(
                     varName,
-                    new Binder.Symbols.VariableSymbol(varName),
+                    new Binder.Symbols.VariableSymbol(
+                        varName,
+                        (IBase2Ast?)typedVar.Variable ?? typedVar,
+                        CheckerHelpers.ResolveDiagnosticFileName(state, typedVar)),
                     declaredType,
                     isAssigned: false,
                     diagnostics);
@@ -162,7 +255,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 && sym.ReturnType is null)
             {
                 CheckerHelpers.ReportError(
-                    context, state, function, MessageCode.CheckerVariableTypeRequired, "return type");
+                    context, state, function, MessageCode.CheckerVariableTypeRequired, ReturnTypeSubject);
             }
         }
 
@@ -189,7 +282,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 && !sym.IsAbstract)
             {
                 CheckerHelpers.ReportError(
-                    context, state, method, MessageCode.CheckerVariableTypeRequired, "return type");
+                    context, state, method, MessageCode.CheckerVariableTypeRequired, ReturnTypeSubject);
             }
         }
 
@@ -211,7 +304,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (parameter.Type is null)
             {
                 CheckerHelpers.ReportError(
-                    context, state, parameter, MessageCode.CheckerVariableTypeRequired, parameter.Name);
+                    context, state, parameter, MessageCode.CheckerVariableTypeRequired,
+                    CheckerHelpers.FormatTypeRequiredName(parameter.Name));
             }
         }
     }

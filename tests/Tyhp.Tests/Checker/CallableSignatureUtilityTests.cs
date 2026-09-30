@@ -28,16 +28,9 @@ public class CallableSignatureUtilityTests
     public void CallableSignatureUtilities_AreRegisteredInGlobalScope()
     {
         using var compilationService = new CompilationService();
-        var options = new CompilationOptions
-        {
-            EnableAstCache = false,
-            PhpVersion = "8.2",
-            ProjectPath = TestFileManager.GetRepoRoot(),
-            TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            SkipChecking = true,
-        };
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
+        var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
         var filePath = Path.Combine(tempDir, "test.tyhp");
         File.WriteAllText(filePath, "<?tyhp\nfunction demo(): void {}\n");
 
@@ -62,7 +55,7 @@ public class CallableSignatureUtilityTests
     {
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            function demo(__CallableReturnType<callable<string, int>> $t): void {}
+            function demo(__CallableReturnType<callable(string $s): int> $t): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -76,16 +69,16 @@ public class CallableSignatureUtilityTests
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
             function demo(
-                __CallableParametersStruct<callable<string, int>> $named,
-                __CallableParametersTuple<callable<string, int>> $positional
+                __CallableParametersStruct<callable(string $s): int> $named,
+                __CallableParametersTuple<callable(string $s): int> $positional
             ): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
         var named = ResolveParameterDeclaredType(checker, file, "named");
         named.Should().BeOfType<StructCheckedType>();
-        ((StructCheckedType)named).Properties.Should().BeEmpty(
-            "nameless callable<> facets degrade to an empty named bag");
+        ((StructCheckedType)named).Properties.Should().ContainKey("$s");
+        ((StructCheckedType)named).Properties["$s"].Type.DisplayName.Should().Be("string");
         var positional = ResolveParameterDeclaredType(checker, file, "positional");
         positional.Should().BeOfType<StructCheckedType>();
         var tuple = (StructCheckedType)positional;
@@ -207,7 +200,7 @@ public class CallableSignatureUtilityTests
     {
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            function demo(__CallableParametersRest<callable<string, int>> $t): void {}
+            function demo(__CallableParametersRest<callable(string $s): int> $t): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -223,7 +216,7 @@ public class CallableSignatureUtilityTests
     {
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            function demo(__CallableReturnType<\Closure<string, int>> $t): void {}
+            function demo(__CallableReturnType<\Closure<callable(string $s): int>> $t): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -236,7 +229,7 @@ public class CallableSignatureUtilityTests
     {
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            function demo(__CallableReturnType<callable<int> | callable<string>> $t): void {}
+            function demo(__CallableReturnType<(callable(): int) | (callable(): string)> $t): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -252,7 +245,7 @@ public class CallableSignatureUtilityTests
     {
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            function demo(__CallableReturnType<callable<int>> $t): void {}
+            function demo(__CallableReturnType<callable(): int> $t): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -308,7 +301,7 @@ public class CallableSignatureUtilityTests
             }
 
             function demo(): void {
-                \Closure<int> $cb = fn(): int => 0;
+                \Closure<callable(): int> $cb = fn(): int => 0;
                 int $n = apply($cb);
             }
             """);
@@ -363,11 +356,11 @@ public class CallableSignatureUtilityTests
     }
 
     [Fact]
-    public void Check_GenericApply_TyhpReturnType_BodyAndInferenceMatch()
+    public void Check_GenericApply_CallableReturnType_BodyAndInferenceMatch()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function apply<TCallable extends callable>(TCallable $cb): \Tyhp\ReturnType<TCallable> {
+            function apply<TCallable extends callable>(TCallable $cb): __CallableReturnType<TCallable> {
                 return $cb();
             }
 
@@ -711,7 +704,7 @@ public class CallableSignatureUtilityTests
                 return $cb();
             }
 
-            function demo(callable<string, int, bool> $cb): void {
+            function demo(callable(string, int): bool $cb): void {
                 bool $ok = apply($cb, ['Ada', 36]);
             }
             """);
@@ -747,7 +740,7 @@ public class CallableSignatureUtilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             function demo(): void {
-                __CallableParametersTuple<callable<string, int, bool>> $args = ['Ada', 36];
+                __CallableParametersTuple<callable(string, int): bool> $args = ['Ada', 36];
             }
             """);
 
@@ -760,7 +753,7 @@ public class CallableSignatureUtilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             function demo(): void {
-                __CallableParametersTuple<callable<string, int, bool>> $args = ['0' => 'Ada', '1' => 36];
+                __CallableParametersTuple<callable(string, int): bool> $args = ['0' => 'Ada', '1' => 36];
             }
             """);
 
@@ -774,7 +767,7 @@ public class CallableSignatureUtilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             function demo(): void {
-                __CallableParametersTuple<callable<string, int, bool>> $args = ['00' => 'Ada', '1' => 36];
+                __CallableParametersTuple<callable(string, int): bool> $args = ['00' => 'Ada', '1' => 36];
             }
             """);
 
@@ -788,7 +781,7 @@ public class CallableSignatureUtilityTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(__CallableParametersTuple<callable<string, int, bool>> $args): string {
+            function demo(__CallableParametersTuple<callable(string, int): bool> $args): string {
                 return $args[0];
             }
             """);
@@ -801,7 +794,7 @@ public class CallableSignatureUtilityTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(__CallableParametersTuple<callable<string, int, bool>> $args): int {
+            function demo(__CallableParametersTuple<callable(string, int): bool> $args): int {
                 return $args[0];
             }
             """);
@@ -990,7 +983,7 @@ public class CallableSignatureUtilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             function demo(): void {
-                __CallableParametersTuple<callable<string, int, bool>> $args = ['Ada'];
+                __CallableParametersTuple<callable(string, int): bool> $args = ['Ada'];
             }
             """);
 
@@ -1005,7 +998,7 @@ public class CallableSignatureUtilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             function demo(): void {
-                __CallableParametersTuple<callable<string, int, bool>> $args;
+                __CallableParametersTuple<callable(string, int): bool> $args;
                 $args = ['Ada'];
             }
             """);
@@ -1021,7 +1014,7 @@ public class CallableSignatureUtilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             function demo(): void {
-                __CallableParametersTuple<callable<string, int, bool>> $args;
+                __CallableParametersTuple<callable(string, int): bool> $args;
                 $args ??= ['Ada'];
             }
             """);
@@ -1036,7 +1029,7 @@ public class CallableSignatureUtilityTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(__CallableParametersTuple<callable<string, int, bool>> $args = []): void {}
+            function demo(__CallableParametersTuple<callable(string, int): bool> $args = []): void {}
             """);
 
         diagnostics.Errors.Should().Contain(
@@ -1049,7 +1042,7 @@ public class CallableSignatureUtilityTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function run<TValue>(callable<TValue, TValue> $cb, TValue $seed): TValue {
+            function run<TValue>(callable(TValue): TValue $cb, TValue $seed): TValue {
                 return $cb($seed);
             }
 
@@ -1059,7 +1052,7 @@ public class CallableSignatureUtilityTests
             """);
 
         // Inference binds TValue from the argument *value* `1`, i.e. the literal type `1`. Feeding
-        // that back into `callable<TValue, TValue>` would demand a callback returning exactly `1`.
+        // that back into `callable(TValue): TValue` would demand a callback returning exactly `1`.
         // Ordinary generic parameters keep the gradual mixed policy; only deferred
         // callable-signature utilities take call-site bindings.
         diagnostics.Errors.Should().BeEmpty(Describe(diagnostics.Errors));
@@ -1250,7 +1243,7 @@ public class CallableSignatureUtilityTests
                 return $cb();
             }
 
-            function demo(callable<string, int, bool> $cb): void {
+            function demo(callable(string, int): bool $cb): void {
                 bool $ok = invoke($cb, 'Ada', 36);
             }
             """);
@@ -1414,7 +1407,7 @@ public class CallableSignatureUtilityTests
                 return $cb();
             }
 
-            function demo(callable<string, int> | callable<string, bool> $cb): void {
+            function demo((callable(string $s): int) | (callable(string $s): bool) $cb): void {
                 invoke($cb, 'Ada');
             }
             """);
@@ -1434,7 +1427,7 @@ public class CallableSignatureUtilityTests
                 return $cb();
             }
 
-            function demo(callable<string, int> | callable<string, bool> $cb): void {
+            function demo((callable(string $s): int) | (callable(string $s): bool) $cb): void {
                 invoke($cb, 1);
             }
             """);
@@ -1456,7 +1449,7 @@ public class CallableSignatureUtilityTests
                 return $cb();
             }
 
-            function demo(callable<int> | callable<string, int> $cb): void {
+            function demo((callable(): int) | (callable(string $s): int) $cb): void {
                 invoke($cb, 'Ada');
             }
             """);
@@ -1516,7 +1509,7 @@ public class CallableSignatureUtilityTests
     {
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            function demo(__CallableParametersRest<callable<string, int> | callable<string, bool>> $t): void {}
+            function demo(__CallableParametersRest<(callable(string $s): int) | (callable(string $s): bool)> $t): void {}
             """);
 
         diagnostics.Errors.Should().BeEmpty();
@@ -1909,9 +1902,9 @@ public class CallableSignatureUtilityTests
     [Fact]
     public void Reflect_GenericCallable_AgreesWithArityFacetArgCount()
     {
-        var callable = new GenericCheckedType(
-            CheckedTypes.FromSymbol(new BuiltInTypeSymbol("callable")),
-            [CheckedTypes.String, CheckedTypes.Int, CheckedTypes.Bool]);
+        var callable = new CallableCheckedType(
+            [CheckedTypes.String, CheckedTypes.Int],
+            CheckedTypes.Bool);
 
         CallableSignatureReflection.TryReflect(callable, out var signature).Should().BeTrue();
         signature.Should().NotBeNull();
@@ -1926,18 +1919,79 @@ public class CallableSignatureUtilityTests
     }
 
     [Fact]
+    public void GetCallableFacets_ClosureWithCallableShape_UsesShapeNotReturnLast()
+    {
+        var callableShape = new CallableCheckedType([CheckedTypes.Int], CheckedTypes.String);
+        var closure = new GenericCheckedType(
+            CheckedTypes.FromSymbol(new BuiltInTypeSymbol("Closure")),
+            [callableShape]);
+
+        var facets = CallableArityFacetBuilder.GetCallableFacets(closure);
+        facets.Should().ContainSingle();
+        facets[0].ParameterTypes.Should().ContainSingle();
+        CheckedTypes.AreTypesEqual(facets[0].ParameterTypes[0], CheckedTypes.Int).Should().BeTrue();
+        CheckedTypes.AreTypesEqual(facets[0].ReturnType, CheckedTypes.String).Should().BeTrue();
+
+        CallableSignatureReflection.TryReflect(closure, out var signature).Should().BeTrue();
+        signature!.Parameters.Should().ContainSingle();
+        CheckedTypes.AreTypesEqual(signature.ReturnType, CheckedTypes.String).Should().BeTrue();
+        GenericTypeArgumentValidator.SatisfiesCallableConstraint(closure).Should().BeTrue();
+    }
+
+    [Fact]
+    public void GetCallableFacets_ClosureReturnLastArgs_AreNotParamsAndReturn()
+    {
+        var oldSpelling = new GenericCheckedType(
+            CheckedTypes.FromSymbol(new BuiltInTypeSymbol("Closure")),
+            [CheckedTypes.Int, CheckedTypes.String]);
+
+        CallableArityFacetBuilder.GetCallableFacets(oldSpelling).Should().BeEmpty();
+        CallableSignatureReflection.TryReflect(oldSpelling, out var signature).Should().BeFalse();
+        signature.Should().BeNull();
+        GenericTypeArgumentValidator.SatisfiesCallableConstraint(oldSpelling).Should().BeFalse();
+        CallableArityFacetBuilder.IsCallableFacetType(oldSpelling).Should().BeFalse();
+    }
+
+    [Fact]
+    public void SatisfiesCallableConstraint_BareClosure_IsCallableViaInvoke()
+    {
+        var bare = CheckedTypes.FromSymbol(new BuiltInTypeSymbol("Closure"));
+        GenericTypeArgumentValidator.SatisfiesCallableConstraint(bare).Should().BeTrue();
+        CallableArityFacetBuilder.IsClosureTypeName(bare).Should().BeTrue();
+        CallableArityFacetBuilder.GetCallableFacets(bare).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_ClosureReturnLastSpelling_IsRejected()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(\Closure<int, string> $cb): void {}
+            """);
+
+        diagnostics.Errors.Should().NotBeEmpty(
+            "\\Closure<int, string> is not return-last; it must fail arity or TCallableShape extends callable");
+        diagnostics.Errors.Should().Contain(
+            d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied
+                || d.Code == MessageCode.CheckerGenericArgumentCountMismatch,
+            Describe(diagnostics.Errors));
+    }
+
+    [Fact]
     public void Reflect_CallableCheckedType_MatchesGenericForm()
     {
         var facet = new CallableCheckedType([CheckedTypes.String, CheckedTypes.Int], CheckedTypes.Bool);
-        var generic = new GenericCheckedType(
+        var genericCallable = new GenericCheckedType(
             CheckedTypes.FromSymbol(new BuiltInTypeSymbol("callable")),
             [CheckedTypes.String, CheckedTypes.Int, CheckedTypes.Bool]);
 
         CallableSignatureReflection.TryReflect(facet, out var fromFacet).Should().BeTrue();
-        CallableSignatureReflection.TryReflect(generic, out var fromGeneric).Should().BeTrue();
+        fromFacet!.Parameters.Should().HaveCount(2);
+        CheckedTypes.AreTypesEqual(fromFacet.ReturnType, CheckedTypes.Bool).Should().BeTrue();
 
-        fromFacet!.Parameters.Should().HaveCount(fromGeneric!.Parameters.Count);
-        CheckedTypes.AreTypesEqual(fromFacet.ReturnType, fromGeneric.ReturnType).Should().BeTrue();
+        CallableArityFacetBuilder.GetCallableFacets(genericCallable).Should().BeEmpty(
+            "callable<> construction is not a type; facets come from callable(…): R shapes");
+        GenericTypeArgumentValidator.SatisfiesCallableConstraint(genericCallable).Should().BeFalse();
     }
 
     [Fact]
@@ -2025,9 +2079,8 @@ public class CallableSignatureUtilityTests
             new GenericTypeParameterSymbol("TCallable", SymbolType.FunctionGenericTypeParameter));
         GenericTypeArgumentValidator.SatisfiesCallableConstraint(typeParam).Should().BeTrue();
 
-        var nullableCallable = new NullableCheckedType(new GenericCheckedType(
-            CheckedTypes.FromSymbol(new BuiltInTypeSymbol("callable")),
-            [CheckedTypes.Int]));
+        var nullableCallable = new NullableCheckedType(
+            new CallableCheckedType([CheckedTypes.Int], CheckedTypes.Mixed));
         GenericTypeArgumentValidator.SatisfiesCallableConstraint(nullableCallable).Should().BeTrue();
 
         GenericTypeArgumentValidator.SatisfiesCallableConstraint(CheckedTypes.Int).Should().BeFalse();
@@ -2249,10 +2302,10 @@ public class CallableSignatureUtilityTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            struct GreetArgs {
+            type GreetArgs = struct {
                 string $name;
                 int $age;
-            }
+            };
 
             function greet(string $name, int $age): string {
                 return $name;
@@ -2286,14 +2339,14 @@ public class CallableSignatureUtilityTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            struct Named {
+            type Named = struct {
                 string $name;
-            }
+            };
 
-            struct Person {
+            type Person = struct {
                 string $name;
                 int $age;
-            }
+            };
 
             function take(Named $n): void {}
 
@@ -2311,14 +2364,14 @@ public class CallableSignatureUtilityTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            struct Named {
+            type Named = struct {
                 string $name;
-            }
+            };
 
-            struct Person {
+            type Person = struct {
                 string $name;
                 int $age;
-            }
+            };
 
             function take(Person $p): void {}
 
@@ -2404,14 +2457,7 @@ public class CallableSignatureUtilityTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

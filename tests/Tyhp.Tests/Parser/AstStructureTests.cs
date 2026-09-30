@@ -43,10 +43,10 @@ public class AstStructureTests
     {
         var result = ParserTestHelper.ParseTyhpContent("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x = 0;
                 int $y = 0;
-            }
+            };
             """);
 
         result.Success.Should().BeTrue();

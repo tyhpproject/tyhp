@@ -57,12 +57,12 @@ public class OperatorOverloadGreaterThanParseTests
     }
 
     [Fact]
-    public void Parse_OperatorPlusWithGenericTarget_StillSucceeds()
+    public void Parse_OperatorPlusWithGenericHeaderTarget_StillSucceeds()
     {
         var result = ParserTestHelper.ParseTyhpContent("""
             <?tyhp
-            extension Ops {
-                operator +<\DateTimeImmutable>(\DateTimeImmutable $left, int $right): \DateTimeImmutable {
+            extension Ops extends \ArrayObject<int> {
+                operator + (self $left, int $right): self {
                     return $left;
                 }
             }

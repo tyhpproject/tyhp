@@ -101,15 +101,28 @@ namespace Tyhp.TyhpLang.Checker
                             IntersectTypes(accumulated, next, symbolTree, globalScope)),
                 GenericCheckedType genericType => UtilityTypeResolver.ExpandAfterSubstitution(
                     // Deferred `__CallableReturnType<T>` / `__CallableParametersStruct<T>` /
-                    // `__CallableParametersTuple<T>` / `__CallableParametersRest<T>` expand
-                    // once T is bound (Rest keeps its wrapper so call-site unpack can see it).
+                    // `__CallableParametersTuple<T>` / `__CallableParametersRest<T>` /
+                    // `__Properties<T>` expand once T is bound (Rest keeps its wrapper so
+                    // call-site unpack can see it). `__SuperType` / `__IndexKeys` / sibling
+                    // magic utilities expand the same way.
                     new GenericCheckedType(
                         SubstituteType(genericType.BaseType, lookup, symbolTree, globalScope, substituting),
                         genericType.TypeArguments
                             .Select(arg => SubstituteType(arg, lookup, symbolTree, globalScope, substituting))
-                            .ToList())),
+                            .ToList())
+                    {
+                        IsNonRebindableClosure = genericType.IsNonRebindableClosure,
+                    },
+                    symbolTree,
+                    globalScope),
                 CallableCheckedType callable => callable.MapTypes(mapped =>
                     SubstituteType(mapped, lookup, symbolTree, globalScope, substituting)),
+                HomogeneousVariadicCheckedType homogeneous =>
+                    new HomogeneousVariadicCheckedType(
+                        SubstituteType(homogeneous.ElementType, lookup, symbolTree, globalScope, substituting)),
+                ParameterPackCheckedType pack => ExpandSubstitutedPack(
+                    pack,
+                    mapped => SubstituteType(mapped, lookup, symbolTree, globalScope, substituting)),
                 StructCheckedType structType => new StructCheckedType(
                     structType.Properties.ToDictionary(
                         pair => pair.Key,
@@ -121,8 +134,31 @@ namespace Tyhp.TyhpLang.Checker
                         literal.UnderlyingType, lookup, symbolTree, globalScope, substituting)),
                 StaticCheckedType staticType => new StaticCheckedType(
                     SubstituteType(staticType.DeclaringType, lookup, symbolTree, globalScope, substituting)),
+                ObjectShapeCheckedType shapeType => new ObjectShapeCheckedType(
+                    shapeType.Shape,
+                    shapeType.DeclaringAlias,
+                    shapeType.TypeArguments
+                        .Select(arg => SubstituteType(arg, lookup, symbolTree, globalScope, substituting))
+                        .ToList(),
+                    shapeType.Members?.MapTypes(mapped =>
+                        SubstituteType(mapped, lookup, symbolTree, globalScope, substituting))),
                 _ => type,
             };
+        }
+
+        private static ICheckedType ExpandSubstitutedPack(
+            ParameterPackCheckedType pack,
+            Func<ICheckedType, ICheckedType> map)
+        {
+            var mapped = ParameterPack.MapPackMembers(pack, map);
+            if (mapped is ParameterPackCheckedType remapped
+                && ParameterPack.TryExpandPack(remapped, out var members, out var lastVariadic)
+                && members.Count > 0)
+            {
+                return new ParameterPackCheckedType(members, lastMemberIsVariadic: lastVariadic);
+            }
+
+            return mapped;
         }
     }
 }

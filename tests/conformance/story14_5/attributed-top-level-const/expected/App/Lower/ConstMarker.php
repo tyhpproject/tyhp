@@ -11,7 +11,5 @@ namespace App\Lower;
 #[\Attribute]
 class ConstMarker
 {
-    public function __construct(public string $label = '')
-    {
-    }
+    public function __construct(public string $label = '') {}
 }

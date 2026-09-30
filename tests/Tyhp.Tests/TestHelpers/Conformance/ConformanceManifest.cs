@@ -46,6 +46,12 @@ public sealed class ConformanceCase
 
     [JsonPropertyName("skip")]
     public string? Skip { get; set; }
+
+    /// <summary>
+    /// Additional inputs compiled with <see cref="File"/> (emit-and-run multi-file cases).
+    /// </summary>
+    [JsonPropertyName("extraFiles")]
+    public List<string>? ExtraFiles { get; set; }
 }
 
 public sealed class ConformanceExpectation
@@ -59,11 +65,39 @@ public sealed class ConformanceExpectation
     [JsonPropertyName("codes")]
     public List<int>? Codes { get; set; }
 
+    [JsonPropertyName("warningCodes")]
+    public List<int>? WarningCodes { get; set; }
+
     [JsonPropertyName("noDiagnostics")]
     public bool? NoDiagnostics { get; set; }
 
     [JsonPropertyName("php")]
     public string? Php { get; set; }
+
+    /// <summary>
+    /// Exact stdout expected after running emitted (or planted) PHP. Trailing newlines are
+    /// normalized. When omitted, stdout may be empty or non-empty; stderr must still be clean.
+    /// </summary>
+    [JsonPropertyName("stdout")]
+    public string? Stdout { get; set; }
+
+    /// <summary>
+    /// When true, the PHP run is expected to fail the emit-and-run harness (planted wrong-emit).
+    /// </summary>
+    [JsonPropertyName("harnessFail")]
+    public bool? HarnessFail { get; set; }
+
+    /// <summary>
+    /// Substrings that must appear in the joined emitted PHP (emit-and-run only).
+    /// </summary>
+    [JsonPropertyName("emittedContains")]
+    public List<string>? EmittedContains { get; set; }
+
+    /// <summary>
+    /// Substrings that must not appear in the joined emitted PHP (emit-and-run only).
+    /// </summary>
+    [JsonPropertyName("emittedNotContains")]
+    public List<string>? EmittedNotContains { get; set; }
 
     [JsonIgnore]
     public int? ErrorCountExact => TryReadExactCount(this.ErrorCount);

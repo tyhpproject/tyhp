@@ -26,9 +26,11 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
                 GenericParameterRequirements.ZeroArity());
 
             // Bare `__ClassName` ≡ `__ClassName<object>` (default type arg). Same pattern for enum /
-            // interface / trait siblings. Parametric `__ClassName<T>` is invariant in T (exact class
-            // name); use `__CompatibleTypeName<T>` for subclass-as-class-string widening. Both 0-
-            // and 1-arity erase to plain string.
+            // interface / trait siblings. Parametric `__ClassName<T>` is invariant in T when T is a
+            // nominal class (exact class name); `__ClassName<Shape>` / `__ClassName<__New<Shape>>`
+            // are structural (a class matching A assigns when A is assignable to the target brand).
+            // Use `__CompatibleTypeName<T>` for subclass-as-class-string widening of nominal brands.
+            // Both 0- and 1-arity erase to plain string.
             Register(globalScope, "__ClassName", UtilityBehavior.ClassName,
                 GenericParameterRequirements.OptionalSingle("TObject", BuiltInGenericParameterConstraint.Object));
             Register(globalScope, "__EnumName", UtilityBehavior.EnumName,

@@ -1,3 +1,5 @@
+using Tyhp.Domain.Diagnostics;
+using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
@@ -8,7 +10,7 @@ using Tyhp.TyhpLang.Parser;
 namespace Tyhp.TyhpLang.Checker
 {
     /// <summary>
-    /// Story 16 Phase 1 helpers for <c>\Tyhp\PropertyPath&lt;TSource, TReturn&gt;</c>:
+    /// Story 16 Phase 1 helpers for <c>\Tyhp\PropertyPath&lt;TCallableShape&gt;</c>:
     /// type recognition, arrow-body extraction, and property-chain walking.
     /// </summary>
     internal static class PropertyPathSupport
@@ -19,31 +21,6 @@ namespace Tyhp.TyhpLang.Checker
         public const string ExpressionFqn = "Tyhp\\Expression";
 
         public readonly record struct PathSegment(string Name, bool NullSafe);
-
-        /// <summary>
-        /// True when <paramref name="symbol"/> is the <c>tyhp/lambda</c> <c>\Tyhp\Expression</c>
-        /// class (not a user type also named <c>Expression</c>, and not <c>PropertyPath</c>).
-        /// </summary>
-        public static bool IsTyhpExpressionDeclaration(IBaseSymbol? symbol)
-        {
-            if (symbol is not ObjectDeclarationSymbol obj)
-            {
-                return false;
-            }
-
-            var normalized = (obj.FullyQualifiedName ?? obj.Name ?? "").TrimStart('\\');
-            if (string.Equals(normalized, ExpressionFqn, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            if (string.IsNullOrEmpty(obj.FullyQualifiedName) || !normalized.Contains('\\'))
-            {
-                return string.Equals(obj.Name, ExpressionSimpleName, StringComparison.OrdinalIgnoreCase);
-            }
-
-            return false;
-        }
 
         /// <summary>
         /// Last property-chain segment of <c>nameof(fn ($x) => $x->a->b)</c>, following C#'s
@@ -122,11 +99,13 @@ namespace Tyhp.TyhpLang.Checker
                 return false;
             }
 
-            if (type is GenericCheckedType { TypeArguments.Count: >= 2 } generic)
+            if (TryGetCallableShapeArgument(type, out var shape)
+                && TryMapCallableShape(shape, out var mapped))
             {
-                sourceType = generic.TypeArguments[0];
-                resultType = generic.TypeArguments[^1];
-                return true;
+                sourceType = mapped.ParameterTypes.Count > 0
+                    ? mapped.ParameterTypes[0]
+                    : CheckedTypes.Mixed;
+                resultType = mapped.ReturnType;
             }
 
             // Bare PropertyPath without type args — still recognize the type for 4320 reporting.
@@ -134,18 +113,118 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// Maps <c>PropertyPath&lt;TSource, TReturn&gt;</c> to <c>callable&lt;TSource, TReturn&gt;</c>
-        /// for contextual closure typing at call sites.
+        /// Maps <c>PropertyPath&lt;TCallableShape&gt;</c> to the callable facet of
+        /// <c>TCallableShape</c> for contextual closure typing at call sites.
         /// </summary>
         public static bool TryMapToCallable(ICheckedType type, out CallableCheckedType callable)
         {
             callable = null!;
-            if (!TryGetPropertyPathTypeArgs(type, out var source, out var result))
+            if (!IsPropertyPathType(type))
             {
                 return false;
             }
 
-            callable = new CallableCheckedType([source], result);
+            if (TryGetCallableShapeArgument(type, out var shape)
+                && TryMapCallableShape(shape, out callable))
+            {
+                return true;
+            }
+
+            callable = new CallableCheckedType([], CheckedTypes.Mixed);
+            return true;
+        }
+
+        /// <summary>
+        /// First type argument of an <c>Expression</c> / <c>PropertyPath</c> instantiation is
+        /// <c>TCallableShape</c>. Bare (open) forms have no arguments.
+        /// </summary>
+        public static bool TryGetCallableShapeArgument(ICheckedType type, out ICheckedType shape)
+        {
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            if (type is GenericCheckedType { TypeArguments.Count: > 0 } generic)
+            {
+                shape = generic.TypeArguments[0];
+                return true;
+            }
+
+            shape = null!;
+            return false;
+        }
+
+        /// <summary>
+        /// After an inline <c>fn</c> has been checked against a <c>PropertyPath&lt;…&gt;</c>
+        /// annotation, reports arrow / chain diagnostics. Returns true when
+        /// <paramref name="targetType"/> is PropertyPath so the caller must not compare the
+        /// inferred <c>\Closure</c> to the PropertyPath class.
+        /// </summary>
+        public static bool TryValidateInlineFnCapture(
+            PhpInlineFunctionAst closure,
+            ICheckedType targetType,
+            CheckerState outerState,
+            DiagnosticBag diagnostics,
+            IBase2Ast reportNode)
+        {
+            if (!IsPropertyPathType(targetType))
+            {
+                return false;
+            }
+
+            TryGetPropertyPathTypeArgs(targetType, out var sourceType, out var resultType);
+            if (!closure.IsArrowFunction)
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    outerState,
+                    reportNode,
+                    MessageCode.CheckerPropertyPathRequiresInlineFn,
+                    DisplayTypeArg(sourceType),
+                    DisplayTypeArg(resultType));
+                return true;
+            }
+
+            if (!TryGetArrowBodyExpression(closure, out var body)
+                || GetSingleArrowParameterName(closure) is not { } paramName
+                || !TryExtractPropertyChain(body, paramName, out var segments)
+                || segments.Count == 0)
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    outerState,
+                    body is IBase2Ast bodyNode ? bodyNode : closure,
+                    MessageCode.CheckerPropertyPathInvalidBody);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Turns a <c>TCallableShape</c> (typically <c>callable(TSource $source): TReturn</c>)
+        /// into an arity facet.
+        /// </summary>
+        public static bool TryMapCallableShape(ICheckedType shape, out CallableCheckedType callable)
+        {
+            var facets = CallableArityFacetBuilder.GetCallableFacets(shape);
+            if (facets.Count == 0)
+            {
+                callable = null!;
+                return false;
+            }
+
+            CallableCheckedType? longest = null;
+            foreach (var facet in facets)
+            {
+                if (longest is null
+                    || facet.ParameterTypes.Count > longest.ParameterTypes.Count)
+                {
+                    longest = facet;
+                }
+            }
+
+            callable = longest!;
             return true;
         }
 

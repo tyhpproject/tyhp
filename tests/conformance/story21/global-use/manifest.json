@@ -1,0 +1,18 @@
+{
+  "suite": "story21/global-use",
+  "description": "Story 21 — redundant local use of globally included StringExtensions (TYHP4169) and length() splice. Isolated from array.tyhpdef (TYHP4174).",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "redundant_local_use_4169",
+      "file": "redundant_use.tyhp",
+      "expect": {
+        "warningCodes": [4169],
+        "errorCount": 0,
+        "php": "expected/_functions.php"
+      }
+    }
+  ]
+}

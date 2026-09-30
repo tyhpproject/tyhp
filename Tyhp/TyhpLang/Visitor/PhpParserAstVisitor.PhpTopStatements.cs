@@ -190,150 +190,16 @@ namespace Tyhp.TyhpLang.Visitor
         public override PhpHaltCompilerAst VisitTopStatementHaltCompiler([NotNull] TyhpParser.TopStatementHaltCompilerContext context)
             => PhpHaltCompilerAst.Create(context, GetCurrentLanguageMode(context));
 
-        public override TokenValueAst VisitUseType([NotNull] TyhpParser.UseTypeContext context)
-            => this.GetTokenValueAst(
-                context,
-                context.TokenValue,
-                () => this.VisitUseTypeGrammarAddon(context.TokenValueGrammarAddon)
-            ) ?? TokenValueAst.Create("", 0, context);
 
-        public override TokenValueAst VisitUseTypeGrammarAddon([NotNull] TyhpParser.UseTypeGrammarAddonContext context)
-        {
-            this.ReportUnexpectedAlternative(context, "useTypeGrammarAddon");
-            return TokenValueAst.Create("", 0, context);
-        }
 
-        public override PhpImportDeclListAst VisitGroupUseDeclaration([NotNull] TyhpParser.GroupUseDeclarationContext context)
-        {
-            var namespaceName = this.VisitLegacyNamespaceName(context.NamespaceName);
-            var useDeclList = this.VisitUnprefixedUseDeclarations(context.UseDeclList);
-            
-            var prefix = namespaceName.ValueString + (context.NsSep?.Text ?? "");
-            
-            // Create new import declarations with the prefix applied
-            var newItems = new List<PhpImportDeclAst>();
-            foreach (var useDecl in useDeclList.GetAllNotNull()) {
-                var prefixedNamespace = prefix + useDecl.NamespaceName;
-                var newImport = PhpImportDeclAst.Create(
-                    useDecl.UseType,
-                    prefixedNamespace,
-                    useDecl.Identifier, // Keep the alias if any
-                    context,
-                    GetCurrentLanguageMode(context)
-                );
-                newItems.Add(newImport);
-            }
-            
-            return PhpImportDeclListAst.Create(newItems, context, GetCurrentLanguageMode(context));
-        }
 
-        public override PhpImportDeclListAst VisitMixedGroupUseDeclaration([NotNull] TyhpParser.MixedGroupUseDeclarationContext context)
-        {
-            var namespaceName = this.VisitLegacyNamespaceName(context.NamespaceName);
-            var useDeclList = this.VisitInlineUseDeclarations(context.UseDeclList);
-            
-            var prefix = namespaceName.ValueString + (context.NsSep?.Text ?? "");
-            
-            // Create new import declarations with the prefix applied
-            var newItems = new List<PhpImportDeclAst>();
-            foreach (var useDecl in useDeclList.GetAllNotNull()) {
-                var prefixedNamespace = prefix + useDecl.NamespaceName;
-                var newImport = PhpImportDeclAst.Create(
-                    useDecl.UseType,
-                    prefixedNamespace,
-                    useDecl.Identifier, // Keep the alias if any
-                    context,
-                    GetCurrentLanguageMode(context)
-                );
-                newItems.Add(newImport);
-            }
-            
-            return PhpImportDeclListAst.Create(newItems, context, GetCurrentLanguageMode(context));
-        }
 
-        public override PhpImportDeclListAst VisitInlineUseDeclarations([NotNull] TyhpParser.InlineUseDeclarationsContext context)
-        {
-            var items = context._Items?.Select(this.VisitInlineUseDeclaration) ?? null;
-            return PhpImportDeclListAst.Create(items, context, GetCurrentLanguageMode(context));
-        }
 
-        public override PhpImportDeclListAst VisitUnprefixedUseDeclarations([NotNull] TyhpParser.UnprefixedUseDeclarationsContext context)
-        {
-            var items = context._Items?.Select(this.VisitUnprefixedUseDeclaration) ?? null;
-            return PhpImportDeclListAst.Create(items, context, GetCurrentLanguageMode(context));
-        }
 
-        public override PhpImportDeclListAst VisitUseDeclarations([NotNull] TyhpParser.UseDeclarationsContext context)
-        {
-            var items = context._Items?.Select(this.VisitUseDeclaration) ?? null;
-            return PhpImportDeclListAst.Create(items, context, GetCurrentLanguageMode(context));
-        }
 
-        public override PhpImportDeclAst VisitInlineUseDeclaration([NotNull] TyhpParser.InlineUseDeclarationContext context)
-        {
-            var useType = context.UseType != null ? this.VisitUseType(context.UseType) : null;
-            var useDecl = this.VisitUnprefixedUseDeclaration(context.UseDecl);
-            
-            // Apply the inline use type if specified
-            if (useType != null) {
-                useDecl.SetUseType(useType);
-            }
-            
-            return useDecl;
-        }
 
-        public override PhpImportDeclAst VisitUnprefixedUseDeclaration([NotNull] TyhpParser.UnprefixedUseDeclarationContext context)
-        {
-            if (context.NamespaceName != null) {
-                var namespaceName = this.VisitNamespaceName(context.NamespaceName);
-                var aliasedAs = context.AliasedAs?.Text;
-                
-                return PhpImportDeclAst.Create(
-                    null, // Use type will be set at higher level if needed
-                    namespaceName.ValueString,
-                    aliasedAs,
-                    context,
-                    GetCurrentLanguageMode(context)
-                );
-            } else if (context.unprefixedUseDeclarationGrammarAddon() != null) {
-                return this.VisitUnprefixedUseDeclarationGrammarAddon(context.unprefixedUseDeclarationGrammarAddon());
-            }
 
-            this.ReportUnexpectedAlternative(context, "unprefixedUseDeclaration");
-            return PhpImportDeclAst.Create(null, "", null, context, GetCurrentLanguageMode(context));
-        }
 
-        public override PhpImportDeclAst VisitUnprefixedUseDeclarationGrammarAddon([NotNull] TyhpParser.UnprefixedUseDeclarationGrammarAddonContext context)
-        {
-            this.ReportUnexpectedAlternative(context, "unprefixedUseDeclarationGrammarAddon");
-            return PhpImportDeclAst.Create(null, "", null, context, GetCurrentLanguageMode(context));
-        }
 
-        public override PhpImportDeclAst VisitUseDeclaration([NotNull] TyhpParser.UseDeclarationContext context)
-        {
-            if (context.NamespaceName != null) {
-                var namespaceName = this.VisitLegacyNamespaceName(context.NamespaceName);
-                var aliasedAs = context.AliasedAs?.Text;
-                
-                return PhpImportDeclAst.Create(
-                    null, // Use type will be set at higher level if needed
-                    namespaceName.ValueString,
-                    aliasedAs,
-                    context,
-                    GetCurrentLanguageMode(context)
-                );
-            } else if (context.useDeclarationGrammarAddon() != null) {
-                return this.VisitUseDeclarationGrammarAddon(context.useDeclarationGrammarAddon());
-            }
-
-            this.ReportUnexpectedAlternative(context, "useDeclaration");
-            return PhpImportDeclAst.Create(null, "", null, context, GetCurrentLanguageMode(context));
-        }
-
-        public override PhpImportDeclAst VisitUseDeclarationGrammarAddon([NotNull] TyhpParser.UseDeclarationGrammarAddonContext context)
-        {
-            this.ReportUnexpectedAlternative(context, "useDeclarationGrammarAddon");
-            return PhpImportDeclAst.Create(null, "", null, context, GetCurrentLanguageMode(context));
-        }
     }
 }

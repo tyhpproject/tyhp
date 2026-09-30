@@ -148,7 +148,7 @@ ALL Stories 01–27 Complete
 
 ### MessageCode Numbering
 
-This story uses MessageCode values in the **4300–4399 feature-checker band** (`4310–4312`), relocated out of the 4000–4211 range now owned contiguously by Story 08. Story 27's `new<>` codes occupy `4300–4303` in the same band.
+This story uses MessageCode values in the **4300–4399 feature-checker band** (`4310–4312`), relocated out of the 4000–4211 range now owned contiguously by Story 08. `4300–4307` in that band are PHP version gating / extern (not Story 27).
 
 | Code | Enum Name | Message |
 |------|-----------|---------|
@@ -169,8 +169,8 @@ This story uses MessageCode values in the **4300–4399 feature-checker band** (
 
 ## Phase 1: Grammar — Add Default Type to Generic Parameter Rule
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -244,8 +244,8 @@ Requires `antlr-ng` (`npm install -g antlr-ng`). Grammar regeneration is **not**
 
 ## Phase 2: AST — Add Default Type to Generic Type Argument AST Node
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -329,8 +329,8 @@ Note the label changes: `context.TypeExpr` becomes `context.ConstraintExpr` (mat
 
 ## Phase 3: Binder — Store Default on `GenericTypeParameterSymbol`
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -413,8 +413,8 @@ The binder does NOT validate that defaulted parameters are trailing. This valida
 
 ## Phase 4: Checker — Validate and Apply Defaults
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -669,12 +669,12 @@ Add corresponding localized strings for all three error codes (4310, 4311, 4312)
 
 ## Phase 5: Tyhpdef — Preserve Defaults in Generated Package Tyhpdef
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
-When generating `package.tyhp.json` for a compiled Tyhp library (Story 20, Track C; triggered by `"type": "library"` in `tyhp.json`), generic parameter defaults must be included in the output so that consumers of the library get the same defaulting behavior.
+When generating `extra.tyhp.package` for a compiled Tyhp library (Story 20, Track C; triggered by `"type": "library"` in `tyhp.json`), generic parameter defaults must be included in the output so that consumers of the library get the same defaulting behavior.
 
 ### Deliverables
 
@@ -717,22 +717,22 @@ type Collection<T = mixed> = array<T>;
 
 #### 5.3 Parse Defaults in Tyhpdef Input
 
-The tyhpdef parser (which uses the same grammar) already handles parsing `= typeExpr` after Phase 1. Verify that tyhpdef files with generic defaults round-trip correctly: parse → bind → check → generate `package.tyhp.json` → parse again.
+The tyhpdef parser (which uses the same grammar) already handles parsing `= typeExpr` after Phase 1. Verify that tyhpdef files with generic defaults round-trip correctly: parse → bind → check → generate `extra.tyhp.package` → parse again.
 
 ### Acceptance Criteria
 
-- [ ] Generated `package.tyhp.json` files include `= DefaultType` in generic parameter lists
-- [ ] `Promise<TReturn extends void|mixed = void>` appears correctly in `tyhp/async`'s generated `package.tyhp.json`
-- [ ] `package.tyhp.json` files with generic defaults can be consumed by another Tyhp project via Composer dependency
-- [ ] External consumers can use `new Promise()` without specifying `<void>` when consuming via `package.tyhp.json`
+- [ ] Generated `extra.tyhp.package` files include `= DefaultType` in generic parameter lists
+- [ ] `Promise<TReturn extends void|mixed = void>` appears correctly in `tyhp/async`'s generated `extra.tyhp.package`
+- [ ] `extra.tyhp.package` files with generic defaults can be consumed by another Tyhp project via Composer dependency
+- [ ] External consumers can use `new Promise()` without specifying `<void>` when consuming via `extra.tyhp.package`
 - [ ] Round-trip: Tyhp source → tyhpdef → consume → same behavior
 
 ---
 
 ## Phase 6: LSP — Show Defaults in Hover and Completion
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -783,8 +783,8 @@ When the user is typing generic type arguments, signature help should indicate w
 
 ## Phase 7: Testing — Comprehensive Test Coverage
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -899,6 +899,58 @@ GenericDefaultEdgeCaseTests:
 
 ---
 
+## Phase 8: User documentation and AIDevGuide
+
+### Phase Overview
+
+Generic defaults are already *parsed* today, so the documentation change is narrower than it looks and easier to get wrong: the current guidance tells authors to pass every type argument because defaults are not applied. This story makes defaults real, which means the existing "pass all type args" advice becomes wrong rather than merely incomplete. Finding and correcting that advice matters more than describing the syntax.
+
+`docs/content/tyhp_3500_genericDefaults.md` already exists as the page for this feature, and it is the one page in this group whose front matter already reads `state: complete` — it says defaults shipped with this alpha. Meanwhile `AIDevGuide/guide/28-availability-gotchas.md` still tells an agent to pass all type arguments. **That contradiction is live today**, so this phase is a reconciliation, not just an update: settle which is true against the checker, then make both say it.
+
+### Pages to update (create a sibling page only if an existing page cannot hold the topic)
+
+| Page | What this story adds |
+|------|----------------------|
+| `docs/content/tyhp_3500_genericDefaults.md` | `T = Type` on every declaration form that accepts it; that defaults must be trailing; how a default interacts with an `extends` constraint; and the precedence between an explicit argument, an inferred one, and a default |
+| `docs/content/tyhp_0500_generics.md` | Remove or rewrite any statement that all type arguments must be passed |
+| `docs/content/tyhp_0700_typeAliases.md` | Defaults on generic aliases, if this story covers them |
+| `docs/content/tyhpdef_classes.md` / `docs/content/tyhpdef_functions.md` / `docs/content/tyhpdef_typeAliases.md` / `docs/content/cli_tyhpdefGeneration.md` | Defaults are preserved in a generated package tyhpdef, so a consumer gets the same defaults the library declared |
+| `docs/content/diagnostics_reference.md` | The codes this story registers for non-trailing or constraint-violating defaults |
+| `docs/content/cli_languageServer.md` | Hover and completion show defaults |
+| `docs/content/quickref.md` / `docs/content/quickref_tyhpdef.md` / `docs/content/faq_tyhpSyntax.md` | One line; the precedence question |
+
+Search the whole of `docs/content/` for existing "pass all type args" style advice rather than only editing the generics page — that claim tends to be repeated in quickrefs and FAQs.
+
+### AIDevGuide
+
+`AIDevGuide/` is the bundle an agent loads to write Tyhp applications, and it is **regenerated** from the prompt in `AIDevGuide/REGEN.md`. A claim corrected only in a section file comes back the next time the bundle is regenerated, so update the prompt as well as the section.
+
+| File | What this story changes |
+|---|---|
+| `AIDevGuide/guide/07-generics.md` | Defaults are applied; state the precedence rules |
+| `AIDevGuide/guide/28-availability-gotchas.md` | The "use freely" list currently reads "generics (pass all type args)"; drop the parenthetical |
+| `AIDevGuide/guide/09-type-aliases.md` | Defaults on generic aliases, if covered |
+| `AIDevGuide/guide/23-tyhpdef.md` | Defaults survive into a generated tyhpdef |
+| `AIDevGuide/QUICK_GUIDE.md` | The generics line |
+| `AIDevGuide/REGEN.md` | Item 7 explicitly asks for "`= Type` defaults (note defaults not yet applied — pass all type args)"; correct it, or the next regeneration reinstates advice that is now wrong |
+
+### Acceptance Criteria
+
+- [ ] `tyhp_3500_genericDefaults.md` states the trailing-default rule and the explicit / inferred / default precedence
+- [ ] The published page and the AIDevGuide agree on whether defaults are applied, verified against the checker rather than against either document
+- [ ] No page in `docs/content/` still tells authors to pass every type argument
+- [ ] Docs state that defaults are preserved in generated tyhpdefs
+- [ ] New diagnostics are in `diagnostics_reference.md`
+- [ ] `guide/28-availability-gotchas.md` no longer says "pass all type args", and `guide/07-generics.md` documents the precedence
+- [ ] `AIDevGuide/REGEN.md` item 7 no longer carries the "defaults not yet applied" note
+
+### Dependencies
+
+- **Requires:** Phases 1–7 (the shipped feature and its verified behavior)
+- **Provides:** Published documentation and agent-facing guide entries for generic defaults
+
+---
+
 ## Appendix A: Complete MessageCode Summary
 
 ```csharp
@@ -908,7 +960,7 @@ CheckerGenericNonDefaultAfterDefault = 4311,            // "Generic parameter '{
 CheckerGenericDefaultCircularReference = 4312,          // "Generic parameter '{0}' has a circular default type reference"
 ```
 
-Note: These codes live in the `4300–4399` feature-checker band. Story 27's `new<>` codes are `4300–4303` (same band). Story 08 owns the contiguous `4008–4211` range; Story 16's expression-tree errors are `4320–4324`; Story 25's internal-visibility errors are `4330–4334`. Placing Story 28's codes at `4310–4312` keeps clear boundaries from all of these.
+Note: These codes live in the `4300–4399` feature-checker band. `4300–4307` are PHP version gating / extern (not Story 27). Story 08 owns the contiguous `4008–4211` range; Story 16's expression-tree errors start at `4320`; later 4330+ codes are other feature stories. Placing Story 28's codes at `4310–4312` keeps clear boundaries from all of these.
 
 ---
 
@@ -937,7 +989,7 @@ This feature is referenced or assumed by:
 - **Story 02 (Binder):** `GenericTypeParameterSymbol` is defined here. Story 28 adds the `DefaultType` property.
 - **Story 06 (TyhpSpec):** The `Promise<TReturn extends void|mixed = void>` type definition uses a generic default. Story 06 assumes this syntax works.
 - **Story 08 (Checker), Phase 5.5:** States "If generic parameters have defaults, they are optional." Story 28 implements this rule.
-- **Story 20 (Tyhpdef Generator):** `package.tyhp.json` output must preserve generic defaults. Story 28 extends the generator to include them.
+- **Story 20 (Tyhpdef Generator):** `extra.tyhp.package` output must preserve generic defaults. Story 28 extends the generator to include them.
 
 ---
 
@@ -1192,7 +1244,7 @@ Box(42)
 
 ### Step 7: Verify Tyhpdef Round-Trip
 
-If working with a library project, compile a Tyhp library that uses generic defaults and verify the generated `package.tyhp.json` preserves the defaults. Then create a consumer project that depends on the library and verify that the consumer can use the generic types without specifying defaulted arguments.
+If working with a library project, compile a Tyhp library that uses generic defaults and verify the generated `extra.tyhp.package` preserves the defaults. Then create a consumer project that depends on the library and verify that the consumer can use the generic types without specifying defaulted arguments.
 
 ---
 

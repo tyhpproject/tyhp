@@ -8,8 +8,10 @@
 > **Source:** Tyhp language design — PHP runtime module infrastructure, async/await, type system, decimal, disposable
 > **Branch:** TBD
 > **Generated:** 2026-03-13
-> **Prerequisites:** Story 02 (Binder) and Story 03 (Extension Operator Overloads & Tyhpdef Inline Extensions). This story is foundational for the runtime that Stories 06+ depend on: it runs **after** Stories 02 and 03 and **before** Story 06 (TyhpSpec). It establishes the PHP runtime that those stories depend on. All subsequent stories that reference TyhpLib or Promise.php have been updated to reference the Composer packages established here. Note: Story 03 introduces the `extension operator` and `extension function` qualifiers for tyhpdef files. Each runtime package has `"type": "library"` in its `tyhp.json`, which causes the compiler (Story 20, Track C) to auto-generate a `package.tyhp.json` when compiled. That file is a **JSON manifest** with an `include` array (globs pointing at generated artifacts — it does not embed tyhpdef declarations). Generated `.tyhpdef` files use **dot-notation filenames** under `_tyhpdef/`; supporting auto-generated `.tyhp` files go in `_tyhpdef/support/`. Together, those included files are the authoritative type surface for the runtime libraries and are consumed by the binder in user projects (Story 06, Phase 6).
+> **Prerequisites:** Story 02 (Binder) and Story 03 (Extension Operator Overloads & Tyhpdef Inline Extensions). This story is foundational for the runtime that Stories 06+ depend on: it runs **after** Stories 02 and 03 and **before** Story 06 (TyhpSpec). It establishes the PHP runtime that those stories depend on. All subsequent stories that reference TyhpLib or Promise.php have been updated to reference the Composer packages established here. Note: Story 03 introduces the `extension operator` and `extension function` qualifiers for tyhpdef files. Each runtime package has `"type": "library"` in its `tyhp.json`, which causes the compiler (Story 20, Track C) to auto-generate a `extra.tyhp.package` when compiled. That file is a **JSON manifest** with an `include` array (globs pointing at generated artifacts — it does not embed tyhpdef declarations). Generated `.tyhpdef` files use **dot-notation filenames** under `_tyhpdef/`; supporting auto-generated `.tyhp` files go in `_tyhpdef/support/`. Together, those included files are the authoritative type surface for the runtime libraries and are consumed by the binder in user projects (Story 06, Phase 6).
 > **Status:** SUBSTANTIALLY COMPLETE (2026-07-31 audit) — `runtime/packages/{core,decimal,async,lambda}` sources + PHPUnit tests exist. Emitter `using` block acceptance was owned by Story 11 (now present). Coverage ≥80% gate not verified; see `INCOMPLETE.md`.
+>
+> **Story 20.6 note:** Class-body tyhpdef `extension function` / `extension operator` become **thin mappings** (`=>` only, erased at emit). This story still refers to Story 03's original qualifiers; do not change syntax here.
 
 ---
 
@@ -17,7 +19,7 @@
 
 ### What This Plan Covers
 
-This plan establishes the **complete runtime library** that compiled Tyhp code depends on at execution time. The runtime libraries are **written in Tyhp** (source in `runtime/packages/*/tyhp_src/`) and **compiled to PHP** (output in `runtime/packages/*/src/`). They are distributed as standard Composer packages containing the compiled PHP output and an auto-generated `package.tyhp.json` manifest whose `include` array points at `_tyhpdef/` (dot-notation `.tyhpdef` files) and `_tyhpdef/support/` (supporting `.tyhp` files when present). Every Tyhp language feature that cannot be fully erased at compile time needs corresponding runtime support — this plan identifies and implements all of it.
+This plan establishes the **complete runtime library** that compiled Tyhp code depends on at execution time. The runtime libraries are **written in Tyhp** (source in `runtime/packages/*/tyhp_src/`) and **compiled to PHP** (output in `runtime/packages/*/src/`). They are distributed as standard Composer packages containing the compiled PHP output and an auto-generated `extra.tyhp.package` manifest whose `include` array points at `_tyhpdef/` (dot-notation `.tyhpdef` files) and `_tyhpdef/support/` (supporting `.tyhp` files when present). Every Tyhp language feature that cannot be fully erased at compile time needs corresponding runtime support — this plan identifies and implements all of it.
 
 The runtime is organized as a set of **Composer packages** under a shared `Tyhp\` namespace, published to Packagist and installable via `composer require`. The Tyhp compiler's build action adds the appropriate packages as dependencies based on which language features the compiled code uses.
 
@@ -193,7 +195,7 @@ The Tyhp compiler determines which runtime packages a compiled project needs bas
 
 The compiler's build action (`TyhpLibDistributionService` from Story 10) adds the required packages to the output project's `composer.json` and runs `composer install`. This replaces the previous plan of copying TyhpLib files directly into the output directory.
 
-When a runtime package is installed as a Composer dependency, the Tyhp compiler's binder discovers its `package.tyhp.json` from `vendor/tyhp/*/package.tyhp.json` and loads the tyhpdef and Tyhp sources listed by the manifest's `include` array (Story 06, Phase 6). This means user projects get full type information for the runtime library without access to the original Tyhp library source.
+When a runtime package is installed as a Composer dependency, the Tyhp compiler's binder discovers its `extra.tyhp.package` from `vendor/tyhp/*/composer.json` (`extra.tyhp.package`) and loads the tyhpdef and Tyhp sources listed by the manifest's `include` array (Story 06, Phase 6). This means user projects get full type information for the runtime library without access to the original Tyhp library source.
 
 ### Design Principles
 
@@ -211,7 +213,7 @@ When a runtime package is installed as a Composer dependency, the Tyhp compiler'
 
 7. **Start fresh, use existing as reference.** The existing `Promise.php`, `php_Async/`, and `Tyhp/TyhpLib/` code serves as reference and inspiration, but this plan builds from scratch with a clean architecture. Existing code has known bugs (race(), batch(), PromiseLoop timing) that are fixed by redesign rather than patching.
 
-8. **Written in Tyhp, compiled to PHP.** The runtime library source code is written in Tyhp (`.tyhp` files under `tyhp_src/`) and compiled to PHP (output to `src/`). Each package has `"type": "library"` in its `tyhp.json`, which causes the compiler to auto-generate `package.tyhp.json` plus `_tyhpdef/` (dot-notation `.tyhpdef` files) and, when needed, `_tyhpdef/support/` `.tyhp` files on build (Story 20, Track C). The compiled PHP, manifest, and generated type artifacts are distributed via Composer — the hand-authored Tyhp sources under `tyhp_src/` are not included in the published package. This design means the runtime library itself uses Tyhp language features (operator overloads, extensions, generics, etc.) and benefits from the same type safety as user code.
+8. **Written in Tyhp, compiled to PHP.** The runtime library source code is written in Tyhp (`.tyhp` files under `tyhp_src/`) and compiled to PHP (output to `src/`). Each package has `"type": "library"` in its `tyhp.json`, which causes the compiler to auto-generate `extra.tyhp.package` plus `_tyhpdef/` (dot-notation `.tyhpdef` files) and, when needed, `_tyhpdef/support/` `.tyhp` files on build (Story 20, Track C). The compiled PHP, manifest, and generated type artifacts are distributed via Composer — the hand-authored Tyhp sources under `tyhp_src/` are not included in the published package. This design means the runtime library itself uses Tyhp language features (operator overloads, extensions, generics, etc.) and benefits from the same type safety as user code.
 
 9. **Emitter integration contract.** The emitter (Story 09/11) generates PHP code that calls into the runtime library classes. Each class documents its **emitter contract** — the exact method signatures and call patterns the emitter generates. The emitter design dictates the runtime API, not the other way around. Method names, parameter types, and call patterns must match exactly what the emitter outputs.
 
@@ -256,8 +258,8 @@ When a runtime package is installed as a Composer dependency, the Tyhp compiler'
 
 ## Phase 1: Module Infrastructure & Directory Structure
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -464,8 +466,8 @@ Create all `src/` and `tests/` directories plus subdirectories (`Concerns/`, `Co
 
 ## Phase 2: Core Module — Type System
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -635,8 +637,8 @@ Thrown when an invalid type construction is attempted (e.g., creating a union wi
 
 ## Phase 3: Core Module — Runtime Traits & Utilities
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -777,8 +779,8 @@ This class lives in `tyhp/core` because it's needed by sync disposable patterns 
 
 ## Phase 4: Decimal Module
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1045,8 +1047,8 @@ Guarded by `function_exists` to prevent redeclaration errors if multiple autoloa
 
 ## Phase 5: Async Module — Promise Foundation
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -1340,8 +1342,8 @@ public static function run(callable $fn): mixed
 
 ## Phase 6: Async Module — Event Loop with I/O
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -1586,8 +1588,8 @@ Fiber operations are queued rather than executed immediately. The `drainFiberQue
 
 ## Phase 7: Async Module — CancellationToken
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1808,8 +1810,8 @@ public static function run(callable $fn, ?CancellationToken $token = null): mixe
 
 ## Phase 8: Async Module — Combinators & Utilities
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -2107,8 +2109,8 @@ final class TimeoutException extends \RuntimeException
 
 ## Phase 9: Async Module — Disposable & Async Iteration
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -2328,8 +2330,8 @@ while (\Tyhp\Promise::_await($__asyncIter->next())) {
 
 ## Phase 10: `using` Block — Grammar, AST, Visitor, Binder (Emitter Spec Only)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -2795,8 +2797,8 @@ No new PHP classes are created for this phase — it uses existing classes from 
 
 ## Phase 11: Lambda Module — PropertyPath & Expression Trees
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -3105,8 +3107,8 @@ Converts expression trees to JSON for passing across API boundaries (e.g., clien
 
 ## Phase 12: Comprehensive Testing
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 

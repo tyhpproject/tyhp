@@ -7,9 +7,9 @@ class Money
     public int $amount = 0;
 }
 
-extension MoneyFormatting
+extension MoneyFormatting extends Money
 {
-    function format(extends Money $this, string $currency): string
+    function format(string $currency): string
     {
         return $currency . ' ' . $this->amount;
     }

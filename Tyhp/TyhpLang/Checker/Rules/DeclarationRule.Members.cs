@@ -3,6 +3,7 @@ using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Checker;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Checker.Rules
@@ -18,9 +19,18 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // Class members bypass CheckNode (CheckObjectBody calls us directly), so attribute
             // rules registered for PhpPropertyDeclAst never dispatch — validate explicitly here.
             AttributeRule.ValidateDeclarationAttributes(property, state, context, diagnostics);
+            context.ValidatePhpVersionMember(property, state);
             context.CheckAttributes(property, state);
 
             var modifiers = CheckerHelpers.ToMemberModifiers(property.Modifiers);
+            if (CheckerHelpers.CountVisibilityModifiers(modifiers) > 1)
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics, state, property, MessageCode.CheckerMultipleVisibilities, property.Identifier);
+            }
+
+            var isTyhpdefProperty = string.Equals(
+                property.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase);
 
             if (state.EnclosingObject?.ObjectKind == PhpTypeDeclType.Interface)
             {
@@ -30,12 +40,18 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         diagnostics, state, property, MessageCode.CheckerInterfacePropertyNotAllowed);
                 }
 
-                foreach (var prop in property.Properties?.GetAllNotNull() ?? [])
+                // Tyhpdef hooked interface properties document `?? <value>` as PHP's expected
+                // start value (same as classes/traits) — it is not a real PHP initializer, so
+                // it does not trip the "interface property cannot have an initializer" rule.
+                if (!isTyhpdefProperty)
                 {
-                    if (prop.DefaultValue is not null)
+                    foreach (var prop in property.Properties?.GetAllNotNull() ?? [])
                     {
-                        CheckerHelpers.ReportError(
-                            diagnostics, state, prop, MessageCode.CheckerInterfacePropertyInitializer, prop.Identifier);
+                        if (prop.DefaultValue is not null)
+                        {
+                            CheckerHelpers.ReportError(
+                                diagnostics, state, prop, MessageCode.CheckerInterfacePropertyInitializer, prop.Identifier);
+                        }
                     }
                 }
             }
@@ -60,13 +76,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         .Select(p => p.Identifier)
                         .FirstOrDefault(n => !string.IsNullOrEmpty(n))
                     ?? property.Identifier;
-                if (propName.StartsWith('$'))
-                {
-                    propName = propName[1..];
-                }
 
                 CheckerHelpers.ReportError(
-                    context, state, property, MessageCode.CheckerVariableTypeRequired, propName);
+                    context, state, property, MessageCode.CheckerVariableTypeRequired,
+                    CheckerHelpers.FormatTypeRequiredName(propName));
             }
             else
             {
@@ -76,41 +89,60 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 state.IsPropertyTypePosition = false;
 
                 var declaredType = context.ResolveTypeAnnotation(property.Type, state);
-                foreach (var prop in property.Properties?.GetAllNotNull() ?? [])
-                {
-                    if (prop.DefaultValue is not null)
-                    {
-                        if (!CheckerHelpers.IsConstantExpression(prop.DefaultValue, state))
-                        {
-                            CheckerHelpers.ReportError(
-                                diagnostics, state, prop, MessageCode.CheckerNonConstantExpression);
-                        }
 
-                        var defaultType = context.ResolveExpressionType(prop.DefaultValue, state);
-                        if (!context.IsAssignable(defaultType, declaredType))
+                // Tyhpdef `?? expr` records PHP's expected start value; it is never assigned or
+                // emitted, so — like tyhpdef const `?? expr`, which the checker never visits at
+                // all — it is not held to constant-expression / declared-type rules here.
+                if (!isTyhpdefProperty)
+                {
+                    foreach (var prop in property.Properties?.GetAllNotNull() ?? [])
+                    {
+                        if (prop.DefaultValue is not null)
                         {
-                            CheckerHelpers.ReportError(
-                                diagnostics, state, prop, MessageCode.CheckerTypeMismatch,
-                                defaultType.DisplayName, declaredType.DisplayName);
+                            if (!CheckerHelpers.IsConstantExpression(prop.DefaultValue, state))
+                            {
+                                CheckerHelpers.ReportError(
+                                    diagnostics, state, prop, MessageCode.CheckerNonConstantExpression);
+                            }
+
+                            var previousDefaultExpected = state.ExpectedExpressionType;
+                            if (ContextualNewInference.IsUsableExpectedType(declaredType))
+                            {
+                                state.ExpectedExpressionType = declaredType;
+                            }
+
+                            ICheckedType defaultType;
+                            try
+                            {
+                                defaultType = context.ResolveExpressionType(prop.DefaultValue, state);
+                            }
+                            finally
+                            {
+                                state.ExpectedExpressionType = previousDefaultExpected;
+                            }
+                            if (!context.IsAssignable(defaultType, declaredType))
+                            {
+                                CheckerHelpers.ReportError(
+                                    diagnostics, state, prop, MessageCode.CheckerTypeMismatch,
+                                    defaultType.DisplayName, declaredType.DisplayName);
+                            }
                         }
                     }
                 }
 
-                // Generic-typed properties (incl. fixed args like `\Closure<bool>`) need
-                // tyhpGenericObjectSetPropertyType registration → flag the enclosing class.
-                if (state.EnclosingObject is { GenericParameters.Count: > 0 }
-                    && TypeInvolvesGenericsForTracking(property.Type, state))
+                // Generic-typed instance properties (incl. fixed args like `\Closure<bool>`)
+                // need setPropertyType registration → flag the enclosing class, unless
+                // `#[EraseGeneric]` opted this property or the whole class out.
+                if ((modifiers & MemberModifier.Static) == 0)
                 {
-                    context.MarkRequiresRuntimeGenericTracking(state.EnclosingObject);
+                    TryMarkGenericPropertyTracking(property.Type, property, state, context);
                 }
             }
 
-            // PHP 8.4+ only allows `final` on a property hook; every other modifier is a parse error.
             foreach (var prop in property.Properties?.GetAllNotNull() ?? [])
             {
-                ValidatePropertyHookModifiers(prop.Hooks, state, diagnostics);
-                CheckByRefPropertyGetHooks(prop.Hooks, state, context, diagnostics);
-                CheckPropertyHookFinalOverrides(prop.Identifier, prop.Hooks, state, context, diagnostics);
+                CheckPropertyHookDeclarations(
+                    prop.Hooks, prop.Identifier, modifiers, prop, state, context, diagnostics);
 
                 // A hook already governs read/write access, so PHP fatals if `readonly` is also present.
                 if (prop.Hooks is not null && (modifiers & MemberModifier.Readonly) != 0)
@@ -160,6 +192,15 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
+            // Grammar admits only bodyless `get;` / `set;` in tyhpdef. If a body still
+            // reaches the checker, that is a visitor regression (TYHP8015).
+            if (hook.Body is not null && IsTyhpdefPropertyHook(hook, state))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics, state, hook, MessageCode.TyhpdefPropertyHookBodyNotAllowed);
+                return;
+            }
+
             if (hook.Body is null)
             {
                 return;
@@ -279,8 +320,164 @@ namespace Tyhp.TyhpLang.Checker.Rules
         }
 
         /// <summary>
-        /// Rejects any modifier other than <see cref="PhpModifier.Final"/> on a property hook.
-        /// Real PHP 8.4+ fatals with "Cannot use the &lt;x&gt; modifier on a property hook".
+        /// Declaration-level hook rules shared by class properties and promoted constructor
+        /// parameters. Shape checks (duplicate / invalid name / <c>&amp;set</c> / get parameters)
+        /// and modifier / visibility / final-override / <c>&amp;get</c> version rules all run on
+        /// the shared <see cref="PhpPropertyAst.Hooks"/> AST, including bodyless tyhpdef hooks.
+        /// </summary>
+        private static void CheckPropertyHookDeclarations(
+            PhpPropertyHookListAst? hooks,
+            string? propertyName,
+            MemberModifier propertyModifiers,
+            IBase2Ast? propertyNode,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var previousEnclosing = state.EnclosingObject;
+            if (state.EnclosingObject is null
+                && TryResolveEnclosingObject(propertyNode) is { } owner)
+            {
+                state.EnclosingObject = owner;
+            }
+
+            try
+            {
+                ValidatePropertyHookShape(hooks, propertyName, state, diagnostics);
+                ValidatePropertyHookModifiers(hooks, state, diagnostics);
+                CheckPropertyHookAccessorVisibility(hooks, propertyModifiers, state, diagnostics);
+                CheckByRefPropertyGetHooks(hooks, state, context, diagnostics);
+                CheckPropertyHookFinalOverrides(propertyName, hooks, state, context, diagnostics);
+                ValidatePropertyHookAttributes(hooks, state, context, diagnostics);
+            }
+            finally
+            {
+                state.EnclosingObject = previousEnclosing;
+            }
+        }
+
+        /// <summary>
+        /// Prefer <see cref="CheckerState.EnclosingObject"/> seeded by
+        /// <c>CheckTyhpdefImportObject</c> / <c>CheckObjectType</c>. Recover from the property
+        /// symbol when a hook is checked without that seed (defensive).
+        /// </summary>
+        private static ObjectDeclarationSymbol? TryResolveEnclosingObject(IBase2Ast? propertyNode)
+        {
+            if (propertyNode?.BoundSymbol is ObjectPropertySymbol propSymbol
+                && propSymbol.ContainingScope?.DeclarationSymbol is ObjectDeclarationSymbol owner)
+            {
+                return owner;
+            }
+
+            return null;
+        }
+
+        private static void ValidatePropertyHookAttributes(
+            PhpPropertyHookListAst? hooks,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (hooks is null)
+            {
+                return;
+            }
+
+            foreach (var hook in hooks.GetAllNotNull())
+            {
+                AttributeRule.ValidateDeclarationAttributes(hook, state, context, diagnostics);
+                if (hook.Parameters is PhpParameterListAst hookParams)
+                {
+                    foreach (var parameter in hookParams.GetAllNotNull())
+                    {
+                        AttributeRule.ValidateDeclarationAttributes(parameter, state, context, diagnostics);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Duplicate <c>get</c>/<c>set</c>, unknown hook names (TYHP4006), illegal <c>&amp;set</c>,
+        /// and parameters on <c>get</c> (TYHP4007). Invalid names are reported per hook so a list
+        /// with neither get nor set still surfaces 4006 after recovery.
+        /// </summary>
+        private static void ValidatePropertyHookShape(
+            PhpPropertyHookListAst? hooks,
+            string? propertyName,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (hooks is null)
+            {
+                return;
+            }
+
+            var seen = new Dictionary<string, PhpPropertyHookAst>(StringComparer.OrdinalIgnoreCase);
+            foreach (var hook in hooks.GetAllNotNull())
+            {
+                var hookName = hook.Identifier?.Trim() ?? string.Empty;
+                if (!IsGetOrSetPropertyHook(hookName))
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        hook,
+                        MessageCode.CheckerInvalidPropertyAccessorType,
+                        string.IsNullOrEmpty(hookName) ? "<empty>" : hookName);
+                    continue;
+                }
+
+                if (seen.TryGetValue(hookName, out var firstHook))
+                {
+                    var bareProperty = string.IsNullOrEmpty(propertyName)
+                        ? ""
+                        : (propertyName.StartsWith('$') ? propertyName[1..] : propertyName);
+                    var duplicateName = string.IsNullOrEmpty(bareProperty)
+                        ? hookName.ToLowerInvariant()
+                        : "$" + bareProperty + "::" + hookName.ToLowerInvariant();
+                    var fileName = CheckerHelpers.ResolveDiagnosticFileName(state, hook);
+                    diagnostics.AddDuplicateFromAst(
+                        MessageCode.BinderDuplicateSymbolDeclaration,
+                        hook,
+                        fileName,
+                        firstHook,
+                        fileName,
+                        duplicateName);
+                    continue;
+                }
+
+                seen[hookName] = hook;
+
+                if (hook.ReturnsRef
+                    && string.Equals(hookName, "set", StringComparison.OrdinalIgnoreCase))
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        hook,
+                        MessageCode.CheckerInvalidPropertyAccessorType,
+                        "&set");
+                }
+
+                if (string.Equals(hookName, "get", StringComparison.OrdinalIgnoreCase)
+                    && hook.Parameters is { } getParams
+                    && getParams.GetAllNotNull().Any())
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        hook,
+                        MessageCode.CheckerParameterNotAllowedOnPropertyAccessorType,
+                        "get");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Rejects any modifier other than <see cref="PhpModifier.Final"/> or a single visibility
+        /// (<c>public</c> / <c>protected</c> / <c>private</c>) on a property hook. PHP 8.4 allows
+        /// those; <c>static</c>, <c>abstract</c>, <c>readonly</c>, <c>var</c>, and asymmetric
+        /// <c>*(set)</c> modifiers are fatal.
         /// </summary>
         private static void ValidatePropertyHookModifiers(
             PhpPropertyHookListAst? hooks,
@@ -296,7 +493,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 foreach (var modifier in hook.Modifiers?.Modifiers ?? [])
                 {
-                    if (modifier is PhpModifier.None or PhpModifier.Final)
+                    if (IsAllowedPropertyHookModifier(modifier))
                     {
                         continue;
                     }
@@ -313,9 +510,51 @@ namespace Tyhp.TyhpLang.Checker.Rules
         }
 
         /// <summary>
+        /// TYHP4004: an explicit hook visibility must not be more visible than the property.
+        /// A hook with no visibility keyword inherits the property's visibility.
+        /// </summary>
+        private static void CheckPropertyHookAccessorVisibility(
+            PhpPropertyHookListAst? hooks,
+            MemberModifier propertyModifiers,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (hooks is null)
+            {
+                return;
+            }
+
+            var propertyVisibility = EffectiveVisibility(propertyModifiers);
+            var propertyVisibilityName = FormatVisibilityName(propertyVisibility);
+            var propertyRank = VisibilityRank(propertyVisibility);
+
+            foreach (var hook in hooks.GetAllNotNull())
+            {
+                if (!TryGetExplicitHookVisibility(hook, out var hookVisibility, out var hookVisibilityName))
+                {
+                    continue;
+                }
+
+                if (VisibilityRank(hookVisibility) > propertyRank)
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        hook.Modifiers as IBase2Ast ?? hook,
+                        MessageCode.CheckerAccessorVisibilityCannotBeMoreVisibleThanProperty,
+                        hookVisibilityName,
+                        propertyVisibilityName);
+                }
+            }
+        }
+
+        /// <summary>
         /// Rejects authored <c>&amp;get</c> when targeting PHP &lt; 8.4. Native hooks preserve by-ref
         /// semantics on PHP ≥ 8.4; the polyfill path cannot (<c>__get</c> is not by-ref), so a
         /// silent by-value lowering would change aliasing behavior.
+        /// Tyhpdef declarations skip this diagnostic: tyhpdef describes an existing PHP API rather
+        /// than emitting toward <c>output.phpVersion</c>. Gate the symbol with <c>#[\Tyhp\Php]</c>
+        /// / <c>declare(php=…)</c> when the API is 8.4-only.
         /// </summary>
         private static void CheckByRefPropertyGetHooks(
             PhpPropertyHookListAst? hooks,
@@ -323,7 +562,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
-            if (hooks is null || IsPhpVersionAtLeast(context.Options.PhpVersion, 8, 4))
+            if (hooks is null
+                || IsTyhpdefHookList(hooks, state)
+                || IsPhpVersionAtLeast(context.Options.PhpVersion, 8, 4))
             {
                 return;
             }
@@ -550,6 +791,108 @@ namespace Tyhp.TyhpLang.Checker.Rules
             => string.Equals(hookName, "get", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(hookName, "set", StringComparison.OrdinalIgnoreCase);
 
+        private static bool IsAllowedPropertyHookModifier(PhpModifier modifier) =>
+            modifier is PhpModifier.None or PhpModifier.Final
+                or PhpModifier.Public or PhpModifier.Protected or PhpModifier.Private;
+
+        /// <summary>
+        /// True when this hook list is a tyhpdef declaration (bodyless description), not Tyhp
+        /// source that will be emitted toward <c>output.phpVersion</c>.
+        /// </summary>
+        private static bool IsTyhpdefHookList(PhpPropertyHookListAst hooks, CheckerState state)
+        {
+            if (string.Equals(hooks.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            foreach (var hook in hooks.GetAllNotNull())
+            {
+                if (IsTyhpdefPropertyHook(hook, state))
+                {
+                    return true;
+                }
+            }
+
+            var fileName = state.CurrentFileName ?? string.Empty;
+            return fileName.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsTyhpdefPropertyHook(PhpPropertyHookAst hook, CheckerState state)
+        {
+            if (string.Equals(hook.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var fileName = state.CurrentFileName ?? string.Empty;
+            return fileName.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static MemberModifier EffectiveVisibility(MemberModifier modifiers)
+        {
+            if ((modifiers & MemberModifier.Private) != 0)
+            {
+                return MemberModifier.Private;
+            }
+
+            if ((modifiers & MemberModifier.Protected) != 0)
+            {
+                return MemberModifier.Protected;
+            }
+
+            return MemberModifier.Public;
+        }
+
+        private static int VisibilityRank(MemberModifier visibility) => visibility switch
+        {
+            MemberModifier.Public => 2,
+            MemberModifier.Protected => 1,
+            MemberModifier.Private => 0,
+            _ => 2,
+        };
+
+        private static string FormatVisibilityName(MemberModifier visibility) => visibility switch
+        {
+            MemberModifier.Private => "private",
+            MemberModifier.Protected => "protected",
+            _ => "public",
+        };
+
+        private static bool TryGetExplicitHookVisibility(
+            PhpPropertyHookAst hook,
+            out MemberModifier visibility,
+            out string visibilityName)
+        {
+            visibility = MemberModifier.Public;
+            visibilityName = "public";
+            if (hook.Modifiers is null)
+            {
+                return false;
+            }
+
+            foreach (var modifier in hook.Modifiers.Modifiers)
+            {
+                switch (modifier)
+                {
+                    case PhpModifier.Private:
+                        visibility = MemberModifier.Private;
+                        visibilityName = "private";
+                        return true;
+                    case PhpModifier.Protected:
+                        visibility = MemberModifier.Protected;
+                        visibilityName = "protected";
+                        return true;
+                    case PhpModifier.Public:
+                        visibility = MemberModifier.Public;
+                        visibilityName = "public";
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
         private static bool HookHasFinalModifier(PhpPropertyHookAst hook)
             => hook.Modifiers?.Modifiers.Contains(PhpModifier.Final) == true;
 
@@ -567,6 +910,79 @@ namespace Tyhp.TyhpLang.Checker.Rules
             PhpModifier.PrivateSet => "private(set)",
             _ => modifier.ToString().ToLowerInvariant(),
         };
+
+        /// <summary>
+        /// Marks the enclosing generic class for Mechanism C when <paramref name="typeExpr"/>
+        /// involves class generics or a generic application, unless the property host or the
+        /// enclosing class carries <c>#[\Tyhp\EraseGeneric]</c>.
+        /// </summary>
+        internal static void TryMarkGenericPropertyTracking(
+            ITypeExpression? typeExpr,
+            IBase2Ast? attributeHost,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            if (typeExpr is null
+                || state.EnclosingObject is not { GenericParameters.Count: > 0 } enclosing
+                || enclosing.ObjectKind != PhpTypeDeclType.Class)
+            {
+                return;
+            }
+
+            if (EraseGenericAttributeSupport.HasEraseGeneric(attributeHost)
+                || EraseGenericAttributeSupport.HasEraseGeneric(enclosing.DeclaringAstNode))
+            {
+                return;
+            }
+
+            if (TypeInvolvesGenericsForTracking(typeExpr, state))
+            {
+                context.MarkRequiresRuntimeGenericTracking(enclosing);
+            }
+        }
+
+        /// <summary>
+        /// Class-level <c>#[EraseGeneric]</c> applies to generic-typed instance properties that
+        /// end up on this class from traits. Not inherited from a parent class.
+        /// </summary>
+        internal static void MarkTraitFlattenedGenericPropertyTracking(
+            ObjectDeclarationSymbol objectSymbol,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            if (objectSymbol.GenericParameters.Count == 0
+                || objectSymbol.ObjectKind != PhpTypeDeclType.Class
+                || EraseGenericAttributeSupport.HasEraseGeneric(objectSymbol.DeclaringAstNode))
+            {
+                return;
+            }
+
+            var traits = TypeComparer.ResolveUsedTraits(
+                objectSymbol, context.SymbolTree, context.GlobalScope, out _);
+            foreach (var trait in traits)
+            {
+                foreach (var member in trait.Members.Values)
+                {
+                    if (member is not ObjectPropertySymbol property
+                        || property.SymbolType != SymbolType.InstanceObjectProperty
+                        || property.DeclaredType is null)
+                    {
+                        continue;
+                    }
+
+                    if (EraseGenericAttributeSupport.HasEraseGeneric(property.DeclaringAstNode))
+                    {
+                        continue;
+                    }
+
+                    if (TypeInvolvesGenericsForTracking(property.DeclaredType, state))
+                    {
+                        context.MarkRequiresRuntimeGenericTracking(objectSymbol);
+                        return;
+                    }
+                }
+            }
+        }
 
         /// <summary>
         /// True when a property type involves object generic parameters or any generic type
@@ -662,6 +1078,95 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 var paramInfo = i < symbolParameters.Count ? symbolParameters[i] : null;
                 RegisterSingleParameter(paramAst, paramInfo, funcState, outerState, context, diagnostics);
             }
+
+            ValidateCallableParameterSlices(parameters, symbolParameters, funcState, context, diagnostics);
+        }
+
+        private static void ValidateCallableParameterSlices(
+            IReadOnlyList<PhpParameterAst> parameters,
+            IReadOnlyList<ParameterInfo> symbolParameters,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var byCallable = new Dictionary<string, List<(int Start, bool IsVariadic, bool MinSpecified, IBase2Ast Node, string Display)>>(StringComparer.Ordinal);
+            for (var i = 0; i < parameters.Count; i++)
+            {
+                var paramAst = parameters[i];
+                var paramInfo = i < symbolParameters.Count ? symbolParameters[i] : null;
+                var declaredAst = paramAst.Type ?? paramInfo?.DeclaredType;
+                if (declaredAst is null)
+                {
+                    continue;
+                }
+
+                var declared = context.ResolveTypeAnnotation(declaredAst, state, isUserTypeDeclaration: true);
+                if (!ParameterPack.TryGetArraySlice(declared, out var slice)
+                    && !ParameterPack.TryGetSlice(declared, out slice))
+                {
+                    continue;
+                }
+
+                var isVariadic = paramAst.IsVariadic || (paramInfo?.IsVariadic ?? false);
+                if (slice.MinSpecified && !isVariadic)
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics, state, paramAst, MessageCode.CheckerCallableSliceMinOnFixed);
+                }
+
+                var key = slice.CallableArg.DisplayName;
+                if (!byCallable.TryGetValue(key, out var list))
+                {
+                    list = [];
+                    byCallable[key] = list;
+                }
+
+                list.Add((slice.Start, isVariadic, slice.MinSpecified, paramAst, key));
+            }
+
+            foreach (var (callableName, slices) in byCallable)
+            {
+                if (slices.Count < 2)
+                {
+                    continue;
+                }
+
+                var ordered = slices.OrderBy(s => s.Start).ToList();
+                var openRests = ordered.Count(s => s.IsVariadic);
+                if (openRests > 1)
+                {
+                    var second = ordered.First(s => s.IsVariadic);
+                    CheckerHelpers.ReportError(
+                        diagnostics, state, second.Node, MessageCode.CheckerCallableSliceOverlap,
+                        callableName, second.Start);
+                    continue;
+                }
+
+                for (var i = 0; i < ordered.Count; i++)
+                {
+                    var current = ordered[i];
+                    var currentEnd = current.IsVariadic ? int.MaxValue : current.Start;
+                    if (i + 1 < ordered.Count)
+                    {
+                        var next = ordered[i + 1];
+                        if (next.Start <= currentEnd)
+                        {
+                            CheckerHelpers.ReportError(
+                                diagnostics, state, next.Node, MessageCode.CheckerCallableSliceOverlap,
+                                callableName, next.Start);
+                            break;
+                        }
+
+                        if (!current.IsVariadic && next.Start > current.Start + 1)
+                        {
+                            CheckerHelpers.ReportError(
+                                diagnostics, state, next.Node, MessageCode.CheckerCallableSliceHole,
+                                callableName, current.Start + 1);
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         private static void ValidateParameterList(
@@ -671,16 +1176,37 @@ namespace Tyhp.TyhpLang.Checker.Rules
             DiagnosticBag diagnostics)
         {
             var parameters = parameterList.GetAllNotNull().ToList();
-            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenNames = new Dictionary<string, PhpParameterAst>(StringComparer.OrdinalIgnoreCase);
             var sawOptional = false;
 
             for (var i = 0; i < parameters.Count; i++)
             {
                 var param = parameters[i];
-                if (!seenNames.Add(param.Name))
+                if (seenNames.TryGetValue(param.Name, out var firstParam))
+                {
+                    var fileName = CheckerHelpers.ResolveDiagnosticFileName(state, param);
+                    diagnostics.AddDuplicateFromAst(
+                        MessageCode.CheckerDuplicateParameter,
+                        param,
+                        fileName,
+                        firstParam,
+                        fileName,
+                        param.Name);
+                }
+                else
+                {
+                    seenNames[param.Name] = param;
+                }
+
+                if (GeneratedNames.StartsWithInlineTempPrefix(param.Name))
                 {
                     CheckerHelpers.ReportError(
-                        diagnostics, state, param, MessageCode.CheckerDuplicateParameter, param.Name);
+                        diagnostics,
+                        state,
+                        param,
+                        MessageCode.CheckerReservedInlineTempPrefix,
+                        param.Name.TrimStart('$'),
+                        GeneratedNames.InlineTempVariablePrefix);
                 }
 
                 AttributeRule.ValidateDeclarationAttributes(param, state, context, diagnostics);
@@ -730,9 +1256,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
                 if (param.PropertyHooks is PhpPropertyHookListAst promotedHooks)
                 {
-                    ValidatePropertyHookModifiers(promotedHooks, state, diagnostics);
-                    CheckByRefPropertyGetHooks(promotedHooks, state, context, diagnostics);
-                    CheckPropertyHookFinalOverrides(param.Name, promotedHooks, state, context, diagnostics);
+                    var promotedModifiers = CheckerHelpers.ToMemberModifiers(param.Modifiers);
+                    CheckPropertyHookDeclarations(
+                        promotedHooks, param.Name, promotedModifiers, param, state, context, diagnostics);
 
                     if (param.Modifiers is not null
                         && (CheckerHelpers.ToMemberModifiers(param.Modifiers) & MemberModifier.Readonly) != 0)
@@ -745,6 +1271,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         ? context.ResolveTypeAnnotation(param.Type, state)
                         : CheckedTypes.Mixed;
                     CheckPropertyHooks(promotedHooks, promotedType, state, context, diagnostics);
+                }
+
+                // Promoted constructor properties are instance properties for Mechanism C.
+                if (param.Modifiers is not null
+                    && (CheckerHelpers.ToMemberModifiers(param.Modifiers) & MemberModifier.Static) == 0)
+                {
+                    TryMarkGenericPropertyTracking(param.Type, param, state, context);
                 }
             }
         }
@@ -760,7 +1293,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (paramAst.Type is null)
             {
                 CheckerHelpers.ReportError(
-                    diagnostics, outerState, paramAst, MessageCode.CheckerVariableTypeRequired, paramAst.Name);
+                    diagnostics, outerState, paramAst, MessageCode.CheckerVariableTypeRequired,
+                    CheckerHelpers.FormatTypeRequiredName(paramAst.Name));
             }
 
             ICheckedType paramType = CheckedTypes.Mixed;
@@ -770,6 +1304,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 paramType = context.ResolveTypeAnnotation(paramAst.Type, funcState);
                 TypeDeclarationValidationRule.ValidateResolvedParameterType(
                     paramAst.Type, paramType, funcState, context, diagnostics);
+                ExternTypeUse.ReportIfCheckedType(paramType, paramAst.Type, funcState, diagnostics);
                 funcState.IsParameterTypePosition = false;
                 ValidateParameterResolvedType(paramAst, paramType, funcState, diagnostics);
                 // Type ASTs are not always CheckNode'd (and grammar addons are never walked by
@@ -786,7 +1321,21 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 }
                 else
                 {
-                    var defaultType = context.ResolveExpressionType(paramAst.DefaultValue, funcState);
+                    var previousDefaultExpected = funcState.ExpectedExpressionType;
+                    if (ContextualNewInference.IsUsableExpectedType(paramType))
+                    {
+                        funcState.ExpectedExpressionType = paramType;
+                    }
+
+                    ICheckedType defaultType;
+                    try
+                    {
+                        defaultType = context.ResolveExpressionType(paramAst.DefaultValue, funcState);
+                    }
+                    finally
+                    {
+                        funcState.ExpectedExpressionType = previousDefaultExpected;
+                    }
                     var bagChecked = StructBagLiteralChecker.TryCheck(
                         paramAst.DefaultValue, paramType, funcState, context, diagnostics);
                     if (!bagChecked && !context.IsAssignable(defaultType, paramType))
@@ -851,12 +1400,14 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             var paramCount = parameters?.GetAllNotNull().Count() ?? 0;
             var hasReturnType = returnType is not null;
-            // Tyhp source conventionally spells `__construct`/`__destruct` with an explicit `: void`
-            // (BuildMethodSignature erases it for PHP, which forbids any return type on either magic
-            // method) — only a *non-void* return type is a real signature violation for them. Resolve
-            // through the checker rather than pattern-matching the AST node: `__construct`'s `: void` is
-            // parsed as a distinct `TyhpCtorReturnTypeAst` grammar addon (see tyhpCtorReturnType in the
-            // grammar), not the ordinary builtin-type AST an inline syntactic check would expect.
+            // Tyhp source may spell `__construct`/`__destruct` with an explicit `: void` (or omit the
+            // return type entirely — omitted ≡ `: void`); BuildMethodSignature erases it for PHP,
+            // which forbids any return type on either magic method. Only a *non-void* return type is a
+            // real signature violation for them. Resolve through the checker rather than
+            // pattern-matching the AST node: `__construct`'s `: void` / `: parent(...)` is parsed as a
+            // distinct `TyhpCtorReturnTypeAst` grammar addon (see tyhpCtorReturnType in the grammar),
+            // not the ordinary builtin-type AST an inline syntactic check would expect; an omitted
+            // ctor return type attaches no addon, so `hasReturnType` stays false and the ctor is void.
             var hasNonVoidReturnType = hasReturnType
                 && !CheckerHelpers.IsBuiltInName(
                     context.ResolveTypeAnnotation(returnType!, state, isReturnTypePosition: true), "void");

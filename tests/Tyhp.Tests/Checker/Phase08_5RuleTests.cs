@@ -2,8 +2,10 @@ using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.Domain.Services;
 using Tyhp.TyhpLang.Ast;
+using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder;
 using Tyhp.TyhpLang.Binder.Scopes;
+using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Checker;
 using Tyhp.Tests.TestHelpers;
 
@@ -16,16 +18,9 @@ public class Phase08_5RuleTests
     public void SymbolNameTypes_AreRegisteredInGlobalScope()
     {
         using var compilationService = new CompilationService();
-        var options = new CompilationOptions
-        {
-            EnableAstCache = false,
-            PhpVersion = "8.2",
-            ProjectPath = TestFileManager.GetRepoRoot(),
-            TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            SkipChecking = true,
-        };
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
+        var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
         var filePath = Path.Combine(tempDir, "test.tyhp");
         File.WriteAllText(filePath, "<?tyhp\nfunction demo(): void {}\n");
 
@@ -46,16 +41,9 @@ public class Phase08_5RuleTests
     public void VerifyLiteral_UnknownClass_ReturnsFalse()
     {
         using var compilationService = new CompilationService();
-        var options = new CompilationOptions
-        {
-            EnableAstCache = false,
-            PhpVersion = "8.2",
-            ProjectPath = TestFileManager.GetRepoRoot(),
-            TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            SkipChecking = true,
-        };
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
+        var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
         var filePath = Path.Combine(tempDir, "test.tyhp");
         File.WriteAllText(filePath, "<?tyhp\nfunction demo(): void {}\n");
 
@@ -166,16 +154,9 @@ public class Phase08_5RuleTests
     public void MakeSymbolNameType_BareClassName_IsGenericWithObject()
     {
         using var compilationService = new CompilationService();
-        var options = new CompilationOptions
-        {
-            EnableAstCache = false,
-            PhpVersion = "8.2",
-            ProjectPath = TestFileManager.GetRepoRoot(),
-            TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            SkipChecking = true,
-        };
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
+        var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
         var filePath = Path.Combine(tempDir, "test.tyhp");
         File.WriteAllText(filePath, "<?tyhp\nfunction demo(): void {}\n");
 
@@ -400,6 +381,432 @@ public class Phase08_5RuleTests
     }
 
     [Fact]
+    public void Check_MethodGenericClassNameBrand_RejectsIntArgument()
+    {
+        // Unbound method T in `__ClassName<T>` must not collapse the parameter
+        // to mixed (phpunit Assert::assertInstanceOf on 12.5.35).
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Assert {
+                public static function assertInstanceOf<ExpectedType extends object>(
+                    __ClassName<ExpectedType>|__InterfaceName<ExpectedType> $expected,
+                    mixed $actual
+                ): void {}
+            }
+
+            function demo(): void {
+                Assert::assertInstanceOf(1, new \Exception('x'));
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_MethodGenericClassNameBrand_AcceptsClassConstant()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Assert {
+                public static function assertInstanceOf<ExpectedType extends object>(
+                    __ClassName<ExpectedType>|__InterfaceName<ExpectedType> $expected,
+                    mixed $actual
+                ): void {}
+            }
+
+            function demo(): void {
+                Assert::assertInstanceOf(\Exception::class, new \Exception('x'));
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_MethodGenericUnboundTypeParameter_AcceptsInt()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Box {
+                public static function id<T>(T $value): void {}
+            }
+
+            function demo(): void {
+                Box::id(1);
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_MethodGenericStringParameter_AcceptsNonClassStringAndClassConstant()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Box {
+                public static function take<T>(string $className): void {}
+            }
+
+            function demo(): void {
+                Box::take('not-a-class');
+                Box::take(\Exception::class);
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerSymbolNameNotFound);
+    }
+
+    [Fact]
+    public void Check_MethodGenericStringParameter_RejectsInt()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Box {
+                public static function take<T>(string $className): void {}
+            }
+
+            function demo(): void {
+                Box::take(1);
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_MethodGenericInterfaceNameBrand_RejectsIntArgument()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Assert {
+                public static function take<ExpectedType extends object>(
+                    __InterfaceName<ExpectedType> $expected
+                ): void {}
+            }
+
+            function demo(): void {
+                Assert::take(1);
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_MethodGenericInterfaceNameBrand_AcceptsInterfaceConstant()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            interface ThrowableLike {}
+
+            class Assert {
+                public static function take<ExpectedType extends object>(
+                    __InterfaceName<ExpectedType> $expected
+                ): void {}
+            }
+
+            function demo(): void {
+                Assert::take(\Throwable::class);
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_MethodGenericTraitNameBrand_RejectsIntArgument()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Assert {
+                public static function take<ExpectedType extends object>(
+                    __TraitName<ExpectedType> $expected
+                ): void {}
+            }
+
+            function demo(): void {
+                Assert::take(1);
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_MethodGenericTraitNameBrand_AcceptsTraitConstant()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            trait Taggable {}
+
+            class Assert {
+                public static function take<ExpectedType extends object>(
+                    __TraitName<ExpectedType> $expected
+                ): void {}
+            }
+
+            function demo(): void {
+                Assert::take(Taggable::class);
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_MethodGenericEnumNameBrand_RejectsIntArgument()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Assert {
+                public static function take<ExpectedType extends object>(
+                    __EnumName<ExpectedType> $expected
+                ): void {}
+            }
+
+            function demo(): void {
+                Assert::take(1);
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_MethodGenericEnumNameBrand_AcceptsEnumConstant()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            enum Suit: string { case Hearts = 'hearts'; }
+
+            class Assert {
+                public static function take<ExpectedType extends object>(
+                    __EnumName<ExpectedType> $expected
+                ): void {}
+            }
+
+            function demo(): void {
+                Assert::take(Suit::class);
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_CallableFacet_ClassNameBrand_RejectsIntArgument()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Assert {
+                public static function assertInstanceOf<ExpectedType extends object>(
+                    __ClassName<ExpectedType>|__InterfaceName<ExpectedType> $expected,
+                    mixed $actual
+                ): void {}
+            }
+
+            function demo(): void {
+                $fn = Assert::assertInstanceOf(...);
+                $fn(1, new \Exception('x'));
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_CallableFacet_ClassNameBrand_AcceptsClassConstant()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Assert {
+                public static function assertInstanceOf<ExpectedType extends object>(
+                    __ClassName<ExpectedType>|__InterfaceName<ExpectedType> $expected,
+                    mixed $actual
+                ): void {}
+            }
+
+            function demo(): void {
+                $fn = Assert::assertInstanceOf(...);
+                $fn(\Exception::class, new \Exception('x'));
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_Pipe_ClassNameBrand_RejectsIntArgument()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Assert {
+                public static function take<ExpectedType extends object>(
+                    __ClassName<ExpectedType> $expected
+                ): void {}
+            }
+
+            function demo(): void {
+                $fn = Assert::take(...);
+                1 |> $fn;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_Pipe_ClassNameBrand_AcceptsClassConstant()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Assert {
+                public static function take<ExpectedType extends object>(
+                    __ClassName<ExpectedType> $expected
+                ): void {}
+            }
+
+            function demo(): void {
+                $fn = Assert::take(...);
+                \Exception::class |> $fn;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_Pipe_WrittenEnumNameObject_RejectsEnumConstant()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            enum Suit: string { case Hearts = 'hearts'; }
+
+            function take(__EnumName<object> $expected): void {}
+
+            function demo(): void {
+                $fn = take(...);
+                Suit::class |> $fn;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_Pipe_UnboundEnumNameBrand_AcceptsEnumConstant()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            enum Suit: string { case Hearts = 'hearts'; }
+
+            class Assert {
+                public static function take<ExpectedType extends object>(
+                    __EnumName<ExpectedType> $expected
+                ): void {}
+            }
+
+            function demo(): void {
+                $fn = Assert::take(...);
+                Suit::class |> $fn;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_CallableFacet_WrittenEnumNameObject_RejectsEnumConstant()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            enum Suit: string { case Hearts = 'hearts'; }
+
+            function take(__EnumName<object> $expected): void {}
+
+            function demo(): void {
+                $fn = take(...);
+                $fn(Suit::class);
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_CallableFacet_UnboundTypeParameter_AcceptsInt()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Box {
+                public static function id<T>(T $value): void {}
+            }
+
+            function demo(): void {
+                $fn = Box::id(...);
+                $fn(1);
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_Pipe_UnboundTypeParameter_AcceptsInt()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Box {
+                public static function id<T>(T $value): void {}
+            }
+
+            function demo(): void {
+                $fn = Box::id(...);
+                1 |> $fn;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_EnumName_DoesNotWidenToEnumNameObject()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            enum Suit: string { case Hearts = 'hearts'; }
+
+            function take(__EnumName<object> $expected): void {}
+
+            function demo(__EnumName<Suit> $s): void {
+                __EnumName<object> $wide = $s;
+                take(Suit::class);
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerTypeMismatch);
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_EnumName_DoesNotWidenToDifferentEnum()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            enum Suit: string { case Hearts = 'hearts'; }
+            enum Rank: string { case Ace = 'ace'; }
+
+            function demo(__EnumName<Suit> $s): void {
+                __EnumName<Rank> $other = $s;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerTypeMismatch);
+    }
+
+    [Fact]
     public void Check_ParametricClassName_WidensToClassNameObject()
     {
         var diagnostics = CompileAndCheck("""
@@ -610,25 +1017,38 @@ public class Phase08_5RuleTests
     public void StructUtilityTypes_AreRegisteredInGlobalScope()
     {
         using var compilationService = new CompilationService();
-        var options = new CompilationOptions
-        {
-            EnableAstCache = false,
-            PhpVersion = "8.2",
-            ProjectPath = TestFileManager.GetRepoRoot(),
-            TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            SkipChecking = true,
-        };
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
+        var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
         var filePath = Path.Combine(tempDir, "test.tyhp");
         File.WriteAllText(filePath, "<?tyhp\nfunction demo(): void {}\n");
 
         try
         {
             var result = compilationService.ParseFiles([filePath], options);
-            var symbol = ((Tyhp.TyhpLang.Binder.Scopes.Interfaces.IBaseScope)result.GlobalScope!)
-                .FindChildSymbolByName("__StructKey");
-            symbol.Should().BeOfType<Tyhp.TyhpLang.Binder.Symbols.BuiltInUtilityTypeSymbol>();
+            var scope = (Tyhp.TyhpLang.Binder.Scopes.Interfaces.IBaseScope)result.GlobalScope!;
+            string[] names =
+            [
+                "__StructKey",
+                "__Nullable",
+                "__NonNullable",
+                "__AsReadOnly",
+                "__CallableReturnType",
+                "__CallableParametersTuple",
+                "__Partial",
+                "__Required",
+                "__Pick",
+                "__Omit",
+                "__Record",
+                "__Exclude",
+                "__Extract",
+                "__Awaited",
+            ];
+            foreach (var name in names)
+            {
+                scope.FindChildSymbolByName(name)
+                    .Should().BeOfType<Tyhp.TyhpLang.Binder.Symbols.BuiltInUtilityTypeSymbol>(name);
+            }
         }
         finally
         {
@@ -636,31 +1056,131 @@ public class Phase08_5RuleTests
         }
     }
 
-    [Fact]
-    public void Check_AsNotNullable_NullInput_Succeeds()
+    [Theory]
+    [InlineData("__AsNullable")]
+    [InlineData("__AsNotNullable")]
+    public void RemovedUtilityAliases_AreNotRegisteredInGlobalScope(string name)
     {
-        var diagnostics = CompileAndCheck("""
+        using var compilationService = new CompilationService();
+        var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
+        var filePath = Path.Combine(tempDir, "test.tyhp");
+        File.WriteAllText(filePath, "<?tyhp\nfunction demo(): void {}\n");
+
+        try
+        {
+            var result = compilationService.ParseFiles([filePath], options);
+            var scope = (Tyhp.TyhpLang.Binder.Scopes.Interfaces.IBaseScope)result.GlobalScope!;
+            scope.FindChildSymbolByName(name).Should().BeNull();
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Theory]
+    [InlineData("\\Tyhp\\Nullable<int>")]
+    [InlineData("\\Tyhp\\NonNullable<int>")]
+    [InlineData("\\Tyhp\\ReturnType<callable(string): int>")]
+    [InlineData("\\Tyhp\\Parameters<callable(string): int>")]
+    [InlineData("\\Tyhp\\Readonly<int>")]
+    [InlineData("\\Tyhp\\Partial<int>")]
+    [InlineData("\\Tyhp\\Required<int>")]
+    [InlineData("\\Tyhp\\Pick<int, 'x'>")]
+    [InlineData("\\Tyhp\\Omit<int, 'x'>")]
+    [InlineData("\\Tyhp\\Record<string, int>")]
+    [InlineData("\\Tyhp\\Exclude<int|string, int>")]
+    [InlineData("\\Tyhp\\Extract<int|string, int>")]
+    [InlineData("\\Tyhp\\Awaited<int>")]
+    public void RemovedTyhpNamespaceUtilities_DoNotBind(string tyhpType)
+    {
+        var diagnostics = CompileAndCheck($$"""
             <?tyhp
-            function demo(): void {
-                __AsNotNullable<null> $x;
-            }
+            function demo({{tyhpType}} $value): void {}
             """);
 
-        diagnostics.Errors.Should().BeEmpty();
+        diagnostics.Errors.Should().Contain(
+            d => d.Code == MessageCode.BinderUnresolvedParameterType,
+            $"expected unresolved type for {tyhpType}");
+    }
+
+    [Theory]
+    [InlineData("__AsNullable<int>", "__AsNullable")]
+    [InlineData("__AsNotNullable<null>", "__AsNotNullable")]
+    public void RemovedAsNullableSpellings_DoNotBind(string tyhpType, string removedName)
+    {
+        var (_, file, global, _) = CompileForChecker($$"""
+            <?tyhp
+            function demo({{tyhpType}} $value): void {}
+            """);
+
+        ((Tyhp.TyhpLang.Binder.Scopes.Interfaces.IBaseScope)global)
+            .FindChildSymbolByName(removedName)
+            .Should().BeNull();
+
+        var function = FindAllAst<PhpFunctionDeclAst>(file)
+            .FirstOrDefault(decl => string.Equals(decl.Identifier, "demo", StringComparison.Ordinal));
+        function.Should().NotBeNull();
+        var parameter = function!.Parameters?.GetAllNotNull().FirstOrDefault();
+        parameter.Should().NotBeNull();
+        var boundName = parameter!.Type?.BoundSymbol?.Name;
+        boundName.Should().NotBe(removedName);
+        boundName.Should().NotBe("__Nullable");
+        boundName.Should().NotBe("__NonNullable");
     }
 
     [Fact]
-    public void Check_AsNullable_WrapsType()
+    public void Check_NonNullable_NullInput_IsVoid()
     {
-        var diagnostics = CompileAndCheck("""
+        var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
-            function demo(): void {
-                __AsNullable<int> $x;
-                ?int $y = $x;
-            }
+            function demo(): __NonNullable<null> {}
             """);
 
-        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerTypeMismatch);
+        diagnostics.Errors.Should().BeEmpty();
+        var function = FindAllAst<PhpFunctionDeclAst>(file)
+            .FirstOrDefault(decl => string.Equals(decl.Identifier, "demo", StringComparison.Ordinal));
+        function.Should().NotBeNull();
+        function!.ReturnType.Should().NotBeNull();
+        var state = new CheckerState { CurrentFileName = file.FileName };
+        if (function.BoundSymbol is FunctionDeclarationSymbol functionSymbol)
+        {
+            state.EnclosingFunction = functionSymbol;
+        }
+
+        var type = checker.ResolveTypeAnnotation(function.ReturnType!, state, isReturnTypePosition: true);
+        CheckedTypes.AreTypesEqual(type, CheckedTypes.Void).Should().BeTrue(type.DisplayName);
+    }
+
+    [Fact]
+    public void Check_NonNullable_StripsNullFromUnion()
+    {
+        var (checker, file, _, diagnostics) = CompileForChecker("""
+            <?tyhp
+            function demo(__NonNullable<int|null> $x): void {}
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+        var type = ResolveParameterDeclaredType(checker, file, "x");
+        type.IsNullable.Should().BeFalse();
+        type.DisplayName.Should().Be("int");
+    }
+
+    [Fact]
+    public void Check_Nullable_WrapsType()
+    {
+        var (checker, file, _, diagnostics) = CompileForChecker("""
+            <?tyhp
+            function demo(__Nullable<int> $x): void {}
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+        var type = ResolveParameterDeclaredType(checker, file, "x");
+        type.IsNullable.Should().BeTrue();
+        type.Should().BeOfType<NullableCheckedType>();
+        type.DisplayName.Should().Be("?int");
     }
 
     [Fact]
@@ -681,7 +1201,7 @@ public class Phase08_5RuleTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            struct Point { int $x = 0; string $y = ''; }
+            type Point = struct { int $x = 0; string $y = ''; };
 
             function demo(): void {
                 __StructKey<Point> $key;
@@ -717,6 +1237,48 @@ public class Phase08_5RuleTests
         return type!;
     }
 
+    private static ICheckedType ResolveParameterDeclaredType(TyhpChecker checker, SrcFileAst file, string parameterName)
+    {
+        var function = FindAllAst<PhpFunctionDeclAst>(file)
+            .FirstOrDefault(decl => string.Equals(decl.Identifier, "demo", StringComparison.Ordinal));
+        function.Should().NotBeNull("demo function should exist");
+
+        var parameter = function!.Parameters?.GetAllNotNull()
+            .FirstOrDefault(param =>
+                string.Equals(param.Name.TrimStart('$'), parameterName, StringComparison.Ordinal));
+        parameter.Should().NotBeNull($"parameter '{parameterName}' should exist");
+        parameter!.Type.Should().NotBeNull();
+
+        var state = new CheckerState { CurrentFileName = file.FileName };
+        if (function.BoundSymbol is FunctionDeclarationSymbol functionSymbol)
+        {
+            state.EnclosingFunction = functionSymbol;
+        }
+
+        return checker.ResolveTypeAnnotation(parameter.Type!, state);
+    }
+
+    private static IEnumerable<T> FindAllAst<T>(IBase2Ast root) where T : class, IBase2Ast
+    {
+        if (root is T match)
+        {
+            yield return match;
+        }
+
+        foreach (var child in root.AstChildren)
+        {
+            if (child is null)
+            {
+                continue;
+            }
+
+            foreach (var found in FindAllAst<T>(child))
+            {
+                yield return found;
+            }
+        }
+    }
+
     private static DiagnosticBag CompileAndCheck(string content)
     {
         var (_, _, _, diagnostics) = CompileForChecker(content);
@@ -733,14 +1295,7 @@ public class Phase08_5RuleTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

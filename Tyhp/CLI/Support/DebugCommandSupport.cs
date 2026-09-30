@@ -6,14 +6,23 @@ using Tyhp.TyhpLang.Enum;
 namespace Tyhp.CLI.Support
 {
     /// <summary>
-    /// Shared plumbing for the <c>tokenize</c> and <c>dump-ast</c> debug commands:
-    /// input discovery, parse-mode resolution, and JSON output writing.
+    /// Shared plumbing for the <c>tokenize</c>, <c>dump-ast</c>, and <c>symbol_tree</c>
+    /// debug commands: input discovery, parse-mode resolution, and JSON output writing.
     /// </summary>
     public static class DebugCommandSupport
     {
+        /// <summary>
+        /// <see cref="JsonSerializerOptions.MaxDepth"/> defaults to 64.
+        /// <see cref="DebugJson"/> emits a node object and a children array at each AST level,
+        /// and it keeps walking until its own cycle guard, so a valid dump is deeper than 64.
+        /// <c>0</c> selects that same default of 64; this value is the writer limit.
+        /// </summary>
+        private const int JsonMaxDepth = 8192;
+
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             WriteIndented = true,
+            MaxDepth = JsonMaxDepth,
         };
 
         /// <summary>
@@ -51,7 +60,6 @@ namespace Tyhp.CLI.Support
                 }
             }
 
-            // Check .tyhpdef before .tyhp because ".tyhpdef" also ends with ".tyhp".
             if (filePath.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase))
             {
                 return ParseMode.Tyhpdef;

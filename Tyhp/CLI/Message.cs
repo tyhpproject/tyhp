@@ -305,7 +305,7 @@ namespace Tyhp.CLI
         /// <summary>
         /// Writes a warning diagnostic line to stderr (no Konsole / stdout).
         /// Use for early/status warnings when stdout must stay a machine-readable document
-        /// (e.g. <c>version --json</c>, <c>tokenize</c>, <c>dump-ast</c>).
+        /// (e.g. <c>version --json</c>, <c>tokenize</c>, <c>dump-ast</c>, <c>symbol_tree</c>).
         /// </summary>
         public static void TyhpWarnToStderr(
             string fileName,
@@ -316,6 +316,24 @@ namespace Tyhp.CLI
         {
             var severity = Message.LocalizeStringFormat("warning", null);
             var message = Message.LocalizeWarningCode(code, args);
+            Console.Error.WriteLine(
+                fileName + "(" + lineNumber + "," + column + "): "
+                + severity + " TYHP" + code.ToString() + ": " + message);
+        }
+
+        /// <summary>
+        /// Writes an error diagnostic line to stderr (no Konsole / stdout).
+        /// Use when stdout must stay a machine-readable document.
+        /// </summary>
+        public static void TyhpErrorToStderr(
+            string fileName,
+            int lineNumber,
+            int column,
+            int code,
+            params object[]? args)
+        {
+            var severity = Message.LocalizeStringFormat("error", null);
+            var message = Message.LocalizeErrorCode(code, args);
             Console.Error.WriteLine(
                 fileName + "(" + lineNumber + "," + column + "): "
                 + severity + " TYHP" + code.ToString() + ": " + message);

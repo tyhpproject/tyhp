@@ -24,11 +24,38 @@ namespace Tyhp.TyhpLang.Checker
                 case TyhpTemplateStringTypeAst template:
                     return ResolveTemplateStringType(template, state, isReturnTypePosition, isUserTypeDeclaration);
 
+                case TyhpEllipsisTypeAst:
+                    return CheckedTypes.CallableArityWildcard;
+
+                case TyhpPostfixEllipsisTypeAst postfix:
+                    return ResolvePostfixEllipsisType(postfix, state, isReturnTypePosition, isUserTypeDeclaration);
+
                 case PhpBuiltinTypeAst builtin:
                     return ResolveBuiltinType(builtin, state, isReturnTypePosition, isUserTypeDeclaration);
 
                 case PhpNamedTypeAst named:
                     return ResolveNamedType(named, state, isReturnTypePosition, isUserTypeDeclaration);
+
+                case TyhpObjectShapeAst shape:
+                    return new ObjectShapeCheckedType(
+                        shape,
+                        members: ObjectShapeMemberBuilder.Build(
+                            shape,
+                            (typeAst, isReturn) => ResolveTypeExpressionCore(
+                                typeAst, state, isReturn, isUserTypeDeclaration)));
+
+                case TyhpCallableShapeAst callableShape:
+                    return ResolveCallableShape(
+                        callableShape, state, isUserTypeDeclaration);
+
+                case TyhpStructShapeAst structShape:
+                    return StructShapeTypeBuilder.Build(
+                        structShape,
+                        state,
+                        _symbolTree,
+                        _globalScope,
+                        typeAst => ResolveTypeExpressionCore(
+                            typeAst, state, isReturnTypePosition: false, isUserTypeDeclaration));
 
                 case PhpTypeExpressionAst composite:
                     return ResolveCompositeType(composite, state, isReturnTypePosition, isUserTypeDeclaration);
@@ -36,6 +63,68 @@ namespace Tyhp.TyhpLang.Checker
                 default:
                     return CheckedTypes.Unresolved;
             }
+        }
+
+        /// <summary>
+        /// Nested parameter/return names on a <c>callable(…): R</c> shape are not the function's
+        /// own parameter type (binder 3020) and are not generic type arguments. Mark them as
+        /// nested type-argument-like so undeclared names still report TYHP3003.
+        /// </summary>
+        private ICheckedType ResolveCallableShape(
+            TyhpCallableShapeAst callableShape,
+            CheckerState state,
+            bool isUserTypeDeclaration)
+        {
+            var savedGenericArg = state.IsGenericTypeArgumentPosition;
+            state.IsGenericTypeArgumentPosition = true;
+            try
+            {
+                var parameters = callableShape.Parameters?.GetAllNotNull().ToList() ?? [];
+                for (var i = 0; i < parameters.Count; i++)
+                {
+                    if (parameters[i].IsVariadic && i < parameters.Count - 1)
+                    {
+                        CheckerHelpers.ReportError(
+                            _diagnostics,
+                            state,
+                            parameters[i],
+                            MessageCode.CheckerVariadicNotLast,
+                            parameters[i].SourceParameterName ?? "");
+                    }
+                }
+
+                return CallableArityFacetBuilder.BuildFromShape(
+                    callableShape,
+                    (typeAst, isReturn) =>
+                    {
+                        var resolved = ResolveTypeExpressionCore(
+                            typeAst, state, isReturn, isUserTypeDeclaration);
+
+                        // `void` / `never` are return-only, the same restriction the deleted
+                        // `callable(void): R` generic-argument spelling enforced — a shape
+                        // parameter is a type position, not a return position.
+                        GenericTypeArgumentValidator.ValidateRestrictedType(
+                            resolved, isReturn, typeAst, state, _diagnostics);
+
+                        return resolved;
+                    });
+            }
+            finally
+            {
+                state.IsGenericTypeArgumentPosition = savedGenericArg;
+            }
+        }
+
+        private ICheckedType ResolvePostfixEllipsisType(
+            TyhpPostfixEllipsisTypeAst postfix,
+            CheckerState state,
+            bool isReturnTypePosition,
+            bool isUserTypeDeclaration)
+        {
+            var inner = postfix.InnerType is null
+                ? CheckedTypes.Unresolved
+                : ResolveTypeExpressionCore(postfix.InnerType, state, isReturnTypePosition, isUserTypeDeclaration);
+            return new HomogeneousVariadicCheckedType(inner);
         }
 
         private ICheckedType ResolveBuiltinType(
@@ -51,7 +140,7 @@ namespace Tyhp.TyhpLang.Checker
                 ReportResourceRestriction(builtin, state);
             }
 
-            // In-scope class/method generics (`T` in `PropertyPath<T, R>` on `select<R>`) must
+            // In-scope class/method generics (`T` in `PropertyPath<callable(T): R>` on `select<R>`) must
             // win before SymbolTree.ResolveType, which reports TYHP3003 via `_diagnostics`.
             if (TryResolveInScopeGenericParameter(name, state, out var builtinGenericParam))
             {
@@ -154,7 +243,7 @@ namespace Tyhp.TyhpLang.Checker
 
             // In-scope class/method generics must win before generic-instantiation /
             // SymbolTree.ResolveType — including when a spurious empty-or-nested typeName addon
-            // would otherwise send `T` in `Expression<T, R>` through ResolveNamedTypeWithArguments
+            // would otherwise send `T` in `Expression<callable(T): R>` through ResolveNamedTypeWithArguments
             // and report TYHP3003.
             if (!IsRelativeTypeName(typeName)
                 && TryResolveInScopeGenericParameter(typeName, state, out var genericParamType))
@@ -175,7 +264,8 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             var fromScope = GetResolutionScope(state);
-            var symbol = _symbolTree.ResolveType(named, fromScope, _diagnostics);
+            var symbol = RequireTypePositionSymbol(
+                _symbolTree.ResolveType(named, fromScope, _diagnostics));
             // Bare reference to a 0-min-arity utility (including optional-single forms like
             // `__ClassName` ≡ `__ClassName<object>`): resolve through the utility path.
             if (symbol is BuiltInUtilityTypeSymbol utilitySymbol &&
@@ -188,11 +278,44 @@ namespace Tyhp.TyhpLang.Checker
 
             if (symbol is null)
             {
+                if (TryBuiltinFallback(typeName) is { } builtinFallback)
+                {
+                    return builtinFallback;
+                }
+
                 ReportUnresolvedNamedTypeIfNeeded(named, typeName, state, isUserTypeDeclaration);
                 return CheckedTypes.Unresolved;
             }
 
             return ApplyDefaultsForBareGenericReference(symbol, named, state);
+        }
+
+        /// <summary>
+        /// Bare <c>new Box()</c>: instantiate from <see cref="CheckerState.ExpectedExpressionType"/>
+        /// when that expected type is a unique <c>Box&lt;…&gt;</c> of the same declaration;
+        /// otherwise apply declared defaults (same as a bare type-position <c>Box</c>).
+        /// </summary>
+        private ICheckedType ApplyContextOrDefaultsForBareGenericNew(
+            IBaseSymbol symbol,
+            IBase2Ast reportNode,
+            CheckerState state)
+        {
+            if (ContextualNewInference.TryGetTypeArguments(
+                    state.ExpectedExpressionType, symbol, out var inferredArgs)
+                && inferredArgs.Count > 0)
+            {
+                return GenericTypeArgumentValidator.ValidateInstantiation(
+                    CheckedTypes.FromSymbol(symbol),
+                    inferredArgs,
+                    reportNode,
+                    state,
+                    _symbolTree,
+                    _globalScope,
+                    _diagnostics,
+                    ResolveTypeExpressionCore);
+            }
+
+            return ApplyDefaultsForBareGenericReference(symbol, reportNode, state);
         }
 
         /// <summary>
@@ -209,6 +332,7 @@ namespace Tyhp.TyhpLang.Checker
             {
                 ObjectDeclarationSymbol obj => obj.GenericParameters,
                 TypeAliasSymbol alias => alias.GenericParameters,
+                ObjectTypeAliasSymbol objectAlias => objectAlias.GenericParameters,
                 _ => [],
             };
 
@@ -278,9 +402,15 @@ namespace Tyhp.TyhpLang.Checker
                 }
 
                 var fromScope = GetResolutionScope(state);
-                var baseSymbol = _symbolTree.ResolveType(named, fromScope, _diagnostics);
+                var baseSymbol = RequireTypePositionSymbol(
+                    _symbolTree.ResolveType(named, fromScope, _diagnostics));
                 if (baseSymbol is null)
                 {
+                    if (TryBuiltinFallback(typeName) is { } builtinFallback)
+                    {
+                        return builtinFallback;
+                    }
+
                     ReportUnresolvedNamedTypeIfNeeded(
                         named, typeName, state, isUserTypeDeclaration);
                     return CheckedTypes.Unresolved;
@@ -350,7 +480,8 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             var fromScope = GetResolutionScope(state);
-            var baseSymbol = _symbolTree.ResolveType(named, fromScope, _diagnostics);
+            var baseSymbol = RequireTypePositionSymbol(
+                _symbolTree.ResolveType(named, fromScope, _diagnostics));
             if (baseSymbol is null
                 && TryResolveInScopeGenericParameter(typeName, state, out var genericParamBase))
             {
@@ -385,7 +516,7 @@ namespace Tyhp.TyhpLang.Checker
         /// nested bare <c>static</c> (e.g. <c>ReflectionClass&lt;static&gt;</c> on a property)
         /// is not rejected as if <c>static</c> itself were the declared property/parameter type.
         /// Marks <see cref="CheckerState.IsGenericTypeArgumentPosition"/> so undeclared names
-        /// inside <c>callable&lt;…&gt;</c> / <c>array&lt;…&gt;</c> / user generics are diagnosed.
+        /// inside <c>callable(…): R</c> / <c>array&lt;…&gt;</c> / user generics are diagnosed.
         /// </summary>
         private List<ICheckedType> ResolveGenericTypeArgumentList(
             PhpTypeExpressionListAst argList,
@@ -416,9 +547,10 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// Reports an undeclared type name spelled as a generic type argument (e.g. <c>TResult</c>
-        /// inside <c>callable&lt;?TResult, …&gt;</c>). Top-level parameter/return unresolved names
-        /// remain binder TYHP3019/3020 so we do not double-diagnose those sites.
+        /// Reports an undeclared type name spelled as a nested type (e.g. <c>TResult</c>
+        /// inside <c>callable(?TResult $x): int</c>, or a generic type argument). Top-level
+        /// parameter/return unresolved names remain binder TYHP3019/3020 so we do not
+        /// double-diagnose those sites.
         /// </summary>
         private void ReportUnresolvedNamedTypeIfNeeded(
             PhpNamedTypeAst named,
@@ -604,6 +736,25 @@ namespace Tyhp.TyhpLang.Checker
 
             type = CheckedTypes.FromSymbol(param);
             return true;
+        }
+
+        /// <summary>
+        /// Type-position names bind only to type-like symbols. Methods/properties that share a
+        /// spelling with a builtin (e.g. <c>Type::bool()</c>) are not types.
+        /// </summary>
+        private static IBaseSymbol? RequireTypePositionSymbol(IBaseSymbol? symbol)
+            => NameResolver.IsTypePositionSymbol(symbol) ? symbol : null;
+
+        private ICheckedType? TryBuiltinFallback(string? typeName)
+        {
+            if (string.IsNullOrEmpty(typeName)
+                || typeName.Contains('\\')
+                || !TryGetBuiltinSingleton(typeName, out var singleton))
+            {
+                return null;
+            }
+
+            return singleton;
         }
 
         private static bool TryGetBuiltinSingleton(string name, out ICheckedType? type)

@@ -1,7 +1,0 @@
-<?tyhp
-
-namespace Tyhp\Exceptions;
-
-final class InvalidTypeException extends \LogicException
-{
-}

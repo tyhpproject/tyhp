@@ -10,7 +10,7 @@ namespace Tyhp.TyhpLang.Emitter
 {
     /// <summary>
     /// Story 16 Phase 1 — builds <c>new \Tyhp\PropertyPath(...)</c> AST for inline property-path
-    /// arrow functions targeting <c>PropertyPath&lt;T, R&gt;</c> parameters.
+    /// arrow functions targeting <c>PropertyPath&lt;TCallableShape&gt;</c> parameters.
     /// </summary>
     internal static class PropertyPathEmissionHelper
     {
@@ -55,8 +55,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             var typeArgs = GetGenericTypeArguments(expectedType);
             var inferred = getInferredSignature?.Invoke(closure);
-            var sourceTypeExpr = typeArgs.Count > 0 ? typeArgs[0] : null;
-            var resultTypeExpr = typeArgs.Count > 1 ? typeArgs[^1] : null;
+            SplitCallableShapeTypeArguments(typeArgs, out var sourceTypeExpr, out var resultTypeExpr);
 
             var sourceArg = BuildSourceTypeArgument(
                 sourceTypeExpr,
@@ -324,7 +323,47 @@ namespace Tyhp.TyhpLang.Emitter
                 return FlattenTypeArgs(bareArgs);
             }
 
+            // `callable(User): string` and `Expression<callable(User): string>` store type
+            // arguments on the `typeName` grammar addon, not on a generic identifier child.
+            if (typeExpr is Base2Ast node
+                && node.AstGrammarAddons.TryGetValue("typeName", out var addon)
+                && addon is PhpTypeExpressionListAst addonArgs)
+            {
+                return FlattenTypeArgs(addonArgs);
+            }
+
             return [];
+        }
+
+        /// <summary>
+        /// <c>PropertyPath</c>/<c>Expression</c> now take a single <c>TCallableShape</c>
+        /// (<c>callable(TArgs ...): TReturn</c>). Peel that shape into the first parameter
+        /// type (source) and the return type. A zero-parameter callable has no source.
+        /// </summary>
+        internal static void SplitCallableShapeTypeArguments(
+            IReadOnlyList<ITypeExpression> typeArgs,
+            out ITypeExpression? sourceTypeExpr,
+            out ITypeExpression? resultTypeExpr)
+        {
+            sourceTypeExpr = null;
+            resultTypeExpr = null;
+            if (typeArgs.Count == 0)
+            {
+                return;
+            }
+
+            var shapeArgs = GetGenericTypeArguments(typeArgs[0]);
+            if (shapeArgs.Count == 0)
+            {
+            // Bare `callable` or a non-generic argument — no peelable arity.
+                return;
+            }
+
+            resultTypeExpr = shapeArgs[^1];
+            if (shapeArgs.Count >= 2)
+            {
+                sourceTypeExpr = shapeArgs[0];
+            }
         }
 
         private static string SpellNonNullCheckedType(
@@ -366,7 +405,7 @@ namespace Tyhp.TyhpLang.Emitter
             Func<string?, string?, string> formatClassFqn,
             Base2Ast context)
         {
-            // Prefer PropertyPath<T, R> type args when still present (pre-erasure).
+            // Prefer PropertyPath<callable(T): R> type args when still present (pre-erasure).
             if (sourceTypeExpr is not null
                 && resolveTypeSymbol(sourceTypeExpr) is ObjectDeclarationSymbol fromGeneric)
             {

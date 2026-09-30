@@ -164,28 +164,28 @@ public class GenericInheritanceSubstitutionTests
     [Fact]
     public void ThreeLevelChain_NarrowingTwoParametersToOne_ResolvesTheTopLevel()
     {
-        // The shape the tyhp/lambda package actually has: the middle level forwards both parameters
-        // and the bottom level narrows one of them to a concrete type.
+        // The shape the tyhp/lambda package actually has: Expression/PropertyPath share
+        // TCallableShape, and PropertyPathBuilder pins that shape to callable(T): string.
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            class Expression<TSource, TReturn> {
-                protected ?TReturn $compiled = null;
-                public function compiled(): ?TReturn {
+            class Expression<TCallableShape> {
+                protected mixed $compiled = null;
+                public function compiled(): mixed {
                     return $this->compiled;
                 }
             }
-            class PropertyPath<TSource, TReturn> extends Expression<TSource, TReturn> {}
-            class PropertyPathBuilder<T> extends PropertyPath<T, string> {}
+            class PropertyPath<TCallableShape> extends Expression<TCallableShape> {}
+            class PropertyPathBuilder<T> extends PropertyPath<callable(T): string> {}
             class Reader {
-                public static function read(PropertyPathBuilder<int> $path): ?string {
+                public static function read(PropertyPathBuilder<int> $path): mixed {
                     return $path->compiled();
                 }
             }
             """);
 
         errors.Should().BeEmpty(
-            "PropertyPathBuilder<int> pins Expression's TReturn to string through two levels: "
+            "PropertyPathBuilder<int> pins Expression's TCallableShape to callable(int): string through two levels: "
             + Describe(errors));
     }
 
@@ -242,14 +242,7 @@ public class GenericInheritanceSubstitutionTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

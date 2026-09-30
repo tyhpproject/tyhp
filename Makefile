@@ -23,7 +23,7 @@ ifeq ($(strip $(VERSION)),)
 endif
 VERSION_FORMAT_OK := $(strip $(shell printf '%s\n' "$(VERSION)" | awk '/^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$$/{print "ok"}'))
 ifeq ($(VERSION_FORMAT_OK),)
-  $(error Invalid VERSION '$(VERSION)' in $(PROJECT). Expected semantic version format like 805.0.0 or 805.0.0-alpha.1.)
+  $(error Invalid VERSION '$(VERSION)' in $(PROJECT). Expected semantic version format like 805.1.0 or 805.1.0-beta.1.)
 endif
 
 ifeq ($(strip $(CURRENT_RID)),)

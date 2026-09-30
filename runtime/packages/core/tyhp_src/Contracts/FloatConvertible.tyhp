@@ -1,7 +1,0 @@
-<?tyhp
-
-namespace Tyhp\Contracts;
-
-interface FloatConvertible extends \Tyhp\Contracts\Convertible {
-    public function __toFloat(): float;
-}

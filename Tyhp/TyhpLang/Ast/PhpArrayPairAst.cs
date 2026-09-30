@@ -11,6 +11,12 @@ namespace Tyhp.TyhpLang.Ast
         public IExpression? ValueExpr => Children.ElementAtOrDefault(1) as IExpression;
         
         public bool IsExpansion => HasFlag(IS_EXPANSION_FLAG);
+
+        /// <summary>
+        /// Empty <c>list</c> / <c>[]</c> slot (<c>[, $b]</c>). Not a trailing comma — those are
+        /// stripped by the destructure walker.
+        /// </summary>
+        public bool IsSkippedSlot => KeyExpr is null && ValueExpr is null && !IsExpansion;
         
         public static PhpArrayPairAst Create(IExpression? keyExpr, IExpression valueExpr, bool isExpansion, ParserRuleContext context, string? languageMode = null)
         {
@@ -35,6 +41,19 @@ namespace Tyhp.TyhpLang.Ast
             };
             result.SetFlag(IS_EXPANSION_FLAG, isExpansion);
             result.SetContext(context);
+            return result;
+        }
+
+        /// <summary>
+        /// Empty destructure slot from an omitted <c>possibleArrayPair</c> (<c>[, $b]</c>).
+        /// </summary>
+        public static PhpArrayPairAst CreateSkippedSlot(ParserRuleContext context, string? languageMode = null)
+        {
+            var result = new PhpArrayPairAst
+            {
+                Children = [null, null],
+            };
+            result.SetContext(context, languageMode);
             return result;
         }
 

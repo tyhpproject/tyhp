@@ -184,14 +184,17 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return false;
             }
 
-            var op = PhpAssignmentOperatorExtensions.FromToken(GetTokenType(binary.Operator));
+            var op = PhpAssignmentOperatorExtensions.FromToken(
+                GetTokenType(binary.Operator),
+                binary.Operator?.ValueString);
             return op is PhpAssignmentOperator.Assign or PhpAssignmentOperator.UsingEqual;
         }
 
         private static bool IsCoalesce(IBase2Ast node) =>
             node is PhpBinaryOpAst binary
-            && PhpBinaryOperatorExtensions.FromToken(GetTokenType(binary.Operator))
-                == PhpBinaryOperator.Coalesce;
+            && PhpBinaryOperatorExtensions.FromToken(
+                GetTokenType(binary.Operator),
+                binary.Operator?.ValueString) == PhpBinaryOperator.Coalesce;
 
         private static bool IsCoalesceAssign(IBase2Ast node)
         {
@@ -200,7 +203,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return false;
             }
 
-            var op = PhpAssignmentOperatorExtensions.FromToken(GetTokenType(binary.Operator));
+            var op = PhpAssignmentOperatorExtensions.FromToken(
+                GetTokenType(binary.Operator),
+                binary.Operator?.ValueString);
             return op == PhpAssignmentOperator.CoalesceAssign;
         }
 

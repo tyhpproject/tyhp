@@ -97,6 +97,8 @@ public class HelpAliasRewriteTests
     [InlineData(new[] { "help", "--help=true" }, new[] { "help", "--subject=help" })]
     [InlineData(new[] { "version", "--help=true" }, new[] { "help", "--subject=version" })]
     [InlineData(new[] { "dump-ast", "--help=true" }, new[] { "help", "--subject=dump_ast" })]
+    [InlineData(new[] { "symbol-tree", "--help=true" }, new[] { "help", "--subject=symbol_tree" })]
+    [InlineData(new[] { "install", "--help=true" }, new[] { "help", "--subject=install" })]
     [InlineData(new[] { "unknown-command", "--help=true" }, new[] { "help" })]
     [InlineData(new[] { "--quiet=true", "--help=true" }, new[] { "help", "--quiet=true" })]
     public void RewriteHelpAlias_EquivalenceTable(string[] input, string[] expected)
@@ -140,6 +142,7 @@ public class HelpAliasRewriteTests
     [Theory]
     [InlineData("VERSION", "version")]
     [InlineData("dump-ast", "dump_ast")]
+    [InlineData("symbol-tree", "symbol_tree")]
     [InlineData("Generate_Tyhpdef", "generate_tyhpdef")]
     public void TryParseAction_AcceptsCaseAndHyphenVariants(string text, string expected)
     {

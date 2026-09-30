@@ -72,9 +72,15 @@ namespace Tyhp.TyhpLang.Checker
                         pair.Value.IntegerKeyAlias == other.IntegerKeyAlias &&
                         pair.Value.IsOptional == other.IsOptional &&
                         AreTypesEqualCore(pair.Value.Type, other.Type, visited)),
+                CheckedTypeKind.ObjectShape =>
+                    left is ObjectShapeCheckedType lo &&
+                    right is ObjectShapeCheckedType ro &&
+                    AreObjectShapesStructurallyEqual(lo, ro, visited),
                 CheckedTypeKind.Callable =>
                     left is CallableCheckedType lc &&
                     right is CallableCheckedType rc &&
+                    lc.IsAnyArity == rc.IsAnyArity &&
+                    lc.LastParameterIsVariadic == rc.LastParameterIsVariadic &&
                     lc.ParameterTypes.Count == rc.ParameterTypes.Count &&
                     lc.ParameterTypes.Zip(rc.ParameterTypes).All(pair =>
                         AreTypesEqualCore(pair.First, pair.Second, visited)) &&
@@ -85,6 +91,19 @@ namespace Tyhp.TyhpLang.Checker
                     AreTypesEqualCore(lStatic.DeclaringType, rStatic.DeclaringType, visited),
                 CheckedTypeKind.Never or CheckedTypeKind.Void or CheckedTypeKind.Mixed or CheckedTypeKind.Unresolved =>
                     left.DisplayName == right.DisplayName,
+                CheckedTypeKind.HomogeneousVariadic =>
+                    left is HomogeneousVariadicCheckedType lh &&
+                    right is HomogeneousVariadicCheckedType rh &&
+                    AreTypesEqualCore(lh.ElementType, rh.ElementType, visited),
+                CheckedTypeKind.ParameterPack =>
+                    left is ParameterPackCheckedType lp &&
+                    right is ParameterPackCheckedType rp &&
+                    lp.Map == rp.Map &&
+                    lp.LastMemberIsVariadic == rp.LastMemberIsVariadic &&
+                    lp.Members.Count == rp.Members.Count &&
+                    lp.Members.Zip(rp.Members).All(pair =>
+                        AreTypesEqualCore(pair.First, pair.Second, visited)) &&
+                    AreTypesEqualCore(lp.SourceCallable, rp.SourceCallable, visited),
                 _ => left.DisplayName == right.DisplayName,
             };
         }
@@ -104,9 +123,10 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// <c>\Tyhp\ReturnType</c> and <c>__CallableReturnType</c> are the same checker operation
-        /// (callable-keyed return extraction). Deferred wrappers must compare equal so
-        /// <c>return $cb()</c> type-checks when the declared return uses either spelling.
+        /// <c>__CallableReturnType</c> and the internal <see cref="UtilityBehavior.ReturnType"/>
+        /// dispatch are the same checker operation (callable-keyed return extraction).
+        /// Deferred wrappers must compare equal so <c>return $cb()</c> type-checks when the
+        /// declared return uses either internal behavior.
         /// </summary>
         private static bool AreEquivalentCallableReturnUtilities(ICheckedType leftBase, ICheckedType rightBase) =>
             SymbolNameTypeHelper.TryGetUtilitySymbol(leftBase, out var left)
@@ -240,6 +260,15 @@ namespace Tyhp.TyhpLang.Checker
                 return inner.IsNever ? CheckedTypes.Never : new NullableCheckedType(inner);
             }
 
+            // Callable arity facets are siblings (optional trailing defaults), not a subtype
+            // chain. Their meet is the flattened facet intersection (`A&B` meet `C` → `A&B&C`).
+            // Distributing Intersect over those members first would wrap pair-meets forever
+            // (`Intersect(A,C)` → `A&C`, then `Intersect(B, A&C)` → …).
+            if (IsCallableFacetMeet(a) && IsCallableFacetMeet(b))
+            {
+                return MergeCallableFacetMeet(a, b);
+            }
+
             if (a is IntersectionCheckedType intersectionA)
             {
                 var result = b;
@@ -260,13 +289,6 @@ namespace Tyhp.TyhpLang.Checker
                 }
 
                 return result;
-            }
-
-            // Callable arity facets are siblings (optional trailing defaults), not a subtype chain.
-            // Their meet must remain an intersection — the same model Story 27 uses for `new<>`.
-            if (a is CallableCheckedType && b is CallableCheckedType)
-            {
-                return new IntersectionCheckedType([a, b]);
             }
 
             if (!IsAssignableTo(a, b, symbolTree, globalScope) && !IsAssignableTo(b, a, symbolTree, globalScope))
@@ -304,11 +326,16 @@ namespace Tyhp.TyhpLang.Checker
 
             if (current is UnionCheckedType union)
             {
-                var matching = union.Members
-                    .Where(member => IsAssignableTo(member, narrowTo, symbolTree, globalScope) ||
-                                     IsSubtypeOf(member, narrowTo, symbolTree, globalScope) ||
-                                     AreTypesEqual(member, narrowTo))
-                    .ToList();
+                var matching = new List<ICheckedType>();
+                foreach (var member in union.Members)
+                {
+                    if (IsAssignableTo(member, narrowTo, symbolTree, globalScope)
+                        || IsSubtypeOf(member, narrowTo, symbolTree, globalScope)
+                        || AreTypesEqual(member, narrowTo))
+                    {
+                        matching.Add(member);
+                    }
+                }
 
                 if (matching.Count == 1)
                 {
@@ -326,7 +353,17 @@ namespace Tyhp.TyhpLang.Checker
                 return narrowTo;
             }
 
-            return IntersectTypes(current, narrowTo, symbolTree, globalScope);
+            var intersected = IntersectTypes(current, narrowTo, symbolTree, globalScope);
+            // A true type guard (`is_array($x)`, `$x is T`, …) is a runtime fact. When the
+            // current type and the asserted type do not meet (e.g. `callable` ∩ `array`),
+            // keep the assertion rather than `never`. Declared intersections still use
+            // IntersectTypes and can be `never`.
+            if (IsNeverType(intersected) && !IsNeverType(narrowTo))
+            {
+                return narrowTo;
+            }
+
+            return intersected;
         }
 
         private static ICheckedType NarrowTypeNegativeCore(
@@ -344,6 +381,7 @@ namespace Tyhp.TyhpLang.Checker
             {
                 var remaining = union.Members
                     .Where(member => !AreTypesEqual(member, excludeType) &&
+                                     !AreEquivalentIdentityLiterals(member, excludeType) &&
                                      !IsSubtypeOf(member, excludeType, symbolTree, globalScope))
                     .ToList();
 
@@ -353,6 +391,24 @@ namespace Tyhp.TyhpLang.Checker
                     1 => remaining[0],
                     _ => UnionTypes(remaining, symbolTree, globalScope),
                 };
+            }
+
+            if (current is NullableCheckedType nullable)
+            {
+                var excludeNull = IsNullLiteral(excludeType) || IsBuiltInName(excludeType, "null");
+                var innerRemaining = NarrowTypeNegativeCore(
+                    nullable.InnerType, excludeType, symbolTree, globalScope);
+                if (excludeNull)
+                {
+                    return innerRemaining;
+                }
+
+                if (IsNeverType(innerRemaining))
+                {
+                    return CheckedTypes.Null;
+                }
+
+                return new NullableCheckedType(innerRemaining);
             }
 
             if (AreTypesEqual(current, excludeType) || IsSubtypeOf(current, excludeType, symbolTree, globalScope))
@@ -424,6 +480,47 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// True when <paramref name="type"/> is a callable facet or an intersection of only
+        /// callable facets (the <c>(callable(...))&amp;callable(...)</c> arity model).
+        /// </summary>
+        private static bool IsCallableFacetMeet(ICheckedType type)
+        {
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            if (type is CallableCheckedType)
+            {
+                return true;
+            }
+
+            return type is IntersectionCheckedType intersection
+                && intersection.Members.Count > 0
+                && intersection.Members.All(IsCallableFacetMeet);
+        }
+
+        private static ICheckedType MergeCallableFacetMeet(ICheckedType a, ICheckedType b)
+        {
+            var facets = new List<ICheckedType>();
+            foreach (var facet in CallableArityFacetBuilder.GetCallableFacets(a)
+                .Concat(CallableArityFacetBuilder.GetCallableFacets(b)))
+            {
+                if (!facets.Any(existing => AreTypesEqual(existing, facet)))
+                {
+                    facets.Add(facet);
+                }
+            }
+
+            return facets.Count switch
+            {
+                0 => new IntersectionCheckedType([a, b]),
+                1 => facets[0],
+                _ => new IntersectionCheckedType(facets),
+            };
         }
     }
 }

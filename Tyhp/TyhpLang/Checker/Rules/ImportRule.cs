@@ -18,6 +18,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // Only visit decls — not PhpImportDeclListAst — so each use is registered once.
             // Visiting both double-registered every import and spuriously emitted 4131.
             typeof(PhpImportDeclAst),
+            typeof(TyhpImportExtensionAst),
             typeof(PhpNameAst),
         ];
 
@@ -29,7 +30,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
             switch (node)
             {
                 case PhpImportDeclAst import:
-                    RegisterImport(import, fileName, diagnostics, state);
+                    RegisterImport(import, fileName, diagnostics, state, context);
+                    break;
+                case TyhpImportExtensionAst importExtension:
+                    CheckRedundantExtensionImport(importExtension, fileName, diagnostics, state, context);
                     break;
                 case PhpNameAst name:
                     MarkImportUsed(name, fileName);
@@ -114,7 +118,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             PhpImportDeclAst import,
             string fileName,
             DiagnosticBag diagnostics,
-            CheckerState state)
+            CheckerState state,
+            CheckerRuleContext context)
         {
             var importedName = import.NamespaceName ?? string.Empty;
             if (string.IsNullOrEmpty(importedName))
@@ -129,10 +134,23 @@ namespace Tyhp.TyhpLang.Checker.Rules
             var fileState = _importsByFile[fileName];
             var useType = ResolveUseType(import);
 
-            if (fileState.ImportsByFqn.ContainsKey(importedName))
+            if (!import.IsGlobal && IsRedundantGlobalClassImport(import, alias, useType, context))
             {
                 CheckerHelpers.ReportWarning(
-                    diagnostics, state, import, MessageCode.CheckerDuplicateImport, importedName);
+                    diagnostics, state, import, MessageCode.CheckerRedundantGlobalImport, importedName);
+            }
+
+            if (fileState.ImportsByFqn.TryGetValue(importedName, out var existingImport))
+            {
+                var fileNameForDup = CheckerHelpers.ResolveDiagnosticFileName(state, import);
+                diagnostics.AddDuplicateFromAst(
+                    DiagnosticSeverity.Warning,
+                    MessageCode.CheckerDuplicateImport,
+                    import,
+                    fileNameForDup,
+                    existingImport.Declaration,
+                    fileNameForDup,
+                    importedName);
                 return;
             }
 
@@ -159,6 +177,168 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 "function" => PhpUseType.Function,
                 _ => PhpUseType.Class,
             };
+
+        private static bool IsRedundantGlobalClassImport(
+            PhpImportDeclAst import,
+            string localAlias,
+            PhpUseType useType,
+            CheckerRuleContext context)
+        {
+            var imported = (import.NamespaceName ?? "").Trim().TrimStart('\\');
+            if (imported.Length == 0)
+            {
+                return false;
+            }
+
+            foreach (var global in context.GlobalScope.GlobalImports)
+            {
+                if (global.UseType != useType)
+                {
+                    continue;
+                }
+
+                if (!string.Equals(global.ImportedName.TrimStart('\\'), imported, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var globalAlias = string.IsNullOrEmpty(global.AliasName) ? global.Name : global.AliasName;
+                return string.Equals(localAlias, globalAlias, StringComparison.OrdinalIgnoreCase);
+            }
+
+            return false;
+        }
+
+        private static void CheckRedundantExtensionImport(
+            TyhpImportExtensionAst importExt,
+            string fileName,
+            DiagnosticBag diagnostics,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            if (importExt.IsGlobal)
+            {
+                return;
+            }
+
+            var declarations = importExt.UseDeclarations?.GetAllNotNull().ToList() ?? [];
+            if (declarations.Count == 0)
+            {
+                return;
+            }
+
+            // Multiple extensions may share one `use extension Foo, Bar { … }` statement with a
+            // single adaptations block. A mutation targeting one of them (by qualifier, or
+            // unqualified when it is the only extension listed) must not silence the redundant
+            // warning for the others — each imported name is judged independently (Story 20
+            // decision 18: "names in the same group that do alias or adapt are silent").
+            var soleExtension = declarations.Count == 1;
+            var adaptations = importExt.Adaptations?.GetAllNotNull().ToList() ?? [];
+
+            foreach (var decl in declarations)
+            {
+                var imported = (decl.NamespaceName ?? "").Trim().TrimStart('\\');
+                if (imported.Length == 0)
+                {
+                    continue;
+                }
+
+                var lastSegment = imported[(imported.LastIndexOf('\\') + 1)..];
+                var localAlias = string.IsNullOrEmpty(decl.Identifier) ? lastSegment : decl.Identifier;
+                var aliasesToSameShortName = string.Equals(localAlias, lastSegment, StringComparison.OrdinalIgnoreCase);
+
+                if (!aliasesToSameShortName && !string.IsNullOrEmpty(decl.Identifier))
+                {
+                    // Renamed the import itself — a mutation for this extension.
+                    continue;
+                }
+
+                if (HasAdaptationMutatingExtension(adaptations, lastSegment, soleExtension))
+                {
+                    continue;
+                }
+
+                foreach (var ext in context.GlobalScope.GloballyActivatedExtensions)
+                {
+                    var fqn = (string.IsNullOrEmpty(ext.FullyQualifiedName) ? ext.Name : ext.FullyQualifiedName)
+                        .TrimStart('\\');
+                    if (string.Equals(fqn, imported, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(ext.Name, imported, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(ext.Name, lastSegment, StringComparison.OrdinalIgnoreCase))
+                    {
+                        CheckerHelpers.ReportWarning(
+                            diagnostics,
+                            state,
+                            decl,
+                            MessageCode.CheckerRedundantGlobalImport,
+                            decl.NamespaceName ?? imported);
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// True when at least one adaptation in the shared <c>{ … }</c> block mutates
+        /// <paramref name="extensionShortName"/> specifically: a qualified reference naming that
+        /// extension (<c>Ext::member hide;</c>, <c>Ext::member as alias;</c>,
+        /// <c>Other::member insteadof Ext;</c>), or any unqualified adaptation when it is the only
+        /// extension listed on the <c>use</c> statement.
+        /// </summary>
+        private static bool HasAdaptationMutatingExtension(
+            List<ITraitAdaptation> adaptations,
+            string extensionShortName,
+            bool soleExtension)
+        {
+            foreach (var adaptation in adaptations)
+            {
+                var qualifier = adaptation switch
+                {
+                    PhpTraitAliasAst alias => AdaptationQualifier(alias.MethodReference),
+                    PhpTraitPrecedenceAst precedence => AdaptationQualifier(precedence.MethodReference),
+                    _ => null,
+                };
+
+                if (string.IsNullOrEmpty(qualifier))
+                {
+                    if (soleExtension)
+                    {
+                        return true;
+                    }
+                }
+                else if (string.Equals(qualifier.TrimStart('\\'), extensionShortName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                if (adaptation is PhpTraitPrecedenceAst { InsteadOfTraits: not null } precedenceAst)
+                {
+                    foreach (var loser in precedenceAst.InsteadOfTraits.GetAllNotNull())
+                    {
+                        var loserName = string.IsNullOrEmpty(loser.Identifier) ? loser.ValueString : loser.Identifier;
+                        if (string.Equals(loserName?.TrimStart('\\'), extensionShortName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static string? AdaptationQualifier(PhpTraitMemberRefAst? methodRef)
+        {
+            var traitName = methodRef?.TraitName;
+            if (traitName is null)
+            {
+                return null;
+            }
+
+            // IClassName.Identifier defaults to "" (not null) when unset, so an empty Identifier
+            // must fall through to ValueString rather than short-circuiting via `??`.
+            return string.IsNullOrEmpty(traitName.Identifier) ? traitName.ValueString : traitName.Identifier;
+        }
 
         private void MarkImportUsed(PhpNameAst name, string fileName)
         {

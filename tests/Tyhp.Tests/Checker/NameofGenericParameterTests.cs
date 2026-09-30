@@ -49,6 +49,40 @@ public class NameofGenericParameterTests
     }
 
     [Fact]
+    public void Nameof_ClassGeneric_InInterpolation_IsString()
+    {
+        // `nameof` of an in-scope generic is the parameter's spelling, a string.
+        // Interpolation must accept it even when the parameter's constraint is `mixed`.
+        var errors = CompileAndCheck("""
+            <?tyhp
+            namespace Test;
+            final class Promise<TReturn extends void|mixed = mixed> {
+                public function label(): string {
+                    return "value incompatible with ${nameof(TReturn)} of Promise";
+                }
+            }
+            """);
+
+        errors.Should().BeEmpty(Describe(errors));
+    }
+
+    [Fact]
+    public void Nameof_ClassGeneric_InConcat_IsString()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            namespace Test;
+            final class Promise<TReturn extends void|mixed = mixed> {
+                public function label(): string {
+                    return 'value incompatible with ' . nameof(TReturn) . ' of Promise';
+                }
+            }
+            """);
+
+        errors.Should().BeEmpty(Describe(errors));
+    }
+
+    [Fact]
     public void Nameof_MethodGeneric_OnClass_DoesNotReport4090()
     {
         var errors = CompileAndCheck("""
@@ -176,14 +210,7 @@ public class NameofGenericParameterTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

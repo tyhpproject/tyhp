@@ -433,7 +433,7 @@ public class GenericVariantEmitterTests
                     return typeof(TValue);
                 }
 
-                public static function wrap<T>(callable<T> $fn): self<T> {
+                public static function wrap<T>(callable(): T $fn): self<T> {
                     return new self<T>($fn());
                 }
             }
@@ -600,11 +600,11 @@ public class GenericVariantEmitterTests
             """);
 
         php.Should().Contain(
-            "public abstract function name__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure;");
+            "abstract public function name__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure;");
         php.Should().NotContain(
-            "public abstract function name__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure\n{");
+            "abstract public function name__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure\n{");
         php.Should().NotContain(
-            "public abstract function name__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure\n    {");
+            "abstract public function name__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure\n    {");
     }
 
     /// <summary>
@@ -663,10 +663,10 @@ public class GenericVariantEmitterTests
     }
 
     [Fact]
-    public void Emit_CallSitePassingOwnMethodGeneric_OutsideVariant_ErasesToMixedType()
+    public void Emit_CallSitePassingOwnMethodGeneric_ForwardsTheBinderCapture()
     {
-        // Callee is Mechanism D; caller has a method generic but is not itself a variant. Passing T
-        // as a type argument must not emit `fromClassName(T::class)` — there is no reified binding.
+        // Callee is Mechanism D; caller mentions T only as a type argument. That still needs the
+        // bound type at runtime (to pass into the callee's binder), so the caller is a variant too.
         var php = CompileAndEmit("""
             <?tyhp
             class Helper {
@@ -682,9 +682,27 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("Helper::take__tyhpGeneric(\\Tyhp\\Type::mixed())");
+        php.Should().Contain("function wrap__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
+        php.Should().Contain("Helper::take__tyhpGeneric($__generic_T)");
         php.Should().NotContain("fromClassName(\\T::class)");
         php.Should().NotContain("fromClassName(T::class)");
+        php.Should().NotContain("Helper::take__tyhpGeneric(\\Tyhp\\Type::mixed())");
+    }
+
+    [Fact]
+    public void Emit_ExtensionMethodUsingOwnGeneric_EmitsVariant()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension StringJson extends string {
+                function decodeAs<T>(): mixed {
+                    return typeof(T);
+                }
+            }
+            """);
+
+        php.Should().Contain("function decodeAs__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
+        php.Should().Contain("$__generic_T");
     }
 
     [Trait("Category", "PHP")]
@@ -854,8 +872,8 @@ public class GenericVariantEmitterTests
     }
 
     /// <summary>
-    /// Emits <paramref name="tyhp"/>, writes it next to a driver that autoloads the core runtime, and
-    /// returns what PHP printed.
+    /// Emits <paramref name="tyhp"/>, writes it next to a driver that autoloads the
+    /// test PHP runtime fixture, and returns what PHP printed.
     /// </summary>
     private static string CompileAndRun(string tyhp) =>
         EmittedPhpRunner.Run(Compile(tyhp).Files, "\\Probe\\run();");
@@ -887,13 +905,7 @@ public class GenericVariantEmitterTests
             var files = tyhpdefPath is null
                 ? new[] { filePath }
                 : new[] { tyhpdefPath, filePath };
-            var result = compilationService.ParseFiles(files, new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles(files, IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

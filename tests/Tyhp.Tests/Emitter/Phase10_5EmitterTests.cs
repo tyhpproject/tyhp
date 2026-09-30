@@ -83,11 +83,11 @@ public class Phase10_5EmitterTests
         var result = Compile("""
             <?tyhp
             class Money {}
-            extension MoneySelfAdd {
-                operator +<Money>(self $left, self $right): self { return $left; }
+            extension MoneySelfAdd extends Money {
+                operator + (self $left, self $right): self { return $left; }
             }
-            extension MoneyIntAdd {
-                operator +<Money>(self $left, int $right): self { return $left; }
+            extension MoneyIntAdd extends Money {
+                operator + (self $left, int $right): self { return $left; }
             }
             """);
 
@@ -184,12 +184,7 @@ public class Phase10_5EmitterTests
         File.WriteAllText(filePath, content);
 
         using var compilationService = new CompilationService();
-        var options = new CompilationOptions
-        {
-            EnableAstCache = false,
-            PhpVersion = "8.4",
-            ProjectPath = tempDir,
-        };
+        var options = IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4");
 
         return compilationService.ParseFiles([filePath], options);
     }
