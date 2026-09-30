@@ -2,6 +2,7 @@ using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Binder;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 
@@ -23,19 +24,73 @@ namespace Tyhp.TyhpLang.Checker.Rules
             switch (node)
             {
                 case PhpNameAst name:
-                    ReportSymbolDeprecation(name.BoundSymbol, name, state, diagnostics);
+                    ReportSymbolDeprecation(
+                        ResolveNameSymbol(name, state, context),
+                        name,
+                        state,
+                        diagnostics);
                     break;
                 case PhpDereferenceableAst deref:
-                    ReportSymbolDeprecation(ResolveDereferenceableSymbol(deref), deref, state, diagnostics);
+                    ReportSymbolDeprecation(
+                        ResolveDereferenceableSymbol(deref, state, context, diagnostics),
+                        deref,
+                        state,
+                        diagnostics);
                     break;
             }
         }
 
-        private static IBaseSymbol? ResolveDereferenceableSymbol(PhpDereferenceableAst deref)
+        private static IBaseSymbol? ResolveNameSymbol(
+            PhpNameAst name,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            if (name.BoundSymbol is not null)
+            {
+                return name.BoundSymbol;
+            }
+
+            // Call-site free constants are often unbound by the binder.
+            return CheckerHelpers.ResolveFreeConstant(
+                name, state, context.SymbolTree, context.GlobalScope);
+        }
+
+        private static IBaseSymbol? ResolveDereferenceableSymbol(
+            PhpDereferenceableAst deref,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
         {
             if (deref.Suffix is PhpCallAst && deref.Base is PhpNameAst name)
             {
                 return name.BoundSymbol;
+            }
+
+            if (deref.Suffix is PhpClassConstantAccessAst classConst)
+            {
+                var memberName = classConst.Member?.ValueString ?? classConst.Member?.Identifier;
+                if (!string.IsNullOrEmpty(memberName))
+                {
+                    var receiverNode = deref.Base as IBase2Ast ?? deref;
+                    var receiverType = CheckerHelpers.ResolveInstanceofTargetType(
+                        receiverNode,
+                        state,
+                        context,
+                        context.SymbolTree,
+                        context.GlobalScope);
+                    var owner = CheckerHelpers.TryGetObjectDeclaration(receiverType);
+                    if (owner is not null
+                        && context.SymbolTree.ResolveConstant(memberName, owner, diagnostics)
+                            is ObjectConstantSymbol constant)
+                    {
+                        return constant;
+                    }
+                }
+
+                if (classConst.Member?.BoundSymbol is not null)
+                {
+                    return classConst.Member.BoundSymbol;
+                }
             }
 
             return deref.BoundSymbol ?? (deref.Base as PhpNameAst)?.BoundSymbol;
@@ -61,8 +116,18 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             if (baseSymbol.IsDeprecated)
             {
+                // WARNING_TYHP4500 is `{0}` is deprecated{1}. {1} is empty when there is no
+                // literal #[\Deprecated] $message so existing one-arg wording is preserved.
+                var messageSuffix = string.IsNullOrEmpty(baseSymbol.DeprecatedMessage)
+                    ? string.Empty
+                    : ": " + baseSymbol.DeprecatedMessage;
                 CheckerHelpers.ReportWarning(
-                    diagnostics, state, node, MessageCode.CheckerDeprecatedUsage, baseSymbol.Name);
+                    diagnostics,
+                    state,
+                    node,
+                    MessageCode.CheckerDeprecatedUsage,
+                    baseSymbol.Name,
+                    messageSuffix);
             }
         }
     }

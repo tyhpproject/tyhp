@@ -1,0 +1,17 @@
+{
+  "suite": "story21/global-use-adapt",
+  "description": "Story 21 — local hide/alias against globally included StringExtensions. Isolated from array.tyhpdef (TYHP4174).",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "hide_and_alias_compiles",
+      "file": "hide_alias.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/_functions.php"
+      }
+    }
+  ]
+}

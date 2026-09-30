@@ -48,7 +48,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
                 if (CallableGenericInference.ContainsUnboundGeneric(paramType))
                 {
-                    paramType = CheckedTypes.Mixed;
+                    paramType = GradualizeUnboundCallableParameter(paramType);
                 }
 
                 if (!context.IsAssignable(leftType, paramType, state)
@@ -247,7 +247,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 }
 
                 var receiverType = context.ResolveExpressionType(chain.Base, state);
-                if (!TryResolveMethod(receiverType, methodName, staticOnly, context, out var method)
+                if (!TryResolveMethod(receiverType, methodName, staticOnly, state, context, out var method)
                     || method is null)
                 {
                     return false;

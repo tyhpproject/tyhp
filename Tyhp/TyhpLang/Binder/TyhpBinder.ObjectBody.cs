@@ -82,19 +82,36 @@ namespace Tyhp.TyhpLang.Binder
 
                     case TyhpTypeAliasAst typeAlias:
                     {
+                        if (typeAlias.StructShape is { } structShape)
+                        {
+                            BindStructShapeAlias(typeAlias, structShape, objScope);
+                            break;
+                        }
+
                         var aliasName = typeAlias.Name?.ValueString ?? typeAlias.Identifier ?? "";
                         if (!string.IsNullOrEmpty(aliasName))
                         {
-                            var aliasSymbol = new ObjectTypeAliasSymbol(aliasName, sourceFile: _currentFileName);
+                            var modifiers = ConvertModifiers(typeAlias.Modifiers);
+                            var aliasSymbol = new ObjectTypeAliasSymbol(
+                                aliasName,
+                                declaringNode: typeAlias,
+                                sourceFile: _currentFileName,
+                                visibility: modifiers);
                             aliasSymbol.AliasedType = typeAlias.TypeExpression;
-
-                            if (!objScope.AddChildSymbol(aliasSymbol))
+                            ApplyInternal(aliasSymbol, typeAlias, modifiers);
+                            ValidateObjectShapeAlias(typeAlias);
+                            if (typeAlias.GenericArguments != null)
                             {
-                                _diagnostics.AddErrorFromAst(
-                                    MessageCode.BinderDuplicateSymbolDeclaration,
-                                    typeAlias,
+                                PopulateGenericParameters(
+                                    typeAlias.GenericArguments,
+                                    aliasSymbol.GenericParameters,
                                     _currentFileName,
-                                    aliasSymbol.Name);
+                                    SymbolType.ClassGenericTypeParameter);
+                            }
+
+                            if (!objScope.TryAddChildSymbol(aliasSymbol, out var existing))
+                            {
+                                ReportBinderDuplicate(typeAlias, existing, aliasSymbol.Name);
                             }
                             else
                             {
@@ -146,6 +163,17 @@ namespace Tyhp.TyhpLang.Binder
             var isStatic = modifiers.HasFlag(MemberModifier.Static);
             var symbolType = DetermineMethodSymbolType(name, isStatic);
 
+            if (!ShouldRegisterPhpVersionGatedDeclaration(
+                    methodDecl,
+                    objScope,
+                    name,
+                    symbolType,
+                    illegalAttributeTarget: false,
+                    out var phpConstraints))
+            {
+                return;
+            }
+
             ObjectMethodSymbol methodSymbol = symbolType switch
             {
                 SymbolType.ObjectConstructor => new ObjectConstructorMethodSymbol(name, _currentFileName, methodDecl),
@@ -153,10 +181,19 @@ namespace Tyhp.TyhpLang.Binder
                 _ => new ObjectMethodSymbol(name, methodDecl, _currentFileName, modifiers, symbolType)
             };
 
+            // Constructor/destructor helpers do not take a modifier list; copy visibility so
+            // `__New` / `new` can reject non-public constructors (TYHP4353).
+            if (symbolType is SymbolType.ObjectConstructor or SymbolType.ObjectDestructor)
+            {
+                methodSymbol.Visibility = modifiers;
+            }
+
+            StampPhpVersionConstraints(methodSymbol, phpConstraints);
             methodSymbol.OriginalPhpName = originalPhpName;
             methodSymbol.ReturnType = methodDecl.ReturnType;
             methodSymbol.IsAbstract = modifiers.HasFlag(MemberModifier.Abstract);
             methodSymbol.IsAsync = modifiers.HasFlag(MemberModifier.Async) || HasAsyncModifier(methodDecl);
+            ApplyInternal(methodSymbol, methodDecl, modifiers);
             PopulateGenericParametersFromGrammarAddon(
                 methodDecl.AstGrammarAddons,
                 methodSymbol.GenericParameters,
@@ -179,13 +216,12 @@ namespace Tyhp.TyhpLang.Binder
                 }
             }
 
-            if (!objScope.AddChildSymbol(methodSymbol))
+            if (!objScope.TryAddChildSymbol(methodSymbol, out var existing))
             {
-                _diagnostics.AddErrorFromAst(
-                    MessageCode.BinderDuplicateSymbolDeclaration,
-                    methodDecl,
-                    _currentFileName,
-                    methodSymbol.Name);
+                if (!TryAddTyhpdefMethodOverload(objScope, methodSymbol))
+                {
+                    ReportBinderOrTyhpdefDuplicate(methodDecl, existing, methodSymbol.Name);
+                }
             }
             else
             {
@@ -200,6 +236,7 @@ namespace Tyhp.TyhpLang.Binder
                 if (methodDecl.Body != null)
                 {
                     BindStatementBlock(methodDecl.Body, staticScope);
+                    methodSymbol.IsGenerator = BodyContainsYield(methodDecl.Body);
                 }
             }
             else
@@ -210,6 +247,7 @@ namespace Tyhp.TyhpLang.Binder
                 if (methodDecl.Body != null)
                 {
                     BindStatementBlock(methodDecl.Body, instanceScope);
+                    methodSymbol.IsGenerator = BodyContainsYield(methodDecl.Body);
                 }
             }
         }
@@ -226,6 +264,18 @@ namespace Tyhp.TyhpLang.Binder
             foreach (var prop in propDecl.Properties.GetAllNotNull())
             {
                 var symbolType = isStatic ? SymbolType.StaticObjectProperty : SymbolType.InstanceObjectProperty;
+                if (!ShouldRegisterPhpVersionGatedDeclaration(
+                        prop,
+                        objScope,
+                        prop.Identifier ?? "",
+                        symbolType,
+                        illegalAttributeTarget: false,
+                        out var phpConstraints,
+                        propDecl))
+                {
+                    continue;
+                }
+
                 var propSymbol = new ObjectPropertySymbol(
                     prop.Identifier ?? "",
                     sourceFile: _currentFileName,
@@ -234,24 +284,57 @@ namespace Tyhp.TyhpLang.Binder
                     visibility: modifiers
                 );
 
+                StampPhpVersionConstraints(propSymbol, phpConstraints);
+                ApplyInternal(propSymbol, propDecl, modifiers);
                 propSymbol.DeclaredType = type;
                 propSymbol.DefaultValue = prop.DefaultValue;
-                propSymbol.HasAccessor = prop.Hooks != null;
+                ApplyPropertyHookFlags(propSymbol, prop.Hooks);
                 propSymbol.AllowsUnset = allowsUnset
                     || DeclarationHasAllowUnsetAttribute(prop);
 
-                if (!objScope.AddChildSymbol(propSymbol))
+                if (!objScope.TryAddChildSymbol(propSymbol, out var existing))
                 {
-                    _diagnostics.AddErrorFromAst(
-                        MessageCode.BinderDuplicateSymbolDeclaration,
-                        prop,
-                        _currentFileName,
-                        propSymbol.Name);
+                    ReportBinderOrTyhpdefDuplicate(prop, existing, propSymbol.Name);
                 }
                 else
                 {
                     RegisterObjectMember(objScope, propSymbol, prop.Identifier ?? "");
                 }
+            }
+        }
+
+        /// <summary>
+        /// Sets <see cref="ObjectPropertySymbol.HasAccessor"/> from a non-null hook list, then
+        /// <see cref="ObjectPropertySymbol.HasGetHook"/> / <see cref="ObjectPropertySymbol.HasSetHook"/>
+        /// / <see cref="ObjectPropertySymbol.GetHookReturnsRef"/> from hook names. Invalid names are
+        /// left to the checker. <see cref="ObjectPropertySymbol.AccessorKind"/> is <see cref="AccessorType.Get"/>
+        /// or <see cref="AccessorType.Set"/> when exactly one of those hooks is present.
+        /// </summary>
+        private static void ApplyPropertyHookFlags(ObjectPropertySymbol propSymbol, PhpPropertyHookListAst? hooks)
+        {
+            propSymbol.HasAccessor = hooks != null;
+            if (hooks == null)
+            {
+                return;
+            }
+
+            foreach (var hook in hooks.GetAllNotNull())
+            {
+                var hookName = hook.Identifier?.Trim() ?? "";
+                if (string.Equals(hookName, "get", StringComparison.OrdinalIgnoreCase))
+                {
+                    propSymbol.HasGetHook = true;
+                    propSymbol.GetHookReturnsRef |= hook.ReturnsRef;
+                }
+                else if (string.Equals(hookName, "set", StringComparison.OrdinalIgnoreCase))
+                {
+                    propSymbol.HasSetHook = true;
+                }
+            }
+
+            if (propSymbol.HasGetHook ^ propSymbol.HasSetHook)
+            {
+                propSymbol.AccessorKind = propSymbol.HasGetHook ? AccessorType.Get : AccessorType.Set;
             }
         }
 
@@ -267,6 +350,18 @@ namespace Tyhp.TyhpLang.Binder
                     continue;
                 }
 
+                if (!ShouldRegisterPhpVersionGatedDeclaration(
+                        constDecl,
+                        objScope,
+                        name,
+                        SymbolType.ObjectConstant,
+                        illegalAttributeTarget: false,
+                        out var phpConstraints,
+                        constList))
+                {
+                    continue;
+                }
+
                 // Visibility / final come from the enclosing class-const statement (plumbed onto each
                 // PhpConstDeclAst). Bare `const X` leaves MemberModifier.None, which PHP treats as public.
                 var constSymbol = new ObjectConstantSymbol(
@@ -275,15 +370,14 @@ namespace Tyhp.TyhpLang.Binder
                     declaringNode: constDecl,
                     visibility: ConvertModifiers(constDecl.Modifiers)
                 );
+                StampPhpVersionConstraints(constSymbol, phpConstraints);
+                ApplyInternal(constSymbol, constDecl, constSymbol.Visibility);
+                EngineDeprecatedAttribute.Apply(constSymbol, constList);
                 constSymbol.DeclaredType = constDecl.Type;
 
-                if (!objScope.AddChildSymbol(constSymbol))
+                if (!objScope.TryAddChildSymbol(constSymbol, out var existing))
                 {
-                    _diagnostics.AddErrorFromAst(
-                        MessageCode.BinderDuplicateSymbolDeclaration,
-                        constDecl,
-                        _currentFileName,
-                        constSymbol.Name);
+                    ReportBinderDuplicate(constDecl, existing, constSymbol.Name);
                 }
                 else
                 {
@@ -306,26 +400,40 @@ namespace Tyhp.TyhpLang.Binder
                 return;
             }
 
-            // Enum cases are always public in PHP; there is no visibility syntax on `case`.
+            if (!ShouldRegisterPhpVersionGatedDeclaration(
+                    enumCase,
+                    objScope,
+                    name,
+                    SymbolType.ObjectConstant,
+                    illegalAttributeTarget: false,
+                    out var phpConstraints))
+            {
+                return;
+            }
+
+            // Enum cases are public in PHP. Tyhp `internal case` is a generation boundary only.
+            var caseModifiers = ConvertModifiers(
+                enumCase.AstGrammarAddons.TryGetValue("modifiers", out var caseModAddon)
+                    ? caseModAddon as PhpModifierListAst
+                    : null);
             var constSymbol = new ObjectConstantSymbol(
                 name,
                 sourceFile: _currentFileName,
                 declaringNode: enumCase,
-                visibility: MemberModifier.Public
+                visibility: caseModifiers == MemberModifier.None ? MemberModifier.Public : caseModifiers
             );
+            StampPhpVersionConstraints(constSymbol, phpConstraints);
+            ApplyInternal(constSymbol, enumCase, caseModifiers);
 
             // An enum case's type is the enum itself (it is a singleton instance of the enum), not the
             // backing scalar type. Mark it so the checker resolves `Enum::Case` to the enum type.
             constSymbol.IsEnumCase = true;
             constSymbol.DeclaredType = symbol.ExtendsType;
+            constSymbol.ValueExpression = enumCase.Value;
 
-            if (!objScope.AddChildSymbol(constSymbol))
+            if (!objScope.TryAddChildSymbol(constSymbol, out var existing))
             {
-                _diagnostics.AddErrorFromAst(
-                    MessageCode.BinderDuplicateSymbolDeclaration,
-                    enumCase,
-                    _currentFileName,
-                    constSymbol.Name);
+                ReportBinderDuplicate(enumCase, existing, constSymbol.Name);
             }
             else
             {
@@ -344,7 +452,11 @@ namespace Tyhp.TyhpLang.Binder
             return $"{parameters}):{GetTypeDisplayName(op.ReturnType)}";
         }
 
-        private void BindOperatorOverload(TyhpOperatorOverloadAst opOverload, ObjectDeclarationScope objScope)
+        private void BindOperatorOverload(
+            TyhpOperatorOverloadAst opOverload,
+            ObjectDeclarationScope objScope,
+            ObjectDeclarationSymbol? extensionOwner = null,
+            ITypeExpression? blockTarget = null)
         {
             var opName = opOverload.Identifier ?? opOverload.Op?.ValueString ?? "";
 
@@ -355,33 +467,28 @@ namespace Tyhp.TyhpLang.Binder
             }
 
             var declaringObj = objScope.DeclarationSymbol as ObjectDeclarationSymbol;
-            var inExtensionBlock = declaringObj?.IsExtension == true;
+            var inExtensionBlock = extensionOwner is { IsExtension: true }
+                || declaringObj is { IsExtension: true, IsExtensionTargetGroup: false };
 
             if (opOverload.ExtensionTargetType != null && !inExtensionBlock && !opOverload.IsInlineExtension)
             {
                 _diagnostics.AddErrorFromAst(
                     MessageCode.ExtensionOperatorTargetNotAllowed,
-                    opOverload,
+                    opOverload.ExtensionTargetType,
                     _currentFileName,
                     "Operator target type is only allowed inside extension declarations.");
                 return;
             }
 
-            if (inExtensionBlock && opOverload.ExtensionTargetType == null)
-            {
-                _diagnostics.AddErrorFromAst(
-                    MessageCode.ExtensionOperatorMissingTarget,
-                    opOverload,
-                    _currentFileName,
-                    "Extension operator overloads require a <Type> target (e.g. operator +<MyType>(...)).");
-                return;
-            }
+            // Extension-block operators take their target from the header or nested
+            // group (`blockTarget`). Pass 2 resolves that AST onto
+            // ExtensionTargetSymbol and the target's ExtensionContributedOperators.
 
             ObjectDeclarationScope bindingScope = objScope;
             ObjectDeclarationSymbol? inlineOwnerClass = null;
             if (opOverload.IsInlineExtension && declaringObj != null && !inExtensionBlock)
             {
-                // `extension operator` in tyhpdef requires a body (maps to methods / rewrite).
+                // Mapped `extension operator` in tyhpdef requires a thin `=>` expression.
                 // Bodyless `operator …;` (no `extension`) is the native PHP passthrough form.
                 if (opOverload.Body == null)
                 {
@@ -412,17 +519,19 @@ namespace Tyhp.TyhpLang.Binder
                 opEnum = OverloadableOperator.Invalid;
             }
 
-            var methodSymbol = new ObjectOperatorOverloadMethodSymbol(opName, opEnum, _currentFileName);
+            var methodSymbol = new ObjectOperatorOverloadMethodSymbol(opName, opEnum, _currentFileName, opOverload);
             methodSymbol.ReturnType = opOverload.ReturnType;
             methodSymbol.IsExtensionOperator = inExtensionBlock || opOverload.IsInlineExtension;
+            ApplyInternal(methodSymbol, opOverload);
             // Bodyless class-level tyhpdef `operator …;` = native PHP passthrough (type-check only).
             methodSymbol.IsNativePassthrough =
                 !opOverload.IsInlineExtension && !inExtensionBlock && opOverload.Body == null;
 
             if (inExtensionBlock)
             {
-                methodSymbol.PendingExtensionTargetType = opOverload.ExtensionTargetType;
-                methodSymbol.DeclaringExtensionSymbol = declaringObj;
+                methodSymbol.PendingExtensionTargetType = blockTarget ?? opOverload.ExtensionTargetType;
+                methodSymbol.DeclaringExtensionSymbol = extensionOwner
+                    ?? (declaringObj is { IsExtension: true, IsExtensionTargetGroup: false } ? declaringObj : null);
             }
             else if (opOverload.IsInlineExtension && inlineOwnerClass != null)
             {
@@ -486,13 +595,9 @@ namespace Tyhp.TyhpLang.Binder
                 }
             }
 
-            if (!bindingScope.AddChildSymbol(methodSymbol))
+            if (!bindingScope.TryAddChildSymbol(methodSymbol, out var existingOp))
             {
-                _diagnostics.AddErrorFromAst(
-                    MessageCode.BinderDuplicateSymbolDeclaration,
-                    opOverload,
-                    _currentFileName,
-                    methodSymbol.Name);
+                ReportBinderDuplicate(opOverload, existingOp, methodSymbol.Name);
                 return;
             }
             RegisterObjectMember(bindingScope, methodSymbol, opName);
@@ -584,8 +689,9 @@ namespace Tyhp.TyhpLang.Binder
                     propSymbol.DeclaredType = param.Type;
                     propSymbol.DefaultValue = param.DefaultValue;
                     propSymbol.AllowsUnset = DeclarationHasAllowUnsetAttribute(param);
+                    ApplyPropertyHookFlags(propSymbol, param.PropertyHooks as PhpPropertyHookListAst);
 
-                    if (objScope.AddChildSymbol(propSymbol))
+                    if (objScope.TryAddChildSymbol(propSymbol, out var existingProp))
                     {
                         RegisterObjectMember(objScope, propSymbol, propMemberName);
                         if (methodSymbol is ObjectConstructorMethodSymbol ctorSymbol)
@@ -595,26 +701,22 @@ namespace Tyhp.TyhpLang.Binder
                     }
                     else
                     {
-                        _diagnostics.AddErrorFromAst(
-                            MessageCode.BinderDuplicateSymbolDeclaration,
-                            param,
-                            _currentFileName,
-                            propSymbol.Name);
+                        ReportBinderDuplicate(param, existingProp, propSymbol.Name);
                     }
                 }
 
                 switch (methodScope)
                 {
                     case InstanceMethodDeclarationScope instanceScope:
-                        if (!instanceScope.AddChildSymbol(varSymbol))
+                        if (!instanceScope.TryAddChildSymbol(varSymbol, out var existingInstance))
                         {
-                            _diagnostics.AddErrorFromAst(MessageCode.BinderDuplicateSymbolDeclaration, param, _currentFileName, paramName);
+                            ReportBinderDuplicate(param, existingInstance, paramName);
                         }
                         break;
                     case StaticMethodDeclarationScope staticScope:
-                        if (!staticScope.AddChildSymbol(varSymbol))
+                        if (!staticScope.TryAddChildSymbol(varSymbol, out var existingStatic))
                         {
-                            _diagnostics.AddErrorFromAst(MessageCode.BinderDuplicateSymbolDeclaration, param, _currentFileName, paramName);
+                            ReportBinderDuplicate(param, existingStatic, paramName);
                         }
                         break;
                 }

@@ -98,7 +98,9 @@ namespace Tyhp.CLI
 
             var contentBytes = Encoding.UTF8.GetBytes(content);
             var inputStream = new AntlrInputStream(new MemoryStream(contentBytes));
-            var lexer = new TyhpLexer(inputStream);
+            Lexer lexer = filePath.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase)
+                ? new TyhpdefLexer(inputStream)
+                : new TyhpLexer(inputStream);
             lexer.RemoveErrorListeners();
 
             using var lexerErrorListener = new TyhpAntlrErrorListener<int>(diagnostics);
@@ -111,12 +113,19 @@ namespace Tyhp.CLI
                 ParseMode.Tyhp => "tyhp",
                 _ => string.Empty,
             };
-            lexer.ConfigureTagless(taglessEnabled, taglessLanguageMode, diagnostics, filePath);
+            if (lexer is TyhpdefLexer tyhpdefLexer)
+            {
+                tyhpdefLexer.ConfigureTagless(taglessEnabled, taglessLanguageMode, diagnostics, filePath);
+            }
+            else
+            {
+                ((TyhpLexer)lexer).ConfigureTagless(taglessEnabled, taglessLanguageMode, diagnostics, filePath);
+            }
 
             var tokenStream = new CommonTokenStream(lexer);
             tokenStream.Fill();
 
-            var tokens = DebugJson.SerializeTokens(tokenStream.GetTokens());
+            var tokens = DebugJson.SerializeTokens(tokenStream.GetTokens(), lexer.Vocabulary);
             fileObject["tokenCount"] = tokens.Count;
             fileObject["tokens"] = tokens;
             fileObject["diagnostics"] = DebugJson.SerializeDiagnostics(diagnostics);

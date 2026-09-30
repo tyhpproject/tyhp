@@ -22,7 +22,7 @@ public class InferredClosureTypehintEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            function take(callable<int, string> $fn): string {
+            function take(callable(int): string $fn): string {
                 return $fn(1);
             }
 
@@ -42,7 +42,7 @@ public class InferredClosureTypehintEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            function take(callable<int, string> $fn): string {
+            function take(callable(int): string $fn): string {
                 return $fn(1);
             }
 
@@ -60,7 +60,7 @@ public class InferredClosureTypehintEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             function demo(): int {
-                callable<int> $fn = function () {
+                callable(): int $fn = function () {
                     return 42;
                 };
                 return $fn();
@@ -78,7 +78,7 @@ public class InferredClosureTypehintEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Host {
-                public static function wrap<T>(callable<T> $fn): T {
+                public static function wrap<T>(callable(): T $fn): T {
                     return $fn();
                 }
 
@@ -99,7 +99,7 @@ public class InferredClosureTypehintEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            function take(callable<int, string> $fn): string {
+            function take(callable(int): string $fn): string {
                 return $fn(1);
             }
 
@@ -153,13 +153,7 @@ public class InferredClosureTypehintEmitterTests
             var project = new Project(configuration);
 
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

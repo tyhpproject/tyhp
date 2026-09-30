@@ -52,10 +52,16 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 returnTypeAst, funcState, context);
             funcState.IsInAsyncContext = functionSymbol.IsAsync;
             funcState.IsInGeneratorContext = functionSymbol.IsGenerator;
+            if (functionSymbol.IsGenerator)
+            {
+                funcState.GeneratorInference = GeneratorBodyCollector.ForDeclaredReturn(returnTypeAst);
+            }
 
             if (function.ReturnType is not null)
             {
                 context.MarkImportNames(function.ReturnType, state);
+                ExternTypeUse.ReportIfTypeAnnotation(
+                    function.ReturnType, funcState, context, diagnostics, isReturnTypePosition: true);
             }
 
             RegisterParameters(function.Parameters, functionSymbol.Parameters, funcState, state, context, diagnostics);
@@ -73,13 +79,29 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 {
                     TypeGuardValidation.ReportMustReturnBool(function, state, diagnostics);
                 }
-                else if (!IsEffectivelyVoid(funcState.ExpectedReturnType) && !funcState.HasReturnedOnAllPaths)
+                else if (!functionSymbol.IsGenerator
+                    && !IsEffectivelyVoid(funcState.ExpectedReturnType) && !funcState.HasReturnedOnAllPaths)
                 {
+                    // A generator implicitly yields `null` from `TReturn` when it falls off the end
+                    // without an explicit `return <value>;` (PHP `Generator::getReturn()` semantics) —
+                    // unlike an ordinary function, it does not need one on every path.
                     CheckerHelpers.ReportError(
                         diagnostics, state, function, MessageCode.CheckerMissingReturnStatement, function.Identifier);
                 }
 
                 context.RecordGenericCallTargetsIn(function.Body, funcState);
+
+                if (functionSymbol.IsGenerator)
+                {
+                    GeneratorBodyInference.FinishAfterBody(
+                        function,
+                        function.ReturnType ?? functionSymbol.ReturnType,
+                        functionSymbol,
+                        closure: null,
+                        funcState,
+                        context,
+                        diagnostics);
+                }
             }
         }
 
@@ -95,10 +117,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             IReadOnlyList<GenericTypeParameterSymbol> generics,
             CheckerRuleContext context)
         {
-            if (generics.Count > 0 && CheckerHelpers.UsesGenericAtRuntime(body, generics))
-            {
-                context.MarkRequiresGenericVariant(symbol);
-            }
+            CheckerHelpers.FlagGenericVariantIfNeeded(body, symbol, generics, context);
         }
 
         /// <summary>
@@ -179,6 +198,20 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
         }
 
+        private static void RejectReservedExtensionBackerName(
+            string? identifier,
+            IBase2Ast node,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (GeneratedNames.EndsWithExtensionBackerSuffix(identifier))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics, state, node, MessageCode.CheckerReservedExtensionBackerSuffix,
+                    identifier!, GeneratedNames.ExtensionBackerSuffix);
+            }
+        }
+
         private void CheckMethod(
             PhpMethodDeclAst method,
             CheckerState state,
@@ -189,10 +222,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // register PhpMethodDeclAst for free functions never dispatch here — invoke them
             // explicitly. Do not route through CheckNode: DeclarationRule would double-fire.
             AttributeRule.ValidateDeclarationAttributes(method, state, context, diagnostics);
+            context.ValidatePhpVersionMember(method, state);
             TypeAnnotationRule.CheckMethodReturnType(method, state, context);
-            AsyncRule.ValidateAsyncMethod(method, state, context, diagnostics);
             CodeQualityRule.CheckMethodBody(method, state, diagnostics);
             DisposableRule.AnalyzeMethodBody(method, state, context, diagnostics);
+            InlineSpliceRule.CheckMemberDeclaration(method, state, context, diagnostics);
             // Walk AstAttributes so ImportRule (and any name-based rules) see member attribute
             // names — the same CheckAttributes path free functions get via CheckNode.
             context.CheckAttributes(method, state);
@@ -221,6 +255,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     diagnostics, state, method, MessageCode.CheckerEnumMethodNotAllowed, "__construct");
             }
 
+            CheckEnumEngineMethodRedeclare(method, state, diagnostics);
+
             // `__construct`/`__destruct` can never declare a return type and PHP forbids `return <value>;`
             // inside them, so the missing-return-statement check further below (which treats an absent
             // annotation as `mixed`, not `void`) must not apply to them.
@@ -247,7 +283,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             methodState.EnclosingCallable = methodSymbol;
             methodState.FunctionGenerics = methodSymbol.GenericParameters;
             // Split copies ObjectGenerics, but generic methods must keep the class parameters
-            // visible alongside method parameters (`select<R>(Expression<T, R>)`).
+            // visible alongside method parameters (`select<R>(Expression<callable(T): R>)`).
             methodState.ObjectGenerics = state.ObjectGenerics;
             // Class + method generics both need resolved bounds so `T extends object` (etc.) is
             // assignable to constraint members inside the body.
@@ -257,6 +293,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             GenericConstraintResolver.ResolveAll(methodSymbol.GenericParameters, methodState, context);
+            AsyncRule.ValidateAsyncMethod(method, methodState, context, diagnostics);
             var methodReturnTypeAst = method.ReturnType ?? methodSymbol.ReturnType;
             if (methodReturnTypeAst is TyhpReturnTypeGuardAst methodTypeGuard)
             {
@@ -266,9 +303,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             // PHP forbids `return <value>;` in `__construct`/`__destruct` (fatal at runtime). Their
-            // ordinary ReturnType slot is null (`: void` on `__construct` lives on TyhpCtorReturnTypeAst;
-            // `__destruct` may omit an annotation entirely), so ResolveExpectedReturnType would fall
-            // back to `mixed` and silently accept any value return. Force void so bare `return;` stays
+            // ordinary ReturnType slot is null (`: void` / `: parent(...)` on `__construct` lives on
+            // TyhpCtorReturnTypeAst, and may be omitted entirely — omitted ≡ `: void`; `__destruct`
+            // may omit an annotation entirely), so ResolveExpectedReturnType would fall back to
+            // `mixed` and silently accept any value return. Force void so bare `return;` stays
             // legal and value-carrying returns are rejected (ControlFlowRule also emits a dedicated
             // diagnostic for the ctor/dtor case).
             methodState.ExpectedReturnType = isConstructorOrDestructor
@@ -277,11 +315,17 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     methodReturnTypeAst, methodState, context);
             methodState.IsInAsyncContext = methodSymbol.IsAsync;
             methodState.IsInGeneratorContext = methodSymbol.IsGenerator;
+            if (methodSymbol.IsGenerator)
+            {
+                methodState.GeneratorInference = GeneratorBodyCollector.ForDeclaredReturn(methodReturnTypeAst);
+            }
             methodState.Modifiers = modifiers;
 
             if (method.ReturnType is not null)
             {
                 context.MarkImportNames(method.ReturnType, state);
+                ExternTypeUse.ReportIfTypeAnnotation(
+                    method.ReturnType, methodState, context, diagnostics, isReturnTypePosition: true);
             }
 
             if (!methodSymbol.IsStatic && state.EnclosingObjectType is not null)
@@ -294,19 +338,46 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     thisType,
                     isReference: false);
             }
+            else if (TryGetInlineExtensionReceiver(methodSymbol) is { } inlineReceiver)
+            {
+                // Class-body tyhpdef `extension fn` is bound as a static method on the synthetic
+                // scope, but `$this` / `self` mean the enclosing tyhpdef type.
+                var synthOwner = methodSymbol.ContainingScope?.DeclarationSymbol as ObjectDeclarationSymbol;
+                if (synthOwner is not null)
+                {
+                    methodState.EnclosingObject = synthOwner;
+                }
+
+                methodState.EnclosingObjectType = CheckedTypes.FromSymbol(inlineReceiver);
+                methodState.Variables["this"] = VariableState.ForParameter(
+                    new VariableSymbol("this") { IsParameter = true },
+                    CheckedTypes.FromSymbol(inlineReceiver),
+                    isReference: false);
+            }
 
             // Prop-init #7: seed `$this->prop` initialization state (includes inherited members).
-            if (!methodSymbol.IsStatic && state.EnclosingObject is { } enclosingObject)
+            // Static methods get enclosing-class static properties so `self::$x` narrowing
+            // shares the same PropertyInit map. Instance methods / constructors include both.
+            if (state.EnclosingObject is { } enclosingObject)
             {
-                var seeded = methodSymbol is ObjectConstructorMethodSymbol
-                    ? PropertyInitializationAnalysis.SeedForConstructor(
+                var seeded = methodSymbol.IsStatic
+                    ? PropertyInitializationAnalysis.SeedForStaticMethod(
                         enclosingObject, context.SymbolTree, context.GlobalScope)
-                    : PropertyInitializationAnalysis.SeedForInstanceMethod(
-                        enclosingObject, context.SymbolTree, context.GlobalScope);
+                    : methodSymbol is ObjectConstructorMethodSymbol
+                        ? PropertyInitializationAnalysis.SeedForConstructor(
+                            enclosingObject, context.SymbolTree, context.GlobalScope)
+                        : PropertyInitializationAnalysis.SeedForInstanceMethod(
+                            enclosingObject, context.SymbolTree, context.GlobalScope);
                 methodState.ReplacePropertyInit(seeded);
             }
 
-            RegisterParameters(method.Parameters, methodSymbol.Parameters, methodState, state, context, diagnostics);
+            RegisterParameters(
+                method.Parameters,
+                AuthoredMethodParameters(methodSymbol),
+                methodState,
+                state,
+                context,
+                diagnostics);
             ValidateMagicMethodIfNeeded(method.Identifier, method.Parameters, method.ReturnType, methodSymbol.IsStatic, method, state, context, diagnostics);
             RejectReservedGenericVariantName(method.Identifier, method, state, diagnostics);
             RejectReservedPropertyHookMethodName(method.Identifier, method, state, diagnostics);
@@ -324,7 +395,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 else
                 {
                     methodState.HasReturnedOnAllPaths = false;
-                    context.CheckStatementBlock(method.Body, methodState);
+                    if (!ArrayAccessShapeSupport.TryCheckPerKeyBodies(
+                            method, methodSymbol, methodState, context, diagnostics))
+                    {
+                        context.CheckStatementBlock(method.Body, methodState);
+                    }
 
                     if (methodSymbol is ObjectConstructorMethodSymbol && state.EnclosingObject is { } ctorOwner)
                     {
@@ -337,13 +412,28 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         TypeGuardValidation.ReportMustReturnBool(method, state, diagnostics);
                     }
                     else if (!isConstructorOrDestructor
+                        && !methodSymbol.IsGenerator
                         && !IsEffectivelyVoid(methodState.ExpectedReturnType) && !methodState.HasReturnedOnAllPaths)
                     {
+                        // See the matching generator exemption in CheckFunction — falling off the
+                        // end of a generator method is not a missing return.
                         CheckerHelpers.ReportError(
                             diagnostics, state, method, MessageCode.CheckerMissingReturnStatement, method.Identifier);
                     }
 
                     context.RecordGenericCallTargetsIn(method.Body, methodState);
+
+                    if (methodSymbol.IsGenerator)
+                    {
+                        GeneratorBodyInference.FinishAfterBody(
+                            method,
+                            method.ReturnType ?? methodSymbol.ReturnType,
+                            methodSymbol,
+                            closure: null,
+                            methodState,
+                            context,
+                            diagnostics);
+                    }
                 }
             }
             else if (methodSymbol is ObjectConstructorMethodSymbol && state.EnclosingObject is { } emptyCtorOwner)
@@ -358,11 +448,74 @@ namespace Tyhp.TyhpLang.Checker.Rules
             else if (!methodSymbol.IsAbstract
                 && !isConstructorOrDestructor
                 && state.EnclosingObject?.ObjectKind != PhpTypeDeclType.Interface
+                && !IsTyhpdefBodylessSignature(method, state)
                 && !IsEffectivelyVoid(methodState.ExpectedReturnType))
             {
                 CheckerHelpers.ReportError(
                     diagnostics, state, method, MessageCode.CheckerMissingReturnStatement, method.Identifier);
             }
+        }
+
+        /// <summary>
+        /// PHP: enumerations cannot redeclare <c>cases</c>, <c>from</c>, or <c>tryFrom</c>.
+        /// Harvested <c>.tyhpdef</c> shells keep those signatures (Layer 1 dump honesty) and are
+        /// skipped structurally — same exemption as Traversable / engine-enum listing.
+        /// </summary>
+        private static void CheckEnumEngineMethodRedeclare(
+            PhpMethodDeclAst method,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (state.EnclosingObject is not { ObjectKind: PhpTypeDeclType.Enum } enumSymbol)
+            {
+                return;
+            }
+
+            if (enumSymbol.DeclaringAstNode is not PhpObjectTypeDeclAst objectType
+                || string.Equals(objectType.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(method.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (!IsEngineEnumReservedMethod(method.Identifier))
+            {
+                return;
+            }
+
+            CheckerHelpers.ReportError(
+                diagnostics,
+                state,
+                method,
+                MessageCode.CheckerEnumEngineMethodRedeclared,
+                enumSymbol.Name,
+                method.Identifier!);
+        }
+
+        private static bool IsEngineEnumReservedMethod(string? name) =>
+            name is not null
+            && (string.Equals(name, "cases", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "from", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "tryFrom", StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>
+        /// Bodyless method declarations are the normal signature form in <c>.tyhpdef</c> files.
+        /// They have no body that could return, so the missing-return rule must not fire.
+        /// </summary>
+        private static bool IsTyhpdefBodylessSignature(PhpMethodDeclAst method, CheckerState state)
+        {
+            if (method.Body is not null)
+            {
+                return false;
+            }
+
+            if (string.Equals(method.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var fileName = state.CurrentFileName ?? method.OwningFile?.FileName ?? string.Empty;
+            return fileName.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase);
         }
 
         private static void CheckMethodOverride(
@@ -451,9 +604,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             // Parent parameter/return annotations live in the base class's generic scope
-            // (`Expression<TSource, TReturn>`), not the override's (`ExpressionBuilder<T>`). Resolve
+            // (`Expression<TCallableShape>`), not the override's (`ExpressionBuilder<T>`). Resolve
             // them as inherited member types on the child receiver so base type parameters bind and
-            // then substitute through the extends chain (`extends Expression<T, bool>` → TSource=T).
+            // then substitute through the extends chain (`extends Expression<callable(T): bool>`).
             // Using the child state alone left `TSource` unresolved and reported TYHP3003 against the
             // wrong file (parent line/col + child CurrentFileName).
             var receiverType = state.EnclosingObjectType
@@ -559,6 +712,45 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 diagnostics, state, method, MessageCode.CheckerGenericOverrideParameterMismatch,
                 methodSymbol.Name,
                 string.Join(", ", expected.Select(parameter => parameter.Name)));
+        }
+
+        private static ObjectDeclarationSymbol? TryGetInlineExtensionReceiver(ObjectMethodSymbol methodSymbol)
+        {
+            var owner = methodSymbol.ContainingScope?.DeclarationSymbol as ObjectDeclarationSymbol;
+            if (owner is { IsCompilerGenerated: true, IsExtension: true, InlineExtensionReceiverClass: { } receiver })
+            {
+                return receiver;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Class-body tyhpdef thin mappings prepend an implicit <c>$this</c> on the symbol that is
+        /// not in the authored parameter list. Zip checker registration against the authored params.
+        /// </summary>
+        private static IReadOnlyList<ParameterInfo> AuthoredMethodParameters(ObjectMethodSymbol methodSymbol)
+        {
+            var parameters = methodSymbol.Parameters;
+            if (parameters.Count > 0
+                && TryGetInlineExtensionReceiver(methodSymbol) is not null
+                && IsThisParameterName(parameters[0].Name))
+            {
+                return parameters.Skip(1).ToList();
+            }
+
+            return parameters;
+        }
+
+        private static bool IsThisParameterName(string? name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return false;
+            }
+
+            var trimmed = name.StartsWith('$') ? name[1..] : name;
+            return string.Equals(trimmed, "this", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsEffectivelyVoid(ICheckedType? returnType) =>

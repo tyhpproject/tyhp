@@ -8,7 +8,9 @@ using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Checker;
+using Tyhp.TyhpLang.Checker.Rules;
 using Tyhp.TyhpLang.Emitter.NameGeneration;
+using Tyhp.TyhpLang.Emitter.Splice;
 using Tyhp.TyhpLang.Enum;
 using Tyhp.TyhpLang.Parser;
 
@@ -17,7 +19,7 @@ namespace Tyhp.TyhpLang.Emitter
     /// <summary>
     /// AST-level pre-pass that rewrites Tyhp-specific constructs into PHP-compatible forms before emission.
     /// </summary>
-    internal sealed class AliasConverter
+    internal sealed partial class AliasConverter
     {
         private readonly EmitContext _context;
         private readonly NameResolver _nameResolver;
@@ -77,6 +79,13 @@ namespace Tyhp.TyhpLang.Emitter
         // TryFindBinaryFormOnTypeOrComposingClasses).
         private readonly Stack<ObjectDeclarationSymbol?> _classStack = new();
 
+        // `typeof` takes a typeExpr, and a source type-alias declaration's own body (plus its
+        // generic-parameter default types) feeds `TyhpEmitter.BuildRuntimeTypeExpression` for the
+        // `\Tyhp\Type` factory (Story 21.9). Struct named types in either position must stay
+        // structs so emit can materialize `\Tyhp\Type::struct(...)` instead of the erased `array`
+        // hint spelling. Hint positions (parameters, properties, returns) still erase to `array`.
+        private int _typeofTypeExprDepth;
+
         // Member names that follow `->` (properties/methods) must never be rewritten through the
         // tyhpdef alias map. The map is case-insensitive (PHP class names are), so a member like
         // `$this->promise` would otherwise collide with a same-named class alias (`Promise`) and
@@ -84,6 +93,11 @@ namespace Tyhp.TyhpLang.Emitter
         // tree walk transforms member-name children before reaching their member-access parent.
         private readonly HashSet<IBase2Ast> _protectedMemberNames =
             new(ReferenceEqualityComparer.Instance);
+
+        private CallSiteSpliceEngine? _spliceEngine;
+        private SpliceEngineContext? _spliceContext;
+        private readonly List<IExpression> _pendingSpliceHoists = [];
+        private readonly HashSet<IBase2Ast> _refHoistForbidden = new(ReferenceEqualityComparer.Instance);
 
         public AliasConverter(EmitContext context)
         {
@@ -102,6 +116,10 @@ namespace Tyhp.TyhpLang.Emitter
             _ = this._context.Config.TargetPhpVersion;
 
             this._protectedMemberNames.Clear();
+            this._pendingSpliceHoists.Clear();
+            this._refHoistForbidden.Clear();
+            this._spliceContext = this.CreateSpliceContext();
+            this._spliceEngine = new CallSiteSpliceEngine(this._spliceContext);
             this._structVarsByFunction.Clear();
             this._globalStructVars.Clear();
             this._objectVarsByFunction.Clear();
@@ -112,6 +130,7 @@ namespace Tyhp.TyhpLang.Emitter
             this._globalTypedTypeExprs.Clear();
             this._functionStack.Clear();
             this._classStack.Clear();
+            this._typeofTypeExprDepth = 0;
             AstWalker.WalkStatements(
                 outputFile.Statements.OfType<ITopStatement>(),
                 this.CollectProtectedMemberName);
@@ -123,15 +142,32 @@ namespace Tyhp.TyhpLang.Emitter
             // Expand top-level statement-context object `with` before the tree walk so assignment
             // forms become property-assignment sequences instead of ObjectHelper expressions.
             this.ExpandStatementListInPlace(outputFile.Statements);
+            this.CollectRefHoistForbidden(outputFile.Statements.OfType<IBase2Ast>());
 
             for (var i = 0; i < outputFile.Statements.Count; i++)
             {
                 if (outputFile.Statements[i] is IBase2Ast statement)
                 {
+                    this._pendingSpliceHoists.Clear();
+                    this.CollectOccupiedNames(statement);
                     outputFile.Statements[i] = (ITopStatement)AstWalker.TransformTree(
                         statement,
                         this.TransformNode,
                         this.PreTransformWith)!;
+                    if (this._pendingSpliceHoists.Count > 0
+                        && outputFile.Statements[i] is IExpression)
+                    {
+                        foreach (var hoist in this._pendingSpliceHoists)
+                        {
+                            if (hoist is ITopStatement hoistStmt)
+                            {
+                                outputFile.Statements.Insert(i, hoistStmt);
+                                i++;
+                            }
+                        }
+
+                        this._pendingSpliceHoists.Clear();
+                    }
                 }
             }
 
@@ -199,6 +235,11 @@ namespace Tyhp.TyhpLang.Emitter
                         this.AddTypedVariable(currentFunction, varName, objectDecl);
                     }
 
+                    break;
+                }
+                case PhpLoopAst { LoopType: PhpLoopType.Foreach } loop:
+                {
+                    this.CollectForeachStructValue(loop, currentFunction);
                     break;
                 }
             }
@@ -387,6 +428,134 @@ namespace Tyhp.TyhpLang.Emitter
             }
         }
 
+        /// <summary>
+        /// <c>foreach ($amounts as $m)</c> over <c>array&lt;Struct&gt;</c> / <c>iterable&lt;Struct&gt;</c>
+        /// must register <c>$m</c> as that struct so later <c>$m-&gt;prop</c> rewrites to array keys.
+        /// Collection runs before the transform walk, so the function stack is empty — look up
+        /// declared iterable types on the enclosing function frame directly.
+        /// </summary>
+        private void CollectForeachStructValue(PhpLoopAst loop, IBase2Ast? function)
+        {
+            if (loop.ValueVariable is not PhpVariableAst valueVar)
+            {
+                return;
+            }
+
+            var varName = CheckerHelpers.GetVariableName(valueVar);
+            if (varName is null)
+            {
+                return;
+            }
+
+            // `TryGetStructFromCheckedExpression` below already returns null for a checker
+            // recovery (`Unresolved`) binding — `UnresolvedCheckedType` never satisfies
+            // `TryGetObjectDeclaration`'s `IsStruct` check, so it naturally falls through to the
+            // iterable-type-expression peel a few lines down. That peel is the load-bearing path
+            // for a well-typed `array<Struct>` parameter whose *binding-node* checker type still
+            // came back `Unresolved` for unrelated inference reasons (e.g. an extension-spliced
+            // receiver reusing this same foreach value) — do not gate it on the checker type too,
+            // or a legitimate `foreach ($amounts as $m)` over `array<Money>` stops registering
+            // `$m` as `Money` and `$m->prop` never rewrites to `['prop']` (Story 21.12
+            // Workstream C review).
+            if (this.TryGetStructFromCheckedExpression(valueVar) is { } fromBinding)
+            {
+                this.AddStructTypedVariable(function, varName, fromBinding);
+                this.AddTypedVariable(function, varName, fromBinding);
+                return;
+            }
+
+            if (valueVar.VariableExpression is PhpVariableAst inner
+                && this.TryGetStructFromCheckedExpression(inner) is { } fromInner)
+            {
+                this.AddStructTypedVariable(function, varName, fromInner);
+                this.AddTypedVariable(function, varName, fromInner);
+                return;
+            }
+
+            if (loop.Condition is not PhpVariableAst iterableVar
+                || CheckerHelpers.GetVariableName(iterableVar) is not { } iterableName)
+            {
+                return;
+            }
+
+            var iterableTypeExpr = this.LookupTypedTypeExpressionInFunction(function, iterableName);
+            var valueTypeExpr = TryGetArrayOrIterableValueTypeExpression(iterableTypeExpr);
+            if (this.ResolveStructTypeFromTypeExpression(valueTypeExpr) is not { } fromIterable)
+            {
+                return;
+            }
+
+            this.AddStructTypedVariable(function, varName, fromIterable);
+            this.AddTypedVariable(function, varName, fromIterable);
+        }
+
+        private ITypeExpression? LookupTypedTypeExpressionInFunction(IBase2Ast? function, string varName)
+        {
+            if (function is null)
+            {
+                return this._globalTypedTypeExprs.TryGetValue(varName, out var global) ? global : null;
+            }
+
+            return this._typedTypeExprsByFunction.TryGetValue(function, out var frame)
+                && frame.TryGetValue(varName, out var scoped)
+                ? scoped
+                : null;
+        }
+
+        private ObjectDeclarationSymbol? TryGetStructFromCheckedExpression(IExpression? expression)
+        {
+            if (expression is not IBase2Ast node
+                || !this._context.ExpressionTypes.TryGetValue(node, out var checkedType))
+            {
+                return null;
+            }
+
+            return TryGetStructDeclaration(checkedType);
+        }
+
+        /// <summary>
+        /// True when the checker memoized this expression as recovery <c>Unresolved</c>.
+        /// Struct <c>-&gt;</c> rewrite and extension splice must not treat that as a typed receiver.
+        /// </summary>
+        private bool IsUnresolvedCheckedReceiver(IExpression? expression)
+        {
+            if (expression is not IBase2Ast node
+                || !this._context.ExpressionTypes.TryGetValue(node, out var checkedType))
+            {
+                return false;
+            }
+
+            return TypeComparer.IsUnresolvedType(checkedType);
+        }
+
+        private static ObjectDeclarationSymbol? TryGetStructDeclaration(ICheckedType? type)
+        {
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            return TypeComparer.TryGetObjectDeclaration(type) is { IsStruct: true } obj
+                ? obj
+                : null;
+        }
+
+        private IBaseSymbol? TryGetSymbolFromCheckedExpression(IExpression? expression)
+        {
+            if (expression is not IBase2Ast node
+                || !this._context.ExpressionTypes.TryGetValue(node, out var checkedType))
+            {
+                return null;
+            }
+
+            while (checkedType is NullableCheckedType nullable)
+            {
+                checkedType = nullable.InnerType;
+            }
+
+            return TypeComparer.TryGetNominalSymbol(checkedType);
+        }
+
         private void AddTypedVariable(IBase2Ast? function, string varName, IBaseSymbol typeSymbol)
         {
             if (function is null)
@@ -480,7 +649,7 @@ namespace Tyhp.TyhpLang.Emitter
 
         private static bool IsFunctionLike(IBase2Ast node) =>
             node is PhpFunctionDeclAst or PhpMethodDeclAst or PhpInlineFunctionAst
-                or TyhpOperatorOverloadAst;
+                or TyhpOperatorOverloadAst or TyhpAsyncBlockAst;
 
         private ObjectDeclarationSymbol? ResolveStructTypeFromTypeExpression(ITypeExpression? typeExpr)
         {
@@ -558,11 +727,17 @@ namespace Tyhp.TyhpLang.Emitter
                 this._classStack.Push(this.TryResolveObjectDeclarationFromDecl(typeDecl));
             }
 
+            if (node is TyhpTypeofAst or TyhpTypeAliasAst)
+            {
+                this._typeofTypeExprDepth++;
+            }
+
             // Expand statement-context object `with` inside blocks before children are walked.
             if (node is PhpStatementBlockAst block)
             {
                 this.ExpandStatementBlockInPlace(block);
-                return null;
+                this.TransformStatementBlockWithSpliceHoists(block);
+                return block;
             }
 
             if (node is not PhpBinaryOpAst binary
@@ -959,9 +1134,11 @@ namespace Tyhp.TyhpLang.Emitter
 
         private void TransformWithListValues(PhpArrayPairListAst pairList)
         {
-            foreach (var pair in pairList.GetAllNotNull())
+            foreach (var pair in pairList.GetAllTrimmingTrailingSkippedSlots())
             {
-                if (pair.ValueExpr is not IBase2Ast value || pair is not Base2Ast pairNode)
+                if (pair.IsSkippedSlot
+                    || pair.ValueExpr is not IBase2Ast value
+                    || pair is not Base2Ast pairNode)
                 {
                     continue;
                 }
@@ -985,6 +1162,11 @@ namespace Tyhp.TyhpLang.Emitter
                 this._classStack.Pop();
             }
 
+            if (node is TyhpTypeofAst or TyhpTypeAliasAst && this._typeofTypeExprDepth > 0)
+            {
+                this._typeofTypeExprDepth--;
+            }
+
             switch (node)
             {
                 case PhpMagicConstantAst magic:
@@ -1003,6 +1185,8 @@ namespace Tyhp.TyhpLang.Emitter
                     return this.TransformBinaryOperator(binary);
                 case PhpNewAst newExpr:
                     return this.TransformStructNew(newExpr);
+                case TyhpTypedVarExprAst typedVar:
+                    return this.TransformTypedVarExpressionCapture(typedVar);
                 case PhpJumpStatementAst jump when jump.JumpType == PhpJumpType.Return:
                     return this.TransformReturnJump(jump);
                 case PhpReturnStatementAst returnStmt:
@@ -1095,6 +1279,11 @@ namespace Tyhp.TyhpLang.Emitter
 
         private IBase2Ast TransformTyhpdefAliasName(PhpNameAst name)
         {
+            if (ShouldKeepSourceTypeAliasFactorySpelling(name))
+            {
+                return name;
+            }
+
             var text = name.ValueString ?? "";
 
             // Member positions (`->name` / `$arr->key`) are protected from the free-name alias map
@@ -1187,6 +1376,33 @@ namespace Tyhp.TyhpLang.Emitter
             return false;
         }
 
+        /// <summary>
+        /// Source type-alias factories are PHP functions of the alias's short name. A class-kind
+        /// <c>use App\Types\UserId</c> must not rewrite <c>UserId</c> to a relative FQN — emit
+        /// keeps the short name so <c>use function</c> applies (Story 21.9 Phase 4).
+        /// </summary>
+        private bool ShouldKeepSourceTypeAliasFactorySpelling(PhpNameAst name)
+        {
+            if (name.BoundSymbol is TypeAliasSymbol alias
+                && CheckerHelpers.IsSourceTypeAliasFactory(alias))
+            {
+                return true;
+            }
+
+            if (name.BoundSymbol is UseIncludeSymbol use)
+            {
+                var segments = use.ImportedNameSegments;
+                if (segments is { Length: > 0 }
+                    && this._nameResolver.ResolveQualifiedName(segments) is TypeAliasSymbol imported
+                    && CheckerHelpers.IsSourceTypeAliasFactory(imported))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private IBase2Ast TransformBuiltinType(PhpBuiltinTypeAst builtin)
         {
             var typeName = builtin.Identifier ?? "";
@@ -1202,6 +1418,11 @@ namespace Tyhp.TyhpLang.Emitter
         {
             if (StructEmissionHelper.ResolveStructFromNamedType(namedType, this._context.GlobalScope) is not null)
             {
+                if (this._typeofTypeExprDepth > 0)
+                {
+                    return namedType;
+                }
+
                 if (this._context.IsStructBackedByArray())
                 {
                     return PhpBuiltinTypeAst.Create("array", namedType);
@@ -1479,6 +1700,15 @@ namespace Tyhp.TyhpLang.Emitter
             if (className.Contains('\\'))
             {
                 var segments = className.TrimStart('\\').Split('\\');
+                var nested = this._nameResolver.TryResolveObjectTypeAlias(
+                    segments,
+                    this._context.GlobalScope,
+                    isFullyQualified: className.StartsWith('\\'));
+                if (nested is ObjectDeclarationSymbol { IsStruct: true } nestedStruct)
+                {
+                    return nestedStruct;
+                }
+
                 if (this._nameResolver.ResolveRelativeName(segments, this._context.GlobalScope)
                     is ObjectDeclarationSymbol qualified
                     && qualified.IsStruct)
@@ -1493,11 +1723,24 @@ namespace Tyhp.TyhpLang.Emitter
 
         private ObjectDeclarationSymbol? ResolveStructType(IExpression? expression)
         {
+            // A checker recovery (`Unresolved`) binding never satisfies `TryGetObjectDeclaration`'s
+            // `IsStruct` check, so `TryGetStructFromCheckedExpression` already returns null for it
+            // without a separate guard here — one is not added, because gating this whole method on
+            // the checker type would also skip the `LookupStructTypedVariable` map lookup below,
+            // which is the load-bearing source of truth for a variable whose checker binding-node
+            // type came back `Unresolved` for reasons unrelated to its real (parameter-declared /
+            // foreach-peeled) struct type (Story 21.12 Workstream C review).
+            if (this.TryGetStructFromCheckedExpression(expression) is { } fromChecked)
+            {
+                return fromChecked;
+            }
+
             if (expression is PhpVariableAst variable)
             {
-                var varName = NormalizeVariableName(
-                    variable.VariableToken?.ValueString
-                    ?? variable.Identifier);
+                var varName = CheckerHelpers.GetVariableName(variable)
+                    ?? NormalizeVariableName(
+                        variable.VariableToken?.ValueString
+                        ?? variable.Identifier);
                 if (varName is not null
                     && this.LookupStructTypedVariable(varName) is { } fromMap)
                 {
@@ -1540,14 +1783,42 @@ namespace Tyhp.TyhpLang.Emitter
                 return false;
             }
 
+            if (this.IsUnresolvedCheckedReceiver(memberNode.Base as IExpression))
+            {
+                return false;
+            }
+
             var methodSymbol = this.ResolveExtensionMethodSymbol(callNode, memberNode, memberAccess, methodName);
             if (methodSymbol is null)
             {
                 return false;
             }
 
-            var extensionClass = this.GetOwningObjectDeclaration(methodSymbol);
+            var extensionClass = this.GetOwningExtensionClass(methodSymbol);
             if (extensionClass == null || !extensionClass.IsExtension)
+            {
+                return false;
+            }
+
+            // `$v?->ext($args)` must short-circuit when `$v` is null: splicing the body in place
+            // would evaluate it unconditionally and drop the null check entirely. Only attempt the
+            // splice for a plain `->` receiver; a null-safe call always falls through to
+            // BuildNullSafeExtensionCall below.
+            var isNullSafe = memberAccess.Accessor?.ValueInt64 == TyhpParser.T_NULLSAFE_OBJECT_OPERATOR;
+            if (!isNullSafe
+                && this.TrySpliceExtensionCall(
+                    callNode,
+                    memberNode.Base as IExpression,
+                    call.Arguments,
+                    methodSymbol,
+                    extensionClass,
+                    out rewritten))
+            {
+                return true;
+            }
+
+            // Tyhpdef thin mappings have no PHP backer. Do not emit `__TyhpInlineExt_*::method`.
+            if (extensionClass.IsCompilerGenerated)
             {
                 return false;
             }
@@ -1558,7 +1829,6 @@ namespace Tyhp.TyhpLang.Emitter
 
             this.EnsureImport(extensionFqn);
 
-            var isNullSafe = memberAccess.Accessor?.ValueInt64 == TyhpParser.T_NULLSAFE_OBJECT_OPERATOR;
             if (isNullSafe)
             {
                 // `$v?->ext($args)` must short-circuit when `$v` is null. Extract the receiver into
@@ -1570,14 +1840,17 @@ namespace Tyhp.TyhpLang.Emitter
                     methodName,
                     call.Arguments,
                     callNode,
-                    methodSymbol);
+                    methodSymbol,
+                    memberAccess.MemberName);
                 return true;
             }
 
             var args = this.BuildReceiverFirstArguments(memberNode.Base as IExpression, call.Arguments, callNode);
             var staticCall = this.BuildStaticCall(extensionFqn, methodName, args, callNode);
+            CopyCallSiteTypeArgumentAddons(memberAccess.MemberName, FindStaticCalleeName(staticCall));
             // Stash the extension method so a later hop in `$v->a()->b()` can resolve `a`'s return
-            // type after this node has been rewritten to a static call.
+            // type after this node has been rewritten to a static call. Also used by Mechanism D
+            // emit when the rewritten PhpCallAst is not in GenericCallTargets.
             staticCall.BoundSymbol = methodSymbol;
             rewritten = staticCall;
             return true;
@@ -1596,7 +1869,8 @@ namespace Tyhp.TyhpLang.Emitter
             string methodName,
             PhpArgumentListAst? originalArgs,
             Base2Ast context,
-            ObjectMethodSymbol methodSymbol)
+            ObjectMethodSymbol methodSymbol,
+            IBase2Ast? typeArgSource = null)
         {
             var tempName = this._context.GenerateUniqueVarName("__recv");
             var tempVar = PhpVariableAst.CreateFromContext(tempName, context);
@@ -1612,6 +1886,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             var args = this.BuildReceiverFirstArguments(tempVar, originalArgs, context);
             var staticCall = this.BuildStaticCall(extensionFqn, methodName, args, context);
+            CopyCallSiteTypeArgumentAddons(typeArgSource, FindStaticCalleeName(staticCall));
             staticCall.BoundSymbol = methodSymbol;
 
             var question = TokenValueAst.CreateFromContext("?", TyhpParser.T_SYM_QUESTION, context);
@@ -1644,6 +1919,15 @@ namespace Tyhp.TyhpLang.Emitter
             PhpInstanceMemberAccessAst memberAccess,
             string methodName)
         {
+            var receiverType = this.ResolveReceiverType(memberNode.Base as IExpression);
+            var callSite = this._nameResolver.FindCallSiteScope(callNode, lexicalScope: null);
+            // A file-local or global `hide` keeps the call as an instance call. Visible siblings
+            // still rewrite.
+            if (this.IsExtensionMemberHidden(receiverType, callSite, methodName))
+            {
+                return null;
+            }
+
             if (EmitHelpers.IsExtensionMethodCall(callNode, this._context)
                 && callNode.BoundSymbol is ObjectMethodSymbol callBound)
             {
@@ -1662,13 +1946,124 @@ namespace Tyhp.TyhpLang.Emitter
                 return accessBound;
             }
 
-            var receiverType = this.ResolveReceiverType(memberNode.Base as IExpression);
             if (receiverType is null)
             {
                 return null;
             }
 
-            return this._nameResolver.ResolveExtensionMethod(methodName, receiverType) as ObjectMethodSymbol;
+            var resolved = this._nameResolver.ResolveExtensionMethod(
+                    methodName,
+                    receiverType,
+                    callSite)
+                as ObjectMethodSymbol;
+            if (resolved != null)
+            {
+                return resolved;
+            }
+
+            // Block-target methods carry the receiver on the extension/group symbol. The
+            // synthesized `$this` parameter's type AST does not always resolve from the
+            // global scope used by the method index, so match the bound target symbol.
+            return this.ResolveBlockTargetExtensionMethod(methodName, receiverType);
+        }
+
+        /// <summary>
+        /// File-local and global <c>use extension</c> <c>hide</c>, plus hides recorded on the
+        /// receiver type. Matches binder lookup: the key is the method name, and a file hide
+        /// lives on <see cref="FileScope"/> even when the call site scope is a namespace block.
+        /// </summary>
+        private bool IsExtensionMemberHidden(IBaseSymbol? onType, IBaseScope fromScope, string methodName)
+        {
+            if (string.IsNullOrEmpty(methodName))
+            {
+                return false;
+            }
+
+            if (onType is ObjectDeclarationSymbol receiver
+                && receiver.ExtensionUseHiddenMembers != null
+                && receiver.ExtensionUseHiddenMembers.Contains(methodName))
+            {
+                return true;
+            }
+
+            for (var scope = fromScope; scope != null; scope = scope.ParentScope)
+            {
+                if (scope is FileScope file
+                    && file.ExtensionUseHiddenMembers != null
+                    && file.ExtensionUseHiddenMembers.Contains(methodName))
+                {
+                    return true;
+                }
+
+                if (scope.DeclarationSymbol is NamespaceBlockSymbol ns
+                    && ns.OwningFileScope?.ExtensionUseHiddenMembers != null
+                    && ns.OwningFileScope.ExtensionUseHiddenMembers.Contains(methodName))
+                {
+                    return true;
+                }
+            }
+
+            return this._context.GlobalScope.ExtensionUseHiddenMembers != null
+                && this._context.GlobalScope.ExtensionUseHiddenMembers.Contains(methodName);
+        }
+
+        private ObjectMethodSymbol? ResolveBlockTargetExtensionMethod(string methodName, IBaseSymbol receiverType)
+        {
+            if (!this._context.GetSymbolTree().ExtensionMethodIndex.TryGetValue(methodName, out var candidates))
+            {
+                return null;
+            }
+
+            ObjectMethodSymbol? match = null;
+            foreach (var candidate in candidates)
+            {
+                if (!ExtensionBlockTargetMatches(candidate, receiverType))
+                {
+                    continue;
+                }
+
+                match = candidate;
+                break;
+            }
+
+            return match;
+        }
+
+        private static bool ExtensionBlockTargetMatches(ObjectMethodSymbol method, IBaseSymbol receiverType)
+        {
+            for (var scope = method.ContainingScope; scope != null; scope = scope.ParentScope)
+            {
+                if (scope.DeclarationSymbol is not ObjectDeclarationSymbol block
+                    || block.ExtensionBlockTargetSymbol is not { } target)
+                {
+                    continue;
+                }
+
+                if (ReferenceEquals(target, receiverType))
+                {
+                    return true;
+                }
+
+                if (target is BuiltInTypeSymbol builtin
+                    && receiverType is BuiltInTypeSymbol receiverBuiltin
+                    && string.Equals(builtin.Name, receiverBuiltin.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                if (!string.IsNullOrEmpty(target.FullyQualifiedName)
+                    && string.Equals(
+                        target.FullyQualifiedName.TrimStart('\\'),
+                        receiverType.FullyQualifiedName?.TrimStart('\\'),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
+            return false;
         }
 
         private bool TryRewriteStructPropertyAccess(PhpDereferenceableAst accessNode, out PhpDereferenceableAst rewritten)
@@ -1686,6 +2081,14 @@ namespace Tyhp.TyhpLang.Emitter
                 return false;
             }
 
+            // A memoized Unresolved receiver must not rewrite `->` to `['key']` even if
+            // `LookupStructTypedVariable` still has a foreach-peeled struct for the name.
+            // Missing ExpressionTypes still falls through to that map (well-typed foreach).
+            if (this.IsUnresolvedCheckedReceiver(accessNode.Base as IExpression))
+            {
+                return false;
+            }
+
             var structDecl = this.ResolveStructType(accessNode.Base as IExpression);
             if (structDecl is null)
             {
@@ -1693,18 +2096,29 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             var memberName = this.GetMemberName(memberAccess.MemberName);
-            var propertyKey = StructEmissionHelper.ResolveStructPropertyKey(structDecl, memberName);
-            if (propertyKey is null)
+            // Only declared properties erase to `['key']`. Methods / extensions stay as
+            // `->name` so TryRewriteExtensionMethodCall can rewrite the enclosing
+            // `$recv->name()` call (children are transformed first).
+            if (!StructEmissionHelper.TryResolveStructProperty(structDecl, memberName, out var property))
             {
                 return false;
             }
 
-            var keyExpr = propertyKey.Value.ToScalarAst(accessNode);
-            rewritten = PhpDereferenceableAst.CreateFromContext(
+            var keyExpr = StructEmissionHelper.GetStructArrayKey(property!).ToScalarAst(accessNode);
+            var rewrittenNode = PhpDereferenceableAst.CreateFromContext(
                 accessNode.Base!,
                 PhpArrayAccessAst.CreateFromContext(keyExpr, accessNode),
                 accessNode);
 
+            // Children transform bottom-up, so `accessNode.Base` here is already the erased
+            // form (e.g. `$o['inner']`), which has no checked type recorded and no syntactic
+            // shape `ResolveStructType` can walk back to the struct. Stash the property's own
+            // struct type (when it is one) on the rewritten node's BoundSymbol so a further
+            // chain hop (`$o->inner->x` → `$o['inner']->x`) still resolves the correct struct
+            // (`Inner`, not `Outer`) instead of silently staying `->x` on an array.
+            rewrittenNode.BoundSymbol = this.ResolveStructTypeFromTypeExpression(property!.DeclaredType);
+
+            rewritten = rewrittenNode;
             return true;
         }
 
@@ -1719,7 +2133,8 @@ namespace Tyhp.TyhpLang.Emitter
             var isCompoundAssign = false;
             if (op == OverloadableOperator.Invalid)
             {
-                op = OverloadableOperatorHelper.FromAssignmentToken(token);
+                op = OverloadableOperatorHelper.FromAssignmentToken(
+                    token, binary.Operator?.ValueString ?? "");
                 if (op == OverloadableOperator.Invalid)
                 {
                     return false;
@@ -1731,6 +2146,12 @@ namespace Tyhp.TyhpLang.Emitter
             // All operator methods are static now: pick the declaring class (left operand first,
             // then right) whose operator declares a form matching the operand combination, then emit
             // `\Type::__op($left, $right)`.
+            if (!isCompoundAssign
+                && this.TrySpliceBinaryOperator(op, binary, out rewritten))
+            {
+                return true;
+            }
+
             if (!this.SelectStaticBinaryOperatorTarget(
                     op, binary.Left, binary.Right, out var classFqn, out var methodName))
             {
@@ -2006,9 +2427,10 @@ namespace Tyhp.TyhpLang.Emitter
         private (string? ClassFqn, string? MethodName) ResolveStaticOperatorTarget(
             ObjectOperatorOverloadMethodSymbol form,
             IBaseSymbol owningType,
-            OverloadableOperator op)
+            OverloadableOperator op,
+            string? methodNameOverride = null)
         {
-            var methodName = OperatorMethodNameGenerator.GetMethodName(op);
+            var methodName = methodNameOverride ?? OperatorMethodNameGenerator.GetMethodName(op);
             if (string.IsNullOrEmpty(methodName))
             {
                 return (null, null);
@@ -2018,16 +2440,19 @@ namespace Tyhp.TyhpLang.Emitter
             if (form.IsExtensionOperator)
             {
                 // Standalone `extension E { operator +<T>(…) }` methods are emitted on E.
-                // Tyhpdef inline `extension operator` methods are emitted on the owner class
-                // (Story 11); prefer ExtensionTargetSymbol / synthetic scope only for those.
+                // Tyhpdef inline `extension operator` members are erased thin mappings: splice
+                // already ran; never emit `__TyhpInlineExt_*` or a fake owner `__add`.
+                if (form.DeclaringExtensionSymbol is { IsCompilerGenerated: true })
+                {
+                    return (null, null);
+                }
+
                 if (form.DeclaringExtensionSymbol is { IsCompilerGenerated: false } standaloneExt)
                 {
                     binderFqn = standaloneExt.FullyQualifiedName;
                 }
                 else if (form.ExtensionTargetSymbol != null)
                 {
-                    // Inline extension operator: library consumers rewrite to `\Owner::__add`
-                    // rather than a synthetic binder scope that may not ship as PHP.
                     binderFqn = form.ExtensionTargetSymbol.FullyQualifiedName;
                 }
                 else
@@ -2058,7 +2483,8 @@ namespace Tyhp.TyhpLang.Emitter
             var token = (int)(unary.Operator?.ValueInt64 ?? -1);
             var text = unary.Operator?.ValueString ?? "";
             // Unary +/- use the Plus/Minus variants (isAlternateKind).
-            var isAlternate = token is TyhpParser.T_SYM_PLUS or TyhpParser.T_SYM_MINUS;
+            var isAlternate = text is "+" or "-"
+                || token is TyhpParser.T_SYM_PLUS or TyhpParser.T_SYM_MINUS;
             var op = OverloadableOperatorHelper.FromToken(token, text, isAlternateKind: isAlternate);
             if (op == OverloadableOperator.Invalid || op == OverloadableOperator.Convert)
             {
@@ -2067,6 +2493,16 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (!this.TryFindMatchingUnaryOverload(
                     unary.Operand, op, out var overload, out var owningType, out var useLateStatic))
+            {
+                return false;
+            }
+
+            if (this.TrySpliceUnaryOperator(op, unary, out rewritten))
+            {
+                return true;
+            }
+
+            if (overload is { IsExtensionOperator: true, DeclaringExtensionSymbol.IsCompilerGenerated: true })
             {
                 return false;
             }
@@ -2145,7 +2581,7 @@ namespace Tyhp.TyhpLang.Emitter
             rewritten = unary;
 
             var targetKey = GetCastTargetTypeKey(unary.Operator);
-            if (targetKey == null)
+            if (targetKey == null || unary.Operand is null)
             {
                 return false;
             }
@@ -2156,33 +2592,14 @@ namespace Tyhp.TyhpLang.Emitter
                 return false;
             }
 
-            if (!this.ClassHasConvertToOverload(operandClass, targetKey)
-                && !(operandClass.ObjectKind == PhpTypeDeclType.Trait
-                    && this.TraitComposingClassHasConvertToOverload(operandClass, targetKey)))
+            if (!this.TryRewriteConvertToCall(unary.Operand, operandClass, targetKey, unary, out var converted)
+                || converted is null)
             {
                 return false;
             }
 
-            var methodName = OperatorMethodNameGenerator.GetConvertToMethodName(targetKey);
-            var emptyArgs = PhpArgumentListAst.Create([], unary);
-            // Instance dispatch on `$this` late-binds to the composing class at runtime.
-            rewritten = this.BuildInstanceMethodCall(unary.Operand, methodName, emptyArgs, unary);
+            rewritten = converted;
             return true;
-        }
-
-        private bool TraitComposingClassHasConvertToOverload(
-            ObjectDeclarationSymbol trait,
-            string targetKey)
-        {
-            foreach (var composing in this.EnumerateObjectsUsingTrait(trait))
-            {
-                if (this.ClassHasConvertToOverload(composing, targetKey))
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         private static string? GetCastTargetTypeKey(TokenValueAst? op)
@@ -2203,33 +2620,164 @@ namespace Tyhp.TyhpLang.Emitter
             };
         }
 
-        private bool ClassHasConvertToOverload(ObjectDeclarationSymbol typeSymbol, string targetKey)
+        /// <summary>
+        /// True for a standalone <c>extension E { operator … }</c> form whose PHP backer lives on
+        /// E. Compiler-generated tyhpdef inline <c>extension operator</c> members are not
+        /// standalone — their PHP target is the owning class (or already spliced).
+        /// </summary>
+        private static bool IsStandaloneExtensionOperator(ObjectOperatorOverloadMethodSymbol form)
+            => form.IsExtensionOperator
+                && form.DeclaringExtensionSymbol is { IsCompilerGenerated: false };
+
+        /// <summary>
+        /// Rewrites convert-to to an instance <c>$expr->__to{T}()</c> on the owning class, or to a
+        /// static <c>E::__to{T}($expr)</c> when the matching form is a standalone extension.
+        /// Trait-<c>$this</c> also accepts a composing class's convert-to.
+        /// </summary>
+        private bool TryRewriteConvertToCall(
+            IExpression operand,
+            ObjectDeclarationSymbol operandClass,
+            string targetKey,
+            Base2Ast context,
+            out IExpression? rewritten)
         {
-            foreach (var overload in this.EnumerateClassOperatorOverloads(typeSymbol)
-                .Concat(typeSymbol.ExtensionContributedOperators))
+            rewritten = operand;
+            if (!this.TryFindConvertToOverload(operandClass, targetKey, out var overload)
+                || overload is null)
             {
-                if (overload.IsNativePassthrough
-                    || overload.Operator != OverloadableOperator.Convert
-                    || overload.Parameters.Count != 1)
+                return false;
+            }
+
+            var methodName = OperatorMethodNameGenerator.GetConvertToMethodName(targetKey);
+            if (IsStandaloneExtensionOperator(overload))
+            {
+                var (classFqn, resolvedName) = this.ResolveStaticOperatorTarget(
+                    overload, operandClass, OverloadableOperator.Convert, methodName);
+                if (classFqn is null || resolvedName is null)
                 {
-                    continue;
+                    return false;
                 }
 
-                // convert-to: sole parameter is self; return type matches the cast target.
-                if (!OperatorOverloadResolver.IsConvertToForm(overload, typeSymbol))
-                {
-                    continue;
-                }
+                rewritten = this.BuildStaticCall(
+                    classFqn,
+                    resolvedName,
+                    this.BuildSingleOperandArguments(operand, context),
+                    context);
+                return true;
+            }
 
-                var returnKey = OperatorOverloadResolver.SpellTypeKey(
-                    overload.ReturnType, typeSymbol.Name);
-                if (string.Equals(returnKey, targetKey, StringComparison.OrdinalIgnoreCase))
+            // Instance dispatch on `$this` late-binds to the composing class at runtime.
+            var receiver = EnsureDereferenceableReceiver(operand, context);
+            rewritten = this.BuildInstanceMethodCall(
+                receiver,
+                methodName,
+                PhpArgumentListAst.Create([], context),
+                context);
+            return true;
+        }
+
+        private bool TryFindConvertToOverload(
+            ObjectDeclarationSymbol typeSymbol,
+            string targetKey,
+            out ObjectOperatorOverloadMethodSymbol? overload)
+        {
+            overload = this.FindConvertToOverloadOnType(typeSymbol, targetKey);
+            if (overload is not null)
+            {
+                return true;
+            }
+
+            if (typeSymbol.ObjectKind != PhpTypeDeclType.Trait)
+            {
+                return false;
+            }
+
+            foreach (var composing in this.EnumerateObjectsUsingTrait(typeSymbol))
+            {
+                overload = this.FindConvertToOverloadOnType(composing, targetKey);
+                if (overload is not null)
                 {
                     return true;
                 }
             }
 
             return false;
+        }
+
+        private ObjectOperatorOverloadMethodSymbol? FindConvertToOverloadOnType(
+            ObjectDeclarationSymbol typeSymbol,
+            string targetKey)
+        {
+            foreach (var candidate in this.EnumerateClassOperatorOverloads(typeSymbol)
+                .Concat(typeSymbol.ExtensionContributedOperators))
+            {
+                if (candidate.IsNativePassthrough
+                    || candidate.Operator != OverloadableOperator.Convert
+                    || candidate.Parameters.Count != 1
+                    || !OperatorOverloadResolver.IsConvertToForm(candidate, typeSymbol))
+                {
+                    continue;
+                }
+
+                var returnKey = OperatorOverloadResolver.SpellTypeKey(
+                    candidate.ReturnType, typeSymbol.Name);
+                if (string.Equals(returnKey, targetKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Rewrites a typed-local <c>Expression&lt;…&gt;</c> / <c>PropertyPath&lt;…&gt;</c>
+        /// assignment of an inline <c>fn</c> the same way call arguments are rewritten.
+        /// </summary>
+        private IBase2Ast TransformTypedVarExpressionCapture(TyhpTypedVarExprAst typedVar)
+        {
+            if (typedVar.AssignedExpression is not IExpression assigned
+                || typedVar.TypeExpression is null
+                || typedVar is not Base2Ast typedNode)
+            {
+                return typedVar;
+            }
+
+            if (PropertyPathEmissionHelper.TryRewriteInlineFn(
+                    assigned,
+                    typedVar.TypeExpression,
+                    this.ResolveTypeSymbolFromTypeExpression,
+                    this.FormatEmittedClassFqn,
+                    closure => this._context.TryGetInferredClosureSignature(closure, out var pathSig)
+                        ? pathSig
+                        : null,
+                    typedVar,
+                    out var propertyPathRewritten)
+                && propertyPathRewritten is IBase2Ast propertyPathAst)
+            {
+                this._context.RequirePackage("tyhp/lambda");
+                typedNode.ReplaceChild(assigned, propertyPathAst);
+                return typedVar;
+            }
+
+            if (ExpressionTreeEmissionHelper.TryRewriteInlineFn(
+                    assigned,
+                    typedVar.TypeExpression,
+                    this.ResolveTypeSymbolFromTypeExpression,
+                    this.FormatEmittedClassFqn,
+                    closure => this._context.TryGetInferredClosureSignature(closure, out var exprSig)
+                        ? exprSig
+                        : null,
+                    this._context.ExpressionTypes,
+                    typedVar,
+                    out var expressionRewritten)
+                && expressionRewritten is IBase2Ast expressionAst)
+            {
+                this._context.RequirePackage("tyhp/lambda");
+                typedNode.ReplaceChild(assigned, expressionAst);
+            }
+
+            return typedVar;
         }
 
         /// <summary>
@@ -2570,6 +3118,29 @@ namespace Tyhp.TyhpLang.Emitter
                 as FunctionDeclarationSymbol;
         }
 
+        private FunctionDeclarationSymbol? FindFileScopedFreeFunction(string simpleName)
+        {
+            if (string.IsNullOrEmpty(simpleName) || simpleName.Contains('\\'))
+            {
+                return null;
+            }
+
+            foreach (var scope in ((IBaseScope)this._context.GlobalScope).GetAllChildScopes())
+            {
+                if (scope is not FileScope fileScope)
+                {
+                    continue;
+                }
+
+                if (((IBaseScope)fileScope).FindChildSymbolByName(simpleName) is FunctionDeclarationSymbol fn)
+                {
+                    return fn;
+                }
+            }
+
+            return null;
+        }
+
         private static FunctionDeclarationSymbol SelectFunctionSignatureForArity(
             FunctionDeclarationSymbol primary,
             PhpCallAst? call)
@@ -2646,33 +3217,31 @@ namespace Tyhp.TyhpLang.Emitter
 
             // convert-to: object where a scalar/named target is expected. Trait-`$this` (operand
             // resolves to the trait, not the composing class — see `TryRewriteCastConversion`)
-            // also accepts a composing class's convert-to.
+            // also accepts a composing class's convert-to. Standalone extension convert-to
+            // rewrites to `E::__to{T}($expr)` rather than an instance call on the target.
             var operandClass = this.ResolveOperatorOperandType(expression);
             if (operandClass is not null
                 && (expectedObject is null || !ReferenceEquals(operandClass, expectedObject))
-                && (this.ClassHasConvertToOverload(operandClass, targetKey)
-                    || (operandClass.ObjectKind == PhpTypeDeclType.Trait
-                        && this.TraitComposingClassHasConvertToOverload(operandClass, targetKey))))
+                && this.TryRewriteConvertToCall(
+                    expression, operandClass, targetKey, context, out var convertTo)
+                && convertTo is not null)
             {
-                var methodName = OperatorMethodNameGenerator.GetConvertToMethodName(targetKey);
-                var receiver = EnsureDereferenceableReceiver(expression, context);
-                var emptyArgs = PhpArgumentListAst.Create([], context);
-                rewritten = this.BuildInstanceMethodCall(receiver, methodName, emptyArgs, context);
+                rewritten = convertTo;
                 return true;
             }
 
             // convert-from: scalar/other source where an object type with matching __from is expected.
+            // Standalone extension convert-from lives on E (`E::__from($expr)`), not the target.
             if (expectedObject is not null
                 && !expectedObject.IsStruct
                 && (operandClass is null || !ReferenceEquals(operandClass, expectedObject))
-                && this.TryFindConvertFromOverload(expectedObject, expression, out _))
+                && this.TryFindConvertFromOverload(expectedObject, expression, out var fromForm)
+                && fromForm is not null
+                && this.TryResolveConvertFromClassFqn(fromForm, expectedObject, out var classFqn))
             {
-                var classFqn = this.FormatEmittedClassFqn(
-                    expectedObject.FullyQualifiedName,
-                    expectedObject.Name);
                 var argList = this.BuildSingleOperandArguments(expression, context);
                 rewritten = this.BuildStaticCall(
-                    classFqn,
+                    classFqn!,
                     OperatorMethodNameGenerator.ConvertFromMethodName,
                     argList,
                     context);
@@ -2697,8 +3266,11 @@ namespace Tyhp.TyhpLang.Emitter
                 return false;
             }
 
+            // Multi-arm union or intersection is not one convert target. Nullable
+            // `?(string|int)` / `?(Foo&Bar)` stay intact above so this sees every arm;
+            // a first-arm peel would spell the composite as `string` or `Foo`.
             if (unwrapped is PhpTypeExpressionAst composite
-                && composite.TypeKind == PhpTypeKind.Union)
+                && composite.TypeKind is PhpTypeKind.Union or PhpTypeKind.Intersection)
             {
                 var members = composite.Types?.GetAllNotNull()
                     .Where(m => m is not PhpBuiltinTypeAst { Identifier: "null" or "void" or "never" })
@@ -2736,9 +3308,17 @@ namespace Tyhp.TyhpLang.Emitter
 
         private static ITypeExpression? UnwrapNullableTypeExpression(ITypeExpression type)
         {
-            if (type is PhpTypeExpressionAst composite && composite.IsNullable)
+            if (type is not PhpTypeExpressionAst composite || !composite.IsNullable)
             {
-                return composite.Types?.GetAllNotNull().FirstOrDefault() ?? type;
+                return type;
+            }
+
+            // `?T` has one member. A nullable union or intersection keeps every arm;
+            // taking the first would treat `?(string|int)` as `string`.
+            var members = composite.Types?.GetAllNotNull().ToList();
+            if (members is { Count: 1 })
+            {
+                return members[0];
             }
 
             return type;
@@ -2763,6 +3343,28 @@ namespace Tyhp.TyhpLang.Emitter
                 TokenValueAst token => token.ValueString,
                 _ => named.Name?.Identifier,
             };
+
+        private bool TryResolveConvertFromClassFqn(
+            ObjectOperatorOverloadMethodSymbol fromForm,
+            ObjectDeclarationSymbol expectedObject,
+            out string? classFqn)
+        {
+            classFqn = null;
+            if (IsStandaloneExtensionOperator(fromForm))
+            {
+                (classFqn, _) = this.ResolveStaticOperatorTarget(
+                    fromForm,
+                    expectedObject,
+                    OverloadableOperator.Convert,
+                    OperatorMethodNameGenerator.ConvertFromMethodName);
+                return classFqn is not null;
+            }
+
+            classFqn = this.FormatEmittedClassFqn(
+                expectedObject.FullyQualifiedName,
+                expectedObject.Name);
+            return !string.IsNullOrEmpty(classFqn);
+        }
 
         private bool TryFindConvertFromOverload(
             ObjectDeclarationSymbol typeSymbol,
@@ -2906,7 +3508,8 @@ namespace Tyhp.TyhpLang.Emitter
 
             var token = (int)(unary.Operator?.ValueInt64 ?? -1);
             var text = unary.Operator?.ValueString ?? "";
-            var isAlternate = token is TyhpParser.T_SYM_PLUS or TyhpParser.T_SYM_MINUS;
+            var isAlternate = text is "+" or "-"
+                || token is TyhpParser.T_SYM_PLUS or TyhpParser.T_SYM_MINUS;
             var op = OverloadableOperatorHelper.FromToken(token, text, isAlternateKind: isAlternate);
             if (op is not (OverloadableOperator.Increment or OverloadableOperator.Decrement))
             {
@@ -3212,6 +3815,14 @@ namespace Tyhp.TyhpLang.Emitter
 
         private static bool IsShortCircuitBinary(PhpBinaryOpAst binary)
         {
+            var text = binary.Operator?.ValueString;
+            if (!string.IsNullOrEmpty(text))
+            {
+                return text is "&&" or "||" or "??"
+                    || text.Equals("and", StringComparison.OrdinalIgnoreCase)
+                    || text.Equals("or", StringComparison.OrdinalIgnoreCase);
+            }
+
             var token = (int)(binary.Operator?.ValueInt64 ?? -1);
             return token is TyhpParser.T_BOOLEAN_AND
                 or TyhpParser.T_BOOLEAN_OR
@@ -3230,7 +3841,8 @@ namespace Tyhp.TyhpLang.Emitter
         {
             var token = (int)(unary.Operator?.ValueInt64 ?? -1);
             var text = unary.Operator?.ValueString ?? "";
-            var isAlternate = token is TyhpParser.T_SYM_PLUS or TyhpParser.T_SYM_MINUS;
+            var isAlternate = text is "+" or "-"
+                || token is TyhpParser.T_SYM_PLUS or TyhpParser.T_SYM_MINUS;
             return OverloadableOperatorHelper.FromToken(token, text, isAlternateKind: isAlternate);
         }
 
@@ -3306,7 +3918,8 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (statement is PhpBinaryOpAst bare
                 && OverloadableOperatorHelper.FromAssignmentToken(
-                    (int)(bare.Operator?.ValueInt64 ?? -1)) != OverloadableOperator.Invalid)
+                    (int)(bare.Operator?.ValueInt64 ?? -1),
+                    bare.Operator?.ValueString ?? "") != OverloadableOperator.Invalid)
             {
                 compound = bare;
                 return true;
@@ -3637,15 +4250,28 @@ namespace Tyhp.TyhpLang.Emitter
         /// <c>T|null</c> wrappers unwrapped). Returns null when the type is not a generic array.
         /// </summary>
         private static ITypeExpression? TryGetArrayElementTypeExpression(ITypeExpression? typeExpr)
+            => TryGetGenericBuiltinValueTypeExpression(typeExpr, "array");
+
+        /// <summary>
+        /// Last type argument of <c>array&lt;…&gt;</c> or <c>iterable&lt;…&gt;</c> (value last).
+        /// </summary>
+        private static ITypeExpression? TryGetArrayOrIterableValueTypeExpression(ITypeExpression? typeExpr)
+            => TryGetGenericBuiltinValueTypeExpression(typeExpr, "array")
+                ?? TryGetGenericBuiltinValueTypeExpression(typeExpr, "iterable");
+
+        private static ITypeExpression? TryGetGenericBuiltinValueTypeExpression(
+            ITypeExpression? typeExpr,
+            string builtinName)
         {
             foreach (var candidate in EnumerateNonNullTypeParts(typeExpr))
             {
-                if (candidate is not PhpBuiltinTypeAst { Identifier: "array" } arrayType)
+                if (candidate is not PhpBuiltinTypeAst builtin
+                    || !string.Equals(builtin.Identifier, builtinName, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                var args = GetGenericTypeArgumentsFromTypeNode(arrayType);
+                var args = GetGenericTypeArgumentsFromTypeNode(builtin);
                 if (args.Count >= 1)
                 {
                     return args[^1];
@@ -3808,6 +4434,16 @@ namespace Tyhp.TyhpLang.Emitter
             return PhpArgumentListAst.Create(args, context);
         }
 
+        /// <summary>
+        /// True when a call-site argument name is the extension receiver. That name is not a
+        /// PHP parameter the caller can pass; the receiver is always the first positional argument.
+        /// </summary>
+        private static bool IsExtensionReceiverArgumentName(string name)
+        {
+            var bare = name.TrimStart('$');
+            return string.Equals(bare, "this", StringComparison.OrdinalIgnoreCase);
+        }
+
         private PhpArgumentListAst BuildReceiverFirstArguments(
             IExpression? receiver,
             PhpArgumentListAst? originalArgs,
@@ -3821,7 +4457,20 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (originalArgs != null)
             {
-                args.AddRange(originalArgs.GetAllNotNull().Select(a => PhpArgumentAst.CreateFromContext(a.Expression, context)));
+                foreach (var arg in originalArgs.GetAllNotNull())
+                {
+                    var argName = arg.Name?.ValueString;
+                    if (!string.IsNullOrEmpty(argName) && !IsExtensionReceiverArgumentName(argName))
+                    {
+                        args.Add(PhpArgumentAst.CreateNamedFromContext(
+                            arg.Expression,
+                            argName.TrimStart('$'),
+                            context));
+                        continue;
+                    }
+
+                    args.Add(PhpArgumentAst.CreateFromContext(arg.Expression, context));
+                }
             }
 
             return PhpArgumentListAst.Create(args, context);
@@ -3847,6 +4496,27 @@ namespace Tyhp.TyhpLang.Emitter
                 classBase,
                 PhpCallAst.CreateFromContext(args, context),
                 context);
+        }
+
+        private static IBase2Ast? FindStaticCalleeName(PhpDereferenceableAst staticCall) =>
+            staticCall.Base is PhpDereferenceableAst { Suffix: PhpStaticMemberAccessAst staticAccess }
+                ? staticAccess.Member
+                : null;
+
+        private static void CopyCallSiteTypeArgumentAddons(IBase2Ast? from, IBase2Ast? to)
+        {
+            if (from is null || to is null)
+            {
+                return;
+            }
+
+            foreach (var key in (string[])["memberName", "identifier"])
+            {
+                if (from.AstGrammarAddons.TryGetValue(key, out var addon))
+                {
+                    to.AddGrammarAddon(key, addon);
+                }
+            }
         }
 
         private PhpDereferenceableAst BuildInstanceMethodCall(
@@ -3912,6 +4582,25 @@ namespace Tyhp.TyhpLang.Emitter
             {
                 listNode.AddChild(import);
             }
+        }
+
+        /// <summary>
+        /// The <c>extension Name</c> that emits the PHP backer. Skips a nested
+        /// <c>extends Type { }</c> group, which is an object scope but not the class.
+        /// </summary>
+        private ObjectDeclarationSymbol? GetOwningExtensionClass(ObjectMethodSymbol method)
+        {
+            for (var scope = method.ContainingScope; scope != null; scope = scope.ParentScope)
+            {
+                if (scope.DeclarationSymbol is ObjectDeclarationSymbol obj
+                    && obj.IsExtension
+                    && !obj.IsExtensionTargetGroup)
+                {
+                    return obj;
+                }
+            }
+
+            return this.GetOwningObjectDeclaration(method);
         }
 
         private ObjectDeclarationSymbol? GetOwningObjectDeclaration(ObjectMethodSymbol method)
@@ -3985,6 +4674,16 @@ namespace Tyhp.TyhpLang.Emitter
             if (expression is null)
             {
                 return null;
+            }
+
+            if (this.IsUnresolvedCheckedReceiver(expression))
+            {
+                return null;
+            }
+
+            if (this.TryGetSymbolFromCheckedExpression(expression) is { } fromChecked)
+            {
+                return fromChecked;
             }
 
             // `$this` is never registered into typed-var maps and has no BoundSymbol — without this,
@@ -4085,6 +4784,12 @@ namespace Tyhp.TyhpLang.Emitter
                 return this.FindBuiltInTypeSymbol("array");
             }
 
+            if (expression is PhpBinaryOpAst binary)
+            {
+                return this.ResolveReceiverType(binary.Left)
+                    ?? this.ResolveReceiverType(binary.Right);
+            }
+
             if (expression is PhpNewAst newExpr)
             {
                 return this.ResolveObjectFromNew(newExpr)
@@ -4118,6 +4823,18 @@ namespace Tyhp.TyhpLang.Emitter
                     && TryGetInstanceMethod(callOwner, callMethodName) is { } unboundMethod)
                 {
                     return this.ResolveTypeSymbolFromTypeExpression(unboundMethod.ReturnType);
+                }
+
+                if (callExpr.Base is PhpNameAst fnName)
+                {
+                    var fnText = fnName.ValueString ?? fnName.Identifier ?? "";
+                    var resolved = this._nameResolver.ResolveSymbol(fnText, this._context.GlobalScope)
+                        ?? this.ResolveNamespacedFreeFunction(fnText)
+                        ?? this.FindFileScopedFreeFunction(fnText);
+                    if (resolved is FunctionDeclarationSymbol fn)
+                    {
+                        return this.ResolveTypeSymbolFromTypeExpression(fn.ReturnType);
+                    }
                 }
 
                 return null;

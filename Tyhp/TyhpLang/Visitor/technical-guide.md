@@ -2,34 +2,37 @@
 
 Developer guide for the parse-tree visitors under `Tyhp/TyhpLang/Visitor/`. These classes turn ANTLR `ParserRuleContext` trees into `Base2Ast`-derived nodes used by the binder, checker, and emitter.
 
-**Scope:** the 32 C# files in this folder (`PhpParserAstVisitor.*`, `TyhpParserAstVisitor.*`). Grammar sources live in `Tyhp/TyhpLang/Grammar/`; generated parser types in `Tyhp/TyhpLang/Parser/`; AST types in `Tyhp/TyhpLang/Ast/`.
+**Scope:** the C# visitors in this folder (`PhpParserAstVisitor.*`, `TyhpParserAstVisitor.*`, `TyhpdefIncludedPhpVisits.*`, `TyhpdefParserAstVisitor.*`) plus `shared/*.inc`, the source `compile_grammar_emit_partials.py` copies into the `*.Included.cs` partials. Grammar sources live in `Tyhp/TyhpLang/Grammar/`; generated parser types in `Tyhp/TyhpLang/Parser/`; AST types in `Tyhp/TyhpLang/Ast/`.
 
 ---
 
 ## 1. Role in the compilation pipeline
 
 ```
-Source file bytes
-  → TyhpLexer (token stream, optional tagless mode)
-  → TyhpParser entry rule (phpSrcFile | tyhpSrcFile | tyhpdefSrcFile | tagless variants)
-  → ParserRuleContext (parse tree)
-  → TyhpParserAstVisitor.Visit(ctx)   ← this folder
+.php / .tyhp
+  → TyhpLexer → TyhpParser (phpSrcFile | tyhpSrcFile | tyhpTaglessSrcFile)
+  → TyhpParserAstVisitor.Visit(ctx)          ← extends PhpParserAstVisitor
+
+.tyhpdef
+  → TyhpdefLexer → TyhpdefParser (tyhpdefSrcFile | tyhpdefTaglessSrcFile)
+  → TyhpdefParserAstVisitor.Visit(ctx)       ← extends TyhpdefIncludedPhpVisits
+                                               : TyhpdefParserBaseVisitor<IBase2Ast?>
+
   → SrcFileAst (PhpSrcFileAst | TyhpSrcFileAst | TyhpdefSrcFileAst)
   → Binder → Checker → Emitter
 ```
 
 ### Primary entry: `CompilationService.ParseFile`
 
-`Tyhp/Domain/Services/CompilationService.cs` chooses the parser entry by file extension (`.tyhpdef` before `.tyhp` because `.tyhpdef` ends with `.tyhp`), optionally uses tagless entry rules when `options.Tagless` is set, then:
+`Tyhp/Domain/Services/CompilationService.cs` checks `.tyhpdef` before `.tyhp` in the if/else chain (neither extension is a suffix of the other). A `.tyhpdef` file uses `TyhpdefLexer` / `TyhpdefParser` and `new TyhpdefParserAstVisitor(...)`. A `.tyhp` or `.php` file uses `TyhpLexer` / `TyhpParser` and `new TyhpParserAstVisitor(...)`. Tagless files use the tagless entry rule when `options.Tagless` is set, and `ConfigureTagless` runs on the lexer for that file (`"tyhpdef"` or `"tyhp"`).
 
-1. Constructs `new TyhpParserAstVisitor(tokenStream, filename, fileHash, diagnostics)`.
-2. Calls `visitor.Visit(ctx)`.
-3. Casts the result to `SrcFileAst`. A non-null non-`SrcFileAst` result is reported as `MessageCode.VisitorUnexpectedAlternative`.
-4. Caches the AST only when the visit produced no new errors for that file (recovery trees are not cached).
+1. Calls `visitor.Visit(ctx)`.
+2. Casts the result to `SrcFileAst`. A non-null non-`SrcFileAst` result is reported as `MessageCode.VisitorUnexpectedAlternative`.
+3. Caches the AST only when the visit produced no new errors for that file (recovery trees are not cached).
 
 ### Secondary entry: builtin tyhpdef loading
 
-`Tyhp/TyhpLang/Binder/BuiltIn/Tyhpdef.cs` uses the same visitor construction and `Visit(ctx) as SrcFileAst` pattern (with a try/catch safety net for recovery NREs).
+`Tyhp/TyhpLang/Binder/BuiltIn/Tyhpdef.cs` uses the same split: `ParseMode.Tyhpdef` visits with `TyhpdefParserAstVisitor`; `ParseMode.Tyhp` and `ParseMode.Php` visit with `TyhpParserAstVisitor`. Both cast `Visit(ctx) as SrcFileAst` inside a try/catch safety net for recovery NREs.
 
 ### Historical note
 
@@ -41,14 +44,29 @@ Source file bytes
 
 ### Inheritance
 
+`.php` and `.tyhp`:
+
 ```
 TyhpParserBaseVisitor<IBase2Ast?>     (ANTLR-generated)
-  └── ITyhpParserVisitor<IBase2Ast?>  (ANTLR-generated)
-        └── PhpParserAstVisitor       (partial; PHP + shared helpers)
-              └── TyhpParserAstVisitor (partial; Tyhp + tyhpdef overrides)
+        ↑
+PhpParserAstVisitor                   (partial; PHP visits + helpers)
+        ↑
+TyhpParserAstVisitor                  (partial; Tyhp visits)
 ```
 
-Production code **always** instantiates `TyhpParserAstVisitor`, even for `.php` files. PHP-only behavior is the base class; Tyhp/tyhpdef behavior is overrides and GrammarAddon hooks.
+`.tyhpdef`:
+
+```
+TyhpdefParserBaseVisitor<IBase2Ast?>  (ANTLR-generated)
+        ↑
+TyhpdefIncludedPhpVisits              (PHP closure visits for TyhpdefParser contexts)
+        ↑
+TyhpdefParserAstVisitor               (Tyhp and tyhpdef visits)
+```
+
+`TyhpdefParserAstVisitor` does not extend `PhpParserAstVisitor`. Production `.php` and `.tyhp` files instantiate `TyhpParserAstVisitor`. Production `.tyhpdef` files instantiate `TyhpdefParserAstVisitor`.
+
+Shared visit methods have one source under `Visitor/shared/`. `./compile_grammar.sh` runs `compile_grammar_emit_partials.py`, which writes `PhpParserAstVisitor.Included.cs` and `TyhpParserAstVisitor.Included.cs` from those `.inc` files, and writes `TyhpdefIncludedPhpVisits.Included.cs` and `TyhpdefParserAstVisitor.Included.cs` with `TyhpParser` / `TyhpLexer` renamed to `TyhpdefParser` / `TyhpdefLexer`. `PhpParserAstVisitor.GetCurrentLanguageMode` in a shared fragment becomes `TyhpdefIncludedPhpVisits.GetCurrentLanguageMode` on the tyhpdef side. The emit is not split per parser: a rule that both visitors implement has to exist on both grammars. That is why `tyhpdefSrcFile`, `tyhpdefTaglessSrcFile`, and `tyhpdefBlock` remain on `TyhpParser` even though `.tyhpdef` files are parsed with `TyhpdefParser`. `tyhpdefClassConstDecl` / `tyhpdefClassConstList` are unreached, stay only on `TyhpParser`, and are visited only from `TyhpParserAstVisitor.TyhpdefUnreached.cs`.
 
 ### Why partial classes
 
@@ -56,14 +74,15 @@ The visitor is split by grammar area so individual files stay reviewable. Naming
 
 | Prefix | Meaning |
 |--------|---------|
-| `PhpParserAstVisitor.Php*.cs` | Base PHP rule visitors |
-| `TyhpParserAstVisitor.Tyhp*.cs` | Tyhp language extensions |
-| `TyhpParserAstVisitor.Tyhpdef.cs` | Entire tyhpdef surface (~1600 lines) |
-| `PhpParserAstVisitor.cs` | Shared state, doc comments, language mode, VisitChildren shutdown |
-| `TyhpParserAstVisitor.cs` | Thin ctor forwarding to base |
+| `PhpParserAstVisitor.Php*.cs` | Base PHP rule visitors for `TyhpParser` contexts |
+| `TyhpParserAstVisitor.Tyhp*.cs` | Tyhp language extensions for `TyhpParser` contexts |
+| `*.Included.cs` | Emitted from `shared/`. Do not edit; change the `.inc` and regenerate |
+| `TyhpdefIncludedPhpVisits.cs` / `.Helpers.cs` | State, doc comments, language mode for the tyhpdef walk |
+| `TyhpdefParserAstVisitor.cs` / `.Helpers.cs` | Ctor and tyhpdef-only helpers |
+| `TyhpParserAstVisitor.TyhpdefUnreached.cs` | `tyhpdefClassConstDecl` / `tyhpdefClassConstList` only |
+| `PhpParserAstVisitor.cs` | State, doc comments, language mode, VisitChildren shutdown for the PHP/Tyhp walk |
+| `TyhpParserAstVisitor.cs` | Thin ctor forwarding to `PhpParserAstVisitor` |
 | `PhpParserAstVisitor.Unsorted.cs` | Empty placeholder |
-
-Approximate sizes (lines, as of this writing): Tyhpdef ≫ PhpObjects / PhpDereferenceables / PhpExpressions / PhpStatements / PhpTopStatements ≫ smaller Tyhp area files.
 
 ### Shared instance state (`PhpParserAstVisitor.cs`)
 
@@ -149,44 +168,53 @@ Tyhp often overrides the **Handler** (e.g. `VisitReturnTypeGrammarAddonHandler`)
 
 ### File → parser entry → visitor root
 
-| Extension / mode | Parser rule | Visitor root | Result type |
-|------------------|-------------|--------------|-------------|
-| `.php` (default) | `phpSrcFile` → `#phpSrcFile` | `VisitPhpSrcFile` | `PhpSrcFileAst` |
-| `.tyhp` tagged | `tyhpSrcFile` → `#tyhpFile` | `VisitTyhpFile` | `TyhpSrcFileAst` |
-| `.tyhp` tagless | `tyhpTaglessSrcFile` → `#tyhpTaglessFile` | `VisitTyhpTaglessFile` | `TyhpSrcFileAst` |
-| `.tyhpdef` tagged | `tyhpdefSrcFile` → `#tyhpdefFile` | `VisitTyhpdefFile` | `TyhpdefSrcFileAst` |
-| `.tyhpdef` tagless | `tyhpdefTaglessSrcFile` → `#tyhpdefTaglessFile` | `VisitTyhpdefTaglessFile` | `TyhpdefSrcFileAst` |
+| Extension / mode | Recognizer | Parser rule | Visitor | Result type |
+|------------------|------------|-------------|--------|-------------|
+| `.php` (default) | `TyhpParser` | `phpSrcFile` | `TyhpParserAstVisitor.VisitPhpSrcFile` | `PhpSrcFileAst` |
+| `.tyhp` tagged | `TyhpParser` | `tyhpSrcFile` → `#tyhpFile` | `TyhpParserAstVisitor.VisitTyhpFile` | `TyhpSrcFileAst` |
+| `.tyhp` tagless | `TyhpParser` | `tyhpTaglessSrcFile` → `#tyhpTaglessFile` | `TyhpParserAstVisitor.VisitTyhpTaglessFile` | `TyhpSrcFileAst` |
+| `.tyhpdef` tagged | `TyhpdefParser` | `tyhpdefSrcFile` → `#tyhpdefFile` | `TyhpdefParserAstVisitor.VisitTyhpdefFile` | `TyhpdefSrcFileAst` |
+| `.tyhpdef` tagless | `TyhpdefParser` | `tyhpdefTaglessSrcFile` → `#tyhpdefTaglessFile` | `TyhpdefParserAstVisitor.VisitTyhpdefTaglessFile` | `TyhpdefSrcFileAst` |
 
 All roots inherit `SrcFileAst`.
 
 ### Language mode strings on AST nodes
 
-`GetCurrentLanguageMode` walks parents and returns:
+Two methods walk parents. They key off context *types*, not the parser’s `_languageMode` field.
 
-| Context found | Mode string |
-|---------------|-------------|
-| `TyhpdefBlockContext` / `TyhpdefTaglessFileContext` | `"tyhpdef"` |
-| `TyhpBlockContext` / `TyhpTaglessFileContext` | `"tyhp"` |
-| `PhpBlockContext` | `"php"` |
-| File root / null | `""` |
+`PhpParserAstVisitor.GetCurrentLanguageMode` (used while walking a `TyhpParser` tree, and it also recognizes `TyhpdefParser` contexts):
 
-`Base2Ast.SetContext` uses this when constructing nodes so binder/checker can distinguish modes.
+| Context found | String |
+|---------------|--------|
+| `TyhpParser.TyhpdefBlockContext` or `TyhpdefParser.TyhpdefBlockContext` | `"tyhpdef"` |
+| `TyhpParser.TyhpdefTaglessFileContext` or `TyhpdefParser.TyhpdefTaglessFileContext` | `"tyhpdef"` |
+| `TyhpParser.TyhpBlockContext` | `"tyhp"` |
+| `TyhpParser.TyhpTaglessFileContext` | `"tyhp"` |
+| `TyhpParser.PhpBlockContext` | `"php"` |
+| `TyhpParser.PhpSrcFileContext`, `TyhpParser.TyhpSrcFileContext`, `TyhpParser.TyhpdefSrcFileContext`, `TyhpdefParser.TyhpdefSrcFileContext`, or null | `""` |
+
+`TyhpdefIncludedPhpVisits.GetCurrentLanguageMode` is what a `.tyhpdef` walk calls (the emit rewrites `PhpParserAstVisitor.GetCurrentLanguageMode` to this method):
+
+| Context found | String |
+|---------------|--------|
+| `TyhpdefParser.TyhpdefBlockContext` or `TyhpdefParser.TyhpdefTaglessFileContext` | `"tyhpdef"` |
+| `TyhpdefParser.TyhpdefSrcFileContext` or null | `""` |
+
+`Base2Ast.SetContext` uses the visitor’s result when constructing nodes so binder/checker can distinguish modes.
 
 ### Parser semantic predicates vs AST language mode (important)
 
-Grammar actions for `tyhpBlock`, `tyhpdefBlock`, and tagless entry rules set **`this._languageMode = "tyhp"`** (including tyhpdef). That makes `{this.isLanguageMode("tyhp")}?` succeed inside tyhpdef files so shared Tyhp GrammarAddon rules apply.
+`tyhpBlock`, `tyhpTaglessSrcFile`, `tyhpdefBlock`, and `tyhpdefTaglessSrcFile` assign **parser** `_languageMode = "tyhp"`. That makes `{this.isLanguageMode("tyhp")}?` succeed inside tyhpdef files so shared Tyhp GrammarAddon rules apply. Lexer `_languageMode` on `<?tyhpdef` is `"tyhpdef"`.
 
-AST `LanguageMode` for nodes under a tyhpdef block is still **`"tyhpdef"`** via `GetCurrentLanguageMode`, because it keys off context *types*, not the parser’s `_languageMode` field.
-
-So: predicates see `"tyhp"`; recorded AST mode under tyhpdef is `"tyhpdef"`. Do not assume these are the same string.
+AST `LanguageMode` for nodes under a tyhpdef block or tagless file is `"tyhpdef"`, from the tables above. The file-root context (`TyhpdefSrcFileContext`) returns `""`. Predicates see `"tyhp"`; the recorded mode under the block is `"tyhpdef"`.
 
 ### What each layer owns
 
-**Php (`PhpParserAstVisitor.*`)** — full PHP surface: expressions/precedence, statements, top statements, objects, dereferenceables, types, attributes, parameters, try/catch, functions, root/inline HTML.
+**Php (`PhpParserAstVisitor.*`)** — full PHP surface: expressions/precedence, statements, top statements, objects, dereferenceables, types, attributes, parameters, try/catch, functions, root/inline HTML. In Tyhp / tyhpdef mode, `VisitParameter` rejects postfix `T...` glued to a value-parameter type (`int... $x`) — that spelling is a callable-shape parameter (`callable(int ...): R`); PHP variadic remains `int ...$x`.
 
-**Tyhp (`TyhpParserAstVisitor.Tyhp*.cs`)** — overrides GrammarAddons and adds Tyhp-only rules: generics, structs, extensions, typed vars, using blocks, operator overloads, type aliases, return type guards, compile-time builtins (`typeof` / `nameof` / `default` / `variable_exists`), `await`/`with`/`is` expression tokens, async modifiers, required parameter types in Tyhp mode, anonymous `new struct {…}`.
+**Tyhp (`TyhpParserAstVisitor.Tyhp*.cs`)** — overrides GrammarAddons and adds Tyhp-only rules: generics, anonymous `new struct {…}`, type-position `struct { … }` shapes, callable shapes (`callable(…): R`), grouped `(typeExpr)`, extensions, typed vars, using blocks, operator overloads, type aliases, return type guards, compile-time builtins (`typeof` / `nameof` / `default` / `variable_exists`), `await`/`with`/`is` expression tokens, async modifiers, required parameter types in Tyhp mode.
 
-**Tyhpdef (`TyhpParserAstVisitor.Tyhpdef.cs`)** — separate top-statement grammar (`tyhpdefTopStatement*`), import-shaped declarations (classes/traits/interfaces/enums/functions/consts/variables), deprecated/obsolete markers, inline extension decls in tyhpdef, specialized error helpers (`ReportMissingRequired`, `CreateErrorImportObjectDecl`, `HandleUnexpectedAlternativeSpecial`).
+**Tyhpdef (`TyhpdefParserAstVisitor`, emitted `Included.cs` plus `Helpers.cs`)** — walks `TyhpdefParser` trees: top statements (`tyhpdefTopStatement*`), import-shaped declarations (classes/traits/interfaces/enums/functions/consts/variables), deprecated/obsolete markers, name-only `extern class` / `extern interface` / `extern enum` / `extern function` / `extern const` / kind-unspecified `extern \Name;` placeholders (`VisitTyhpdefExternClassDecl` / `VisitTyhpdefExternInterfaceDecl` / `VisitTyhpdefExternEnumDecl` / `VisitTyhpdefExternFunctionDecl` / `VisitTyhpdefExternConstDecl` / `VisitTyhpdefExternDecl` → `VisitTyhpdefExtern*DeclarationStatement`; identifier via `VisitName`; `IsExtern` + optional `@provided-by`; DeclType `"extern"` for the bare form), name-only overlay `partial function` (`VisitTyhpdefPartialFunctionDecl` / `VisitTyhpdefPartialClassMethod`; `IsPartial`, no params/return), inline extension decls in tyhpdef, specialized error helpers (`ReportMissingRequired`, `CreateErrorImportObjectDecl`, `HandleUnexpectedAlternativeSpecial`). `#tyhpdefClassPropertyAccessors` is dispatched from `VisitTyhpdefClassStatement` and maps onto the same `PhpPropertyAst.Hooks` path as PHP `#classPropertyAccessors`: one hooked `PhpPropertyAst` whose hooks are bodyless `PhpPropertyHookAst` nodes (`body: null`, like PHP interface `get;`), with `ReturnsRef` / modifiers / attributes attached the same way. Unhooked `#tyhpdefClassProperty` still passes `hooks: null`. Optional `?? expr` on `tyhpdefProperty` / `tyhpdefHookedProperty` is stored as `TyhpdefPropertyAst.CoalesceExpr` and copied onto `PhpPropertyAst.DefaultValue` (same child slot PHP `= expr` uses), so binder/IDE see the expected start value without treating tyhpdef as defining it. The same visit text is also emitted onto `TyhpParserAstVisitor` for the tyhpdef rules `TyhpParser` still contains; the `.tyhpdef` file walk does not use that copy. Doc comments on this walk read `TyhpdefLexer.DocBlockCommentsChannel`. Token switches use `TyhpdefParser.T_*`.
 
 ---
 
@@ -194,7 +222,7 @@ So: predicates see `"tyhp"`; recorded AST mode under tyhpdef is `"tyhpdef"`. Do 
 
 ### Naming
 
-- Override generated methods: `VisitXxx([NotNull] TyhpParser.XxxContext context)`.
+- Override generated methods: `VisitXxx([NotNull] TyhpParser.XxxContext context)` on the PHP/Tyhp visitor. The emitted tyhpdef copy uses `TyhpdefParser.XxxContext`. Write the `.inc` against `TyhpParser`; regen renames it.
 - Dispatch helpers (non-override): same name without always matching ANTLR’s virtual set; return interface types.
 - Fallbacks: `VisitXxxAlt` / `VisitXxxAlternative` for unknown subclasses.
 - Error helpers: `IsErrorRecoveryContext`, `ReportUnexpectedAlternative`, `HandleUnexpectedAlternative<T>`, `HandleUnexpectedAlternativeSpecial`, `HandleFailedCast`, `HandleWithStatementTerminal`.
@@ -237,9 +265,15 @@ Message codes used here:
 - `VisitorUnsupportedConstruct` (2004) — GrammarAddon hit in PHP base without Tyhp override
 - `VisitorMissingRequiredNode` (2003) — required child left null after truncation / recovery
 
+PHP `TraitName { addPaths as private; }` has no `traitAliasNameGrammarAddon` child. `VisitTraitAliasVisibility` / `VisitTraitAliasRename` visit that addon only when it is present.
+
 ### Doc comments
 
 `FindPossibleDocComment(IToken beforeToken)` walks `_tokens` backward on `TyhpLexer.DocBlockCommentsChannel` from the token before a declaration (often a labeled `FindDocComment=` token such as `(` or `{`).
+
+`FindPossibleOverlayAgainst` uses the same backward walk on `SimpleCommentsChannel` for `// @overlay-against:` immediately preceding a tyhpdef declaration. The compact stamp is stored on the AST as grammar addon `overlayAgainst`. Top-level attributes live on `tyhpdefAttributedTopStatement`, not on the inner function/class rule, so a stamp written before `#[…]` is not visible from the keyword; `VisitTyhpdefAttributedTopStatement` retries the walk from the attribute start when the inner declaration has no stamp yet (canonical stamp-after-attribute still wins). Class-member attributes are on the member rule, so `context.Start` is the `#[` token and that backward walk misses a stamp between the attribute and the keyword. `AttachOverlayAgainst` reads that gap when the rule's first child is `attributes`, and uses it ahead of a stamp that precedes the attribute.
+
+`FindPossibleProvidedBy` uses the same channel walk for `// @provided-by:` immediately preceding an `extern` type, function, or const. Unknown `@` tags are skipped; the nearest matching comment wins (trimmed package name). Empty remainder is treated as absent. Stored as grammar addon `providedBy` on the declaration AST (exposed as `ProvidedBy`).
 
 **Order matters:** look up the declaration’s docblock **before** visiting children. Visiting nested declarations advances `_docCommentLastStop` and can steal the parent’s docblock. `ResetDocComment` exists to reposition the cursor when needed.
 
@@ -259,9 +293,9 @@ Some Tyhp constructs are lowered into PHP-shaped AST immediately:
 
 | Source sugar | Visit-time shape |
 |--------------|------------------|
-| `fn name(...) => expr;` (named short function) | `PhpFunctionDeclAst` body = `return expr;` — **no** `isOverloadSignature` addon |
+| `fn name(...) => expr;` (named short function) | `PhpFunctionDeclAst` body = `return expr;` — **no** `isOverloadSignature` addon; `IsShortSyntax` flag set |
 | `function name(...): T;` overload signature | Bodyless `PhpFunctionDeclAst` + `isOverloadSignature` addon |
-| Operator / extension `=> expr` bodies | Same `return expr;` wrapping |
+| Operator / extension `=> expr` bodies | Same `return expr;` wrapping; `IsShortSyntax` on `TyhpOperatorOverloadAst` / `PhpMethodDeclAst` / `PhpFunctionDeclAst` |
 | Anonymous `new struct {…}` | Struct decl added to `CurrentTopStatementList`; expression is `new GeneratedName` |
 
 Do not confuse named short functions with anonymous PHP arrows (`fn($x) => …`), which use the inline-function expression path.
@@ -277,7 +311,8 @@ Do not confuse named short functions with anonymous PHP arrows (`fn($x) => …`)
 | `genericTypeArguments` | Call-site type args | `VisitCallArgumentList` (Tyhp) |
 | `GenericArguments` / `GenericParameters` | Type arg/param lists | Imports, names, tyhpdef |
 | `isAsync` | `async` token | Member modifiers, tyhpdef methods |
-| `ctorReturnType` | `TyhpCtorReturnTypeAst` | Tyhp ctors |
+| `isInternal` | `internal` token | Member modifiers, class/trait/interface/enum modifiers, top-level `internal type` / `internal const`, extensions, operator overloads |
+| `ctorReturnType` | `TyhpCtorReturnTypeAst` (absent when the ctor return type is omitted) | Tyhp ctors |
 | `deprecatedOrObsolete` | Token | Tyhpdef members |
 | `typeExpr` / `typeName` | Type fragments | Type visitors |
 | `aliasOf` / `aliasedAs` | Alias relationships | Tyhpdef identifiers |
@@ -308,13 +343,13 @@ When adding a new Tyhp syntax hook: extend the GrammarAddon rule in `TyhpParser.
 | `GetTokenValueAst` | same | Token → `TokenValueAst` (null token → null / optional GrammarAddon fallback) |
 | `HandleWithStatementTerminal` | same | Attach statement terminal sibling |
 | `HandleUnexpectedAlternative<T>` | `PhpStatements.cs` | Diagnostic + `ErrorAst` cast to `T` |
-| `HandleUnexpectedAlternativeSpecial` | `Tyhpdef.cs` (partial) | Diagnostic + custom error factory (also used from TyhpGenerics/Objects) |
+| `HandleUnexpectedAlternativeSpecial` | `TyhpdefParserAstVisitor.Helpers.cs` | Diagnostic + custom error factory (also used from TyhpGenerics/Objects) |
 | `HandleFailedCast` | `PhpTopStatements.cs` | When visit result isn’t `ITopStatement` |
 | `WithGrammarAddon` / `WithAttributes` | `Ast/Base2AstExtensions.cs` | Fluent AST decoration |
-| `ReportMissingRequired` / `CreateErrorImportObjectDecl` / `CreateErrorParameter` | `Tyhpdef.cs` | Tyhpdef recovery (also used by type-alias / extension / struct / import / generics / typed-var visitors) |
+| `ReportMissingRequired` / `CreateErrorImportObjectDecl` / `CreateErrorParameter` | `TyhpdefParserAstVisitor.Helpers.cs` (and the PHP-side copies the emit places on `TyhpdefIncludedPhpVisits`) | Tyhpdef recovery (also used by type-alias / extension / struct / import / generics / typed-var visitors) |
 | `VisitClassStatementListOrEmpty` / `CreateObjectTypeToken` | `PhpObjects.cs` | Object-type decl recovery (null `StatementList` / `ObjectType`) |
 | Null-guarded `VisitTyhpTypeAlias` / extension / struct decls | `TyhpTypeAliases.cs`, `TyhpExtensions.cs`, `TyhpStructs.cs` | Truncated `type`/`extension`/`struct` recovery (placeholders + `VisitorMissingRequiredNode`) |
-| Null-guarded Tyhp declaration recovery | `TyhpTopStatements.cs`, `TyhpFunctions.cs`, `TyhpGenerics.cs`, `TyhpStatements.cs`, `TyhpDereferenceables.cs`, `TyhpObjects.cs`, `Tyhpdef.cs`, `PhpParametersAndArguments.cs` | Truncated `use extension` / overloads / generics / typed-var / anon-struct / class-body operator overload (`VisitTyhpClassOperatorOverloadDecl`) / tyhpdef class-member sites report `VisitorMissingRequiredNode` instead of TYHP1003 |
+| Null-guarded Tyhp declaration recovery | `TyhpTopStatements.cs`, `TyhpFunctions.cs`, `TyhpGenerics.cs`, `TyhpStatements.cs`, `TyhpDereferenceables.cs`, `TyhpObjects.cs`, emitted tyhpdef visits, `PhpParametersAndArguments.cs` | Truncated `use extension` / overloads / generics / typed-var / anon-struct / class-body operator overload (`VisitTyhpClassOperatorOverloadDecl`) / tyhpdef class-member sites report `VisitorMissingRequiredNode` instead of TYHP1003 |
 
 ---
 
@@ -324,7 +359,8 @@ When adding a new Tyhp syntax hook: extend the GrammarAddon rule in `TyhpParser.
 
 | File | Responsibility |
 |------|----------------|
-| `PhpParserAstVisitor.cs` | State, doc comments, language mode, VisitChildren shutdown |
+| `PhpParserAstVisitor.cs` | State, doc comments, `GetCurrentLanguageMode`, VisitChildren shutdown |
+| `PhpParserAstVisitor.Included.cs` | Emitted shared PHP visits. Edit `shared/PhpParserAstVisitor/*.inc` |
 | `PhpRoot.cs` | `phpSrcFile`, code blocks, php/echo blocks, inline output |
 | `PhpTopStatements.cs` | Top statement lists, namespaces, uses, const, halt_compiler, GrammarAddon handler stub |
 | `PhpStatements.cs` | Inner/top statements, control flow wrappers, internal functions dispatch |
@@ -334,7 +370,7 @@ When adding a new Tyhp syntax hook: extend the GrammarAddon rule in `TyhpParser.
 | `PhpObjects.cs` | class/trait/interface/enum, members, properties/hooks, trait adaptations |
 | `PhpFunctions.cs` | Function decls, inline functions, GrammarAddon stubs |
 | `PhpParametersAndArguments.cs` | Parameters, ctor params, arguments, global/static vars |
-| `PhpTypes.cs` | Type expressions, return types, GrammarAddon stubs |
+| `PhpTypes.cs` | Type expressions, return types, GrammarAddon stubs. Emitted `VisitTypeExpr` / `VisitTypeExprWithoutStatic` keep `?T` as a nullable simple type, and promote a `?` prefix on a grouped union or intersection to that compound type with `IsNullable` set |
 | `PhpIdentifiers.cs` | Names, namespaces, reserved/semi-reserved, class name refs |
 | `PhpAttributes.cs` | Attributes + attributed declaration dispatch |
 | `PhpTryCatchBlocks.cs` | try/catch/finally |
@@ -345,22 +381,35 @@ When adding a new Tyhp syntax hook: extend the GrammarAddon rule in `TyhpParser.
 | File | Responsibility |
 |------|----------------|
 | `TyhpParserAstVisitor.cs` | Ctor only |
+| `TyhpParserAstVisitor.Included.cs` | Emitted shared Tyhp and tyhpdef visits for `TyhpParser` contexts. Edit `shared/TyhpParserAstVisitor/*.inc` |
+| `TyhpdefUnreached.cs` | `VisitTyhpdefClassConstDecl` / `VisitTyhpdefClassConstList` (`TyhpParser` only) |
 | `TyhpRoot.cs` | `tyhpFile` / tagless / blocks / inline output |
-| `TyhpTopStatements.cs` | Top GrammarAddon: type alias, struct, extension, `use extension`, generic use aliases |
+| `TyhpTopStatements.cs` | Top GrammarAddon: type alias, extension, `use extension`, `global use` / `global use extension`, generic use aliases |
 | `TyhpStatements.cs` | Typed var expr, using blocks |
 | `TyhpFunctions.cs` | Overloads, async/generics/extends GrammarAddons, call-site generics |
-| `TyhpObjects.cs` | Generic type names, Tyhp methods/ctors, type aliases, operator overloads, trait property rename, async modifiers |
-| `TyhpStructs.cs` | Named/anonymous structs + properties (string or integer array-key aliases: `'key' as $name` / `0 as $name`); named structs attach declaration-site generics on `AstGrammarAddons["identifier"]` |
-| `TyhpExtensions.cs` | Extension decls + extension operator overloads |
-| `TyhpGenerics.cs` | Generic identifiers, type params/args |
+| `TyhpObjects.cs` | Generic type names, Tyhp methods/ctors, type aliases, operator overloads, trait property rename, postfix `hide`, operator method-refs (`traitMethodReferenceGrammarAddon` / `absoluteTraitMethodReferenceGrammarAddon`), async modifiers |
+| `TyhpStructs.cs` | Anonymous `new struct {…}` + type-position `tyhpStructShape` + properties (string or integer array-key aliases: `'key' as $name` / `0 as $name`) |
+| `TyhpExtensions.cs` | Extension decls (header target, nested groups), extension operators, `&$this`, TYHP4361 on the per-member target spellings |
+| `TyhpGenerics.cs` | Generic identifiers, type params/args (`tyhpGenericTypeArgument` is `typeExpr` with optional postfix `T_ELLIPSIS` → `TyhpPostfixEllipsisTypeAst`, or bare `T_ELLIPSIS` → `TyhpEllipsisTypeAst`) |
 | `TyhpIdentifiers.cs` | Tyhp reserved words, generic namespace/type/member name addons |
-| `TyhpTypes.cs` | Tyhp scalar / template string types via type GrammarAddon |
-| `TyhpTypeAliases.cs` | `type` alias declarations |
+| `TyhpTypes.cs` | Tyhp scalar / template string types via type GrammarAddon; callable shapes (`VisitCallableType`); grouped `(typeExpr)`. Unnamed `callable(int): R` is a PHP `T_INT_CAST` (and the other builtin-cast tokens); the visitor maps that token to a single unnamed `PhpBuiltinTypeAst` parameter, the same mapping `typeof(int)` / `default(int)` use. |
+| `TyhpTypeAliases.cs` | `type` alias declarations. Bare `object { … }` becomes `TyhpObjectShapeAst` (members retained). PHP class-const spelling inside the shape (`const NAME = expr` / typed `const T NAME = expr`) is `PhpConstDeclListAst`; other members stay tyhpdef class statements. An alias-RHS intersection (`LoggerInterface & object { … }`) is `PhpTypeKind.Intersection` whose items are nominal types plus `TyhpObjectShapeAst` — not builtin `object`. |
 | `TyhpExpressions.cs` | Unary pre/post GrammarAddons (`await`, decimal cast), `tyhpWithList` |
 | `TyhpDereferenceables.cs` | `new struct {…}` |
-| `TyhpReturnTypes.cs` | `: $x is T` return type guards |
-| `TyhpInternalFunctions.cs` | `variable_exists` / `typeof` / `default` / `nameof` (+ cast-token default form) |
-| `Tyhpdef.cs` | Full tyhpdef file/block/statement surface |
+| `TyhpReturnTypes.cs` | `: $x is T` / `: $array[$key] is T` return type guards |
+| `TyhpInternalFunctions.cs` | `variable_exists` / `typeof` / `default` / `nameof`. `typeof` and `default` take `typeExpr` (`VisitTypeExpr`). Both also have a builtin-cast alternative (`typeof(int)` / `default(int)`) because the PHP lexer tokenizes `(int)` as `T_INT_CAST`. |
+The `.tyhpdef` walk is not a `TyhpParserAstVisitor` partial:
+
+| File | Responsibility |
+|------|----------------|
+| `TyhpdefIncludedPhpVisits.cs` | State, `FindPossibleDocComment` (`TyhpdefLexer.DocBlockCommentsChannel`), `GetCurrentLanguageMode` |
+| `TyhpdefIncludedPhpVisits.Included.cs` | Emitted PHP closure visits (`TyhpdefParser` contexts) |
+| `TyhpdefIncludedPhpVisits.Helpers.cs` | `IsInTyhpOrTyhpdefSource`, `ReportMissingRequired`, modifier `FromToken` via `TyhpdefParser.T_*` |
+| `TyhpdefParserAstVisitor.cs` | Ctor |
+| `TyhpdefParserAstVisitor.Included.cs` | Emitted tyhpdef and Tyhp visits: file/block/statements, `global use`, `partial` / `omit`, name-only overlay `partial function`, name-only `extern`, standalone `extension { }`, class-body thin `extension fn` / `extension operator`, FQN import names |
+| `TyhpdefParserAstVisitor.Helpers.cs` | Extension-member and tyhpdef recovery helpers |
+
+`.tyhp` object shapes still call `VisitTyhpdefClassStatement` on `TyhpParserAstVisitor` (the emitted copy). That rule remains on `TyhpParser` because the shape grammar names it.
 
 ---
 
@@ -368,7 +417,15 @@ When adding a new Tyhp syntax hook: extend the GrammarAddon rule in `TyhpParser.
 
 ### Dual language-mode story for tyhpdef
 
-Parser `_languageMode` is `"tyhp"` inside tyhpdef blocks so Tyhp GrammarAddon predicates fire. AST `LanguageMode` is `"tyhpdef"` from context-type walking. Both are intentional; conflating them causes wrong binder behavior or broken predicates.
+`tyhpdefBlock` and `tyhpdefTaglessSrcFile` assign parser `_languageMode = "tyhp"` so Tyhp GrammarAddon predicates fire. Lexer `_languageMode` on `<?tyhpdef` is `"tyhpdef"`. `PhpParserAstVisitor.GetCurrentLanguageMode` returns `"tyhpdef"` for `TyhpdefParser.TyhpdefBlockContext` and `TyhpdefParser.TyhpdefTaglessFileContext`, and `""` for `TyhpdefParser.TyhpdefSrcFileContext`. `TyhpdefIncludedPhpVisits.GetCurrentLanguageMode` returns those same strings for those same contexts. Conflating the parser field with the visitor result breaks predicates or binder mode checks.
+
+### Yield expression vs unary `yield from` / bare `yield;`
+
+`phpExprYieldValue` is `T_YIELD ( (KeyValue=phpExprPrec T_DOUBLE_ARROW)? R=phpExprPrec )?`. `VisitPhpExprYieldValue` builds `PhpYieldAst` with `KeyExpr` (null when the `=>` clause is absent) and `ValueExpr` from `R` when an operand is present. Valueless `yield` (`$x = yield;` and statement `yield;` parsed as a top expression) is prefix `PhpUnaryOpAst` with a null operand — same shape as `VisitInnerStatementYield`. A unary `yield` with only the value operand would drop the key, so keyed `yield $k => $v` would be unrecoverable for checker/inferrer/emitter.
+
+`yield from $expr` stays prefix `PhpUnaryOpAst` (`VisitPhpExprYieldFrom`, operator `T_YIELD_FROM`). Bare `yield;` as `innerStatementYield` is also unary, with a null operand.
+
+Tyhp `is` (`#phpExprBinaryOpGrammarAddon002Handler`) accepts an optional `?` before the RHS (`$x is ?T`). `VisitPhpExprBinaryOpGrammarAddon002Handler` wraps that RHS in a prefix `PhpUnaryOpAst` whose operator is `?`, so the nullability is not dropped. `$x is T` is unchanged (plain expression RHS). `$x is T ? a : b` still parses as ternary of `is`, because `?` is not immediately after `is`.
 
 ### VisitChildren permanently off
 
@@ -408,10 +465,11 @@ Not part of the live pipeline; do not use as an API reference.
 
 ### Parser / Grammar
 
-- Grammars: `Tyhp/TyhpLang/Grammar/PhpParser.g4`, `Tyhp/TyhpLang/Grammar/TyhpParser.g4` (`import PhpParser`).
-- Generated: `Tyhp/TyhpLang/Parser/TyhpParser.cs`, `TyhpParserVisitor.cs`, `TyhpParserBaseVisitor.cs`.
-- After grammar changes: regenerate parser, then update matching `Visit*` methods. Labeled alternative renames break switch patterns.
-- Semantic predicates (`isLanguageMode`) are evaluated during parse, not visit. Wrong mode at parse time means the alternative never appears in the tree.
+- Grammars: `TyhpParser.g4` (`import PhpParser`) for `.php` / `.tyhp`; `TyhpdefParser.g4` (includes `shared/`) for `.tyhpdef`.
+- Generated contracts: `TyhpParserVisitor.cs` / `TyhpParserBaseVisitor.cs` and `TyhpdefParserVisitor.cs` / `TyhpdefParserBaseVisitor.cs`.
+- After grammar changes: `./compile_grammar.sh`, which also re-emits `*.Included.cs` from `Visitor/shared/`. A visit that both parsers share is edited in the `.inc`, not in `Included.cs`. Labeled alternative renames break switch patterns.
+- Semantic predicates (`isLanguageMode`) are evaluated during parse, not visit. Parser `_languageMode` inside a tyhpdef file is `"tyhp"`. Wrong mode at parse time means the alternative never appears in the tree.
+- Token integers in a shared `.inc` are written as `TyhpParser.T_*` / `TyhpLexer.*`. The tyhpdef emit renames those to `TyhpdefParser` / `TyhpdefLexer`. Do not paste a `TyhpLexer.tokens` integer into tyhpdef visit code.
 
 ### Ast
 
@@ -428,7 +486,7 @@ Binder/checker/emitter assume visitor shapes (e.g. overload signatures, generic 
 
 ## 10. Pitfalls
 
-1. **Instantiating `PhpParserAstVisitor` alone** — Tyhp/tyhpdef GrammarAddons will error; always use `TyhpParserAstVisitor`.
+1. **Instantiating `PhpParserAstVisitor` for `.php` / `.tyhp`** — Tyhp GrammarAddons will error; use `TyhpParserAstVisitor`. A `.tyhpdef` tree is a `TyhpdefParser` tree; walk it with `TyhpdefParserAstVisitor`.
 2. **Forgetting explicit child visits** — `VisitChildren` is a no-op; missing calls drop AST structure silently (or yield null children).
 3. **Doc comment order** — visit docblock before children.
 4. **Clobbering `CurrentTopStatementList`** — save/restore around nested inline output (see Php/Tyhp root visitors).
@@ -446,7 +504,8 @@ Binder/checker/emitter assume visitor shapes (e.g. overload signatures, generic 
    declaration-site set (`VisitTyhpImportExtension` / tyhpdef siblings, function overload
    GrammarAddons, generic parameter/argument lists, typed-var / anon-struct, class-body and
    tyhpdef operator overload builders (`VisitTyhpClassOperatorOverloadDecl` /
-   `VisitTyhpdefClassOperatorDecl`), tyhpdef class const / trait-use / extension
+   `VisitTyhpdefClassOperatorDecl`; operands via `VisitAttributedParameter` so
+   `#[…]` copies onto `PhpParameterAst`), tyhpdef class const / trait-use / extension
    function+operator builders, plus `VisitParameter` when `Variable` is missing) report
    `VisitorMissingRequiredNode` and build placeholders when
    required trailing children are null after recovery. Type-expression fallthroughs follow
@@ -455,7 +514,12 @@ Binder/checker/emitter assume visitor shapes (e.g. overload signatures, generic 
    + `CreateError` / `ErrorAst`). Expression recovery must also tolerate null
    `phpExprPrec` children — `VisitPhpExprPrec` / `VisitPhpExprPrecAlt` and
    `VisitPhpExprAmpersand` guard null `Op`/`R` because Antlr's `Visit(null)` throws NRE
-   on this runtime (truncated `|` / `&` return-type slots).
+   on this runtime (truncated `|` / `&` return-type slots). Same rule for an optional
+   sub-rule that ANTLR still enters on recovery: `VisitTyhpCtorReturnType` (`ReturnType=
+   tyhpCtorReturnType?`) returns null instead of building `TyhpCtorReturnTypeAst` when
+   `context.TokenValue` is null (an invalid token after the ctor's `:`, e.g. `: int`,
+   still enters the sub-rule without matching `T_TYHP_VOID`/`T_TYHP_PARENT`); the caller
+   (`CreateTyhpClassCtor`) treats that null the same as an omitted annotation.
 10. **Caching error trees** — CompilationService refuses; don’t bypass that for “faster” reparse of broken files.
 11. **Entry rule order** — check `.tyhpdef` before `.tyhp`.
 12. **Adding Tyhp syntax only in the visitor** — without a GrammarAddon / rule override, the parse never produces the context type.
@@ -471,7 +535,7 @@ Items not fully settled from source alone; verify before relying on them:
 3. **Remaining `InvalidOperationException` throws** in using-resource / tyhpdef switches — should they migrate to `HandleUnexpectedAlternativeSpecial` for consistency with Story 01?
 4. **`PhpParserAstVisitor.Unsorted.cs`** — keep forever, or delete?
 5. **Anonymous class vs anonymous struct** — anon classes use `PhpNewAst.CreateAnonymous`; structs hoist a decl. Is there a plan to unify registration?
-6. **`VisitPhpExprPrecBaseGrammarAddon`** still returns `UnexpectedNodeAst` — are there planned Tyhp primary-expression addons?
+6. **`VisitPhpExprPrecBaseGrammarAddon`** — Tyhp overrides this for `async { ... }` (`TyhpAsyncBlockAst`). PHP mode still has no addon.
 7. **Coverage of every GrammarAddon stub** — this guide lists patterns; a mechanical audit of all `*GrammarAddon` rules vs Tyhp overrides was not fully enumerated line-by-line. When adding syntax, grep both grammars and both visitor hierarchies.
 8. **Thread safety** — visitors are per-file and not shared across threads in `CompilationService`, but nothing in the visitor itself documents that invariant; confirm before reusing a visitor instance.
 
@@ -483,13 +547,16 @@ Items not fully settled from source alone; verify before relying on them:
 |------|------------|
 | New PHP construct | `PhpParser.g4` + matching `PhpParserAstVisitor.Php*.cs` |
 | New Tyhp construct on PHP scaffold | Override GrammarAddon in `TyhpParser.g4` + `TyhpParserAstVisitor.Tyhp*.cs` |
-| New tyhpdef-only construct | `TyhpParser.g4` tyhpdef rules + `Tyhpdef.cs` |
+| New tyhpdef construct | `shared/Tyhpdef.rules.g4` (included by `TyhpdefParser`, and by `TyhpParser` for the file entries and the class-body rules `.tyhp` shapes reach) + a `Visitor/shared/TyhpParserAstVisitor/*.inc` whose first line is `// #class TyhpParserAstVisitor`. Regen emits that text into `TyhpParserAstVisitor` and, with `TyhpParser`/`TyhpLexer` renamed, into `TyhpdefParserAstVisitor` |
+| Standalone tyhpdef `extension` member attributes | `VisitTyhpdefStandaloneExtensionFunctionDecl` / `VisitTyhpdefStandaloneExtensionOperatorDecl` — copy `Attributes` onto the wrapper via `AddAttributes` |
+| Tyhp `extension { }` member attributes | `VisitTyhpExtensionMemberAsExtensionMember` — callable, operator, and target-group alts. Function / `fn` visitors copy `Attributes` via `WithAttributes`; names use `VisitTyhpOptionalGenericIdentifierWithoutConstructor`. `&$this` is the `byRefReceiver` addon. Header / group targets use `AttachExtensionBlockTarget`. |
+| Operator-overload operand `#[…]` | `VisitAttributedParameter` from class / extension / tyhpdef operator visitors (`TyhpObjects.cs`, `TyhpExtensions.cs`, emitted tyhpdef visits) — same as method parameters |
 | New expression operator | Expression GrammarAddon in `TyhpParser.g4`; token visitor in `TyhpExpressions.cs` / PhpExpressions handlers |
 | Generics plumbing | `TyhpGenerics.cs` + name GrammarAddons in `TyhpIdentifiers.cs` / `TyhpObjects.cs` / `TyhpFunctions.cs` |
 | Doc comment bugs | `FindPossibleDocComment` call order at the declaration site |
-| Wrong language mode on nodes | `GetCurrentLanguageMode` + grammar `_languageMode` actions |
+| Wrong language mode on nodes | `PhpParserAstVisitor.GetCurrentLanguageMode` or `TyhpdefIncludedPhpVisits.GetCurrentLanguageMode`, plus grammar `_languageMode` actions (`"tyhp"` on `tyhpdefBlock` / `tyhpdefTaglessSrcFile`) |
 | Parse succeeds, AST wrong shape | Explicit Visit* children; check desugar / GrammarAddon keys |
 
 ---
 
-*Grounded in the Visitor sources, `CompilationService.ParseFile`, `Binder/BuiltIn/Tyhpdef.cs`, `Base2Ast` / `Base2AstExtensions`, and `Tyhp/TyhpLang/Grammar/{Php,Tyhp}Parser.g4` as of the guide’s authoring. Prefer the code when this document and the repo diverge.*
+*Grounded in the Visitor sources, `CompilationService.ParseFile`, `Binder/BuiltIn/Tyhpdef.cs`, `Base2Ast` / `Base2AstExtensions`, and `Tyhp/TyhpLang/Grammar/{Tyhp,Tyhpdef,Php}Parser.g4` as of the guide’s authoring. Prefer the code when this document and the repo diverge.*

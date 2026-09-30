@@ -1,10 +1,11 @@
 # Implementation Plan: Story 22 — Web Playground (Live `.tyhp` → PHP)
 
-> **Roadmap position:** Story 22 — **Tier 2 — DX & Ecosystem** · **NEW (created during the roadmap restructure)**
+> **Roadmap position:** Story 22 — **Tier 2 — DX & Ecosystem** · **NEW (created during the roadmap restructure)** · **DEFERRED**
 > **Direct dependencies (new numbering):** 10 (`tyhp build` CLI), 12 (lint — JSON diagnostics format); 17 (sourcemaps, optional enhancement)
 > **Renumbered from:** **NEW** — this story did not exist before the restructure; it adds a public, two-pane web playground.
 > **Conventions:** Diagnostic codes, config keys, and canonical paths are governed by `CONVENTIONS.md` (single source of truth for diagnostic codes = `Tyhp/Domain/Exceptions/MessageCode.cs`); cite it rather than restating ranges. See `ROADMAP.md` for the full tiered sequence and the old→new story mapping.
 
+> **Status (2026-08-17): deferred — skip in the sequence.** The public site is GitHub Pages (static). This story’s v1 is a thin backend that shells `tyhp build` / `tyhp lint --format json`; Pages cannot run that. Later Tier 2/3 stories do **not** depend on 22. Numbering stays contiguous `01`–`30`. Un-defer when a compile host exists. Browser WASM of the compiler is **not** the v1 path (see [Hosting constraint & WASM](#hosting-constraint--wasm)).
 > **Source:** Roadmap cross-cutting requirement — "a web-playground story"
 > **Branch:** TBD
 
@@ -40,6 +41,26 @@ The backend reuses the machine-readable diagnostics contract from Story 12 (`--f
 
 ---
 
+## Hosting constraint & WASM
+
+**Why this is deferred.** Docs are expected to live on **GitHub Pages** (`https://tyhplang.com/` via Story 30). Pages serves static files only. The architecture above needs a process that can write a temp project and exec the .NET `tyhp` CLI. That is incompatible with Pages as currently used. Skip this story until there is a compile host (small VPS, container, Cloudflare Worker+isolate, Fly.io, etc.).
+
+**Could we compile Tyhp to WASM and run it in the browser instead?** In principle yes — and that *would* fit GitHub Pages (static JS + `.wasm`). In practice it is a **compiler-port story**, not a playground tweak, and it is the wrong v1.
+
+| Factor | Reality today |
+|--------|----------------|
+| What the playground needs | In-memory: source string → PHP text + diagnostics. No Composer, no PHP runtime, no XDebug. |
+| What the compiler is | A .NET 9 **hosted CLI** (`TyhpHostedService`) with filesystem globbing, `.resx` localization, Konsole, and a real project layout (`tyhp.json`, includes, tyhpdefs, runtime packages). There is no first-class in-memory compile API. |
+| .NET → browser WASM | NativeAOT-LLVM / WASI can theoretically emit `wasm32-wasi`. The browser then needs a WASI shim (filesystem, clocks, env). This stack is still experimental, and AOT is hostile to reflection-heavy bits (the repo even references `Microsoft.CodeAnalysis.CSharp`). Blazor WASM would run IL in-browser at a large download + slow first compile. |
+| Payload | ANTLR + checker + emitter + stub/tyhpdef corpus on a virtual FS is likely **tens of MB**. Fine for a dedicated playground URL; awkward as a drive-by docs widget. |
+| Effort | Extract an in-memory pipeline, virtualize FS, drop Hosting/Konsole, NativeAOT-trim, WASI shims, cache the module. That dwarfs Phases 1–4 below and would have to be maintained as a second compiler target. |
+
+**Decision:** keep the **thin-backend-over-CLI** design when this story un-defers. Do **not** block the playground on a WASM port. If a WASM compile target is ever wanted (offline playground, no server), schedule it as its own later story after an in-memory compile API exists — not as a substitute for hosting.
+
+**Not a substitute:** a Pages-only gallery of **pre-emitted** examples (static `.tyhp` / `.php` pairs) is a docs feature, not this story. It can ship with Story 30 if useful; it is not live compile.
+
+---
+
 ## Phase 1 — Backend Compile Endpoint
 
 - Implement a single `POST /api/compile` endpoint that accepts `{ source, options? }`.
@@ -63,7 +84,28 @@ The backend reuses the machine-readable diagnostics contract from Story 12 (`--f
 
 ## Phase 4 — Packaging & Deploy
 
-- Document how to run the playground locally and how it is deployed alongside the doc site (`https://tyhplang.com/`, Story 30). Keep it a separate, optional component with no dependency from the compiler back onto the playground.
+- Document how to run the playground locally and how it is deployed **once a compile host exists**. It is **not** deployable on GitHub Pages as a live compiler (see [Hosting constraint & WASM](#hosting-constraint--wasm)). Keep it a separate, optional component with no dependency from the compiler back onto the playground. Story 30 can still link to it when hosted.
+
+## Phase 5 — User documentation & AIDevGuide
+
+This story changes no language behavior, so its documentation footprint is small and deliberately bounded. Write the pages anyway when the story un-defers, and record the AIDevGuide verdict explicitly so the check is not silently skipped.
+
+**Published documentation (`docs/content/`):**
+
+- **New** `docs/content/intro_playground.md` — what the playground does, what it cannot do (no Composer, no PHP execution, no runtime packages beyond what the temp project includes), the source-size and timeout limits, and how permalinks work. Register it in `docs/content/toc.json`.
+- `docs/content/intro_gettingStarted.md` — link the playground as a zero-install way to see Tyhp emit PHP, alongside the real install path.
+- `docs/content/cli_lint.md` / `docs/content/cli_build.md` — note that the playground is a consumer of `--format json`, so the diagnostics contract is public API rather than an internal detail.
+- `docs/content/faq_general.md` — whether playground output matches a local build, and why compiled PHP cannot be executed in the browser.
+- Only publish a hosted URL once one exists. While the story is deferred, the page should describe local use rather than promise a site.
+
+**AIDevGuide:** `AIDevGuide/` documents the *language* for an agent writing Tyhp applications, and a hosted website is not part of that surface. The one legitimate candidate is a single pointer in `AIDevGuide/handbook/04-testing-debugging.md` noting the playground as a way to check what a snippet emits. Nothing in `guide/` changes, and `REGEN.md` needs no new section. If that pointer is the only change, say so in the phase's completion note — an explicit "no guide change required" is the outcome, not a skipped step.
+
+**Acceptance:**
+
+- [ ] `intro_playground.md` exists, states the limits, and is listed in `docs/content/toc.json`
+- [ ] Getting-started links the playground without implying it replaces a local toolchain
+- [ ] No page promises a hosted URL that is not live
+- [ ] The AIDevGuide outcome is recorded — either the handbook pointer landed, or "no guide change required" is stated explicitly
 
 ---
 

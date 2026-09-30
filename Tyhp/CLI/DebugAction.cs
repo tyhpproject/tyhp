@@ -284,33 +284,52 @@ namespace Tyhp.CLI
 
                 try
                 {
-                    var (lexer, parser, lexerListener, parserListener) = GetLexerAndParser(filePath);
-                    lexerErrorListener = lexerListener;
-                    parserErrorListener = parserListener;
-
-                    ParserRuleContext ctx;
                     if (filePath.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase))
                     {
-                        ctx = parser.tyhpdefSrcFile();
-                    }
-                    else if (filePath.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase))
-                    {
-                        ctx = parser.tyhpSrcFile();
+                        var (_, tyhpdefParser, tyhpdefLexerListener, tyhpdefParserListener) =
+                            GetTyhpdefLexerAndParser(filePath);
+                        lexerErrorListener = tyhpdefLexerListener;
+                        parserErrorListener = tyhpdefParserListener;
+
+                        ParserRuleContext ctx = tyhpdefParser.tyhpdefSrcFile();
+
+                        if (this.checkHashes)
+                        {
+                            this.CompareOrUpdateHash(filePath, ctx.ToStringTree(tyhpdefParser));
+                        }
+
+                        if (this.dumpCtxTree)
+                        {
+                            string tree = this.buildTree(ctx, tyhpdefParser);
+                            Message.Debug(tree);
+                        }
                     }
                     else
                     {
-                        ctx = parser.phpSrcFile();
-                    }
+                        var (lexer, parser, lexerListener, parserListener) = GetLexerAndParser(filePath);
+                        lexerErrorListener = lexerListener;
+                        parserErrorListener = parserListener;
 
-                    if (this.checkHashes)
-                    {
-                        this.CompareOrUpdateHash(filePath, ctx.ToStringTree(parser));
-                    }
+                        ParserRuleContext ctx;
+                        if (filePath.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase))
+                        {
+                            ctx = parser.tyhpSrcFile();
+                        }
+                        else
+                        {
+                            ctx = parser.phpSrcFile();
+                        }
 
-                    if (this.dumpCtxTree)
-                    {
-                        string tree = this.buildTree(ctx, parser);
-                        Message.Debug(tree);
+                        if (this.checkHashes)
+                        {
+                            this.CompareOrUpdateHash(filePath, ctx.ToStringTree(parser));
+                        }
+
+                        if (this.dumpCtxTree)
+                        {
+                            string tree = this.buildTree(ctx, parser);
+                            Message.Debug(tree);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -350,14 +369,14 @@ namespace Tyhp.CLI
             return (Math.Sign(byteCount) * num).ToString() + suf[place];
         }
 
-        private string buildTree(IParseTree ctx, TyhpParser parser, int depth = 0)
+        private string buildTree(IParseTree ctx, Parser parser, int depth = 0)
         {
             var sb = new StringBuilder();
             this.buildTreeInternal(ctx, parser, sb, depth);
             return sb.ToString();
         }
 
-        private void buildTreeInternal(IParseTree ctx, TyhpParser parser, StringBuilder sb, int depth = 0)
+        private void buildTreeInternal(IParseTree ctx, Parser parser, StringBuilder sb, int depth = 0)
         {
             string indent = new string(' ', depth * 4);
 
@@ -420,7 +439,42 @@ namespace Tyhp.CLI
             return (lexer, parser, lexerErrorListener, parserErrorListener);
         }
 
-        private void DisplayParserProfile(TyhpParser parser, int threadId)
+        private (TyhpdefLexer, TyhpdefParser, TyhpAntlrErrorListener<int>, TyhpAntlrErrorListener<IToken>) GetTyhpdefLexerAndParser(string? fileName = null)
+        {
+            var diagnostics = new DiagnosticBag();
+
+            AntlrInputStream inputStream;
+
+            if (fileName == null) {
+                inputStream = new AntlrInputStream(String.Empty);
+            } else {
+                using StreamReader streamReader = new StreamReader(fileName, Encoding.UTF8, true, 4096);
+                inputStream = new AntlrInputStream(streamReader);
+            }
+
+            var lexer = new TyhpdefLexer(inputStream);
+            lexer.RemoveErrorListeners();
+            var lexerErrorListener = new TyhpAntlrErrorListener<int>(diagnostics);
+            lexer.AddErrorListener(lexerErrorListener);
+
+            var parser = new TyhpdefParser(new CommonTokenStream(lexer));
+            parser.RemoveErrorListeners();
+            var parserErrorListener = new TyhpAntlrErrorListener<IToken>(diagnostics);
+            parser.AddErrorListener(parserErrorListener);
+            if (this.reportAmbiguities) {
+                parser.AddErrorListener(new DiagnosticErrorListener());
+                parser.Interpreter.PredictionMode = PredictionMode.LL_EXACT_AMBIG_DETECTION;
+            }
+
+            parser.Profile = this.doThreadProfiling;
+
+            lexerErrorListener.SetFileName(fileName ?? "");
+            parserErrorListener.SetFileName(fileName ?? "");
+
+            return (lexer, parser, lexerErrorListener, parserErrorListener);
+        }
+
+        private void DisplayParserProfile(Parser parser, int threadId)
         {
             string profileOutput = $"Thread {threadId} parser profile:\n";
             string headerLine = "| rule".PadRight(66) + "| " +

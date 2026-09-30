@@ -116,8 +116,8 @@ dereferenceableMemberAccessSuffix
 
 ## Phase 1: Grammar — Ensure Parser Acceptance of Null-Safe Assignment LHS
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -229,8 +229,8 @@ Requires `antlr-ng` (`npm install -g antlr-ng`). Grammar regeneration is **not**
 
 ## Phase 2: Binder — Track Null-Conditional Assignment Expressions
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -321,8 +321,8 @@ No new symbols are created — null-safe assignment is a property of an existing
 
 ## Phase 3: Checker — Validate Null-Conditional Assignments
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -493,8 +493,8 @@ The checker must reject these with `CheckerNullSafeArrayDestructuringNotSupporte
 
 ## Phase 4: Emitter — Transform Null-Conditional Assignments to Nested Ternaries
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -787,8 +787,8 @@ The transformer checks each assignment expression for the `HasNullSafeChain` fla
 
 ## Phase 5: Testing
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1137,6 +1137,54 @@ $appliedTheme = (($config !== null) ? ($config->theme = getUserPreference()) : n
 
 - **Requires:** Phases 1–4 (complete pipeline implementation)
 - **Provides:** Verified, tested null-conditional assignment feature
+
+---
+
+## Phase 6: User documentation and AIDevGuide
+
+### Phase Overview
+
+`$a?->b = …` is syntax PHP rejects outright, so a reader coming from PHP has no intuition to build on. Two things need to be explicit: the assignment is **skipped**, not attempted, when the receiver is null; and the emitted form is a nested ternary, which is where the evaluation-order and single-evaluation guarantees come from.
+
+`docs/content/tyhp_3300_nullConditionalAssignment.md` already exists as the page for this feature; this phase makes it describe shipped behavior.
+
+### Pages to update (create a sibling page only if an existing page cannot hold the topic)
+
+| Page | What this story adds |
+|------|----------------------|
+| `docs/content/tyhp_3300_nullConditionalAssignment.md` | Which assignment operators are supported; that a null receiver skips the assignment; the value of the expression when it is skipped; chained receivers; how the receiver is evaluated once; and the emitted nested-ternary shape. The page currently carries `status.state: planned` and a `:::warning Not in this alpha` block — flip the state to `complete` and delete the warning |
+| `docs/content/tyhp_0200_typeNarrowingAndGuards.md` | Whether an assignment through `?->` narrows the receiver afterward |
+| `docs/content/tyhp_2900_lostFunctionality.md` | Remove or rewrite anything saying this is unavailable |
+| `docs/content/diagnostics_reference.md` | The codes this story registers for invalid LHS shapes |
+| `docs/content/quickref.md` / `docs/content/faq_tyhpSyntax.md` | One line; the "why doesn't plain PHP allow this" question |
+
+Take the emitted-PHP examples from this story's *Appendix: Complete Tyhp → PHP Emission Examples* so the published page and the plan cannot drift.
+
+### AIDevGuide
+
+`AIDevGuide/` is the bundle an agent loads to write Tyhp applications, and it is **regenerated** from the prompt in `AIDevGuide/REGEN.md`. A claim corrected only in a section file comes back the next time the bundle is regenerated, so update the prompt as well as the section.
+
+| File | What this story changes |
+|---|---|
+| `AIDevGuide/guide/28-availability-gotchas.md` | Remove "null-conditional assignment (`$a?->b = …`)" from the "Not in the language yet (don't use)" list and add it to "use freely" |
+| `AIDevGuide/guide/29-php-mapping.md` | The `?->` assignment → nested-ternary mapping |
+| `AIDevGuide/guide/22-declarations.md` or `03-strict-rules.md` | Wherever assignment deltas versus PHP belong, since this is one |
+| `AIDevGuide/QUICK_GUIDE.md` | One line with the `→` pointer |
+| `AIDevGuide/REGEN.md` | No prompt item currently covers null-conditional assignment; add it to the relevant item so a regeneration does not drop the feature |
+
+### Acceptance Criteria
+
+- [ ] `tyhp_3300_nullConditionalAssignment.md` states that a null receiver skips the assignment and gives the expression's value in that case
+- [ ] That page's front matter reads `state: complete` and no longer warns that the feature is absent from this alpha
+- [ ] Emitted-PHP examples on the page match this story's appendix
+- [ ] New diagnostics are in `diagnostics_reference.md`
+- [ ] `guide/28-availability-gotchas.md` no longer lists null-conditional assignment as unavailable
+- [ ] `AIDevGuide/REGEN.md` asks for the feature, so a regeneration reproduces it
+
+### Dependencies
+
+- **Requires:** Phases 1–5 (the shipped feature and its verified emission)
+- **Provides:** Published documentation and agent-facing guide entries for null-conditional assignment
 
 ---
 

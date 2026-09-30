@@ -22,9 +22,9 @@ public class GenericStructTests
         var (errors, globalScope) = CompileAndBind("""
             <?tyhp
             namespace Test;
-            struct Box<T> {
+            type Box<T> = struct {
                 T $value;
-            }
+            };
             """);
 
         errors.Should().BeEmpty("generic struct should bind: " + Describe(errors));
@@ -39,9 +39,9 @@ public class GenericStructTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            struct Box<T> {
+            type Box<T> = struct {
                 T $value;
-            }
+            };
             function read(Box<int> $box): int {
                 return $box->value;
             }
@@ -57,9 +57,9 @@ public class GenericStructTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            struct Box<T> {
+            type Box<T> = struct {
                 T $value;
-            }
+            };
             function make(): Box<int> {
                 return new Box<int>() with [value => 42];
             }
@@ -75,9 +75,9 @@ public class GenericStructTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            struct Box<T> {
+            type Box<T> = struct {
                 T $value;
-            }
+            };
             function make(): Box<string> {
                 return new Box<string>() with [value => 42];
             }
@@ -93,12 +93,12 @@ public class GenericStructTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            struct ParentArgs<T1> {
+            type ParentArgs<T1> = struct {
                 T1 0 as $arg1;
-            }
-            struct ChildArgs<T1, T2> extends ParentArgs<T1> {
+            };
+            type ChildArgs<T1, T2> = struct extends ParentArgs<T1> {
                 T2 1 as $arg2;
-            }
+            };
             function read(ChildArgs<string, int> $args): string {
                 return $args->arg1;
             }
@@ -117,9 +117,9 @@ public class GenericStructTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            struct Foo<T extends string> {
+            type Foo<T extends string> = struct {
                 T $value;
-            }
+            };
             function bad(Foo<int> $foo): void {}
             """);
 
@@ -133,12 +133,12 @@ public class GenericStructTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            struct PosArgs1<T1> {
+            type PosArgs1<T1> = struct {
                 T1 0 as $_1;
-            }
-            struct PosArgs2<T1, T2> extends PosArgs1<T1> {
+            };
+            type PosArgs2<T1, T2> = struct extends PosArgs1<T1> {
                 T2 1 as $_2;
-            }
+            };
             function call(PosArgs2<string, int> $args): string {
                 int $n = $args->_2;
                 return $args->_1;
@@ -196,12 +196,12 @@ public class GenericStructTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            struct Chain1<T1> {
+            type Chain1<T1> = struct {
                 T1 0 as $_1;
-            }
-            struct Chain2<T1, T2> extends Chain1<T1> {
+            };
+            type Chain2<T1, T2> = struct extends Chain1<T1> {
                 T2 1 as $_2;
-            }
+            };
             function takesArray(array $args): void {}
             function pass(Chain2<int, string> $args): void {
                 takesArray($args);
@@ -218,9 +218,9 @@ public class GenericStructTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            struct Box<T> {
+            type Box<T> = struct {
                 T $value;
-            }
+            };
             function takeIntBox(Box<int> $box): void {}
             function pass(Box<string> $box): void {
                 takeIntBox($box);
@@ -238,9 +238,9 @@ public class GenericStructTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            struct Box<T> {
+            type Box<T> = struct {
                 T $value;
-            }
+            };
             function takeIntBox(Box<int> $box): void {}
             function pass(Box<int> $box): void {
                 takeIntBox($box);
@@ -284,14 +284,7 @@ public class GenericStructTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             var unexpected = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))
@@ -314,14 +307,7 @@ public class GenericStructTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

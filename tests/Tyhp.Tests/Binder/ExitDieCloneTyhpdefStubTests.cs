@@ -14,7 +14,7 @@ using Tyhp.Tests.TestHelpers;
 namespace Tyhp.Tests.Binder;
 
 /// <summary>
-/// Story 14.5 Phase 3 — ExtCore tyhpdef stubs for <c>exit</c> / <c>die</c> / <c>clone</c>
+/// Tyhpdef stubs for <c>exit</c> / <c>die</c> / <c>clone</c>
 /// must load as global functions with the expected signatures.
 /// </summary>
 [Trait("Category", "Binder")]
@@ -121,28 +121,7 @@ public class ExitDieCloneTyhpdefStubTests
 
     private static (GlobalScope? Scope, DiagnosticBag Diagnostics) BindOnly(string content)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var filePath = Path.Combine(tempDir, "test.tyhp");
-        File.WriteAllText(filePath, content);
-
-        try
-        {
-            using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
-            var result = compilationService.ParseFiles([filePath], options);
-            return (result.GlobalScope, result.Diagnostics);
-        }
-        finally
-        {
-            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
-        }
+        var result = IsolatedCompilation.ParseSnippet(content, skipChecking: true);
+        return (result.GlobalScope, result.Diagnostics);
     }
 }

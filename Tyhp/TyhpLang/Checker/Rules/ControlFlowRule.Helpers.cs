@@ -15,39 +15,115 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
-            if (!state.IsInGeneratorContext && state.EnclosingFunction?.IsGenerator != true)
-            {
-                CheckerHelpers.ReportError(context, state, yield, MessageCode.CheckerYieldOutsideGenerator);
-            }
-
-            if (state.IsInsideFinally)
-            {
-                CheckerHelpers.ReportError(context, state, yield, MessageCode.CheckerYieldInFinally);
-            }
-
+            // PhpYieldAst is not produced for source `yield`; keep the path for constructed
+            // nodes. Child traversal is suppressed on this type, so walk key/value here.
             if (yield.KeyExpr is not null)
             {
                 CheckerHelpers.CheckCompileTimeConstructsInTree(yield.KeyExpr, state, context, diagnostics);
             }
 
-            if (yield.ValueExpr is not null)
+            var value = yield.ValueExpr;
+            var isYieldFrom = value is PhpUnaryOpAst nested && IsYieldFromUnary(nested);
+            var operand = isYieldFrom ? (value as PhpUnaryOpAst)?.Operand : value;
+            CheckYield(yield, operand, isYieldFrom, walkOperand: true, state, context, diagnostics);
+        }
+
+        /// <summary>
+        /// Shared yield-site checks for source unary <c>yield</c> / <c>yield from</c> and the
+        /// unused <see cref="PhpYieldAst"/> shape. <paramref name="walkOperand"/> is true only
+        /// when child traversal is suppressed (PhpYieldAst); unary yield leaves children to
+        /// the default walk so <c>TypeCompatibilityRule</c> still sees operand operators.
+        /// Generator-ness is <see cref="IsInsideGenerator"/> — not
+        /// <c>EnclosingFunction.IsGenerator</c>, which leaks through closure boundaries.
+        /// </summary>
+        private static void CheckYield(
+            IBase2Ast yieldNode,
+            IExpression? operand,
+            bool isYieldFrom,
+            bool walkOperand,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (!IsInsideGenerator(state))
             {
-                CheckerHelpers.CheckCompileTimeConstructsInTree(yield.ValueExpr, state, context, diagnostics);
+                CheckerHelpers.ReportError(context, state, yieldNode, MessageCode.CheckerYieldOutsideGenerator);
             }
 
-            if (yield.ValueExpr is PhpUnaryOpAst { Operator.ValueString: "from" })
+            if (state.IsInsideFinally)
             {
-                var operand = (yield.ValueExpr as PhpUnaryOpAst)?.Operand;
-                if (operand is not null)
-                {
-                    var iterableType = context.ResolveExpressionType(operand, state);
-                    if (!CheckerHelpers.IsIterableType(iterableType, context.SymbolTree, context.GlobalScope))
-                    {
-                        CheckerHelpers.ReportError(
-                            diagnostics, state, yield, MessageCode.CheckerYieldFromNonIterable, iterableType.DisplayName);
-                    }
-                }
+                CheckerHelpers.ReportError(context, state, yieldNode, MessageCode.CheckerYieldInFinally);
             }
+
+            if (walkOperand && operand is not null)
+            {
+                CheckerHelpers.CheckCompileTimeConstructsInTree(operand, state, context, diagnostics);
+            }
+
+            if (!isYieldFrom || operand is null)
+            {
+                GeneratorBodyInference.CollectYieldSite(yieldNode, operand, isYieldFrom: false, state, context);
+                return;
+            }
+
+            var iterableType = context.ResolveExpressionType(operand, state);
+            if (!IsYieldFromIterable(iterableType, context))
+            {
+                CheckerHelpers.ReportError(
+                    context,
+                    state,
+                    yieldNode,
+                    MessageCode.CheckerYieldFromNonIterable,
+                    iterableType.DisplayName);
+            }
+
+            GeneratorBodyInference.CollectYieldSite(yieldNode, operand, isYieldFrom, state, context);
+        }
+
+        /// <summary>
+        /// True for the <c>yield from</c> operator (token <c>T_YIELD_FROM</c> or text containing
+        /// both <c>yield</c> and <c>from</c>). Also accepts a nested unary <c>from</c> so the
+        /// unused <see cref="PhpYieldAst"/> value-expr shape still classifies as yield-from.
+        /// </summary>
+        private static bool IsYieldFromUnary(PhpUnaryOpAst unary)
+        {
+            if (unary.Operator?.ValueInt64 == Parser.TyhpParser.T_YIELD_FROM)
+            {
+                return true;
+            }
+
+            var op = unary.Operator?.ValueString;
+            if (string.IsNullOrEmpty(op))
+            {
+                return false;
+            }
+
+            if (string.Equals(op, "from", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return op.Contains("yield", StringComparison.OrdinalIgnoreCase)
+                && op.Contains("from", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// <c>yield from</c> accepts arrays, <c>iterable</c>, and <c>Traversable</c> (including
+        /// <c>Generator</c> / <c>Iterator</c>). Unwrap generic wrappers so
+        /// <c>Generator&lt;K,V,…&gt;</c> is not rejected as a non-<c>SimpleCheckedType</c>.
+        /// Every union member must be iterable; nullable wrappers are not unwrapped (PHP
+        /// TypeError on null).
+        /// </summary>
+        private static bool IsYieldFromIterable(ICheckedType type, CheckerRuleContext context)
+        {
+            if (type is UnionCheckedType union)
+            {
+                return union.Members.Count > 0
+                    && union.Members.All(member => IsYieldFromIterable(member, context));
+            }
+
+            var check = type is GenericCheckedType generic ? generic.BaseType : type;
+            return CheckerHelpers.IsIterableType(check, context.SymbolTree, context.GlobalScope);
         }
 
         private static void CheckEcho(
@@ -60,7 +136,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 CheckerHelpers.CheckCompileTimeConstructsInTree(expr, state, context, diagnostics);
                 var exprType = context.ResolveExpressionType(expr, state);
-                if (!IsStringable(exprType, context))
+                if (!CheckerHelpers.IsStringableType(exprType, context.SymbolTree, context.GlobalScope))
                 {
                     CheckerHelpers.ReportError(
                         diagnostics, state, echo, MessageCode.CheckerConcatNonStringable, exprType.DisplayName);
@@ -68,10 +144,90 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
         }
 
-        private static bool IsStringable(ICheckedType type, CheckerRuleContext context) =>
-            CheckerHelpers.IsScalarType(type)
-            || CheckerHelpers.IsBuiltInName(type, "string")
-            || CheckerHelpers.ImplementsInterface(type, "Stringable", context.SymbolTree, context.GlobalScope);
+        /// <summary>
+        /// <see cref="CheckerState.IsInGeneratorContext"/> alone — not a
+        /// <see cref="CheckerState.EnclosingFunction"/> fallback. <c>EnclosingFunction</c>
+        /// deliberately keeps pointing at the lexically enclosing named function/method through a
+        /// closure boundary (needed elsewhere for generic/name resolution), so falling back to its
+        /// <c>IsGenerator</c> here would wrongly attribute the *outer* callable's generator-ness to
+        /// an inner closure that is not itself a generator (see <c>ClosureRule</c>, which sets
+        /// <c>IsInGeneratorContext</c> from the closure's own body).
+        /// </summary>
+        private static bool IsInsideGenerator(CheckerState state) => state.IsInGeneratorContext;
+
+        /// <summary>
+        /// Payload type of <c>return</c> inside a generator: <c>TReturn</c> from
+        /// <c>Generator&lt;TKey, TValue, TSend, TReturn&gt;</c>, or <c>mixed</c> when the
+        /// declared return is bare <c>Generator</c> / <c>Iterator</c> / <c>Traversable</c> /
+        /// <c>iterable</c> (no TReturn slot).
+        /// </summary>
+        private static bool TryGetGeneratorReturnPayloadType(
+            ICheckedType declaredReturn,
+            out ICheckedType payloadType)
+        {
+            payloadType = CheckedTypes.Mixed;
+            var type = declaredReturn;
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            if (type is GenericCheckedType generic)
+            {
+                if (IsNominalName(generic.BaseType, "Generator"))
+                {
+                    payloadType = generic.TypeArguments.Count >= 4
+                        ? generic.TypeArguments[3]
+                        : CheckedTypes.Mixed;
+                    return true;
+                }
+
+                if (IsNominalName(generic.BaseType, "Iterator")
+                    || IsNominalName(generic.BaseType, "Traversable")
+                    || IsNominalName(generic.BaseType, "iterable")
+                    || CheckerHelpers.IsBuiltInName(generic.BaseType, "iterable"))
+                {
+                    payloadType = CheckedTypes.Mixed;
+                    return true;
+                }
+
+                return false;
+            }
+
+            if (IsNominalName(type, "Generator")
+                || IsNominalName(type, "Iterator")
+                || IsNominalName(type, "Traversable")
+                || CheckerHelpers.IsBuiltInName(type, "iterable"))
+            {
+                payloadType = CheckedTypes.Mixed;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsNominalName(ICheckedType type, string name)
+        {
+            if (type is SimpleCheckedType { ResolvedSymbol: ObjectDeclarationSymbol obj })
+            {
+                return string.Equals(obj.Name, name, StringComparison.OrdinalIgnoreCase);
+            }
+
+            var display = type.DisplayName.TrimStart('\\');
+            var angle = display.IndexOf('<');
+            if (angle >= 0)
+            {
+                display = display[..angle];
+            }
+
+            var slash = display.LastIndexOf('\\');
+            if (slash >= 0)
+            {
+                display = display[(slash + 1)..];
+            }
+
+            return string.Equals(display, name, StringComparison.OrdinalIgnoreCase);
+        }
 
         private static void CheckBoolCondition(
             IExpression? condition,
@@ -98,7 +254,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
         /// <summary>
         /// Type-checks a boolean condition on a disposable probe state so progressive
-        /// <c>&&</c> operand narrowing cannot leak into the caller's continuation. Also
+        /// <c>&&</c>/<c>||</c> operand narrowing cannot leak into the caller's continuation. Also
         /// runs a full <see cref="CheckerRuleContext.CheckNode"/> walk of the condition.
         /// </summary>
         private static void CheckConditionExpression(
@@ -165,6 +321,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
         /// </summary>
         private static AsyncForeachKind ClassifyAsyncForeach(
             ICheckedType operandType,
+            CheckerState state,
             CheckerRuleContext context,
             out ICheckedType valueType,
             out ICheckedType keyType)
@@ -189,8 +346,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 if (CheckerHelpers.IsIterableType(promised, context.SymbolTree, context.GlobalScope)
                     || IsBuiltInIterableName(promised))
                 {
-                    valueType = ExtractIterableValueType(promised);
-                    keyType = ExtractIterableKeyType(promised);
+                    valueType = ExtractIterableValueType(promised, state, context);
+                    keyType = ExtractIterableKeyType(promised, state, context);
                     return AsyncForeachKind.PromiseIterable;
                 }
             }
@@ -235,38 +392,113 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
         }
 
-        private static ICheckedType ExtractIterableValueType(ICheckedType iterableType)
+        private static ICheckedType ExtractIterableValueType(
+            ICheckedType iterableType,
+            CheckerState state,
+            CheckerRuleContext context)
         {
+            // `array<Struct>` / `iterable<Struct>` are builtins, not foreach-over-the-struct
+            // (property-name keys). Check them before named/anonymous struct shapes.
+            if (TryGetArrayOrIterableBuiltinArgs(iterableType, out _, out var builtinValue))
+            {
+                return builtinValue;
+            }
+
+            if (TryGetStructForeachTypes(iterableType, out _, out var structValue))
+            {
+                return structValue;
+            }
+
+            if (GenericInheritanceBindings.TryGetTraversableIterationTypes(
+                    iterableType,
+                    state,
+                    context.SymbolTree,
+                    context.GlobalScope,
+                    context.ResolveTypeAnnotation,
+                    out _,
+                    out var contractValue))
+            {
+                return contractValue;
+            }
+
+            // Fallback for other generics whose own parameter list is already <…, TValue>
+            // (or a single-arg value-only shape). Prefer the Traversable-contract path above when
+            // the type implements Iterator / IteratorAggregate with a different parameter order.
             if (iterableType is GenericCheckedType { TypeArguments.Count: > 0 } generic)
             {
                 return generic.TypeArguments[^1];
             }
 
-            // Struct shapes erase to PHP arrays keyed by property name; values are untyped at the
-            // foreach site unless a concrete StructCheckedType property map is available.
-            if (TryGetStructForeachTypes(iterableType, out _, out var valueType))
-            {
-                return valueType;
-            }
-
             return CheckedTypes.Mixed;
         }
 
-        private static ICheckedType ExtractIterableKeyType(ICheckedType iterableType)
+        private static ICheckedType ExtractIterableKeyType(
+            ICheckedType iterableType,
+            CheckerState state,
+            CheckerRuleContext context)
         {
+            if (TryGetArrayOrIterableBuiltinArgs(iterableType, out var builtinKey, out _))
+            {
+                return builtinKey;
+            }
+
+            if (TryGetStructForeachTypes(iterableType, out var structKey, out _))
+            {
+                return structKey;
+            }
+
+            if (GenericInheritanceBindings.TryGetTraversableIterationTypes(
+                    iterableType,
+                    state,
+                    context.SymbolTree,
+                    context.GlobalScope,
+                    context.ResolveTypeAnnotation,
+                    out var contractKey,
+                    out _))
+            {
+                return contractKey;
+            }
+
             if (iterableType is GenericCheckedType { TypeArguments.Count: >= 2 } generic)
             {
                 return generic.TypeArguments[0];
             }
 
-            // `struct` / named structs / `T extends struct` iterate property names as string keys
-            // (not PHP's default int keys for list-shaped arrays).
-            if (TryGetStructForeachTypes(iterableType, out var keyType, out _))
+            return CheckedTypes.Int;
+        }
+
+        /// <summary>
+        /// <c>array&lt;V&gt;</c> / <c>array&lt;K,V&gt;</c> / <c>iterable&lt;…&gt;</c> use positional
+        /// args (value last; key first when present). These are builtins, not
+        /// <c>Iterator</c>-implementing classes.
+        /// </summary>
+        private static bool TryGetArrayOrIterableBuiltinArgs(
+            ICheckedType iterableType,
+            out ICheckedType keyType,
+            out ICheckedType valueType)
+        {
+            keyType = CheckedTypes.Int;
+            valueType = CheckedTypes.Mixed;
+
+            if (iterableType is not GenericCheckedType { TypeArguments.Count: > 0 } generic)
             {
-                return keyType;
+                return false;
             }
 
-            return CheckedTypes.Int;
+            var baseType = generic.BaseType;
+            if (!CheckerHelpers.IsBuiltInName(baseType, "array")
+                && !CheckerHelpers.IsBuiltInName(baseType, "iterable"))
+            {
+                return false;
+            }
+
+            valueType = generic.TypeArguments[^1];
+            if (generic.TypeArguments.Count >= 2)
+            {
+                keyType = generic.TypeArguments[0];
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -328,10 +560,19 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
         private static void DeclareForeachVariable(
             IExpression? variable,
-            ICheckedType type,
+            ICheckedType inferredType,
+            string bindingKind,
             CheckerState loopState,
+            CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
+            if (variable is PhpArrayPairListAst pattern)
+            {
+                ArrayAccessDestructureSupport.Check(
+                    pattern, inferredType, pattern, loopState, context, diagnostics);
+                return;
+            }
+
             if (variable is not PhpVariableAst varAst)
             {
                 return;
@@ -343,6 +584,28 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
+            var type = inferredType;
+            if (TryGetForeachDeclaredType(varAst, loopState, context) is { } declaredType)
+            {
+                if (inferredType.Kind != CheckedTypeKind.Unresolved
+                    && declaredType.Kind != CheckedTypeKind.Unresolved
+                    && !context.IsAssignable(inferredType, declaredType, loopState))
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        loopState,
+                        (IBase2Ast?)varAst.Type ?? varAst,
+                        MessageCode.CheckerForeachBindingTypeMismatch,
+                        bindingKind,
+                        inferredType.DisplayName,
+                        declaredType.DisplayName);
+                }
+
+                // Annotations do not narrow: the loop variable has the declared type even when the
+                // iterable is more specific (e.g. `array<int>` as `mixed $v` keeps `$v` as mixed).
+                type = declaredType;
+            }
+
             // Foreach loop variables leak into the enclosing function scope in PHP. Reusing the same
             // name across multiple loops (or after an earlier declaration) is a reassignment, not a
             // redeclaration, so update the existing binding instead of emitting a duplicate-declaration
@@ -350,15 +613,47 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (loopState.LookupVariable(name) is not null)
             {
                 loopState.AssignVariable(name, type, diagnostics);
-                return;
+            }
+            else
+            {
+                loopState.DeclareVariable(
+                    name,
+                    new Binder.Symbols.VariableSymbol(name),
+                    type,
+                    isAssigned: true,
+                    diagnostics);
             }
 
-            loopState.DeclareVariable(
-                name,
-                new Binder.Symbols.VariableSymbol(name),
-                type,
-                isAssigned: true,
-                diagnostics);
+            // Record the type on the foreach wrapper and the inner `$var` node. VisitForeachVariable
+            // wraps the real target in an extra PhpVariableAst; hover lands on the inner node.
+            RecordExpressionTypeOnVariable(varAst, loopState, context);
+        }
+
+        private static ICheckedType? TryGetForeachDeclaredType(
+            PhpVariableAst variable,
+            CheckerState loopState,
+            CheckerRuleContext context)
+        {
+            if (variable.Type is null)
+            {
+                return null;
+            }
+
+            context.CheckNode(variable.Type, loopState);
+            return context.ResolveTypeAnnotation(variable.Type, loopState);
+        }
+
+        private static void RecordExpressionTypeOnVariable(
+            PhpVariableAst variable,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            context.ResolveExpressionType(variable, state);
+            if (variable.VariableExpression is PhpVariableAst inner
+                && !ReferenceEquals(inner, variable))
+            {
+                RecordExpressionTypeOnVariable(inner, state, context);
+            }
         }
     }
 }

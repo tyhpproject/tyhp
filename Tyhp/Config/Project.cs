@@ -1,14 +1,24 @@
 namespace Tyhp.Config
 {
+    using System.Collections.Frozen;
     using System.Runtime.InteropServices;
     using Microsoft.Extensions.Configuration;
     using Microsoft.Extensions.FileSystemGlobbing;
     using Tyhp.CLI;
+    using Tyhp.Domain.Diagnostics;
     using Tyhp.Domain.Exceptions;
+    using Tyhp.Domain.Services;
     using Tyhp.Extensions;
+    using Tyhp.XDebugProxy.Config;
 
     public sealed class Project
     {
+        /// <summary>
+        /// Process-wide active project for CLI/LSP cache pathing and fallback
+        /// <see cref="Domain.Services.CompilationOptions.FromProject"/>. The constructor does not
+        /// set this; <c>TyhpHostedService</c> and the language server assign it. Tests that need
+        /// the fallback must set and restore it themselves.
+        /// </summary>
         public static Project? Singleton = null;
 
         #region configuration items
@@ -16,7 +26,7 @@ namespace Tyhp.Config
         /// <summary>
         /// The directory to store the cache files. If not specified, the default is the system's local application data directory.
         /// </summary>
-        public string? CacheDir {get; private set;}
+        public string? CacheDir {get; internal set;}
 
         /// <summary>
         /// When true, the AST cache is neither read nor written for this run (<c>--no-cache</c>).
@@ -26,6 +36,20 @@ namespace Tyhp.Config
 
         public string Locale {get; private set;}
         public bool BeQuiet {get; private set;}
+
+        /// <summary>
+        /// Warning codes listed in <c>tyhp.json</c> <c>suppressWarnings</c> (or CLI
+        /// <c>--suppress-warnings</c>). Matching warning-severity diagnostics are dropped
+        /// during build, lint, overlay, and language-server analysis. Errors are never dropped.
+        /// </summary>
+        public IReadOnlySet<MessageCode> SuppressedWarnings { get; private set; } = FrozenSet<MessageCode>.Empty;
+
+        /// <summary>
+        /// Optional process-id file path (<c>--pid-file</c>). Unset by default so Tyhp never
+        /// writes into the user's project. When set, the host writes the current process id at
+        /// start and deletes the file on shutdown.
+        /// </summary>
+        public string? PidFile { get; private set; }
 
         /// <summary>
         /// When true, actions that support it emit machine-readable JSON (<c>--json</c>).
@@ -68,6 +92,13 @@ namespace Tyhp.Config
         public List<string> TyhpdefIncludePaths { get; private set; }
 
         /// <summary>
+        /// Glob patterns for project-owned overlay tyhpdefs loaded after includes (last wins).
+        /// Mirrors <see cref="TyhpdefOptions"/>.<see cref="TyhpdefConfig.Overlay"/> and top-level
+        /// <c>overlay</c> in <c>tyhp.json</c>.
+        /// </summary>
+        public List<string> TyhpdefOverlayPaths { get; private set; }
+
+        /// <summary>
         /// Glob patterns for tyhpdef/tyhp overlay files to exclude after discovery.
         /// Mirrors <see cref="TyhpdefOptions"/>.<see cref="TyhpdefConfig.Exclude"/>.
         /// </summary>
@@ -78,6 +109,12 @@ namespace Tyhp.Config
         /// Mirrors <see cref="Output"/>.<see cref="OutputConfig.PhpVersion"/>.
         /// </summary>
         public string PhpVersion => this.Output.PhpVersion;
+
+        /// <summary>
+        /// True when <c>output.phpVersion</c> was unset in configuration and defaulted (Story 20.5).
+        /// Mirrors <see cref="Output"/>.<see cref="OutputConfig.PhpVersionWasDefaulted"/>.
+        /// </summary>
+        public bool PhpVersionWasDefaulted => this.Output.PhpVersionWasDefaulted;
 
         /// <summary>
         /// Explicit file or directory paths passed on the command line (e.g. <c>tyhp lint path/to/dir</c>).
@@ -121,6 +158,11 @@ namespace Tyhp.Config
         /// </summary>
         public bool LintFix { get; private set; }
 
+        /// <summary>
+        /// XDebug proxy settings from <c>tyhp.json</c> <c>xdebugProxy.*</c> and CLI flags.
+        /// </summary>
+        public XDebugProxyConfig XDebugProxy { get; private set; } = new();
+
         #endregion configuration items
 
         private readonly IConfiguration _configuration;
@@ -132,6 +174,12 @@ namespace Tyhp.Config
         /// </summary>
         private readonly List<(MessageCode Code, object[] Args)> _pendingConfigWarnings = new();
 
+        /// <summary>
+        /// Configuration errors collected during <see cref="ConfigChanged"/> (interpolation
+        /// failures). Transferred as errors before output directories are created.
+        /// </summary>
+        private readonly List<(MessageCode Code, object[] Args)> _pendingConfigErrors = new();
+
         public Project(IConfiguration configuration)
         {
             this._configuration = configuration;
@@ -139,20 +187,27 @@ namespace Tyhp.Config
             this.IncludePaths = new List<string>();
             this.ExcludePaths = new List<string>();
             this.TyhpdefIncludePaths = new List<string>();
+            this.TyhpdefOverlayPaths = new List<string>();
             this.TyhpdefExcludePaths = new List<string>();
             this.ExplicitPaths = new List<string>();
             this.ConfigChanged();
-            Project.Singleton = this;
+            // Do not assign Singleton here. Tests construct many Project instances; a process-wide
+            // write races under xUnit class parallelization. The CLI host and language server
+            // publish the active instance after construction.
         }
 
         internal void ConfigChanged()
         {
-            // Reload replaces prior pending warnings from the previous parse.
+            // Reload replaces prior pending diagnostics from the previous parse.
             this._pendingConfigWarnings.Clear();
+            this._pendingConfigErrors.Clear();
 
             // needs to be first
             this.BeQuiet = this._configuration["quiet"].ParseBool();
             this.JsonOutput = this._configuration["json"].ParseBool();
+
+            var pidFile = this._configuration["pid-file"];
+            this.PidFile = string.IsNullOrWhiteSpace(pidFile) ? null : pidFile.Trim();
 
             this.CacheDir = this._configuration["cache-dir"] ?? null;
             this.NoCache = this._configuration["no-cache"].ParseBool();
@@ -188,19 +243,25 @@ namespace Tyhp.Config
 
             this.Tagless = this._configuration["source:tagless"].ParseBool();
 
+            this.ApplySuppressedWarnings();
+
             this.Type = this.ParseProjectType();
             this.Output = new OutputConfig();
             this.Build = new BuildConfig();
             this.Checker = new CheckerConfig();
             this.TyhpdefOptions = new TyhpdefConfig();
+            this.XDebugProxy = new XDebugProxyConfig();
 
             var warn = new Action<MessageCode, object[]>(this.WarnConfig);
             this.Output.ApplyFrom(this._configuration, warn);
             this.Build.ApplyFrom(this._configuration, warn);
             this.Checker.ApplyFrom(this._configuration);
+            this.XDebugProxy.ApplyFrom(this._configuration);
             this.ApplyTyhpdefOptions();
 
             this.Build.GenerateTyhpdef ??= (this.Type == ProjectType.Library);
+
+            ConfigInterpolator.Apply(this, this.ErrorConfig);
 
             // Lint config options (--format / --file / --fix, or lint.* in tyhp.json)
             var format = this._configuration["format"] ?? this._configuration["lint:format"];
@@ -256,6 +317,46 @@ namespace Tyhp.Config
             }
 
             return globs;
+        }
+
+        /// <summary>
+        /// Reads <c>suppressWarnings</c> from <c>tyhp.json</c>, or <c>--suppress-warnings</c> when
+        /// that CLI flag is present (the flag replaces the JSON array, same as <c>--include</c>).
+        /// Unknown tokens become <see cref="MessageCode.ConfigInvalidValue"/> and are skipped.
+        /// </summary>
+        private void ApplySuppressedWarnings()
+        {
+            this.SuppressedWarnings = FrozenSet<MessageCode>.Empty;
+            DiagnosticBag.DefaultSuppressedWarnings = this.SuppressedWarnings;
+
+            var raw = this._configuration.GetSection("suppress-warnings").Exists()
+                ? this.ReadGlobList("suppress-warnings")
+                : this.ReadGlobList("suppressWarnings");
+
+            if (raw.Count == 0)
+            {
+                return;
+            }
+
+            var codes = new HashSet<MessageCode>();
+            foreach (var entry in raw)
+            {
+                if (DiagnosticCodeParser.TryParse(entry, out var code))
+                {
+                    codes.Add(code);
+                }
+                else
+                {
+                    this.WarnConfig(MessageCode.ConfigInvalidValue, ["suppressWarnings", entry]);
+                }
+            }
+
+            if (codes.Count > 0)
+            {
+                this.SuppressedWarnings = codes.ToFrozenSet();
+            }
+
+            DiagnosticBag.DefaultSuppressedWarnings = this.SuppressedWarnings;
         }
 
         /// <summary>
@@ -400,28 +501,34 @@ namespace Tyhp.Config
         private void ApplyTyhpdefOptions()
         {
             this.TyhpdefOptions.Include.Clear();
+            this.TyhpdefOptions.Overlay.Clear();
             this.TyhpdefOptions.Exclude.Clear();
 
             this.ReadIndexedStringList("tyhpdefInclude", this.TyhpdefOptions.Include);
+            this.ReadIndexedStringList("tyhpdefOverlay", this.TyhpdefOptions.Overlay);
+            this.ReadIndexedStringList("tyhpdef:overlay", this.TyhpdefOptions.Overlay);
+            this.ReadIndexedStringList("overlay", this.TyhpdefOptions.Overlay);
             this.ReadIndexedStringList("tyhpdefExclude", this.TyhpdefOptions.Exclude);
 
             this.TyhpdefIncludePaths.Clear();
             this.TyhpdefIncludePaths.AddRange(this.TyhpdefOptions.Include);
 
             // Entries in the project `include` array that target tyhpdef definition files or
-            // package.tyhp.json manifests are loaded as type definitions (bound, never emitted)
+            // composer.json package manifests are loaded as type definitions (bound, never emitted)
             // rather than compiled as source. This lets a project pull in e.g. PHP extension
             // definitions or local runtime packages via a single `include` list, resolved
             // relative to tyhp.json.
             foreach (var includePattern in this.IncludePaths)
             {
                 if (includePattern.EndsWith(".tyhpdef", System.StringComparison.OrdinalIgnoreCase)
-                    || includePattern.EndsWith("package.tyhp.json", System.StringComparison.OrdinalIgnoreCase)
-                    || includePattern.Contains("package.tyhp.json", System.StringComparison.OrdinalIgnoreCase))
+                    || ComposerExtraTyhpPackageManifest.PatternMayMatchComposerJson(includePattern))
                 {
                     this.TyhpdefIncludePaths.Add(includePattern);
                 }
             }
+
+            this.TyhpdefOverlayPaths.Clear();
+            this.TyhpdefOverlayPaths.AddRange(this.TyhpdefOptions.Overlay);
 
             this.TyhpdefExcludePaths.Clear();
             this.TyhpdefExcludePaths.AddRange(this.TyhpdefOptions.Exclude);
@@ -429,6 +536,11 @@ namespace Tyhp.Config
 
         private void WarnConfig(MessageCode code, object[] args)
         {
+            if (this.SuppressedWarnings.Contains(code))
+            {
+                return;
+            }
+
             // Defer emission: lint/build fold these into DiagnosticBag (JSON/SARIF stay clean on
             // stdout); version --json / tokenize / dump-ast flush to stderr; text actions flush
             // to the console. Always record so machine-readable formatters include them even
@@ -436,60 +548,95 @@ namespace Tyhp.Config
             this._pendingConfigWarnings.Add((code, args ?? Array.Empty<object>()));
         }
 
+        private void ErrorConfig(MessageCode code, object[] args)
+        {
+            this._pendingConfigErrors.Add((code, args ?? Array.Empty<object>()));
+        }
+
         /// <summary>
-        /// Moves pending configuration warnings into <paramref name="diagnostics"/> and clears
-        /// the pending list. Used by lint/build so formatters (text/JSON/SARIF) include them.
+        /// True when <see cref="ConfigChanged"/> recorded interpolation (or other config) errors
+        /// that have not yet been transferred.
+        /// </summary>
+        public bool HasPendingConfigErrors => this._pendingConfigErrors.Count > 0;
+
+        /// <summary>
+        /// Moves pending configuration errors and warnings into <paramref name="diagnostics"/> and
+        /// clears the pending lists. Used by lint/build so formatters (text/JSON/SARIF) include them.
         /// </summary>
         public void TransferPendingConfigWarningsTo(Domain.Diagnostics.DiagnosticBag diagnostics)
         {
             ArgumentNullException.ThrowIfNull(diagnostics);
 
-            foreach (var (code, args) in this._pendingConfigWarnings)
+            var path = this.GetConfigFilePathForDiagnostics();
+            foreach (var (code, args) in this._pendingConfigErrors)
             {
-                diagnostics.AddWarning(
-                    code,
-                    this.GetConfigFilePathForDiagnostics(),
-                    0,
-                    0,
-                    args);
+                diagnostics.AddError(code, path, 0, 0, args);
             }
 
+            foreach (var (code, args) in this._pendingConfigWarnings)
+            {
+                diagnostics.AddWarning(code, path, 0, 0, args);
+            }
+
+            this._pendingConfigErrors.Clear();
             this._pendingConfigWarnings.Clear();
         }
 
         /// <summary>
-        /// Writes pending configuration warnings to stderr (machine-readable stdout stays clean)
-        /// and clears the pending list.
+        /// Writes pending configuration diagnostics to stderr (machine-readable stdout stays clean)
+        /// and clears the pending lists.
         /// </summary>
         public void EmitPendingConfigWarningsToStderr()
         {
+            var path = this.GetConfigFilePathForDiagnostics();
+            foreach (var (code, args) in this._pendingConfigErrors)
+            {
+                Message.TyhpErrorToStderr(path, 0, 0, (int)code, args);
+            }
+
             if (!this.BeQuiet)
             {
-                var path = this.GetConfigFilePathForDiagnostics();
                 foreach (var (code, args) in this._pendingConfigWarnings)
                 {
+                    if (this.SuppressedWarnings.Contains(code))
+                    {
+                        continue;
+                    }
+
                     Message.TyhpWarnToStderr(path, 0, 0, (int)code, args);
                 }
             }
 
+            this._pendingConfigErrors.Clear();
             this._pendingConfigWarnings.Clear();
         }
 
         /// <summary>
-        /// Writes pending configuration warnings to the normal console diagnostic stream and
-        /// clears the pending list. Used by human-readable actions that have no diagnostic bag.
+        /// Writes pending configuration diagnostics to the normal console diagnostic stream and
+        /// clears the pending lists. Used by human-readable actions that have no diagnostic bag.
         /// </summary>
         public void EmitPendingConfigWarningsToConsole()
         {
+            var path = this.GetConfigFilePathForDiagnostics();
+            foreach (var (code, args) in this._pendingConfigErrors)
+            {
+                Message.TyhpError(path, 0, 0, (int)code, args);
+            }
+
             if (!this.BeQuiet)
             {
-                var path = this.GetConfigFilePathForDiagnostics();
                 foreach (var (code, args) in this._pendingConfigWarnings)
                 {
+                    if (this.SuppressedWarnings.Contains(code))
+                    {
+                        continue;
+                    }
+
                     Message.TyhpWarn(path, 0, 0, (int)code, args);
                 }
             }
 
+            this._pendingConfigErrors.Clear();
             this._pendingConfigWarnings.Clear();
         }
 
@@ -533,16 +680,46 @@ namespace Tyhp.Config
 
         public IEnumerable<string> GetProjectSourceFiles()
         {
-            // tyhpdef definition files matched by `include` are handled by the tyhpdef loader,
-            // not compiled/emitted, so they are excluded from the compiled source set here.
+            // tyhpdef definition files and composer.json package manifests matched by
+            // `include` are handled by the tyhpdef loader, not compiled/emitted, so they are
+            // excluded from the compiled source set here (same promotion condition as
+            // ApplyTyhpdefOptions, so a pattern is never both a tyhpdef include and a source).
             var sourcePatterns = this.IncludePaths
-                .Where(static pattern => !pattern.EndsWith(".tyhpdef", System.StringComparison.OrdinalIgnoreCase));
+                .Where(static pattern => !pattern.EndsWith(".tyhpdef", System.StringComparison.OrdinalIgnoreCase)
+                    && !ComposerExtraTyhpPackageManifest.PatternMayMatchComposerJson(pattern));
 
             Matcher fileMatcher = new();
             fileMatcher.AddIncludePatterns(sourcePatterns);
             fileMatcher.AddExcludePatterns(this.ExcludePaths);
-            return fileMatcher.GetResultsInFullPath(this.GetProjectPath())
-                .Where(static path => !path.EndsWith(".tyhpdef", System.StringComparison.OrdinalIgnoreCase));
+            var files = fileMatcher.GetResultsInFullPath(this.GetProjectPath())
+                .Where(static path => !path.EndsWith(".tyhpdef", System.StringComparison.OrdinalIgnoreCase)
+                    && !ComposerExtraTyhpPackageManifest.IsComposerJsonFileName(path));
+
+            // require-dev Composer packages contribute tyhpdefs, not compile/lint sources.
+            var requireDevRoots = ComposerInstalledInventory.GetRequireDevOnlyInstallPaths(
+                this.GetProjectPath());
+            if (requireDevRoots.Count == 0)
+            {
+                return files;
+            }
+
+            return files.Where(path =>
+            {
+                if (!path.EndsWith(".tyhp", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                foreach (var root in requireDevRoots)
+                {
+                    if (PathCanonicalizer.IsUnderRoot(path, root))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            });
         }
 
         public string GetProjectPath()
@@ -560,6 +737,222 @@ namespace Tyhp.Config
         public string? GetExtName()
         {
             return this._configuration["ext-name"];
+        }
+
+        /// <summary>
+        /// Output directory for generated tyhpdefs (<c>--output</c>).
+        /// Default: <c>{projectRoot}/tyhpdef/</c> when a project file is loaded, else <c>{cwd}/tyhpdef/</c>.
+        /// </summary>
+        public string GetTyhpdefOutputDir()
+        {
+            var output = this._configuration["output"];
+            if (!String.IsNullOrWhiteSpace(output))
+            {
+                return Path.GetFullPath(output.Trim());
+            }
+
+            return Path.Combine(this.GetProjectPath(), "tyhpdef");
+        }
+
+        /// <summary>Explicit output file path (<c>--output-file</c>).</summary>
+        public string? GetTyhpdefOutputFile()
+        {
+            var value = this._configuration["output-file"];
+            return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        /// <summary>User PHP binary (<c>--php</c>). Null means managed PHP.</summary>
+        public string? GetPhpExecutablePath()
+        {
+            var value = this._configuration["php"];
+            return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        /// <summary>Target PHP version string for tyhpdef metadata (<c>--php-version</c>).</summary>
+        public string? GetTyhpdefPhpVersion()
+        {
+            var value = this._configuration["php-version"];
+            return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        /// <summary>Managed PHP minors (<c>--php-targets</c>, comma-separated).</summary>
+        public List<string> GetTyhpdefPhpTargets()
+        {
+            var value = this._configuration["php-targets"];
+            if (String.IsNullOrWhiteSpace(value))
+            {
+                return [];
+            }
+
+            return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Managed PHP cache directory (<c>--php-runtime-dir</c>, else <c>TYHP_PHP_RUNTIME_DIR</c>).
+        /// </summary>
+        public string? GetTyhpdefPhpRuntimeDir()
+        {
+            var value = this._configuration["php-runtime-dir"];
+            if (!String.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+
+            var env = Environment.GetEnvironmentVariable("TYHP_PHP_RUNTIME_DIR");
+            return String.IsNullOrWhiteSpace(env) ? null : env.Trim();
+        }
+
+        /// <summary>Skip managed PHP patch auto-update (<c>--no-php-runtime-update</c>).</summary>
+        public bool GetTyhpdefNoPhpRuntimeUpdate()
+        {
+            return this._configuration["no-php-runtime-update"].ParseBool();
+        }
+
+        /// <summary>Re-reflect even if snapshots exist (<c>--refresh-snapshots</c>).</summary>
+        public bool GetTyhpdefRefreshSnapshots()
+        {
+            return this._configuration["refresh-snapshots"].ParseBool();
+        }
+
+        /// <summary>
+        /// php.net manual language (<c>--locale</c>). Defaults to <see cref="Locale"/>.
+        /// </summary>
+        public string GetTyhpdefLocale()
+        {
+            var value = this._configuration["locale"];
+            return String.IsNullOrWhiteSpace(value) ? this.Locale : value.Trim();
+        }
+
+        /// <summary>PHP source globs (<c>--source</c>, comma-separated or repeated).</summary>
+        public List<string> GetTyhpdefSourcePaths()
+        {
+            return this.ReadGlobList("source");
+        }
+
+        /// <summary>Composer package directory (<c>--package-path</c>).</summary>
+        public string? GetTyhpdefPackagePath()
+        {
+            var value = this._configuration["package-path"];
+            return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        /// <summary>
+        /// Vendor directory for <c>--vendor</c>. Null when the flag is unset.
+        /// Bare <c>--vendor</c> (or <c>=true</c>) means <c>{projectRoot}/vendor</c>.
+        /// </summary>
+        public string? GetTyhpdefVendorDirectory()
+        {
+            if (!this._configuration.GetSection("vendor").Exists())
+            {
+                return null;
+            }
+
+            var value = this._configuration["vendor"];
+            if (String.IsNullOrWhiteSpace(value)
+                || value.Equals("true", StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.GetFullPath(Path.Combine(this.GetProjectPath(), "vendor"));
+            }
+
+            if (value.Equals("false", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var trimmed = value.Trim();
+            return Path.IsPathRooted(trimmed)
+                ? Path.GetFullPath(trimmed)
+                : Path.GetFullPath(Path.Combine(this.GetProjectPath(), trimmed));
+        }
+
+        /// <summary>Skip emitting doc comments (<c>--no-docs</c>). Default false (docs on).</summary>
+        public bool GetTyhpdefNoDocs()
+        {
+            return this._configuration["no-docs"].ParseBool();
+        }
+
+        /// <summary>Include <c>@internal</c> items (<c>--include-internal</c>). Default false.</summary>
+        public bool GetTyhpdefIncludeInternal()
+        {
+            return this._configuration["include-internal"].ParseBool();
+        }
+
+        /// <summary>
+        /// Include deprecated items. Default true. <c>--no-deprecated</c> skips;
+        /// <c>--include-deprecated</c> can set the value explicitly.
+        /// </summary>
+        public bool GetTyhpdefIncludeDeprecated()
+        {
+            if (this._configuration["no-deprecated"].ParseBool())
+            {
+                return false;
+            }
+
+            if (this._configuration.GetSection("include-deprecated").Exists())
+            {
+                return this._configuration["include-deprecated"].ParseBool();
+            }
+
+            return true;
+        }
+
+        /// <summary>Overwrite existing tyhpdef files (<c>--overwrite</c>).</summary>
+        public bool GetTyhpdefOverwrite()
+        {
+            return this._configuration["overwrite"].ParseBool();
+        }
+
+        /// <summary>Decline PHP for Reflection harvest (<c>--no-php</c>). Errors with <c>--ext-name</c>.</summary>
+        public bool GetTyhpdefNoPhp()
+        {
+            return this._configuration["no-php"].ParseBool();
+        }
+
+        /// <summary>Parse-check path (<c>--validate</c>).</summary>
+        public string? GetTyhpdefValidatePath()
+        {
+            var value = this._configuration["validate"];
+            return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        /// <summary>Layer 2 stub audit tree (<c>--audit-stubs</c>).</summary>
+        public string? GetTyhpdefAuditStubsPath()
+        {
+            var value = this._configuration["audit-stubs"];
+            return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        /// <summary>Optional markdown path for <c>--audit-stubs</c> (<c>--out</c>).</summary>
+        public string? GetTyhpdefAuditOutPath()
+        {
+            var value = this._configuration["out"];
+            return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        /// <summary>Overlay-aware verify (<c>--verify</c>).</summary>
+        public bool GetTyhpdefVerify()
+        {
+            return this._configuration["verify"].ParseBool();
+        }
+
+        /// <summary>CLI <c>tyhpdef/</c> layout (<c>--split</c>). Default <c>file</c>.</summary>
+        public string GetTyhpdefSplit()
+        {
+            var value = this._configuration["split"];
+            return String.IsNullOrWhiteSpace(value) ? "file" : value.Trim();
+        }
+
+        /// <summary>Also collect Composer <c>autoload-dev</c> (<c>--include-dev</c>).</summary>
+        public bool GetTyhpdefIncludeDev()
+        {
+            return this._configuration["include-dev"].ParseBool();
+        }
+
+        /// <summary>Fail if Layer 2 stub cache is missing (<c>--require-stubs</c>). Default false.</summary>
+        public bool GetTyhpdefRequireStubs()
+        {
+            return this._configuration["require-stubs"].ParseBool();
         }
 
         /// <summary>

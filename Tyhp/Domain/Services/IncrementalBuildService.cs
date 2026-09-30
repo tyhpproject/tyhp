@@ -56,13 +56,23 @@ namespace Tyhp.Domain.Services
         }
 
         /// <summary>
-        /// Resolves the path to the build state file under the configured output directory.
+        /// Resolves <c>tyhp-build-state.json</c> under the project cache directory
+        /// (<see cref="AstCacheService.ResolveCacheRootDirectory"/>). Projects that share a cache
+        /// root each get a subdirectory keyed by the canonical project path, so one default cache
+        /// does not overwrite another project's incremental state.
         /// </summary>
         public static string GetBuildStatePath(Project project)
         {
+            var cacheRoot = AstCacheService.ResolveCacheRootDirectory(project.CacheDir);
+            var projectKey = ComputeProjectCacheKey(project);
+            return Path.Combine(cacheRoot, projectKey, BuildStateFileName);
+        }
+
+        private static string ComputeProjectCacheKey(Project project)
+        {
             var projectPath = PathCanonicalizer.GetCanonicalFullPath(project.GetProjectPath());
-            var outputDir = BuildOutputCleaner.ResolveOutputDirectory(projectPath, project.Output.Path);
-            return Path.Combine(outputDir, BuildStateFileName);
+            var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(projectPath));
+            return Convert.ToHexString(hashBytes).ToLowerInvariant();
         }
 
         /// <summary>
@@ -239,10 +249,16 @@ namespace Tyhp.Domain.Services
             builder.AppendLine(project.Type.ToString());
             builder.AppendLine(project.Tagless.ToString());
             builder.AppendLine(project.Output.Path);
+            builder.AppendLine(project.Output.PublishPath);
             builder.AppendLine(project.Output.NamespacePrefix ?? "");
             builder.AppendLine(project.Output.PhpVersion);
             builder.AppendLine(project.Output.StrictTypes.ToString());
             builder.AppendLine(project.Output.IncludeComments.ToString());
+            builder.AppendLine(project.Output.PublishClean.ToString());
+            foreach (var entry in project.Output.PublishContent)
+            {
+                builder.AppendLine(entry.ToConfigHashString());
+            }
             builder.AppendLine(String.Join('|', project.IncludePaths.OrderBy(p => p, StringComparer.Ordinal)));
             builder.AppendLine(String.Join('|', project.ExcludePaths.OrderBy(p => p, StringComparer.Ordinal)));
             builder.AppendLine(project.Build.StructBacking);

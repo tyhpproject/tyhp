@@ -12,6 +12,11 @@ namespace Tyhp.Config
         /// </summary>
         public List<string> Include { get; set; } = ["**/*.tyhpdef"];
 
+        /// <summary>
+        /// Glob patterns for overlay tyhpdefs loaded after <see cref="Include"/> (last wins).
+        /// </summary>
+        public List<string> Overlay { get; set; } = [];
+
         /// <summary>Glob patterns for tyhpdef files to exclude after discovery.</summary>
         public List<string> Exclude { get; set; } = [];
     }

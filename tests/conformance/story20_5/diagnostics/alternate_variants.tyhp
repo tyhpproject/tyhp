@@ -1,0 +1,12 @@
+<?tyhp
+declare(php=">=8.4") {
+    function example(): string { return "8.4"; }
+}
+declare(php="<8.4") {
+    function example(): string { return "pre-8.4"; }
+}
+
+#[\Tyhp\Php(">=8.5")]
+function later(string $v): mixed { return $v; }
+#[\Tyhp\Php("<8.5")]
+function later(string $v): mixed { return $v; }

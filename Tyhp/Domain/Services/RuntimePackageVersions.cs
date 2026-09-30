@@ -3,22 +3,26 @@ using System.Text.Json;
 namespace Tyhp.Domain.Services
 {
     /// <summary>
-    /// Per-package <c>X.Y</c> source versions. Independent of the compiler
-    /// <c>805.x</c> line. Packagist artifacts are <c>80N.X.Y</c>.
-    /// Keep <see cref="Bundled"/> in sync with <c>runtime/packages/*/composer.json</c>.
+    /// Per-package source versions. Independent of the compiler
+    /// <c>805.x</c> line. Compiled <c>tyhp/*</c> Packagist artifacts are <c>80N.X.Y</c>;
+    /// <c>tyhpdef/*</c> artifacts use the source version as-is.
+    /// <see cref="Bundled"/> is a fallback table. It is not filled by reading package
+    /// directories. When a resolved package directory is already known,
+    /// <see cref="TryReadComposerVersion"/> may read that one <c>composer.json</c>;
+    /// callers use <see cref="ForPackage"/> when that read misses.
     /// </summary>
     internal static class RuntimePackageVersions
     {
-        internal const string Php = "0.0";
-        internal const string Core = "0.0";
-        internal const string Async = "0.0";
-        internal const string Decimal = "0.0";
-        internal const string Lambda = "0.0";
+        internal const string Php = "0.0.1";
+        internal const string Core = "0.1";
+        internal const string Async = "0.1";
+        internal const string Decimal = "0.1";
+        internal const string Lambda = "0.1";
 
         internal static readonly IReadOnlyDictionary<string, string> Bundled =
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["tyhp/php"] = Php,
+                ["tyhpdef/php"] = Php,
                 ["tyhp/core"] = Core,
                 ["tyhp/async"] = Async,
                 ["tyhp/decimal"] = Decimal,

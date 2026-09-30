@@ -105,8 +105,8 @@ Tyhp/CLI/
 
 ## Phase 1: Source Map Loading and Querying
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -172,8 +172,8 @@ Build the foundation layer that loads Source Map v3 JSON files, decodes VLQ-enco
 
 ## Phase 2: DBGp Protocol Parsing and Serialization
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -253,8 +253,8 @@ Implement the DBGp protocol message model — parsing inbound XML messages from 
 
 ## Phase 3: Message Translation Logic
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -344,8 +344,8 @@ Build the translation layer that modifies DBGp messages in-flight, replacing Tyh
 
 ## Phase 4: TCP Networking and Session Management
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -425,8 +425,8 @@ Implement the TCP server infrastructure that accepts connections from both the I
 
 ## Phase 5: CLI Wiring and Configuration
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -524,8 +524,8 @@ Wire the XDebug proxy into the Tyhp CLI as the `xdebug_proxy` action, implement 
 
 ## Phase 6: Advanced Translation Features and Edge Cases
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -603,8 +603,8 @@ Expand the translation logic to handle advanced debugging scenarios: conditional
 
 ## Phase 7: Help Text, Logging, and Polish
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

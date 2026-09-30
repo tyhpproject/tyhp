@@ -11,6 +11,7 @@ namespace Tyhp.Tests.CLI;
 /// stdout. Lint/build fold them into <see cref="DiagnosticBag"/>; <c>version --json</c> uses stderr.
 /// </summary>
 [Trait("Category", "CLI")]
+[Collection("ProcessGlobalState")]
 public class ConfigWarningStdoutHygieneTests
 {
     private const string CleanSource = """

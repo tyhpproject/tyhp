@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Text;
 using Tyhp.Domain.Exceptions;
 
@@ -10,24 +11,52 @@ namespace Tyhp.Domain.Diagnostics
     /// Supports concurrent addition from multiple threads during parallel parsing.
     /// Identical diagnostics (same severity, code, location, and format params) are
     /// de-duplicated so ANTLR recovery / visitor double-visits do not inflate the count.
+    /// Warning-severity diagnostics whose codes are listed in
+    /// <c>tyhp.json</c> <c>suppressWarnings</c> are dropped at add time.
     /// </summary>
     public class DiagnosticBag : IEnumerable<IDiagnostic>
     {
         private readonly ConcurrentBag<IDiagnostic> _diagnostics = new();
         private readonly ConcurrentDictionary<DiagnosticIdentity, byte> _seen = new();
+        private readonly ConcurrentDictionary<DiagnosticIdentity, byte> _retracted = new();
+        private readonly IReadOnlySet<MessageCode> _suppressedWarnings;
         private IReadOnlyList<IDiagnostic>? _cachedErrors;
         private IReadOnlyList<IDiagnostic>? _cachedWarnings;
         private IReadOnlyList<IDiagnostic>? _cachedInfos;
         private IReadOnlyList<IDiagnostic>? _cachedAll;
 
         /// <summary>
+        /// Warning codes dropped by bags constructed without an explicit suppress list.
+        /// Updated when a <c>tyhp.json</c> project is loaded.
+        /// </summary>
+        public static IReadOnlySet<MessageCode> DefaultSuppressedWarnings { get; set; } =
+            FrozenSet<MessageCode>.Empty;
+
+        /// <summary>
+        /// Initializes an empty bag. When <paramref name="suppressedWarnings"/> is omitted,
+        /// <see cref="DefaultSuppressedWarnings"/> is used. Errors and info are never dropped.
+        /// </summary>
+        public DiagnosticBag(IReadOnlySet<MessageCode>? suppressedWarnings = null)
+        {
+            this._suppressedWarnings = suppressedWarnings ?? DefaultSuppressedWarnings;
+        }
+
+        /// <summary>
         /// Adds a single diagnostic to the bag. A diagnostic that is identical to one already
         /// present (same severity, code, file, span, and format params) is ignored.
+        /// Warning-severity diagnostics whose code is in the suppressed-warning list are dropped.
         /// </summary>
         /// <param name="diagnostic">The diagnostic to add.</param>
         public void Add(IDiagnostic diagnostic)
         {
             ArgumentNullException.ThrowIfNull(diagnostic);
+
+            if (diagnostic.Severity == DiagnosticSeverity.Warning
+                && this._suppressedWarnings.Count > 0
+                && this._suppressedWarnings.Contains(diagnostic.Code))
+            {
+                return;
+            }
 
             var identity = DiagnosticIdentity.From(diagnostic);
             if (!this._seen.TryAdd(identity, 0))
@@ -37,6 +66,39 @@ namespace Tyhp.Domain.Diagnostics
 
             this.InvalidateCache();
             this._diagnostics.Add(diagnostic);
+        }
+
+        /// <summary>
+        /// Drops diagnostics that match <paramref name="predicate"/> from later reads.
+        /// An overlay <c>omit</c> uses this to retract an include-time
+        /// <see cref="MessageCode.TyhpdefDuplicateFqnAcrossPackages"/> for the omitted name.
+        /// </summary>
+        public void RetractWhere(Func<IDiagnostic, bool> predicate)
+        {
+            ArgumentNullException.ThrowIfNull(predicate);
+
+            var changed = false;
+            foreach (var diagnostic in this._diagnostics)
+            {
+                if (!predicate(diagnostic))
+                {
+                    continue;
+                }
+
+                var identity = DiagnosticIdentity.From(diagnostic);
+                if (!this._retracted.TryAdd(identity, 0))
+                {
+                    continue;
+                }
+
+                this._seen.TryRemove(identity, out _);
+                changed = true;
+            }
+
+            if (changed)
+            {
+                this.InvalidateCache();
+            }
         }
 
         /// <summary>
@@ -132,6 +194,7 @@ namespace Tyhp.Domain.Diagnostics
             foreach (var diagnostic in this._diagnostics)
             {
                 if (diagnostic.Severity == DiagnosticSeverity.Error
+                    && this.IsActive(diagnostic)
                     && string.Equals(diagnostic.FileName, fileName, StringComparison.Ordinal))
                 {
                     count++;
@@ -162,6 +225,7 @@ namespace Tyhp.Domain.Diagnostics
                 if (this._cachedErrors == null)
                 {
                     this._cachedErrors = this._diagnostics
+                        .Where(this.IsActive)
                         .Where(d => d.Severity == DiagnosticSeverity.Error)
                         .OrderBy(d => d.FileName, StringComparer.Ordinal)
                         .ThenBy(d => d.Line)
@@ -183,6 +247,7 @@ namespace Tyhp.Domain.Diagnostics
                 if (this._cachedWarnings == null)
                 {
                     this._cachedWarnings = this._diagnostics
+                        .Where(this.IsActive)
                         .Where(d => d.Severity == DiagnosticSeverity.Warning)
                         .OrderBy(d => d.FileName, StringComparer.Ordinal)
                         .ThenBy(d => d.Line)
@@ -204,6 +269,7 @@ namespace Tyhp.Domain.Diagnostics
                 if (this._cachedInfos == null)
                 {
                     this._cachedInfos = this._diagnostics
+                        .Where(this.IsActive)
                         .Where(d => d.Severity == DiagnosticSeverity.Info || d.Severity == DiagnosticSeverity.Hint)
                         .OrderBy(d => d.FileName, StringComparer.Ordinal)
                         .ThenBy(d => d.Line)
@@ -225,6 +291,7 @@ namespace Tyhp.Domain.Diagnostics
                 if (this._cachedAll == null)
                 {
                     this._cachedAll = this._diagnostics
+                        .Where(this.IsActive)
                         .OrderBy(d => d.FileName, StringComparer.Ordinal)
                         .ThenBy(d => d.Line)
                         .ThenBy(d => d.Column)
@@ -263,10 +330,21 @@ namespace Tyhp.Domain.Diagnostics
             this._cachedAll = null;
         }
 
+        private bool IsActive(IDiagnostic diagnostic)
+        {
+            return this._retracted.IsEmpty
+                || !this._retracted.ContainsKey(DiagnosticIdentity.From(diagnostic));
+        }
+
         /// <inheritdoc/>
         public IEnumerator<IDiagnostic> GetEnumerator()
         {
-            return this._diagnostics.GetEnumerator();
+            if (this._retracted.IsEmpty)
+            {
+                return this._diagnostics.GetEnumerator();
+            }
+
+            return this._diagnostics.Where(this.IsActive).GetEnumerator();
         }
 
         /// <inheritdoc/>

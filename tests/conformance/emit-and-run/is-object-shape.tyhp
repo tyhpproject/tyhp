@@ -1,0 +1,31 @@
+<?tyhp
+type ClockShape = object {
+    public function now(): int;
+};
+
+class WallClock {
+    public function now(): int {
+        return 1;
+    }
+}
+
+class NotAClock {
+    public function later(): int {
+        return 2;
+    }
+}
+
+function main(): void {
+    object $withNow = new WallClock();
+    object $withoutNow = new NotAClock();
+    echo ($withNow is ClockShape) ? "yes" : "no";
+    echo "\n";
+    echo ($withoutNow instanceof ClockShape) ? "yes" : "no";
+    echo "\n";
+    if ($withNow is ClockShape) {
+        echo $withNow->now();
+        echo "\n";
+    }
+}
+
+main();

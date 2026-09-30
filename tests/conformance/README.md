@@ -23,7 +23,7 @@ When adding a suite for a story, keep `README.md` notes in sync with `manifest.j
 | `symbol-name-erasure/` | `__ClassName` / `__FunctionName` / `__MethodName` / `__PropertyName` / `__EnumCaseName` / `__ConstName` / `__ObjectConstName` / `__UsedTraitName` → plain `string` |
 | `nameof-erasure/` | `nameof()` emit |
 | `template-string-erasure/` | template-string types + `__TypeName` / `__UnionTypeName` → `string` |
-| `struct-utility-erasure/` | `__StructKey` / `__Properties` / `__StructDef` / `\Tyhp\ReturnType` / `\Tyhp\Parameters` PHP-surface erasure |
+| `struct-utility-erasure/` | `__StructKey` / `__Properties` (optional-key struct → `array`) / `__StructDef` / `__CallableReturnType` / `__CallableParametersTuple` PHP-surface erasure |
 | `symbol-name-check/` | literal existence diagnostics |
 | `template-string-check/` | template membership diagnostics |
 
@@ -92,7 +92,7 @@ Parsable lambdas / expression trees (Phase 3). Fuller checker/emitter coverage l
 
 | Suite | Feature |
 |-------|---------|
-| `expression-trees/` | Multi-parameter `Expression<T, T, int>`, `instanceof`/`is` → `InstanceofExpression`, `nameof(fn)` last-segment fold |
+| `expression-trees/` | Multi-parameter `Expression<callable(T, T): int>`, `instanceof`/`is` → `InstanceofExpression`, `nameof(fn)` last-segment fold |
 
 ## Story 16.5 (`tests/conformance/story16_5/`)
 
@@ -102,3 +102,30 @@ Callable signature utilities. Checker coverage lives in
 | Suite | Feature |
 |-------|---------|
 | `callable-builtins/` | `\call_user_func` Rest unpack + `\call_user_func_array` named Struct / positional Tuple bags; utilities erase (PHP builtins remain) |
+
+## Story 21 (`tests/conformance/story21/`)
+
+`tyhp/core` global scalar extensions (`global use extension \Tyhp\StringExtensions`).
+Suites load `string.tyhpdef` only (the global-use surface under test).
+
+| Suite | Feature |
+|-------|---------|
+| `global-use/` | Build: redundant local `use extension` (TYHP4169); emit `$s->length()` → `\Tyhp\StringHelper::strlen` |
+| `global-use-adapt/` | Build: local hide `toLower` / alias `toUpper as toCC` compiles (hidden members are not called) |
+
+## Story 21.9 (`tests/conformance/story21_9/`)
+
+Type-alias `\Tyhp\Type` factories plus import rewrite (`use` → `use function` when the factory is used by short name).
+
+| Suite | Feature |
+|-------|---------|
+| `alias-factories/` | File-level / class-level factories; `UserId()` / `Optional(typeof(int))`; `use function` rewrite, hints-only prune, mixed group split, FQ-only drop, class import + static `NameType()` |
+
+## Story 20.5 (`tests/conformance/story20_5/`)
+
+PHP version gating (`declare(php="…")` / `#[\Tyhp\Php]`):
+
+| Suite | Feature |
+|-------|---------|
+| `diagnostics/` | Lint: 4300–4306, sibling alternates (not 4302), tyhpdef attributes, struct/extension reject |
+| `matrix/` | Build at PHP 8.2 / 8.3 / 8.4 / 8.5; emit stripping (`expected/phpNN/` goldens map to `build/`) |

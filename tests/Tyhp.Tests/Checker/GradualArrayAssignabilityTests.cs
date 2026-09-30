@@ -20,10 +20,10 @@ public class GradualArrayAssignabilityTests
     {
         var errors = CompileAndCheck("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x = 0;
                 int $y = 0;
-            }
+            };
             function make(): array {
                 return new Point();
             }
@@ -39,9 +39,9 @@ public class GradualArrayAssignabilityTests
     {
         var errors = CompileAndCheck("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x = 0;
-            }
+            };
             function f(): void {
                 array $a = new Point();
             }
@@ -106,12 +106,12 @@ public class GradualArrayAssignabilityTests
         // accepted.
         var errors = CompileAndCheck("""
             <?tyhp
-            struct ParentShape {
+            type ParentShape = struct {
                 int $count = 0;
-            }
-            struct ChildShape extends ParentShape {
+            };
+            type ChildShape = struct extends ParentShape  {
                 string $name = '';
-            }
+            };
             function make(): array<string, string> {
                 return new ChildShape();
             }
@@ -126,12 +126,12 @@ public class GradualArrayAssignabilityTests
     {
         var errors = CompileAndCheck("""
             <?tyhp
-            struct ParentShape {
+            type ParentShape = struct {
                 int $count = 0;
-            }
-            struct ChildShape extends ParentShape {
+            };
+            type ChildShape = struct extends ParentShape  {
                 string $name = '';
-            }
+            };
             function make(): array<string, int|string> {
                 return new ChildShape();
             }
@@ -147,9 +147,9 @@ public class GradualArrayAssignabilityTests
     {
         var errors = CompileAndCheck("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x = 0;
-            }
+            };
             function make(): array<int, mixed> {
                 return new Point();
             }
@@ -172,14 +172,7 @@ public class GradualArrayAssignabilityTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

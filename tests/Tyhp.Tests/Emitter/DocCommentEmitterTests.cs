@@ -97,7 +97,7 @@ public class DocCommentEmitterTests
                 /**
                  * @var non-empty-string
                  */
-                public const TAG = 'w';
+                public const string TAG = 'w';
 
                 /**
                  * @var array<string, int>
@@ -116,7 +116,7 @@ public class DocCommentEmitterTests
         php.Should().Contain("@var non-empty-string");
         php.Should().Contain("@var array<string, int>");
         php.Should().Contain("@param class-string $name");
-        php.Should().Contain("public const TAG = 'w';");
+        php.Should().Contain("public const string TAG = 'w';");
     }
 
     [Fact]
@@ -128,17 +128,17 @@ public class DocCommentEmitterTests
             namespace Probe;
 
             final class Widget {
-                public const TAG = 'w';
-                protected const OTHER = 'o';
-                private const SECRET = 's';
-                final public const FINAL_TAG = 'f';
+                public const string TAG = 'w';
+                protected const string OTHER = 'o';
+                private const string SECRET = 's';
+                final public const string FINAL_TAG = 'f';
             }
             """);
 
-        php.Should().Contain("public const TAG = 'w';");
-        php.Should().Contain("protected const OTHER = 'o';");
-        php.Should().Contain("private const SECRET = 's';");
-        php.Should().Contain("final public const FINAL_TAG = 'f';");
+        php.Should().Contain("public const string TAG = 'w';");
+        php.Should().Contain("protected const string OTHER = 'o';");
+        php.Should().Contain("private const string SECRET = 's';");
+        php.Should().Contain("final public const string FINAL_TAG = 'f';");
         // Bare `const` (no visibility) must not appear for these class members.
         php.Should().NotMatchRegex(@"(?m)^\s*const (TAG|OTHER|SECRET|FINAL_TAG) =");
     }
@@ -154,27 +154,27 @@ public class DocCommentEmitterTests
             const TOP_LEVEL = 1;
 
             interface Marker {
-                public const IFACE = 'i';
+                public const string IFACE = 'i';
             }
 
             final class Widget {
-                private const A = 1, B = 2;
-                const BARE = 'b';
+                private const int A = 1, B = 2;
+                const string BARE = 'b';
             }
             """);
 
         // The modifiers belong to the shared `const` statement; each name in the list emits on its own
         // line and must repeat them.
-        php.Should().Contain("private const A = 1;");
-        php.Should().Contain("private const B = 2;");
+        php.Should().Contain("private const int A = 1;");
+        php.Should().Contain("private const int B = 2;");
 
         // A class member declared without visibility stays bare, and a file-scope constant must never
         // pick up a modifier (PHP has none for those).
-        php.Should().Contain("const BARE = 'b';");
+        php.Should().Contain("const string BARE = 'b';");
         php.Should().Contain("const TOP_LEVEL = 1;");
         php.Should().NotMatchRegex(@"(?m)^\s*(public|protected|private) const TOP_LEVEL");
 
-        php.Should().Contain("public const IFACE = 'i';");
+        php.Should().Contain("public const string IFACE = 'i';");
     }
 
     [Fact]
@@ -195,7 +195,7 @@ public class DocCommentEmitterTests
 
         php.Should().Contain("public const string TAG = 'w';");
         php.Should().Contain("protected const ?int COUNT = null;");
-        php.Should().Contain("private const string | int MIXED = 1;");
+        php.Should().Contain("private const string|int MIXED = 1;");
         php.Should().Contain("final public const string FINAL_TAG = 'f';");
     }
 
@@ -209,16 +209,15 @@ public class DocCommentEmitterTests
 
             final class Widget {
                 public const string A = 'a', B = 'b';
-                const BARE = 'x';
+                const int BARE = 1;
             }
             """);
 
         // The type belongs to the shared typed-const statement; each name emits on its own line.
         php.Should().Contain("public const string A = 'a';");
         php.Should().Contain("public const string B = 'b';");
-        php.Should().Contain("const BARE = 'x';");
+        php.Should().Contain("const int BARE = 1;");
         php.Should().NotMatchRegex(@"(?m)^\s*public const A =");
-        php.Should().NotMatchRegex(@"(?m)^\s*const string BARE");
     }
 
     [Fact]
@@ -317,13 +316,7 @@ public class DocCommentEmitterTests
             var project = new Project(configuration);
 
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

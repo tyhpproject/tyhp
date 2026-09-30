@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Tyhp.CLI.ProjectTemplates;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Enums;
+using Tyhp.Domain.Exceptions;
 using Tyhp.Domain.Services;
 using Tyhp.Extensions;
 
@@ -27,9 +28,13 @@ namespace Tyhp.CLI
         {
             "tyhp.pid",
             ".tyhp-cache/",
+            InitComposerManifest.VendorTyhpdefGitignoreEntry,
         };
 
         private readonly Config.Project _project;
+
+        /// <summary>Last diagnostic code when init failed on a MessageCode path; null otherwise.</summary>
+        internal MessageCode? LastError { get; private set; }
 
         public InitAction(Config.Project project)
         {
@@ -38,6 +43,7 @@ namespace Tyhp.CLI
 
         public override CompilationResult? Start(CancellationToken cancellationToken)
         {
+            this.LastError = null;
             try
             {
                 return this.Run(cancellationToken);
@@ -91,11 +97,41 @@ namespace Tyhp.CLI
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            var composerPath = Path.Combine(targetDir, "composer.json");
+            JsonObject? existingComposer = null;
+            if (File.Exists(composerPath))
+            {
+                var raw = File.ReadAllText(composerPath);
+                var status = InitComposerManifest.TryParse(raw, out existingComposer, out var jsonError);
+                if (status != InitComposerManifest.ParseStatus.Ok)
+                {
+                    if (status == InitComposerManifest.ParseStatus.NotObject)
+                    {
+                        this.Fail(MessageCode.InitComposerJsonNotObject, composerPath, composerPath);
+                    }
+                    else
+                    {
+                        this.Fail(
+                            MessageCode.InitComposerJsonInvalid,
+                            composerPath,
+                            composerPath,
+                            jsonError ?? "");
+                    }
+
+                    return null;
+                }
+            }
+
             Directory.CreateDirectory(targetDir);
 
             var createdDirs = this.CreateDirectories(template, targetDir, options);
             this.WriteTyhpJson(tyhpJsonPath, template, options);
             var (createdFiles, skippedFiles) = this.WriteScaffoldFiles(template, targetDir, options);
+            var composerOutcome = this.WriteOrMergeComposerJson(
+                template,
+                composerPath,
+                existingComposer,
+                options);
             var gitignoreUpdated = this.UpdateGitignore(targetDir, options);
 
             if (!this._project.BeQuiet)
@@ -112,6 +148,15 @@ namespace Tyhp.CLI
                     Message.Display("CLI_InitCreatedFile", file);
                 }
 
+                if (composerOutcome == ComposerWriteOutcome.Created)
+                {
+                    Message.Display("CLI_InitCreatedFile", "composer.json");
+                }
+                else if (composerOutcome == ComposerWriteOutcome.Merged)
+                {
+                    Message.Display("CLI_InitMergedFile", "composer.json");
+                }
+
                 foreach (var file in skippedFiles)
                 {
                     Message.Display("CLI_InitSkippedFile", file);
@@ -121,6 +166,8 @@ namespace Tyhp.CLI
                 {
                     Message.Display("CLI_InitUpdatedGitignore");
                 }
+
+                Message.Display("CLI_InitRunComposerInstall");
             }
 
             Environment.ExitCode = (int)ExitCode.Success;
@@ -189,8 +236,10 @@ namespace Tyhp.CLI
             var cliPhpVersion = this._project.GetConfigValue("php-version");
 
             // Prompting would write to the stream --quiet asked to be silenced, so quiet runs take
-            // the same defaults-only path as --yes.
-            var acceptDefaults = this._project.GetConfigValue("yes").ParseBool() || this._project.BeQuiet;
+            // the same defaults-only path as --yes. Non-TTY stdin also skips prompts so CI never hangs.
+            var acceptDefaults = this._project.GetConfigValue("yes").ParseBool()
+                || this._project.BeQuiet
+                || !IsInteractiveConsole();
 
             string projectName = defaultProjectName;
             string src = !String.IsNullOrWhiteSpace(cliSrc) ? NormalizeDir(cliSrc) : defaultSrc;
@@ -343,6 +392,8 @@ namespace Tyhp.CLI
             {
                 ["include"] = new JsonArray { includeGlob },
                 ["exclude"] = exclude,
+                ["tyhpdefInclude"] = new JsonArray { InitComposerManifest.VendorTyhpdefIncludeGlob },
+                ["overlay"] = new JsonArray { InitComposerManifest.OverlayTyhpdefGlob },
                 ["source"] = new JsonObject
                 {
                     ["tagless"] = tagless,
@@ -384,6 +435,12 @@ namespace Tyhp.CLI
             foreach (var (relativePath, content) in template.GetScaffoldFiles())
             {
                 var mapped = RemapTemplatePath(relativePath, options.SrcDir, options.OutputDir);
+                if (mapped.Equals("composer.json", StringComparison.Ordinal))
+                {
+                    // Created or merged by WriteOrMergeComposerJson — never skip or overwrite here.
+                    continue;
+                }
+
                 var full = Path.Combine(targetDir, mapped.Replace('/', Path.DirectorySeparatorChar));
 
                 // A missing tyhp.json does not mean the directory is empty, so scaffolding must
@@ -401,27 +458,6 @@ namespace Tyhp.CLI
                 }
 
                 var rendered = content.Replace("{{NAMESPACE}}", namespaceForFile, StringComparison.Ordinal);
-                if (mapped.EndsWith("composer.json", StringComparison.Ordinal))
-                {
-                    rendered = rendered
-                        .Replace(
-                            "{{PHP_PACKAGE_VERSION}}",
-                            ComposerJsonService.EncodeRuntimePackageVersion(
-                                options.PhpVersion,
-                                RuntimePackageVersions.Php),
-                            StringComparison.Ordinal)
-                        .Replace(
-                            "{{CORE_PACKAGE_VERSION}}",
-                            ComposerJsonService.EncodeRuntimePackageVersion(
-                                options.PhpVersion,
-                                RuntimePackageVersions.Core),
-                            StringComparison.Ordinal)
-                        .Replace(
-                            "{{PHP_CONSTRAINT}}",
-                            ComposerJsonService.PhpConstraintForPhpVersion(options.PhpVersion),
-                            StringComparison.Ordinal);
-                }
-
                 File.WriteAllText(full, rendered);
                 created.Add(mapped);
             }
@@ -468,6 +504,76 @@ namespace Tyhp.CLI
 
             File.AppendAllText(gitignorePath, builder.ToString());
             return true;
+        }
+
+        private ComposerWriteOutcome WriteOrMergeComposerJson(
+            IProjectTemplate template,
+            string composerPath,
+            JsonObject? existingComposer,
+            InitOptions options)
+        {
+            if (existingComposer is not null)
+            {
+                InitComposerManifest.Merge(
+                    existingComposer,
+                    options.PhpVersion,
+                    onPhpConstraintUnsatisfied: (constraint, phpVersion) =>
+                    {
+                        Message.TyhpWarn(
+                            composerPath,
+                            0,
+                            0,
+                            (int)MessageCode.InitPhpConstraintUnsatisfied,
+                            constraint,
+                            phpVersion);
+                    });
+                File.WriteAllText(composerPath, InitComposerManifest.ToJson(existingComposer));
+                return ComposerWriteOutcome.Merged;
+            }
+
+            var composerTemplate = template.GetScaffoldFiles()
+                .First(static kv => kv.Key.Replace('\\', '/').Equals("composer.json", StringComparison.Ordinal))
+                .Value;
+            var rendered = composerTemplate
+                .Replace(
+                    "{{PHP_CONSTRAINT}}",
+                    ComposerJsonService.PhpConstraintForPhpVersion(options.PhpVersion),
+                    StringComparison.Ordinal)
+                .Replace(
+                    "{{COMPILER_PACKAGE_VERSION}}",
+                    ComposerJsonService.ResolveCompilerPackageVersion(),
+                    StringComparison.Ordinal);
+            File.WriteAllText(composerPath, rendered);
+            return ComposerWriteOutcome.Created;
+        }
+
+        private void Fail(MessageCode code, string fileName, params object[] args)
+        {
+            this.LastError = code;
+            Message.TyhpError(fileName, 0, 0, (int)code, args);
+            Environment.ExitCode = (int)ExitCode.GenericError;
+        }
+
+        /// <summary>
+        /// True when stdin can accept interactive prompts. Redirected or non-user sessions
+        /// must not call <see cref="Console.ReadLine"/>.
+        /// </summary>
+        private static bool IsInteractiveConsole()
+        {
+            try
+            {
+                return !Console.IsInputRedirected;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+        }
+
+        private enum ComposerWriteOutcome
+        {
+            Created,
+            Merged,
         }
 
         private static string RemapTemplatePath(string relative, string srcDir, string outputDir)

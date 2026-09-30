@@ -1,0 +1,8 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\Types;
+
+class User {}
+
+type UserId = int;
+type Optional<T = mixed> = T|null;

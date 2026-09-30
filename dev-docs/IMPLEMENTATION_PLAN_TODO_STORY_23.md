@@ -1,14 +1,16 @@
 # Implementation Plan: Story 23 — Compiler Optimizer (MVP)
 
 > **Roadmap position:** Story 23 — **Tier 3 — Advanced**
-> **Direct dependencies (new numbering):** 03, 08, 09
+> **Direct dependencies (new numbering):** 03, 08, 09, **20.6**
 > **Renumbered from:** legacy Story 4.5
 > **Conventions:** Diagnostic codes, config keys, and canonical paths are governed by `CONVENTIONS.md` (single source of truth for diagnostic codes = `Tyhp/Domain/Exceptions/MessageCode.cs`); cite it rather than restating ranges. See `ROADMAP.md` for the full tiered sequence and the old→new story mapping.
 
 > **Scope:** Story 23 of the Tyhp compiler TODO
 > **Branch:** TBD
 > **Generated:** 2026-03-19
-> **Prerequisites:** Story 08 (Checker — full type checking and validation), Story 09 (Emitter — basic PHP output), Story 03 (Extension operator overloads, tyhpdef inline extensions)
+> **Last design lock:** 2026-08-21 — **all extension inlining moved to Story 20.6** (extension call sites are spliced at emit, by form, at every optimization level). This story keeps `#[\Tyhp\Optimize\Inline]` for **non-extension** functions / methods / operators and reuses Story 20.6's splice engine. Phases 2–4 are removed.
+> **Design lock:** 2026-08-24 — by-reference passing is settled. A written parameter must be declared `&` and only those are by reference; a `&` argument must be referenceable in every optimize mode; repeated evaluation is hoisted into a local, and a call site that cannot be spliced faithfully keeps the real call. See *Argument passing and by-reference semantics* in [Phase 5](#phase-5-tyhpoptimizeinline-for-non-extension-members). `test.php`, `test.tyhp`, and `test.tyhpdef` at the repository root are the runnable probe and the hand-written expected output.
+> **Prerequisites:** Story 08 (Checker — full type checking and validation), Story 09 (Emitter — basic PHP output), Story 03 (Extension operator overloads, tyhpdef inline extensions), **Story 20.6** (extension splicing at emit + the shared call-site splice engine this story reuses)
 
 ---
 
@@ -16,12 +18,11 @@
 
 - [Architecture Overview](#architecture-overview)
 - [Phase 1: Optimizer Framework, Configuration, and Build Profiles](#phase-1-optimizer-framework-configuration-and-build-profiles)
-- [Phase 2: Extension Operator Inlining Module](#phase-2-extension-operator-inlining-module)
-- [Phase 3: Extension Method Inlining Module](#phase-3-extension-method-inlining-module)
-- [Phase 4: Synthetic Extension Class Elimination Module](#phase-4-synthetic-extension-class-elimination-module)
-- [Phase 5: `#[\Tyhp\Optimize\Inline]` Attribute Support](#phase-5-tyhpinline-attribute-support)
+- [Phases 2–4: Removed (superseded by Story 20.6)](#phases-24-removed-superseded-by-story-206)
+- [Phase 5: `#[\Tyhp\Optimize\Inline]` for Non-Extension Members](#phase-5-tyhpoptimizeinline-for-non-extension-members)
 - [Phase 6: Basic Optimization Modules (Constant Folding and Dead Code Elimination)](#phase-6-basic-optimization-modules-constant-folding-and-dead-code-elimination)
 - [Phase 7: Pipeline Integration](#phase-7-pipeline-integration)
+- [Phase 8: User documentation and AIDevGuide](#phase-8-user-documentation-and-aidevguide)
 - [Cross-Story References](#cross-story-references)
 
 ---
@@ -32,9 +33,11 @@
 
 The optimizer is a new phase in the Tyhp compilation pipeline that transforms the bound, type-checked AST to improve the performance and efficiency of the emitted PHP code. It operates on the same AST that the checker has already validated, performing semantics-preserving transformations that reduce runtime overhead without changing observable behavior.
 
-The MVP focuses on the most impactful optimization: **inlining single-statement extension operator and method bodies**. When a `package.tyhp.json` re-exposes operator overloads via `extension operator` syntax, the emitter would otherwise generate an extra static method layer (e.g., `__TyhpInlineExt_Decimal::__OP_Decimal_ADD_Decimal($a, $b)` calling `$a->add($b)`). The optimizer detects single-statement bodies (any return expression — method calls, operators, concatenation, etc.) and substitutes the expression directly at the call site, wrapped in parentheses to preserve precedence. Multi-statement bodies (variable declarations, conditionals, multiple return paths) are not inlined.
+**Extension inlining is not this story.** Story 20.6 splices extension call sites at **emit**, at every optimization level, and the member's form decides whether PHP keeps a backer method (short `=>` omits it; a brace body emits it). Tyhpdef thin mappings (standalone `extension Name { }` from Story 20 and class-body `extension fn` / `extension operator` from Story 20.6) are likewise already erased at emit. There is nothing left for an optimizer to inline there, which is why Phases 2–4 of this plan are removed.
 
-Beyond extension inlining, the MVP includes basic optimizations — constant folding and dead code elimination — as individually-toggled optimization modules.
+What remains for the optimizer is **`#[\Tyhp\Optimize\Inline]` on non-extension functions, methods, and class-owned operators**. Those members are part of the PHP API — they are always emitted — so form cannot express intent and an explicit attribute is required. When the attribute is present and the body is a single `return expr;`, the optimizer splices that expression into the member's Tyhp call sites (using Story 20.6's splice engine) while leaving the PHP method in place for PHP callers and for `optimize: "none"` builds.
+
+Beyond attributed inlining, the MVP includes basic optimizations — constant folding and dead code elimination — as individually-toggled optimization modules.
 
 ### Pipeline Position
 
@@ -62,7 +65,7 @@ Checker (Story 08)
 │  4. Run each module against the bound AST                       │
 │  5. Record optimization metrics (transformations applied)       │
 │                                                                 │
-│  NOTE: package.tyhp.json (Story 20) is generated from the         │
+│  NOTE: extra.tyhp.package (Story 20) is generated from the         │
 │  UNOPTIMIZED AST, before this phase runs, to preserve the       │
 │  stable public API contract.                                    │
 └─────────────────────────────────────────────────────────────────┘
@@ -96,9 +99,7 @@ Each optimization is implemented as a self-contained module with a standard inte
 │  7. Collects metrics from each module                        │
 └──────────────────────────────────────────────────────────────┘
          │
-         ├── ExtensionOperatorInliningModule  (priority: 100, level: basic)
-         ├── ExtensionMethodInliningModule    (priority: 200, level: basic)
-         ├── SyntheticClassEliminationModule  (priority: 300, level: basic)
+         ├── InlineAnnotatedMemberModule      (priority: 100, level: basic)
          ├── ConstantFoldingModule            (priority: 400, level: basic)
          └── DeadCodeEliminationModule        (priority: 500, level: basic)
 ```
@@ -151,7 +152,7 @@ The `build.profile` is purely a convenience — it sets defaults that the explic
         "optimize": "aggressive",
         "optimizations": {
             "constantFolding": false,
-            "extensionOperatorInlining": true
+            "inlineAnnotatedMembers": true
         }
     }
 }
@@ -168,7 +169,7 @@ Individual overrides are applied **after** the level resolves the default set of
 **CLI argument overrides:**
 
 - `--optimize=none|basic|aggressive` → overrides `build.optimize`
-- `--optimize-enable=extensionOperatorInlining,constantFolding` → force-enables specific modules
+- `--optimize-enable=inlineAnnotatedMembers,constantFolding` → force-enables specific modules
 - `--optimize-disable=deadCodeElimination` → force-disables specific modules
 
 ### Library vs Application Behavior
@@ -184,8 +185,8 @@ The project type (`"type": "library"` or `"type": "application"` in `tyhp.json`)
 **Library projects:**
 
 - The public API surface must remain intact. Only `private`, `internal`, and `protected`-on-`final` members can be aggressively optimized.
-- `package.tyhp.json` is generated from the **unoptimized** AST (Story 20), guaranteeing the public API contract is not affected by any optimization.
-- Extension operators and methods that are part of the public API (exposed in `package.tyhp.json`) can still be inlined at the **call site** within the library's own code, but the generated static methods must remain in the emitted PHP for external consumers.
+- `extra.tyhp.package` is generated from the **unoptimized** AST (Story 20), guaranteeing the public API contract is not affected by any optimization.
+- A `#[\Tyhp\Optimize\Inline]` member that is part of the public API is still spliced at the **call site** within the library's own code, but its PHP method always remains in the emitted output for external consumers. Consumers get the splice through the generated tyhpdef (see Phase 5), not by the method disappearing.
 
 ### Visibility-Based Safety Rules
 
@@ -194,14 +195,16 @@ Each member's visibility determines whether it can be optimized:
 | Visibility | Final Class? | Application | Library |
 |-----------|-------------|-------------|---------|
 | `private` | — | Optimizable | Optimizable |
-| `internal` | — | Optimizable | Optimizable (not in `package.tyhp.json`) |
+| `internal` | — | Optimizable | Optimizable (not in `extra.tyhp.package`) |
 | `protected` | Yes (`final`) | Optimizable | Optimizable |
 | `protected` | No | Conservative | Conservative |
 | `public` | — | Conservative | Not optimizable (public API) |
 
-"Conservative" means the member itself is preserved, but call sites that reference it may still be optimized (e.g., a public extension method body remains, but internal callers of that method can have their calls inlined).
+"Conservative" means the member itself is preserved, but call sites that reference it may still be optimized (e.g., a public `#[Inline]` method stays in the PHP output while internal callers are spliced).
 
-"Optimizable" means the member body can be inlined, the member can be eliminated if all call sites are inlined, and the call site can be rewritten.
+"Optimizable" means the member body can be spliced into call sites and the call site can be rewritten. Note that no optimization in this story deletes a member: a `#[\Tyhp\Optimize\Inline]` member is always emitted, and extension backer methods are decided by form at emit (Story 20.6).
+
+This table governs the **spliced member's own** visibility. A separate rule governs the visibility of members the body *references*, because a spliced expression is evaluated in the caller's access context — see *Accessibility of a spliced body* in [Phase 5](#phase-5-tyhpoptimizeinline-for-non-extension-members) (`4179`).
 
 ### Reflection Guarantees
 
@@ -221,7 +224,7 @@ All Tyhp compiler attributes are namespaced under `\Tyhp\Optimize\` to avoid con
 
 | Attribute | Purpose | Story |
 |-----------|---------|-------|
-| `\Tyhp\Optimize\Inline` | Request inlining of single-statement extension methods/operators | 23 |
+| `\Tyhp\Optimize\Inline` | Splice a single-`return` **non-extension** function / method / operator at its Tyhp call sites | 23 |
 | `\Tyhp\Optimize\Pure` | Mark a function as side-effect-free, enabling memoization and loop hoisting | 24 |
 | `\Tyhp\Optimize\Memoize` | Request scope-aware duplicate call elimination for expensive functions | 24 |
 
@@ -234,7 +237,7 @@ Developers can use `use \Tyhp\Optimize\{Inline, Pure, Memoize};` to shorten the 
 3. **Conservative by default:** When in doubt, do not optimize. A missed optimization is a performance regression; an incorrect optimization is a bug.
 4. **Diagnostic transparency:** The optimizer reports what it changed via informational diagnostics when `--verbose` is set. This helps developers understand why their compiled output differs from a naive translation.
 5. **Sourcemap awareness:** All AST transformations must preserve enough provenance information for the sourcemap generator (Story 17) to produce valid mappings. Inlined code should map back to the original call site in the Tyhp source.
-6. **package.tyhp.json independence:** The `package.tyhp.json` generator (Story 20) runs on the unoptimized AST. Optimizations never affect the public API contract of a library.
+6. **extra.tyhp.package independence:** The `extra.tyhp.package` generator (Story 20) runs on the unoptimized AST. Optimizations never affect the public API contract of a library.
 
 ### AST Mutability and In-Place Modification
 
@@ -252,7 +255,7 @@ As the optimizer and emitter develop, AST classes will need incremental addition
 
 ### OriginalAst Provenance Property
 
-When the optimizer replaces or transforms an AST node (e.g., inlining an extension operator call), the replacement node must preserve provenance information for sourcemap generation (Story 17). Add an `OriginalAst` property to `Base2Ast`:
+When the optimizer replaces or transforms an AST node (e.g., splicing an annotated method call or folding a constant), the replacement node must preserve provenance information for sourcemap generation (Story 17). Add an `OriginalAst` property to `Base2Ast`:
 
 - `public IBase2Ast? OriginalAst { get; set; }` — When set, indicates this node was created by the optimizer as a replacement for the original node. The sourcemap generator uses this to map emitted PHP code back to the original Tyhp call site rather than the inlined body.
 
@@ -260,9 +263,18 @@ Each optimizer module that replaces AST nodes must set `OriginalAst` on the repl
 
 This property should be added to `Base2Ast` in the first optimizer phase that performs AST node replacement.
 
-### Tyhpdef Inline Extension Availability
+### Extension Members Are Not Optimizer Candidates
 
-The binder (Story 03) already loads tyhpdef inline `extension function`/`extension operator` declarations into synthetic extension classes named `__TyhpInlineExt_{ClassName}`. These synthetic classes are created via `GetOrCreateSyntheticInlineExtensionScope()` in `TyhpBinder.Extensions.cs`. The optimizer can access the bodies of these synthetic extension methods through the symbol table for inlining purposes. No additional binder work is needed.
+Every extension member is handled before the optimizer ever sees it:
+
+| Member | Handled by | Optimizer role |
+|--------|-----------|----------------|
+| Tyhpdef thin mapping (`extension fn` / `extension operator`, standalone or class-body) | Emit splices the `=>` expression (Stories 20 / 20.6) | None — the member does not exist in PHP |
+| Tyhp `extension { fn … => expr; }` | Emit splices; no PHP backer method (Story 20.6) | None |
+| Tyhp `extension { function … { return expr; } }` | Emit splices **and** emits the backer method (Story 20.6) | None — already spliced at `optimize: none` |
+| Tyhp `extension { function … { …statements… } }` | Emitted and called (Story 20.6) | None — statement inlining is out of scope |
+
+The optimizer must not treat any extension member as an inlining candidate, and must never look for `__TyhpInlineExt_*` backers. `#[\Tyhp\Optimize\Inline]` on an extension member is a checker error owned by Story 20.6.
 
 ### File Organization
 
@@ -276,9 +288,7 @@ Tyhp/TyhpLang/Optimizer/
 ├── OptimizationLevel.cs                           (~15 lines)  — enum
 ├── OptimizationMetrics.cs                         (~40 lines)  — per-module metrics
 ├── Modules/
-│   ├── ExtensionOperatorInliningModule.cs         (~250 lines) — Phase 2
-│   ├── ExtensionMethodInliningModule.cs           (~200 lines) — Phase 3
-│   ├── SyntheticClassEliminationModule.cs         (~150 lines) — Phase 4
+│   ├── InlineAnnotatedMemberModule.cs             (~200 lines) — Phase 5
 │   ├── ConstantFoldingModule.cs                   (~200 lines) — Phase 6
 │   └── DeadCodeEliminationModule.cs               (~180 lines) — Phase 6
 └── Attributes/
@@ -320,25 +330,39 @@ The optimizer introduces diagnostic codes in the 4700 range:
 |------|------|----------|-------------|
 | 4700 | `OptimizerUnknownError` | Error | Generic optimizer error |
 | 4701 | `OptimizerModuleSkipped` | Info | An optimization module was skipped (not applicable or disabled) |
-| 4702 | `OptimizerInlinedExtensionOperator` | Info | An extension operator call was inlined |
-| 4703 | `OptimizerInlinedExtensionMethod` | Info | An extension method call was inlined |
-| 4704 | `OptimizerEliminatedSyntheticClass` | Info | A synthetic extension class was eliminated (all members inlined) |
+| 4702 | *(retired)* | — | Was `OptimizerInlinedExtensionOperator`. Extension splicing moved to Story 20.6 — do not allocate |
+| 4703 | *(retired)* | — | Was `OptimizerInlinedExtensionMethod`. Extension splicing moved to Story 20.6 — do not allocate |
+| 4704 | *(retired)* | — | Was `OptimizerEliminatedSyntheticClass`. Backer existence is decided by form in Story 20.6 — do not allocate |
 | 4705 | `OptimizerFoldedConstant` | Info | A constant expression was folded |
 | 4706 | `OptimizerEliminatedDeadCode` | Info | Dead code after return/throw was eliminated |
-| 4707 | *(reserved)* | — | Reserved for a future basic-optimizer diagnostic; intentionally unused so the 4700–4711 sequence is contiguous |
-| 4708 | `OptimizerInlineAttributeInvalidBody` | Warning | `#[\Tyhp\Optimize\Inline]` used on a member that is not a single-statement body |
-| 4709 | `OptimizerInlineAttributeNotApplicable` | Warning | `#[\Tyhp\Optimize\Inline]` used on a member that cannot be inlined (e.g., public API in library) |
+| 4707 | *(reserved)* | — | Reserved for a future basic-optimizer diagnostic |
+| 4708 | *(retired)* | — | Was `OptimizerInlineAttributeInvalidBody` (warning). An `#[Inline]` the compiler cannot honor is now a checker **error** (`4178`) — do not allocate |
+| 4709 | `OptimizerInlineAttributeNotApplicable` | Warning | `#[\Tyhp\Optimize\Inline]` on a member the optimizer cannot splice at a given call site |
 | 4710 | `OptimizerInvalidConfigValue` | Warning | An optimization config key or value is not recognized |
-| 4711 | `OptimizerInlinedAnnotatedMember` | Info | A member marked with `#[\Tyhp\Optimize\Inline]` was inlined |
+| 4711 | `OptimizerInlinedAnnotatedMember` | Info | A member marked with `#[\Tyhp\Optimize\Inline]` was spliced at a call site |
 
-Info-level diagnostics (4701–4706, 4711) are only emitted when `--verbose` is set.
+Info-level diagnostics (4701, 4705, 4706, 4711) are only emitted when `--verbose` is set.
+
+**Checker codes.** `#[\Tyhp\Optimize\Inline]` is validated by the checker, not the optimizer, so its errors live in the checker band:
+
+| Code | Name | Severity | Owner | When |
+|------|------|----------|-------|------|
+| 4174 | `CheckerInlineParameterMutation` | Error | 20.6 | A spliced body writes a parameter not declared `&`, declares `&` on a parameter it does not write, or mutates `$this` |
+| 4175 | `CheckerInlineCycle` | Error | 20.6 | A spliced member reduces to itself |
+| 4176 | `CheckerInlineAttributeOnExtensionMember` | Error | 20.6 | `#[Inline]` on an extension member |
+| 4178 | `CheckerInlineAttributeInvalidBody` | Error | **23** | `#[Inline]` on a body that is not a single `return expr;`, or on a target that is not a function / method / operator |
+| 4179 | `CheckerInlineInaccessibleMember` | Error | **23** | A spliced body references a member less accessible than the spliced member itself |
+| 4180 | `CheckerNonReferenceableByRefArgument` | Error | **23** | A call passes a non-referenceable expression to a by-reference parameter |
+| 4181 | `CheckerErasedMemberUnsafeSplice` | Error | 20.6 | An erased member's call site cannot be spliced faithfully, and has no method to fall back to |
+
+`4180` is **not** inline-specific: it applies to every call with a by-reference parameter, at every optimization level, including calls to PHP builtins. It therefore goes in the general call checker, not the optimizer — a change to already-shipped Story 08 code, planned here rather than by editing Story 08's plan. `4181` is allocated here for continuity of numbering and implemented in Story 20.6, which owns erasure.
 
 ---
 
 ## Phase 1: Optimizer Framework, Configuration, and Build Profiles
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -383,7 +407,7 @@ public interface IOptimizationModule
     /// Display name for diagnostics and verbose output.
     string Name { get; }
 
-    /// Config key used in build.optimizations (e.g., "extensionOperatorInlining").
+    /// Config key used in build.optimizations (e.g., "inlineAnnotatedMembers").
     string ConfigKey { get; }
 
     /// Execution order. Lower values run first.
@@ -478,9 +502,7 @@ public class TyhpOptimizer
     {
         // Each module is registered here. Future modules from Story 24
         // are added to this list as they are implemented.
-        _registeredModules.Add(new ExtensionOperatorInliningModule());
-        _registeredModules.Add(new ExtensionMethodInliningModule());
-        _registeredModules.Add(new SyntheticClassEliminationModule());
+        _registeredModules.Add(new InlineAnnotatedMemberModule());
         _registeredModules.Add(new ConstantFoldingModule());
         _registeredModules.Add(new DeadCodeEliminationModule());
     }
@@ -655,7 +677,7 @@ Add:
 
 **`MessageCode.cs` Additions**
 
-Add optimizer diagnostic codes as listed in the MessageCode Numbering section above (4700–4711).
+Add optimizer diagnostic codes as listed in the MessageCode Numbering section above (4700–4711), skipping the retired codes (4702–4704, 4708) and the reserved 4707.
 
 ### Acceptance Criteria
 
@@ -669,7 +691,7 @@ Add optimizer diagnostic codes as listed in the MessageCode Numbering section ab
 - [ ] Individual override `false` disables a module even when level is `aggressive`
 - [ ] `CompilationResult.OptimizeDuration` tracks timing
 - [ ] `CompilationResult.OptimizationMetrics` reports per-module metrics
-- [ ] `MessageCode.cs` has codes 4700–4711
+- [ ] `MessageCode.cs` has the live codes in 4700–4711 (retired codes 4702–4704 / 4708 are not re-added)
 - [ ] Info-level optimizer diagnostics are only emitted when verbose mode is active
 - [ ] CLI arguments `--optimize`, `--optimize-enable`, `--optimize-disable`, `--profile` work
 - [ ] Unknown config keys in `build.optimizations` emit `OptimizerInvalidConfigValue` warning
@@ -679,7 +701,7 @@ Add optimizer diagnostic codes as listed in the MessageCode Numbering section ab
 ### Dependencies
 
 - **Requires:** Story 01 (`DiagnosticBag`, `CompilationResult`), Story 10 Phase 1 (`BuildConfig`)
-- **Provides:** Optimizer framework for Phases 2–7 to build on
+- **Provides:** Optimizer framework for Phases 5–7 to build on
 
 > **BuildConfig.cs ↔ Story 10 circular-integration note:** Story 23 and Story 10 integrate together — both wire the optimizer/config into `BuildAction`, and each provides a stub for the other when implemented first. **Neither story should claim the other is fully complete first.**
 >
@@ -689,335 +711,48 @@ Add optimizer diagnostic codes as listed in the MessageCode Numbering section ab
 
 ---
 
-## Phase 2: Extension Operator Inlining Module
+## Phases 2–4: Removed (superseded by Story 20.6)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+Three extension-inlining modules were planned here. All three are gone:
 
-### Phase Overview
+| Removed phase | Original module (config key) | Why it is gone |
+|---|---|---|
+| Phase 2 | `ExtensionOperatorInliningModule` (`extensionOperatorInlining`) | Extension operator call sites are spliced at **emit** by Story 20.6, at every optimization level. |
+| Phase 3 | `ExtensionMethodInliningModule` (`extensionMethodInlining`) | Extension method call sites are spliced at **emit** by Story 20.6. |
+| Phase 4 | `SyntheticClassEliminationModule` (`syntheticClassElimination`) | Whether an extension backer class exists is decided by the member's **form** (Story 20.6), not by counting inlined call sites. A brace-bodied member's PHP method is deliberately kept for PHP callers, so eliminating it would break the contract the author asked for. |
 
-Implement the first optimization module: inlining single-statement extension operator bodies. This is the core motivation for the entire optimizer — when a `package.tyhp.json` re-exposes operator overloads via `extension operator` syntax, the emitter generates a static method on a synthetic extension class. When that method has a single return statement, the optimizer substitutes the return expression directly at the call site (wrapped in parentheses), eliminating the extra stack frame.
+Story 20.6 also owns the shared **call-site splice engine** — substitution of receiver / arguments / defaults, parenthesization, fixpoint reduction of nested splices, and hoisting a repeated argument or receiver into a generated local — plus the safety rules (by-reference contract, no cycles, accessibility of referenced members). Phase 5 reuses that engine instead of reimplementing it. The by-reference rules are specified under *Argument passing and by-reference semantics* in Phase 5 and bind the engine in 20.6 as well as this phase; the one divergence is that 20.6's erased members have no method to fall back to, so rule 3's declination is error `4181` there instead of a warning.
 
-### Deliverables
-
-- `Tyhp/TyhpLang/Optimizer/Modules/ExtensionOperatorInliningModule.cs`
-
-### Implementation Details
-
-**What gets inlined:**
-
-An extension operator is a candidate for inlining when:
-
-1. The operator body is a **single return statement** containing any expression (method calls, arithmetic, string concatenation, object construction, etc.).
-2. The operator is not part of the library's public API (or the call site is within the same library).
-3. Each parameter is referenced **at most once** in the return expression, OR the argument at the call site is a simple variable (no side effects on re-evaluation). This prevents duplicate evaluation of side-effecting expressions.
-
-The key distinction: **single-statement bodies are inlineable; multi-statement bodies are not.** Bodies with variable declarations, conditionals, loops, or multiple return paths cannot be inlined.
-
-**Example 1 — simple delegation (before optimization):**
-
-The `package.tyhp.json` for `tyhp/decimal` generates:
-
-```
-extension operator +(self $left, self $right): self {
-    return $left->add($right);
-}
-```
-
-Which the emitter would produce as:
-
-```php
-// Synthetic extension class
-class __TyhpInlineExt_Decimal {
-    public static function __OP_Decimal_ADD_Decimal(\Tyhp\Decimal $left, \Tyhp\Decimal $right): \Tyhp\Decimal {
-        return $left->add($right);
-    }
-}
-
-// Call site
-$result = __TyhpInlineExt_Decimal::__OP_Decimal_ADD_Decimal($a, $b);
-```
-
-After optimization:
-
-```php
-$result = $a->add($b);
-```
-
-**Example 2 — expression with operators (also inlineable):**
-
-```
-extension operator +(self $left, int $right): self {
-    return new self($left->value + $right);
-}
-```
-
-Call site `$result = $a + 5;` inlines to:
-
-```php
-$result = (new Foo(($a)->value + 5));
-```
-
-The inlined expression is **wrapped in parentheses** to preserve operator precedence at the call site. Parameter references (`$left`, `$right`) are substituted with the actual operand expressions (also parenthesized when needed).
-
-**Example 3 — NOT inlineable (multi-statement body):**
-
-```
-extension operator +(self $left, self $right): self {
-    self $result = new self($left->value + $right->value);
-    $result->normalize();
-    return $result;
-}
-```
-
-This has variable declarations and multiple statements — it cannot be inlined. The synthetic static method is preserved.
-
-**Detection algorithm:**
-
-1. Walk all bound AST trees looking for call sites that resolve to extension operator symbols.
-2. For each such call site, look up the operator's body in the symbol table.
-3. Check if the body consists of exactly one statement that is a `ReturnStatementAst`.
-4. Check the parameter safety rule: each parameter must be referenced at most once in the return expression, unless the corresponding call-site argument is a **safe-to-duplicate expression** (no side effects on re-evaluation). This prevents duplicate evaluation of side-effecting expressions.
-
-   **Safe-to-duplicate expressions** (can be substituted multiple times without changing behavior):
-   - Simple variables: `$var`, `$this`
-   - Literal values: `42`, `3.14`, `'string'`, `true`, `false`, `null`
-   - Class/enum constants: `Foo::BAR`, `self::CONST`, `MyEnum::Case`
-
-   **Unsafe expressions** (must NOT be duplicated):
-   - Property access: `$this->property`, `$obj->prop` — PHP 8.4 property hooks could have side effects
-   - Array access: `$array[$key]` — `ArrayAccess::offsetGet()` could have side effects
-   - Method/function calls: `$obj->method()`, `strlen($x)`
-   - Increment/decrement: `$i++`, `--$j`
-   - Assignments or compound expressions
-
-   This classification is deliberately conservative. A future enhancement could relax it (e.g., checking if a property has no hooks), but for the MVP, safety takes priority over optimization coverage.
-5. Apply visibility rules: check if the call site is eligible for inlining based on the operator's visibility and project type.
-
-**AST transformation:**
-
-When a call site is inlined, the AST node at the call site is replaced with the return expression from the operator body, with parameter references substituted by the actual operand expressions. The entire inlined expression is wrapped in parentheses to preserve operator precedence. There is **no** `ParenthesizedExpressionAst` node type in the AST — a parenthesized expression `(expr)` is represented by **`PhpDereferenceableExpressionAst`** (the grammar's `#dereferenceableExpr` rule, `T_OPEN_ROUND_BRACE expr T_CLOSE_ROUND_BRACE`, wraps a single inner expression). The existing factory is `PhpDereferenceableExpressionAst.Create(innerExpression, parserRuleContext)`, but AST nodes do not retain their `ParserRuleContext`; add a small helper (e.g. `CreateFrom(innerExpression, locationSource)`) that builds the wrapper and copies the original node's location via the existing `Base2Ast.SetContext(Base2Ast)` overload. The emitter renders this node as `( ... )`. The replacement node preserves the original node's source location metadata for sourcemap accuracy.
-
-Extension operator call sites are identified by walking all AST nodes whose `BoundSymbol` (from Story 05) is an `ObjectOperatorOverloadMethodSymbol` with `IsExtensionOperator == true`. Extension operator calls remain as regular binary expressions in the AST — the `BoundSymbol` is what identifies them as extension-resolved. There is no `ExtensionOperatorCallAst` node type; the optimizer uses the bound symbol information to detect these call sites.
-
-```csharp
-// Pseudocode for the transformation
-var inlinedExpression = SubstituteParameters(
-    operatorBody.ReturnExpression,
-    parameterMap: {
-        "$left"  => ParenthesizeIfNeeded(originalCallNode.LeftOperand),
-        "$right" => ParenthesizeIfNeeded(originalCallNode.RightOperand)
-    }
-);
-
-// PhpDereferenceableExpressionAst is the AST node for a parenthesized "(expr)".
-// Note: AST nodes do not retain their ParserRuleContext, so source location is
-// copied from the original node. The existing Base2Ast.SetContext(Base2Ast) overload
-// copies Line/Column/StartIndex/LanguageMode; expose a small factory/setter that uses it
-// (this story adds AST mutation helpers as needed — see "AST Mutability" above).
-var replacement = PhpDereferenceableExpressionAst.CreateFrom(
-    expression: inlinedExpression,
-    locationSource: originalCallNode   // copy Line/Column/StartIndex from the call site
-);
-replacement.OriginalAst = originalCallNode; // provenance for the sourcemap (Story 17)
-```
-
-**Edge cases:**
-
-- Chained operators (`$a + $b + $c`) — each operator call is inlined independently. The result of `$a + $b` becomes the receiver for the next operation.
-- Mixed operator types — if `$a + $b` uses extension operator but `$result - $c` uses a class-level operator, only the extension operator call is inlined.
-- Null-safe operators — if the underlying method call is null-safe (`$left?->add($right)`), preserve the null-safe syntax.
-- Parameter used multiple times — if a parameter appears more than once in the expression and the argument has side effects (function call, increment, etc.), the call site is skipped (not inlined) to prevent duplicate evaluation.
-- Parenthesization — the entire inlined expression is wrapped in parentheses to prevent operator precedence bugs. Individual parameter substitutions are also parenthesized when the argument is a complex expression.
-
-### Acceptance Criteria
-
-- [ ] Module has `ConfigKey = "extensionOperatorInlining"`, `Priority = 100`, `MinimumLevel = Basic`
-- [ ] Single return statement bodies with any expression (method calls, operators, concatenation, object construction) are detected as inlineable
-- [ ] Call sites are rewritten by substituting parameters and wrapping in parentheses
-- [ ] Visibility rules are enforced: public API methods in library projects are not inlined (call site is, but the method definition remains)
-- [ ] Source location metadata is preserved on replacement nodes
-- [ ] Metrics report the number of inlined call sites
-- [ ] Verbose diagnostics emit `OptimizerInlinedExtensionOperator` for each inlined call
-- [ ] Chained operators are handled correctly
-- [ ] Multi-statement bodies (variable declarations, conditionals, multiple returns) are NOT inlined
-- [ ] Parameters used multiple times with side-effecting arguments are NOT inlined (safety rule)
-
-### Dependencies
-
-- **Requires:** Phase 1 (framework), Story 03 (extension operator AST nodes and symbols)
-- **Provides:** Inlined extension operators for Phase 4 (synthetic class elimination)
+Do not add config keys, modules, or diagnostics for extension inlining to this story. The phase numbers are left unused so existing references to Phases 5-7 stay valid.
 
 ---
 
-## Phase 3: Extension Method Inlining Module
+## Phase 5: `#[\Tyhp\Optimize\Inline]` for Non-Extension Members
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
 
-### Phase Overview
 
-Implement inlining for extension method bodies that consist of a single statement. The pattern is the same as extension operator inlining (Phase 2) — detect single-statement bodies and rewrite call sites by substituting the body expression directly, wrapped in parentheses to preserve precedence.
-
-### Deliverables
-
-- `Tyhp/TyhpLang/Optimizer/Modules/ExtensionMethodInliningModule.cs`
-
-### Implementation Details
-
-**What gets inlined:**
-
-An extension method is a candidate for inlining when:
-
-1. The method body is a **single return statement** (or single expression statement for void methods) containing any expression.
-2. `$this` and all parameters are each referenced **at most once** in the expression, OR the corresponding call-site argument is a safe-to-duplicate expression (simple variable, literal, or class/enum constant — see Phase 2 for the complete classification).
-3. The method is not part of the library's public API surface (or the call site is within the same library).
-
-The key distinction is the same as Phase 2: **single-statement bodies are inlineable; multi-statement bodies are not.** The expression within the return statement can contain operators, string concatenation, method calls, object construction — anything. The optimizer wraps the inlined expression in parentheses at the call site.
-
-**Example 1 — simple delegation (inlineable):**
-
-```
-extension function getBalance(): decimal {
-    return $this->balance();
-}
-```
-
-Call site `$bal = $account->getBalance();` inlines to:
-
-```php
-$bal = ($account->balance());
-```
-
-**Example 2 — expression with operators (also inlineable):**
-
-```
-extension function formatCurrency(): string {
-    return '$' . $this->toFixed(2);
-}
-```
-
-Call site `$text = $amount->formatCurrency();` inlines to:
-
-```php
-$text = ('$' . ($amount)->toFixed(2));
-```
-
-The `$this` reference is substituted with the receiver expression (`$amount`), parenthesized when needed, and the entire inlined expression is wrapped in parentheses.
-
-**Example 3 — NOT inlineable (multi-statement body):**
-
-```
-extension function formatCurrency(): string {
-    ?string $symbol = $this->getSymbol();
-    if (empty($symbol)) {
-        return $this->toFixed($this->getNonCurrencyPrecision());
-    }
-    return $symbol . $this->toFixed(2);
-}
-```
-
-This has variable declarations, conditionals, and multiple return paths — it cannot be inlined. The synthetic static method is preserved.
-
-**Detection algorithm:**
-
-1. Walk all bound AST trees looking for call sites that resolve to extension method symbols.
-2. For each such call site, look up the method's body.
-3. Check if the body consists of exactly one statement that is a `ReturnStatementAst` (or a single `ExpressionStatementAst` for void methods).
-4. Check the parameter/`$this` safety rule: each must be referenced at most once, or the corresponding argument is side-effect-free.
-5. Apply visibility rules.
-6. Rewrite the call site by substituting `$this` with the receiver and parameters with arguments, wrapping in parentheses.
-
-**AST transformation:**
-
-Similar to Phase 2 — replace the call site AST node with the inlined expression, substituting `$this` with the receiver and parameters with their arguments, wrapped in parentheses.
-
-Extension method call sites are identified by walking all AST nodes whose `BoundSymbol` (from Story 05) is an `ObjectMethodSymbol` that belongs to an extension class. Extension calls remain as regular method calls in the AST — the `BoundSymbol` is what identifies them as extension-resolved. There is no `ExtensionMethodCallAst` node type; the optimizer uses the bound symbol information to detect these call sites.
-
-### Acceptance Criteria
-
-- [ ] Module has `ConfigKey = "extensionMethodInlining"`, `Priority = 200`, `MinimumLevel = Basic`
-- [ ] Single return statement bodies with any expression are detected as inlineable
-- [ ] Single expression statement bodies (void return) are detected as inlineable
-- [ ] Call sites are rewritten by substituting `$this`/parameters and wrapping in parentheses
-- [ ] Visibility rules are enforced
-- [ ] Multi-statement bodies (variable declarations, conditionals, multiple returns) are NOT inlined
-- [ ] Parameters/`$this` used multiple times with side-effecting arguments are NOT inlined (safety rule)
-- [ ] Source location metadata is preserved
-- [ ] Metrics report the number of inlined call sites
-- [ ] Verbose diagnostics emit `OptimizerInlinedExtensionMethod` for each inlined call
-
-### Dependencies
-
-- **Requires:** Phase 1 (framework), Story 03 (extension method AST nodes and symbols)
-- **Provides:** Inlined extension methods for Phase 4 (synthetic class elimination)
-
----
-
-## Phase 4: Synthetic Extension Class Elimination Module
-
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
 
 ### Phase Overview
 
-After extension operator and method inlining (Phases 2–3), some synthetic extension classes may have **all** of their members inlined at every call site. In application projects (or for non-public members in library projects), these classes serve no purpose and can be eliminated from the emitted output entirely.
+Support `#[\Tyhp\Optimize\Inline]` on a **non-extension** function, method, or class-owned operator: the PHP member is always emitted, and its Tyhp call sites are spliced with the body expression.
 
-### Deliverables
+Extensions do not need the attribute — Story 20.6 decides splicing from the member's form. A non-extension member cannot use form the same way: a short `fn` function is still part of the PHP API and must exist, so intent has to be declared explicitly. That is the whole remaining job of the attribute.
 
-- `Tyhp/TyhpLang/Optimizer/Modules/SyntheticClassEliminationModule.cs`
+Both body forms qualify, because the PHP output is the same either way:
 
-### Implementation Details
-
-**When a synthetic class can be eliminated:**
-
-1. The class is a compiler-generated synthetic extension class (e.g., `__TyhpInlineExt_Decimal`).
-2. **All** static methods on the class have been inlined at **every** call site by Phases 2–3.
-3. No remaining references to the class exist in any AST tree (no call sites, no reflection references, no type references).
-4. In library projects: the class must NOT be part of the public API (i.e., none of its methods are referenced by external consumers via `package.tyhp.json`). Since `package.tyhp.json` is generated from the unoptimized AST, this effectively means: in library projects, synthetic extension classes whose methods are exposed in the `package.tyhp.json` **must be kept**.
-
-**Detection algorithm:**
-
-1. Collect all synthetic extension class declarations from the AST.
-2. For each class, check if any method still has un-inlined call sites.
-3. For library projects, check if any method is referenced in the `package.tyhp.json` manifest (i.e., has a public visibility that would be exported).
-4. If no remaining references exist, mark the class for elimination.
-
-**AST transformation:**
-
-Remove the class declaration AST node from the file's statement list. This prevents the emitter from generating the PHP class file.
-
-### Acceptance Criteria
-
-- [ ] Module has `ConfigKey = "syntheticClassElimination"`, `Priority = 300`, `MinimumLevel = Basic`
-- [ ] Synthetic extension classes with zero remaining call sites are eliminated
-- [ ] Library projects preserve synthetic classes that have public-facing methods
-- [ ] Application projects can eliminate all fully-inlined synthetic classes
-- [ ] Metrics report the number of eliminated classes
-- [ ] Verbose diagnostics emit `OptimizerEliminatedSyntheticClass` for each
-
-### Dependencies
-
-- **Requires:** Phase 2 (extension operator inlining), Phase 3 (extension method inlining) — must run after these due to `Priority = 300`
-- **Provides:** Cleaner emitter output with fewer unnecessary classes
-
----
-
-## Phase 5: `#[\Tyhp\Optimize\Inline]` Attribute Support
-
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
-
-### Phase Overview
-
-Support the `#[\Tyhp\Optimize\Inline]` attribute as a compile-time hint that a method or operator should be inlined. This attribute is parsed by the Tyhp compiler during the bind/check phase and consumed by the optimizer to force inlining of methods that the automatic detection might not catch (or to explicitly request inlining for documentation/intent purposes).
+```tyhp
+#[Inline] public function myTrim(string $s): string { return \trim($s); }
+#[Inline] public fn myTrim(string $s): string => \trim($s);
+```
 
 All Tyhp compiler attributes live under the `\Tyhp\Optimize\` namespace to avoid conflicts with PHP built-in attributes, third-party library attributes (e.g., PHPStan's `#[Pure]`), and user-defined attributes. Developers can use `use \Tyhp\Optimize\Inline;` to shorten the syntax. The compiler resolves attribute names using standard PHP name resolution rules.
 
 ### Deliverables
 
 - `Tyhp/TyhpLang/Optimizer/Attributes/InlineAttribute.cs` — Attribute recognition logic
-- Modifications to the extension inlining modules (Phases 2–3) to check for this attribute
+- `Tyhp/TyhpLang/Optimizer/Modules/InlineAnnotatedMemberModule.cs` — Splices annotated members via Story 20.6's engine
+- Checker validation of attribute targets and bodies (`4178`) and of member accessibility inside a spliced body (`4179`)
+- Track C additions so consumers of a library also splice (see **Generated tyhpdef** below)
 
 ### Implementation Details
 
@@ -1026,63 +761,200 @@ All Tyhp compiler attributes live under the `\Tyhp\Optimize\` namespace to avoid
 ```tyhp
 use \Tyhp\Optimize\Inline;
 
-#[Inline()]
-extension function getBalance(): decimal {
-    return $this->balance();
-}
+class Account {
+    #[Inline()]
+    public function label(): string {
+        return $this->first . ' ' . $this->last;
+    }
 
-#[\Tyhp\Optimize\Inline()]
-extension operator +(self $left, self $right): self {
-    return $left->add($right);
+    #[\Tyhp\Optimize\Inline()]
+    operator +(self $left, self $right): self => self::merge($left, $right);
 }
 ```
+
+Class-owned operators take no visibility modifier (only `abstract` / `final`), matching the existing grammar.
 
 The attribute uses standard PHP attribute syntax (`#[...]`) so it can be parsed by the existing ANTLR grammar. The Tyhp compiler recognizes `\Tyhp\Optimize\Inline` (resolved via standard PHP name resolution, including `use` imports) as a compile-time attribute — it is NOT emitted to the PHP output. Any attribute that resolves to a fully-qualified name under `\Tyhp\Optimize\` is checked against the known compiler attribute list (`Inline`, `Pure`, `Memoize`); unrecognized `\Tyhp\Optimize\*` attributes emit a warning.
 
 **Behavior:**
 
-1. During binding, `\Tyhp\Optimize\Inline` is recognized as a compiler-intrinsic attribute and stored on the method/operator symbol.
-2. During the optimizer phase, the extension inlining modules check for this attribute.
-3. If present, the module **requires** that the body is a single return statement (any expression is allowed — method calls, operators, concatenation, etc.). Multi-statement bodies (variable declarations, conditionals, multiple returns) do NOT qualify. If the body does not qualify, `OptimizerInlineAttributeInvalidBody` warning is emitted.
-4. If the method is a public API member in a library project and cannot be inlined (external consumers need the static method), `OptimizerInlineAttributeNotApplicable` warning is emitted. The method is still inlined at **internal** call sites but the definition is preserved.
-5. The `#[\Tyhp\Optimize\Inline]` attribute forces the optimizer to attempt inlining on annotated members when the optimizer runs. However, when `optimize: "none"` is specified and no individual module overrides enable the inlining modules, the optimizer does not run at all — and the Inline attribute (along with all other optimization attributes) is simply ignored. This is the expected behavior: `optimize: "none"` means "do not run the optimizer."
+1. During binding, `\Tyhp\Optimize\Inline` is recognized as a compiler-intrinsic attribute and stored on the function / method / operator symbol. It is never emitted to PHP.
+2. The member is **always emitted** to PHP, unchanged. Unlike an extension `=>` member, an attributed member is part of the PHP API.
+3. `InlineAnnotatedMemberModule` (`ConfigKey = "inlineAnnotatedMembers"`, `Priority = 100`, `MinimumLevel = Basic`) rewrites Tyhp call sites of annotated members through Story 20.6's splice engine, which handles substitution, parentheses, fixpoint reduction, and temporaries for repeated arguments.
+4. Story 20.6's safety rules apply unchanged: a splice cycle is `4175`, a parameter written without a `&` declaration (or any mutation of `$this`) is `4174`, and a body may only reference members at least as accessible as the annotated member itself (`4179`). By-reference passing follows the three rules under *Argument passing and by-reference semantics* below.
+5. When the module does not run — `optimize: "none"` with no individual override — call sites keep calling the PHP method. Behavior is identical either way; only the emitted shape differs. This is the one real difference from extension splicing, which is emit and therefore always on.
+6. When a specific call site cannot be spliced (rule 3), emit `OptimizerInlineAttributeNotApplicable` and leave the call.
 
-   To force inlining at `optimize: "none"`, the user must explicitly enable the inlining module via individual override (e.g., `"optimizations": { "extensionOperatorInlining": true }`), which causes the optimizer to run that specific module.
+To force splicing at `optimize: "none"`, enable the module directly: `"optimizations": { "inlineAnnotatedMembers": true }`.
 
-The `#[\Tyhp\Optimize\Inline]` attribute does NOT change the inlining rule — it simply forces the optimizer to attempt inlining on members it might otherwise skip (e.g., due to optimization level being lower than the module's minimum). The rule is always the same: single return statement = inlineable, multi-statement = not inlineable.
+**Accessibility of a spliced body:**
+
+A spliced expression is evaluated at the call site, not inside the declaring class, so PHP's visibility rules are applied there. The rule is that a body may only reference members **at least as accessible as the annotated member itself**:
+
+| Annotated member | Body may reference |
+|---|---|
+| `public` | public members only |
+| `protected` | protected and public members |
+| `private` | any member of the declaring class |
+
+Anything stricter is error `4179`. This is sound rather than conservative: every legal call site of a member is by definition a context that already holds that level of access, so the spliced expression is always legal wherever the call was legal. A `private` member's call sites are all inside the class, which is why a private body may freely read private state. Trait members work out the same way, since a trait's private members become private members of the using class.
+
+Class-context keywords lose their declaring class when spliced, so emit must rewrite them:
+
+| In the body | Spliced as |
+|---|---|
+| `self::` | the literal declaring class name |
+| `parent::` | the literal parent class name |
+| `static::` | `$receiver::`, preserving late static binding |
+
+**Argument passing and by-reference semantics:**
+
+Splicing replaces a parameter with the caller's own argument expression, which behaves like by-reference passing: a body that writes through the parameter (`$i += 2`, `\ksort($a)`) reaches the caller's variable. A real PHP method call does not, unless the parameter is declared `&`. Three rules keep `optimize: "none"` and a spliced build observably identical. `test.tyhp` is the source of record for each, with the emitted shapes in `test.php` and `test.tyhpdef`.
+
+**Rule 1 — a written parameter is by reference, and only those are.**
+
+A parameter is *written* when the body assigns to it, compound-assigns it, increments or decrements it in either position, or passes it to a callee's `&` parameter. Every callee's signature is known from tyhpdef, so this is decidable. The author must have declared exactly the written parameters `&`; a mismatch either way is error `4174`. Emit mirrors the declaration, so the PHP signature is what the author wrote.
+
+Pre-increment is not exempt. `++$i` on a by-value parameter cannot be spliced faithfully: substituting it leaks the write into the caller, and rewriting it to `($i + 1)` is not type-safe, since `++` on a non-numeric string is a string increment while `+ 1` is a `TypeError`. Requiring `&` costs nothing, and an author who wants a non-mutating increment writes `$v + 1`.
+
+Mutating `$this` remains error `4174` with no `&` escape, since a receiver expression is not a parameter.
+
+**Rule 2 — a by-reference argument must be referenceable, in every optimize mode.**
+
+This is a general call-site rule, not an inline one: it applies to `\ksort($holder->hookedProp)` exactly as it applies to a spliced member, and it holds at `optimize: "none"`. Error `4180`.
+
+| Argument to a `&` parameter | Result |
+|---|---|
+| Local variable, plain property, static property, array element | Allowed |
+| Property whose read path is by reference — `&get` hook, `&__get`, `&offsetGet` | Allowed |
+| Property whose read path is by value — `get` hook, `__get`, `offsetGet` | Error `4180` |
+| `readonly` property | Error `4180` |
+| `private(set)` / `protected(set)` outside the writing scope | Error `4180` |
+| Literal, constant, call result, or any other non-lvalue | Error `4180` |
+
+The test is whether the read path is by reference, not whether an accessor is involved. Measured on PHP 8.5: a by-value `get` hook fatals with "Indirect modification is not allowed"; a by-value `__get` or `offsetGet` warns and **silently discards the write**; `readonly` fatals even inside its declaring class, both before and after its one permitted assignment. Their `&` counterparts all work, and `&offsetGet` does satisfy the `ArrayAccess` interface.
+
+Two of these are rejections of code that would have worked once spliced — a by-value `__get` or `offsetGet` in a write position succeeds when the accessor pair runs. Rejecting them anyway is deliberate: the two optimize modes must agree, and the mode where it fails is the one that ships when optimization is off.
+
+Whether a property's read path is by reference has to be visible through a tyhpdef, not just in Tyhp source. **Story 20.7** provides that — bodyless `{ get; set; }` / `{ &get; }` and the binder flags this rule reads — and lands before Story 20.6's engine. `&__get` and `&offsetGet` need nothing new, since `tyhpdefImportClassMethod` already carries `ReturnsRef`.
+
+**Rule 3 — hoist repeated evaluation; decline the splice when hoisting cannot help.**
+
+Substitution changes how often an argument or receiver is evaluated whenever the body mentions it a number of times other than once.
+
+| Situation | Handling |
+|---|---|
+| By-value parameter used more than once | Hoist into a by-value read local |
+| `&` parameter used more than once | Hoist into a **ref-bound** local (`$t = &$arg;`) |
+| Receiver expression used more than once | Hoist into a by-value read local |
+| Argument used zero times, or reached only past a short circuit | Decline |
+| No statement slot for a needed hoist | Decline |
+
+A by-value local is wrong for a `&` parameter: it satisfies the arity problem but severs the reference, so the write never lands. A ref-bound local is exact, and it is also what makes a side-effecting lvalue path correct — `crazy($a[$i++])` naively spliced yields 168 and advances `$i` twice against the correct 36 and once.
+
+A reference bind is a statement, not an expression, so a ref-bound hoist needs a statement slot. Where the call site has none — inside a ternary or a loop condition — the splice is declined.
+
+Declining means the call site keeps the real method call and emits warning `OptimizerInlineAttributeNotApplicable`. That is available here because an annotated member is always emitted to PHP. **An erased member has no method to fall back to**, so for a short `=>` extension member or a tyhpdef thin mapping the same condition is error `4181` instead, owned by Story 20.6.
+
+**Generated tyhpdef (Track C):**
+
+A library's consumers should splice too, otherwise the intent stops at the library boundary. Track C (Story 20) represents an annotated member as a declared PHP method under an aliased Tyhp name plus an auto-active class-body thin mapping (Story 20.6) carrying the expression:
+
+```tyhp
+<?tyhp
+
+class MyClass {
+    #[Inline]
+    public function myTrim(string $s): string {
+        return \trim($s);
+    }
+}
+```
+
+emits PHP with the method intact:
+
+```php
+<?php
+
+class MyClass
+{
+    public function myTrim(string $s): string
+    {
+        return \trim($s);
+    }
+}
+```
+
+and generates:
+
+```tyhp
+<?tyhpdef
+
+class MyClass {
+    public function myTrim as myTrim__tyhpInlineBacker(string $s): string;
+    extension fn myTrim(string $s): string => \trim($s);
+}
+```
+
+- The alias frees the Tyhp name `myTrim` for the thin mapping while still letting Tyhp call the real method. It is **required**, not optional: rule 3 lets a consumer decline to splice, and without the declaration there is nothing to fall back to.
+- `&` is mirrored onto both the aliased declaration and the mapping — onto the declaration because the emitted PHP has it, and onto the mapping so a consumer's checker can apply rule 2 before rewriting.
+- Add `GeneratedNames.InlineBackerSuffix = "__tyhpInlineBacker"` (same family as `ExtensionBackerSuffix`, Tyhp-only, never in emitted PHP) and reserve it in the checker alongside the other generated-name collision checks.
+- The copied expression must be valid at a consumer call site — builtins or public API only. If it is not, omit the mapping and declare the method under its own name.
+- For a class-owned operator, no alias is needed: the PHP name is the mangled operator method (`__add`) and the mapping is `extension operator + … => expr`.
 
 **Validation (checker integration):**
 
-The checker (Story 08) should validate that `#[\Tyhp\Optimize\Inline]` is only applied to:
-- Extension methods (`extension function`)
-- Extension operators (`extension operator`)
-- Private/internal methods with single-statement bodies
+The checker (Story 08) validates the attribute:
 
-Applying it to other constructs (class declarations, properties, constants) emits a checker error. Applying it to a multi-statement body emits `OptimizerInlineAttributeInvalidBody` warning (not an error — the code still compiles, just without inlining).
+| Target | Result |
+|--------|--------|
+| Function / method / class-owned operator whose body is a single `return expr;` (either form) | Allowed |
+| Multi-statement body | Error `4178` |
+| Abstract / interface member (no body) | Error `4178` |
+| Class, property, constant, parameter, or other construct | Error `4178` |
+| Body referencing a member less accessible than the annotated member | Error `4179` |
+| Body writing a parameter not declared `&`, or `&` on a parameter it does not write | Error `4174` |
+| Body mutating `$this` | Error `4174` |
+| Any extension member | Error `4176` (owned by Story 20.6) |
+| Tyhpdef thin mapping | Error `4176` — already erased (Stories 20 / 20.6) |
+
+An attribute the compiler cannot honor is an error, not a warning: silently ignoring a directive hides a performance assumption the author wrote down deliberately.
+
+Rule 2's referenceability check (`4180`) is not in this table, because it validates a **call site** rather than the attribute, and it runs whether or not the callee is annotated.
 
 ### Acceptance Criteria
 
 - [ ] `#[\Tyhp\Optimize\Inline]` (and short form `#[Inline]` with `use \Tyhp\Optimize\Inline;`) is recognized as a compile-time attribute during binding
 - [ ] The attribute is NOT emitted to PHP output
-- [ ] Extension methods/operators with this attribute are inlined even if they wouldn't be auto-detected
-- [ ] Multi-statement bodies with the attribute emit `OptimizerInlineAttributeInvalidBody` warning
-- [ ] Single-statement bodies with complex expressions (operators, concatenation) ARE inlined when this attribute is present
-- [ ] Public API members in library projects with the attribute emit `OptimizerInlineAttributeNotApplicable` warning (but are still inlined at internal call sites)
-- [ ] The attribute works with `optimize: "none"` when combined with individual module override
-- [ ] The checker validates that the attribute is only applied to valid targets
+- [ ] The annotated member is always emitted to PHP
+- [ ] `InlineAnnotatedMemberModule` has `ConfigKey = "inlineAnnotatedMembers"`, `Priority = 100`, `MinimumLevel = Basic`
+- [ ] Tyhp call sites of an annotated method, function, and class-owned operator are spliced through Story 20.6's engine
+- [ ] Both a short `=>` body and a single-`return` brace body are accepted
+- [ ] Multi-statement, bodyless, and non-callable targets report `4178`
+- [ ] The attribute on any extension member reports `4176`
+- [ ] A `public` or `protected` body referencing a less accessible member reports `4179`; a `private` member's body may reference private state
+- [ ] `self::`, `parent::`, and `static::` in a spliced body are rewritten to the declaring class, the parent class, and `$receiver::`
+- [ ] `optimize: "none"` leaves the call in place; the individual module override splices it
+- [ ] A written parameter not declared `&`, a `&` on an unwritten parameter, and any mutation of `$this` each report `4174`; pre-increment counts as a write
+- [ ] Emitted PHP carries `&` on exactly the parameters the Tyhp declaration carries it on
+- [ ] A non-referenceable argument to a by-reference parameter reports `4180` at every optimization level, including for a call to a PHP builtin; a `&get` / `&__get` / `&offsetGet` read path is accepted
+- [ ] A by-value parameter or receiver used more than once is hoisted into a read local; a `&` parameter used more than once is hoisted into a ref-bound local
+- [ ] A call site with no statement slot for a needed hoist, an argument the body never reads, and an argument reachable only past a short circuit each keep the real call and warn
+- [ ] A spliced build and an `optimize: "none"` build are observably identical for every case in `test.php`, including argument evaluation count and order
+- [ ] Track C emits the aliased backer declaration plus the thin mapping, mirrors `&` onto both, and a consumer compiling against it splices
 - [ ] Unrecognized `\Tyhp\Optimize\*` attributes emit a warning
 
 ### Dependencies
 
-- **Requires:** Phase 1 (framework), Phases 2–3 (inlining modules), Story 08 (checker for validation)
-- **Provides:** Developer-directed inlining for extension methods/operators
+- **Requires:** Phase 1 (framework), Story 20.6 (splice engine and safety rules), Story 08 (checker for validation), Story 20 (Track C generator)
+- **Provides:** Developer-directed splicing for non-extension functions, methods, and class-owned operators
 
 ---
 
 ## Phase 6: Basic Optimization Modules (Constant Folding and Dead Code Elimination)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1153,12 +1025,12 @@ Removes code that can never execute. Targets:
 
 ## Phase 7: Pipeline Integration
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
-Wire the optimizer into the build pipeline. Update `BuildAction` to run the optimizer between the checker and emitter phases. Update `CompilationResult` to report optimizer timing and metrics. Handle the interaction with `package.tyhp.json` generation (Story 20) — the tyhpdef must be generated from the **unoptimized** AST.
+Wire the optimizer into the build pipeline. Update `BuildAction` to run the optimizer between the checker and emitter phases. Update `CompilationResult` to report optimizer timing and metrics. Handle the interaction with `extra.tyhp.package` generation (Story 20) — the tyhpdef must be generated from the **unoptimized** AST.
 
 ### Deliverables
 
@@ -1184,12 +1056,12 @@ Insert the optimizer between the error gate and the emitter:
 ```
 Step 6: Run checker
 Step 7: Error gate — decide whether to continue
-Step 7.5: Generate package.tyhp.json (if library project) — BEFORE optimization
+Step 7.5: Generate extra.tyhp.package (if library project) — BEFORE optimization
 Step 8: Run optimizer
 Step 9: Run emitter
 ```
 
-The `package.tyhp.json` generation step is placed **before** the optimizer to ensure the public API contract is captured from the unoptimized AST. This is critical: the `package.tyhp.json` must reflect what external consumers see, not what the optimizer has transformed internally.
+The `extra.tyhp.package` generation step is placed **before** the optimizer to ensure the public API contract is captured from the unoptimized AST. This is critical: the `extra.tyhp.package` must reflect what external consumers see, not what the optimizer has transformed internally.
 
 **Step 8 implementation:**
 
@@ -1274,14 +1146,14 @@ The sourcemap generator needs to handle inlined nodes. When an AST node has been
 
 1. The replacement node preserves the original node's source location via the `OriginalAst` property (defined in the "OriginalAst Provenance Property" section above).
 2. The sourcemap generator maps the emitted PHP code back to the **original Tyhp source location** of the call site, not the inlined method body.
-3. This means that when a developer sees a PHP error on a line that was an inlined extension method call, the sourcemap correctly maps back to the `$a + $b` expression in their Tyhp source — not to the `$left->add($right)` body of the extension operator.
+3. This means that when a developer sees a PHP error on a line that was a spliced `#[Inline]` call, the sourcemap correctly maps back to the `$f->myTrim($s)` expression in their Tyhp source — not to the `\trim($s)` body of the method. The same requirement applies to the emit-time splices Story 20.6 performs.
 
 This interaction is documented here but the actual sourcemap modifications are part of Story 17's scope. Story 17 should handle `OriginalAst`-annotated nodes when generating mappings.
 
 ### Acceptance Criteria
 
 - [ ] The optimizer runs between the checker error gate and the emitter in `BuildAction`
-- [ ] `package.tyhp.json` generation (Story 20 placeholder) occurs BEFORE the optimizer
+- [ ] `extra.tyhp.package` generation (Story 20 placeholder) occurs BEFORE the optimizer
 - [ ] `CompilationResult.OptimizeDuration` reports correct timing
 - [ ] `CompilationResult.OptimizationMetrics` contains per-module metrics
 - [ ] The summary display includes optimizer timing and transformation count
@@ -1295,8 +1167,58 @@ This interaction is documented here but the actual sourcemap modifications are p
 
 ### Dependencies
 
-- **Requires:** Phase 1 (framework), Phases 2–6 (modules), Story 10 (build action)
+- **Requires:** Phase 1 (framework), Phases 5–6 (modules), Story 10 (build action)
 - **Provides:** Fully integrated optimizer in the build pipeline
+
+---
+
+## Phase 8: User documentation and AIDevGuide
+
+### Phase Overview
+
+The optimizer is user-facing in four ways: a `tyhp.json` section, CLI flags, an attribute authors write in source, and a set of diagnostics. All four need published documentation, and the rules an author must follow to use `#[\Tyhp\Optimize\Inline]` correctly — a written parameter must be declared `&`, a `&` argument must be referenceable — are language rules, not tuning knobs, so they belong in the language pages rather than only in a build page.
+
+Story 24 adds the remaining modules and two more attributes. Keep this phase to what this story ships and let Story 24 extend the same pages.
+
+### Pages to update (create a sibling page only if an existing page cannot hold the topic)
+
+| Page | What this story adds |
+|------|----------------------|
+| **New** `docs/content/project_optimization.md` | The `optimize` levels and what each turns on; `optimizations` per-module overrides; `build.profile`; the guarantee that a level never changes observable behavior. Register in `docs/content/toc.json` |
+| `docs/content/project_optionsList.md` | `build.profile`, `build.optimize`, `build.optimizations` keys with defaults |
+| `docs/content/cli_build.md` | `--optimize`, `--optimize-enable`, `--optimize-disable`, `--profile`, and the verbose metrics output |
+| **New** `docs/content/tyhp_NNNN_inlineAttribute.md` (or a section in `tyhp_2700_compileTimeConstructs.md`) | `#[\Tyhp\Optimize\Inline]`: valid targets, single-`return` bodies only, the `&` contract for written parameters, referenceable arguments, and when the compiler keeps the real call instead of splicing. Take the next free `tyhp_NNNN_` slot per `docs/readme.md` rather than assuming one |
+| `docs/content/tyhp_2100_extensions.md` | Extension splicing is form-driven and always on, so `optimize` does not affect it — the contrast readers will otherwise assume |
+| `docs/content/diagnostics_reference.md` | `4178`–`4181` and the `47xx` optimizer codes, including which are info-only under `--verbose` |
+| `docs/content/faq_cli.md` / `docs/content/faq_project.md` | Why `optimize: none` still splices extensions; whether optimization can change behavior |
+| `docs/content/quickref.md` | One `#[Inline]` line |
+
+### AIDevGuide
+
+`AIDevGuide/` is the bundle an agent loads to write Tyhp applications, and it is **regenerated** from the prompt in `AIDevGuide/REGEN.md`. A claim corrected only in a section file comes back the next time the bundle is regenerated, so update the prompt as well as the section.
+
+| File | What this story changes |
+|---|---|
+| `AIDevGuide/guide/26-build-cli.md` | `optimize` levels, the `optimizations` map, and the new CLI flags |
+| `AIDevGuide/guide/17-compile-time-helpers.md` | `#[\Tyhp\Optimize\Inline]` and its authoring rules; an agent writing library code will reach for it |
+| `AIDevGuide/guide/27-diagnostics.md` | The new checker errors and the optimizer warning band |
+| `AIDevGuide/guide/28-availability-gotchas.md` | Whether `#[Inline]` is "use freely" yet |
+| `AIDevGuide/QUICK_GUIDE.md` | One line for the attribute |
+| `AIDevGuide/REGEN.md` | Prompt item 26 lists `tyhp.json` keys and CLI commands; add the optimize keys and flags. Item 17 (compile-time helpers) should mention the attribute |
+
+### Acceptance Criteria
+
+- [ ] Every `tyhp.json` key and CLI flag Phase 1 and Phase 7 add is documented with its default
+- [ ] The `#[Inline]` page states the `&` contract, the referenceability rule, and that an unspliceable call site keeps the real call
+- [ ] Docs make clear that extension splicing is not controlled by `optimize`
+- [ ] `4178`–`4181` and the `47xx` codes are in `diagnostics_reference.md`
+- [ ] `docs/content/toc.json` lists any new page
+- [ ] `AIDevGuide/guide/26-build-cli.md` and `27-diagnostics.md` cover the new surface, and `REGEN.md` items 17 and 26 would regenerate it
+
+### Dependencies
+
+- **Requires:** Phases 1, 5, 6, 7 (the shipped surface being documented)
+- **Provides:** Published documentation and agent-facing guide entries matching the shipped optimizer
 
 ---
 
@@ -1310,8 +1232,11 @@ This interaction is documented here but the actual sourcemap modifications are p
 | **Story 10 (Build Action)** | Add optimizer step to the pipeline flow diagram and `BuildAction` implementation. Add `OptimizationConfig`, `BuildProfileConfig` to config parsing. Add `OptimizeDuration` to timing summary. Add CLI argument handling for `--optimize`, `--optimize-enable`, `--optimize-disable`, `--profile`. |
 | **Story 11 (Emitter Feature Expansion)** | Update project context to include the optimizer in the pipeline. Note that extension method/operator transformers may produce output that has already been partially optimized. |
 | **Story 17 (Sourcemaps)** | Add handling for optimizer-replaced AST nodes. Replacement nodes carry an `OriginalAst` reference for source mapping. Stack traces for inlined code should map back to the Tyhp call site. |
-| **Story 20 (Tyhpdef Generator)** | Confirm that `package.tyhp.json` is generated from the unoptimized AST. Document the ordering requirement: tyhpdef generation runs before the optimizer. |
-| **Story 18 (XDebug Proxy)** | Note that inlined method calls will not appear in PHP stack traces. The XDebug proxy should use sourcemaps to reconstruct the original Tyhp call stack when displaying to the developer. |
+| **Story 20 (Tyhpdef Generator)** | Confirm that `extra.tyhp.package` / Track C tyhpdef is generated from the unoptimized AST. Document the ordering requirement: tyhpdef generation runs before the optimizer. Track C also needs the `#[Inline]` representation from Phase 5 (aliased backer declaration + thin mapping). |
+| **Story 20.6 (Thin mappings + splice engine)** | Owns **all** extension splicing (at emit, by form, at every optimization level) and the shared call-site splice engine plus its safety rules. This story's Phases 2–4 are removed. Do not plan optimizer inlining, `__TyhpInlineExt_*` emit, or backer-class elimination for any extension member. **Still to mirror into 20.6's engine section:** the accessibility rule (`4179`), the `self::` / `parent::` / `static::` rewrite, the three by-reference rules from Phase 5, and `4181` for an erased member whose call site cannot be spliced faithfully. |
+| **Story 08 (Checker)** | Already shipped. Rule 2's referenceability check (`4180`) is a general call-site rule covering every by-reference parameter at every optimization level, including PHP builtins, so it lands in the shipped call checker rather than the optimizer. Plan and diagnostics live here; do not edit Story 08's plan. |
+| **Story 20.7 (Tyhpdef hooked properties)** | Supplies the tyhpdef syntax rule 2 depends on: bodyless `{ get; set; }` / `{ &get; }` plus the binder flags `HasAccessor` / `HasGetHook` / `HasSetHook` / `GetHookReturnsRef`, set for tyhpdef-bound properties as well as Tyhp ones. `4180` reads those flags, so a consumer compiling against `package.tyhpdef` can tell a referenceable `{ &get; }` from a by-value `{ get; }`. Implemented before Story 20.6. `&__get` and `&offsetGet` need nothing new — `tyhpdefImportClassMethod` already carries `ReturnsRef`. |
+| **Story 18 (XDebug Proxy)** | Inlined method calls do not appear in PHP stack traces. When reconstructing those frames for the IDE from sourcemaps, the XDebug proxy uses `SensitiveParameterRedaction` (`Tyhp/XDebugProxy/Translation/SensitiveParameterRedaction.cs`) on any synthesized or rewritten argument list. Prefer PHP’s `\SensitiveParameterValue` wrapper when present. Wrap opaque when the parameter is marked `#[\SensitiveParameter]` or when compile/sourcemap metadata is missing. Do not unwrap `$value` the way Decimal display does. |
 | **TODO.md** | Add Story 23 and Story 24 entries. |
 | **MASTER_FEATURES_LIST.md** | Add optimizer to build configuration and CLI tools sections. |
 
@@ -1374,7 +1299,7 @@ Run:
 tyhp build --verbose
 ```
 
-**Expected:** The verbose output should show the optimizer running with modules at the `basic` level (extension operator inlining, extension method inlining, synthetic class elimination, constant folding, dead code elimination).
+**Expected:** The verbose output should show the optimizer running with modules at the `basic` level (annotated-member inlining, constant folding, dead code elimination).
 
 ### Step 3: Verify Build Profiles
 
@@ -1432,65 +1357,26 @@ Test force-disabling a module:
 
 Run `tyhp build --verbose`. **Expected:** All basic modules run except dead code elimination.
 
-### Step 5: Verify Extension Operator Inlining
+### Step 5: Verify `#[Inline]` on a Method
 
-Create a tyhpdef that declares an extension operator with a single-statement body. Then create a Tyhp source file that uses it.
-
-For example, assuming the `tyhp/decimal` package exposes `extension operator +` with body `return $left->add($right);`:
-
-Create `test_opt_operator.tyhp`:
-
-```tyhp
-<?tyhp
-
-use Tyhp\Decimal;
-
-function testOperatorInlining(): void {
-    Decimal $a = \Tyhp\decimal("10.5");
-    Decimal $b = \Tyhp\decimal("20.3");
-    Decimal $result = $a + $b;
-    echo $result;
-}
-```
-
-Run without optimization:
-
-```bash
-tyhp build --optimize=none --verbose
-```
-
-Inspect the output — it should contain a static call like `__TyhpInlineExt_Decimal::__OP_Decimal_ADD_Decimal($a, $b)`.
-
-Run with optimization:
-
-```bash
-tyhp build --optimize=basic --verbose
-```
-
-Inspect the output. **Expected:**
-
-- The static call is replaced with the inlined expression: `$a->add($b)`
-- Verbose output reports `OptimizerInlinedExtensionOperator` for the transformation
-- The output PHP passes `php -l`
-
-### Step 6: Verify Extension Method Inlining
-
-Create a test file `test_opt_method.tyhp` that uses an extension method with a single-statement body:
+Create `test_opt_inline_method.tyhp`:
 
 ```tyhp
 <?tyhp
 
 namespace App;
 
-extension StringHelpers for string {
-    public function shout(): string {
-        return \strtoupper($this) . "!";
+use \Tyhp\Optimize\Inline;
+
+class Formatter {
+    #[Inline()]
+    public function myTrim(string $s): string {
+        return \trim($s);
     }
 }
 
-function demo(): void {
-    string $msg = "hello";
-    echo $msg->shout();
+function demo(Formatter $f): void {
+    echo $f->myTrim("  hi  ");
 }
 ```
 
@@ -1500,7 +1386,7 @@ Run without optimization:
 tyhp build --optimize=none
 ```
 
-Inspect output — should contain `StringHelpers::shout($msg)`.
+Inspect the output — the call should remain `$f->myTrim('  hi  ')`, and `Formatter::myTrim()` should be present.
 
 Run with optimization:
 
@@ -1510,9 +1396,56 @@ tyhp build --optimize=basic --verbose
 
 **Expected:**
 
-- The call is inlined to `(\strtoupper($msg) . "!")`
-- Verbose output reports `OptimizerInlinedExtensionMethod`
-- Output passes `php -l`
+- The call site becomes `(\trim('  hi  '))`
+- `Formatter::myTrim()` is **still emitted** — the attribute never removes a PHP member
+- `#[Inline]` does not appear in the PHP output
+- Verbose output reports `OptimizerInlinedAnnotatedMember`
+- The output passes `php -l`
+
+If the project is a library, also check the generated tyhpdef: it should declare `public function myTrim as myTrim__tyhpInlineBacker(string $s): string;` plus `extension fn myTrim(string $s): string => \trim($s);`.
+
+### Step 6: Verify `#[Inline]` on an Operator and Repeated Parameters
+
+Create `test_opt_inline_operator.tyhp`:
+
+```tyhp
+<?tyhp
+
+namespace App;
+
+use \Tyhp\Optimize\Inline;
+
+class Point {
+    public function __construct(public int $x) {}
+
+    #[Inline()]
+    operator +(self $left, self $right): self => new self($left->x + $right->x);
+
+    #[Inline()]
+    public function twice(int $n): int {
+        return $n + $n;
+    }
+}
+
+function demo(Point $a, Point $b): void {
+    Point $c = $a + $b;
+    int $d = $a->twice(\readAndAdvance());
+}
+```
+
+Run:
+
+```bash
+tyhp build --optimize=basic --verbose
+```
+
+**Expected:**
+
+- `$a + $b` becomes `(new \App\Point($a->x + $b->x))`
+- `Point::__add()` is still emitted
+- The repeated parameter is evaluated **once**: `(($__tyhpInlineTemp1 = \readAndAdvance()) + $__tyhpInlineTemp1)`
+- The generated temp name does not collide with any variable in `demo()`
+- The output passes `php -l`
 
 ### Step 7: Verify Constant Folding
 
@@ -1585,85 +1518,162 @@ Inspect the output PHP. **Expected:**
 - Verbose output reports `OptimizerEliminatedDeadCode` for each removal
 - The output passes `php -l`
 
-### Step 9: Verify Synthetic Class Elimination
+### Step 9: Verify the Optimizer Leaves Extension Members Alone
 
-After extension operator and method inlining (Steps 5-6), verify that if ALL methods of a synthetic extension class have been inlined, the class itself is removed from the output.
-
-Run with optimization on a file that uses extension operators:
-
-```bash
-tyhp build --optimize=basic --verbose
-```
-
-**Expected:** If all call sites of a synthetic class (e.g., `__TyhpInlineExt_Decimal`) were inlined, the class file is NOT generated in the output directory. Verbose output should report `OptimizerEliminatedSyntheticClass`.
-
-### Step 10: Verify Multi-Statement Bodies Are NOT Inlined
-
-Create a test with a multi-statement extension method:
+Extension splicing belongs to Story 20.6 and happens at emit, so it must be visible with the optimizer switched off.
 
 ```tyhp
 <?tyhp
 
-namespace App;
+extension StringHelpers {
+    fn shortProcess(extends string $this): string => ' ' . $this;
 
-extension StringHelpers for string {
-    public function safeUpper(): string {
-        if (\strlen($this) === 0) {
-            return "";
-        }
-        return \strtoupper($this);
+    function simpleProcess(extends string $this): string {
+        return $this . ' ';
     }
-}
 
-function demo(): void {
-    string $msg = "hello";
-    echo $msg->safeUpper();
+    function complexStringProcess(extends string $this): string {
+        string $result = \trim($this);
+        return $result . '!';
+    }
 }
 ```
 
 Run:
 
 ```bash
-tyhp build --optimize=basic --verbose
-```
-
-**Expected:** The `safeUpper()` method is NOT inlined because it has multiple statements (if/return/return). The output should contain the static call `StringHelpers::safeUpper($msg)` and the StringHelpers class should be generated.
-
-### Step 11: Verify `#[\Tyhp\Optimize\Inline]` Attribute
-
-Create `test_opt_inline_attr.tyhp`:
-
-```tyhp
-<?tyhp
-
-namespace App;
-
-use \Tyhp\Optimize\Inline;
-
-extension MathHelpers for int {
-    #[Inline()]
-    public function doubled(): int {
-        return $this * 2;
-    }
-}
-
-function demo(): void {
-    int $x = 5;
-    int $y = $x->doubled();
-}
-```
-
-Run:
-
-```bash
-tyhp build --optimize=basic --verbose
+tyhp build --optimize=none --verbose
 ```
 
 **Expected:**
 
-- The method is inlined: `$y = ($x * 2);`
-- The `#[Inline]` attribute does NOT appear in the PHP output
-- Verbose output reports `OptimizerInlinedAnnotatedMember`
+- `$s->shortProcess()` is already spliced, and `StringHelpers::shortProcess()` does **not** exist in PHP
+- `$s->simpleProcess()` is already spliced, and `StringHelpers::simpleProcess()` **does** exist in PHP
+- `$s->complexStringProcess()` is a static call to the emitted method
+- The optimizer reports **no** extension transformations at any level, and the backer class is never eliminated
+
+### Step 10: Verify Invalid `#[Inline]` Targets Are Errors
+
+```tyhp
+<?tyhp
+
+use \Tyhp\Optimize\Inline;
+
+class Bad {
+    private string $secret = "hidden";
+
+    #[Inline()]
+    public function safeUpper(string $s): string {
+        if (\strlen($s) === 0) {
+            return "";
+        }
+        return \strtoupper($s);
+    }
+
+    #[Inline()]
+    public function mutates(int $n): int {
+        return $n++;
+    }
+
+    #[Inline()]
+    public function alsoMutates(int $n): int {
+        return ++$n;
+    }
+
+    #[Inline()]
+    public function unusedRef(int &$n): int {
+        return $n + 1;
+    }
+
+    #[Inline()]
+    public function leaks(): string {
+        return $this->secret;
+    }
+
+    #[Inline()]
+    private function alsoReadsSecret(): string {
+        return $this->secret;
+    }
+}
+
+extension AlsoBad {
+    #[Inline()]
+    fn shout(extends string $this): string => \strtoupper($this);
+}
+```
+
+Run `tyhp build`. **Expected:** six errors — `TYHP4178` (multi-statement body), `TYHP4174` three times (`$n++` and `++$n` write a parameter not declared `&`; `unusedRef` declares `&` on a parameter it never writes), `TYHP4179` (a `public` member's body reads a `private` property), and `TYHP4176` (attribute on an extension member). None of them are warnings. `alsoReadsSecret` is **not** an error: a private member's call sites already hold private access.
+
+### Step 10b: Verify By-Reference Argument and Hoisting Rules
+
+```tyhp
+<?tyhp
+
+use \Tyhp\Optimize\Inline;
+
+class Holder {
+    public readonly int $frozen;
+    public int $hooked {
+        get => $this->frozen;
+        set(int $value) { }
+    }
+    public array $refItems {
+        &get { return $this->items; }
+    }
+    private array $items = [];
+
+    public function __construct(): void { $this->frozen = 4; }
+}
+
+class Refs {
+    #[Inline]
+    public fn addTwo(int &$i): int => $i += 2;
+
+    #[Inline]
+    public fn twice(array &$a): int => (($a[] = 1) !== null ? \count($a) : 0);
+
+    #[Inline]
+    public fn ignoreSecond(int $a, int $b): int => $a;
+}
+
+class Uses {
+    public function run(): void {
+        Refs $r = new Refs();
+        Holder $h = new Holder();
+        int $i = 1;
+
+        $r->addTwo($i);              // legal
+        $r->addTwo($h->frozen);      // TYHP4180 — readonly
+        $r->addTwo($h->hooked);      // TYHP4180 — by-value get hook
+        $r->addTwo(4);               // TYHP4180 — literal
+        $r->addTwo(\intval('4'));    // TYHP4180 — call result
+        \ksort($h->hooked);          // TYHP4180 — not inline, same rule
+
+        $r->twice($h->refItems);     // legal: &get is referenceable
+        $r->ignoreSecond(1, \intval('2'));  // warning: arg 2 would be dropped
+    }
+}
+```
+
+Run `tyhp build --verbose`. **Expected:** five `TYHP4180` errors and one `OptimizerInlineAttributeNotApplicable` warning. Build with the errors removed and confirm in the emitted PHP that `twice($h->refItems)` produced a ref-bound local (`$__tyhpInlineTemp… = &$h->refItems;`) rather than a by-value copy, and that `ignoreSecond` remained a real method call. Then run the same source at `--optimize=none` and diff the runtime output: the two must be identical.
+
+### Step 11: Verify `optimize: "none"` and the Module Override
+
+Using the Step 5 file, run:
+
+```bash
+tyhp build --optimize=none --verbose
+```
+
+**Expected:** The call to `myTrim()` remains a real method call; the optimizer does not run.
+
+Then run:
+
+```bash
+tyhp build --optimize=none --optimize-enable=inlineAnnotatedMembers --verbose
+```
+
+**Expected:** Only `InlineAnnotatedMemberModule` runs, and the call site is spliced. Run both outputs with `php` and confirm identical runtime behavior.
 
 ### Step 12: Verify CLI Optimizer Arguments
 

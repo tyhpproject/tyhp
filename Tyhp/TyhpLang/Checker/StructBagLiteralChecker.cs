@@ -72,11 +72,32 @@ namespace Tyhp.TyhpLang.Checker
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
+            if (!TryGetNamedArrayPairs(sourceExpression, out var pairs))
+            {
+                return false;
+            }
+
+            // Deferred `__Properties<T>` (T still a type parameter): every key will be optional
+            // once T is known. Empty `[]` and named bags stay gradual until call-site expansion.
+            if (UtilityTypeResolver.IsDeferredPropertiesType(target))
+            {
+                return pairs.Count == 0 || TryReadNamedKeys(pairs, out _);
+            }
+
+            if (target is UnionCheckedType unionTarget
+                && pairs.Count == 0
+                && unionTarget.Members.Count > 0
+                && unionTarget.Members.All(member =>
+                    member is StructCheckedType structMember
+                    && structMember.Properties.Values.All(property => property.IsOptional)))
+            {
+                return true;
+            }
+
             // Only synthetic <see cref="StructCheckedType"/> shapes (callable bags, inline
-            // struct types). Named struct *classes* stay on ordinary assignability so
-            // <c>Point $p = ['x' => 1]</c> is not silently accepted as a property bag.
-            if (!TryGetNamedArrayPairs(sourceExpression, out var pairs)
-                || target is not StructCheckedType structType)
+            // struct types, `__Properties<Concrete>`). Named struct *classes* stay on ordinary
+            // assignability so <c>Point $p = ['x' => 1]</c> is not silently accepted as a property bag.
+            if (target is not StructCheckedType structType)
             {
                 return false;
             }
@@ -384,8 +405,8 @@ namespace Tyhp.TyhpLang.Checker
             var source = UnwrapReturnExpression(expression);
             List<PhpArrayPairAst>? list = source switch
             {
-                PhpArrayAst array => array.ArrayPairs?.GetAllNotNull().ToList(),
-                PhpArrayPairListAst pairList => pairList.GetAllNotNull().ToList(),
+                PhpArrayAst array => array.ArrayPairs?.GetAllExcludingSkippedSlots().ToList(),
+                PhpArrayPairListAst pairList => pairList.GetAllExcludingSkippedSlots().ToList(),
                 _ => null,
             };
 

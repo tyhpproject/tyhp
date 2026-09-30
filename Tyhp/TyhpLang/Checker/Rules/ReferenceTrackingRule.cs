@@ -3,6 +3,8 @@ using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
+using Tyhp.TyhpLang.Emitter.Splice;
 
 namespace Tyhp.TyhpLang.Checker.Rules
 {
@@ -68,6 +70,61 @@ namespace Tyhp.TyhpLang.Checker.Rules
         private static bool IsReferenceAssignment(IExpression expression) =>
             expression is PhpUnaryOpAst { Operator.ValueString: "&" };
 
+        /// <summary>
+        /// An extension member's raw <see cref="ParameterInfo"/> list carries an implicit receiver
+        /// as its first entry whenever the owning type is an extension (Tyhp <c>extension { }</c>
+        /// declares it explicitly as <c>extends T $this</c>; a tyhpdef class-body thin mapping has
+        /// none). Call-site arguments never include that receiver, so it must be excluded before
+        /// matching positionally — mirrors <c>CallSiteSpliceEngine.TryBuildRequestFromCallee</c>.
+        /// </summary>
+        private static IReadOnlyList<ParameterInfo> ExtensionCallArguments(IBaseSymbol callee)
+        {
+            var rawParameters = SpliceAst.ParametersOf(callee) ?? [];
+            var owner = CallSiteSpliceEngine.OwnerOf(callee);
+            var firstIsThis = owner is { IsExtension: true }
+                || (rawParameters.Count > 0 && SpliceAst.IsThisName(rawParameters[0].Name));
+            return firstIsThis ? rawParameters.Skip(1).ToList() : rawParameters;
+        }
+
+        /// <summary>
+        /// <c>extends T &amp;$this</c> splices the receiver into a PHP <c>&amp;</c> parameter.
+        /// The receiver must be referenceable, same as any other by-reference argument (TYHP4180).
+        /// </summary>
+        private static void CheckByRefExtensionReceiver(
+            IBaseSymbol callee,
+            IExpression? receiver,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var rawParameters = SpliceAst.ParametersOf(callee) ?? [];
+            var owner = CallSiteSpliceEngine.OwnerOf(callee);
+            var firstIsThis = owner is { IsExtension: true }
+                || (rawParameters.Count > 0 && SpliceAst.IsThisName(rawParameters[0].Name));
+            if (!firstIsThis || rawParameters.Count == 0 || !rawParameters[0].IsByReference)
+            {
+                return;
+            }
+
+            if (SpliceAnalysis.IsReferenceableArgument(receiver, state, context))
+            {
+                return;
+            }
+
+            var report = receiver as IBase2Ast ?? SpliceAst.DeclaringNodeOf(callee);
+            if (report is null)
+            {
+                return;
+            }
+
+            CheckerHelpers.ReportError(
+                diagnostics,
+                state,
+                report,
+                MessageCode.CheckerNonReferenceableByRefArgument,
+                SpliceAst.NormalizeName(rawParameters[0].Name));
+        }
+
         private static void CheckReferenceArguments(
             PhpDereferenceableAst deref,
             PhpCallAst call,
@@ -105,6 +162,17 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 {
                     parameters = method.Parameters;
                 }
+                else if (methodName is not null
+                    // Not a plain member of the receiver's own type: the method may still be an
+                    // extension (Tyhp `extension { }` or a tyhpdef class-body thin mapping), which
+                    // this by-reference check must cover too (splicing a `&` parameter behaves
+                    // exactly like a real by-reference call).
+                    && InlineSpliceRule.ResolveExtensionCallee(deref, state, context) is { } extensionCallee)
+                {
+                    CheckByRefExtensionReceiver(
+                        extensionCallee, chain.Base as IExpression, state, context, diagnostics);
+                    parameters = ExtensionCallArguments(extensionCallee);
+                }
             }
 
             if (parameters is null || call.Arguments is null)
@@ -140,17 +208,16 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     continue;
                 }
 
-                if (!IsValidRefArgument(arg.Expression))
+                if (!SpliceAnalysis.IsReferenceableArgument(arg.Expression, state, context))
                 {
                     CheckerHelpers.ReportError(
-                        diagnostics, state, arg, MessageCode.CheckerRefArgMustBeVariable);
+                        diagnostics,
+                        state,
+                        arg,
+                        MessageCode.CheckerNonReferenceableByRefArgument,
+                        SpliceAst.NormalizeName(param.Name));
                 }
             }
         }
-
-        private static bool IsValidRefArgument(IExpression? expression) =>
-            expression is PhpVariableAst
-            || expression is PhpDereferenceableAst { Suffix: PhpArrayAccessAst }
-            || expression is PhpDereferenceableAst { Suffix: PhpInstanceMemberAccessAst };
     }
 }

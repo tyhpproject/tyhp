@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "phpVersion": "8.4.5",
+  "extension": "mini",
+  "extensionVersion": "8.4.5",
+  "constants": [
+    { "name": "MINI_ALWAYS", "value": { "kind": "int", "value": 1 }, "type": { "kind": "named", "text": "int", "name": "int", "builtin": true }, "deprecated": false },
+    { "name": "MINI_NEW", "value": { "kind": "int", "value": 3 }, "type": { "kind": "named", "text": "int", "name": "int", "builtin": true }, "deprecated": false }
+  ],
+  "functions": [
+    {
+      "name": "mini_always",
+      "params": [{ "name": "value", "type": { "kind": "named", "text": "mixed", "name": "mixed", "builtin": true } }],
+      "returnType": { "kind": "named", "text": "void", "name": "void", "builtin": true }
+    },
+    {
+      "name": "mini_changed",
+      "params": [
+        { "name": "value", "type": { "kind": "named", "text": "int", "name": "int", "builtin": true } },
+        { "name": "flags", "type": { "kind": "named", "text": "int", "name": "int", "builtin": true }, "optional": true, "default": { "kind": "int", "value": 0 } }
+      ],
+      "returnType": { "kind": "named", "text": "int", "name": "int", "builtin": true }
+    },
+    {
+      "name": "mini_added",
+      "params": [],
+      "returnType": { "kind": "named", "text": "bool", "name": "bool", "builtin": true }
+    }
+  ],
+  "classes": [
+    {
+      "name": "MiniShared",
+      "kind": "class",
+      "methods": [
+        { "name": "always", "params": [], "returnType": { "kind": "named", "text": "void", "name": "void", "builtin": true }, "modifiers": ["public"] },
+        { "name": "fresh", "params": [], "returnType": { "kind": "named", "text": "string", "name": "string", "builtin": true }, "modifiers": ["public"] }
+      ]
+    },
+    {
+      "name": "MiniAdded",
+      "kind": "class",
+      "methods": []
+    }
+  ]
+}

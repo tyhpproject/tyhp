@@ -33,6 +33,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 };
             }
 
+            AddTrackedStaticProperties(result, objectSymbol, symbolTree, globalScope);
             return result;
         }
 
@@ -59,6 +60,22 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 };
             }
 
+            AddTrackedStaticProperties(result, objectSymbol, symbolTree, globalScope);
+            return result;
+        }
+
+        /// <summary>
+        /// Builds the property-init map for a static method: enclosing-class static properties
+        /// only (no <c>$this</c>). Used so <c>self::$x === null</c> / <c>self::$x = …</c> share
+        /// the same <see cref="PropertyInitializationState"/> narrowing as <c>$this->prop</c>.
+        /// </summary>
+        public static Dictionary<string, PropertyInitializationState> SeedForStaticMethod(
+            ObjectDeclarationSymbol objectSymbol,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            var result = new Dictionary<string, PropertyInitializationState>(StringComparer.Ordinal);
+            AddTrackedStaticProperties(result, objectSymbol, symbolTree, globalScope);
             return result;
         }
 
@@ -155,8 +172,53 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // Parent-first so a same-named child override replaces the ancestor entry.
             var byName = new Dictionary<string, ObjectPropertySymbol>(StringComparer.Ordinal);
             var visited = new HashSet<ObjectDeclarationSymbol>();
-            CollectTrackedProperties(objectSymbol, objectSymbol, symbolTree, globalScope, byName, visited);
+            CollectTrackedProperties(
+                objectSymbol,
+                objectSymbol,
+                symbolTree,
+                globalScope,
+                byName,
+                visited,
+                SymbolType.InstanceObjectProperty);
             return byName.Values;
+        }
+
+        /// <summary>
+        /// Static storage properties visible on <paramref name="objectSymbol"/> for control-flow
+        /// narrowing of <c>self::$prop</c> / <c>static::$prop</c> / <c>ClassName::$prop</c>.
+        /// Same visibility / hook / typed-slot filters as instance tracking.
+        /// </summary>
+        public static IEnumerable<ObjectPropertySymbol> EnumerateTrackedStaticProperties(
+            ObjectDeclarationSymbol objectSymbol,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            var byName = new Dictionary<string, ObjectPropertySymbol>(StringComparer.Ordinal);
+            var visited = new HashSet<ObjectDeclarationSymbol>();
+            CollectTrackedProperties(
+                objectSymbol,
+                objectSymbol,
+                symbolTree,
+                globalScope,
+                byName,
+                visited,
+                SymbolType.StaticObjectProperty);
+            return byName.Values;
+        }
+
+        private static void AddTrackedStaticProperties(
+            Dictionary<string, PropertyInitializationState> result,
+            ObjectDeclarationSymbol objectSymbol,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            foreach (var prop in EnumerateTrackedStaticProperties(objectSymbol, symbolTree, globalScope))
+            {
+                result[prop.Name] = new PropertyInitializationState
+                {
+                    IsDefinitelyInitialized = IsDeclarationGuaranteed(prop),
+                };
+            }
         }
 
         private static void CollectTrackedProperties(
@@ -165,7 +227,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             SymbolTree symbolTree,
             GlobalScope globalScope,
             Dictionary<string, ObjectPropertySymbol> byName,
-            HashSet<ObjectDeclarationSymbol> visited)
+            HashSet<ObjectDeclarationSymbol> visited,
+            SymbolType wantedKind)
         {
             if (!visited.Add(current))
             {
@@ -174,7 +237,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             if (TypeComparer.TryGetParentDeclaration(current, symbolTree, globalScope) is { } parent)
             {
-                CollectTrackedProperties(root, parent, symbolTree, globalScope, byName, visited);
+                CollectTrackedProperties(
+                    root, parent, symbolTree, globalScope, byName, visited, wantedKind);
             }
 
             var isRoot = ReferenceEquals(current, root);
@@ -185,7 +249,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     continue;
                 }
 
-                if (prop.SymbolType != SymbolType.InstanceObjectProperty)
+                if (prop.SymbolType != wantedKind)
                 {
                     continue;
                 }

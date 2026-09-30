@@ -66,9 +66,56 @@ public class GenericObjectEmitterTests
     }
 
     [Fact]
+    public void Emit_GenericClassWithTypeof_SkipsInjectingHasGenericsWhenAuthorAlreadyUsesFqcn()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Box<T> {
+                use \Tyhp\Concerns\HasGenerics;
+
+                public function describe(): \Tyhp\Type {
+                    return typeof(T);
+                }
+            }
+            """);
+
+        System.Text.RegularExpressions.Regex.Matches(php, @"use \\Tyhp\\Concerns\\HasGenerics;")
+            .Count
+            .Should()
+            .Be(1);
+    }
+
+    [Fact]
+    public void Emit_GenericClassWithTypeof_SkipsInjectingHasGenericsWhenAuthorAlreadyUsesShortName()
+    {
+        // Author wrote the unqualified trait name; ObjectAlreadyUsesGenericObjectTrait matches
+        // that AST text. Emit then spells the resolved FQCN, so a working skip is one
+        // `use \Tyhp\Concerns\HasGenerics;` (not two).
+        var php = CompileAndEmit("""
+            <?tyhp
+            use Tyhp\Concerns\HasGenerics;
+
+            class Box<T> {
+                use HasGenerics;
+
+                public function describe(): \Tyhp\Type {
+                    return typeof(T);
+                }
+            }
+            """);
+
+        php.Should().Contain("use Tyhp\\Concerns\\HasGenerics;");
+        System.Text.RegularExpressions.Regex.Matches(php, @"use \\Tyhp\\Concerns\\HasGenerics;")
+            .Count
+            .Should()
+            .Be(1);
+    }
+
+    [Fact]
     public void Emit_ConstructorReturnTypeVoid_IsErasedInPhp()
     {
-        // Tyhp requires `: void` on constructors; PHP forbids return types on __construct.
+        // Tyhp allows `: void` on constructors; PHP forbids return types on __construct,
+        // so the annotation is erased from the emitted PHP.
         var php = CompileAndEmit("""
             <?tyhp
             class Widget {
@@ -84,12 +131,116 @@ public class GenericObjectEmitterTests
     }
 
     [Fact]
+    public void Emit_ConstructorOmittedReturnType_EmitsNoReturnTypeAndNoParentCall()
+    {
+        // Omitting the constructor return type is equivalent to `: void`: the emitted
+        // PHP ctor has no return type and Tyhp never inserts an implicit
+        // `parent::__construct()` call.
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Widget {
+                public function __construct(int $n) {}
+            }
+            """);
+
+        php.Should().Contain("function __construct(int $n)");
+        php.Should().NotContain("__construct(int $n):");
+        php.Should().NotContain("parent::__construct");
+    }
+
+    [Fact]
+    public void Emit_ConstructorOmittedReturnType_IsByteEquivalentToVoid()
+    {
+        // `function __construct(int $n) {}` and `function __construct(int $n): void {}`
+        // must emit byte-equivalent PHP for the constructor signature.
+        var omitted = CompileAndEmit("""
+            <?tyhp
+            class Widget {
+                public function __construct(int $n) {}
+            }
+            """);
+
+        var explicitVoid = CompileAndEmit("""
+            <?tyhp
+            class Widget {
+                public function __construct(int $n): void {}
+            }
+            """);
+
+        omitted.Should().Be(explicitVoid);
+    }
+
+    [Fact]
+    public void Emit_ConstructorParentReturnType_InsertsParentCallFirst()
+    {
+        // `: parent(args)` is the only form that chains to the parent constructor;
+        // the `parent::__construct(args);` call is emitted as the first body statement.
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Base {
+                public function __construct(int $x): void {}
+            }
+            class Widget extends Base {
+                public function __construct(int $x): parent($x) {}
+            }
+            """);
+
+        php.Should().Contain("class Widget extends Base");
+        php.Should().Contain("function __construct(int $x)");
+        php.Should().NotContain("__construct(int $x):");
+        // The parent call is the first body statement.
+        php.Should().MatchRegex(
+            @"function __construct\(int \$x\)\s*\{\s*parent::__construct\(\$x\);\s*\}");
+    }
+
+    [Fact]
+    public void Emit_ConstructorOmittedReturnType_DoesNotCallParentEvenWhenParentExists()
+    {
+        // Omitted return type means `: void`, not PHP's implicit parent constructor call:
+        // even when a parent ctor exists, Tyhp does not insert `parent::__construct()`.
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Base {
+                public function __construct(int $x): void {}
+            }
+            class Widget extends Base {
+                public function __construct(int $x) {}
+            }
+            """);
+
+        php.Should().Contain("class Widget extends Base");
+        php.Should().Contain("function __construct(int $x)");
+        php.Should().NotContain("parent::__construct");
+    }
+
+    [Fact]
+    public void Emit_NonConstructorMethod_OmittedReturnType_StillRequiresReturnType()
+    {
+        // Non-constructor methods keep their existing requirement: a missing return type
+        // annotation is a `CheckerVariableTypeRequired` error. H only loosens the constructor
+        // return type; ordinary methods are unchanged.
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Widget {
+                public function identity(int $n) {
+                    return $n;
+                }
+            }
+            """, allowedErrorCodes: new[] { MessageCode.CheckerVariableTypeRequired });
+
+        // The emitter still erases a missing return type (no `:` clause is emitted); the
+        // requirement is enforced at check time, not by emitting a placeholder.
+        php.Should().Contain("function identity(int $n)");
+        php.Should().NotContain("function identity(int $n):");
+    }
+
+    [Fact]
     public void Emit_GenericTypedAndClosureProperties_RegisterSetPropertyType()
     {
         var php = CompileAndEmit("""
             <?tyhp
             class Holder<TValue> {
-                public ?\Closure<bool> $isset = null;
+                public ?\Closure<callable(): bool> $isset = null;
                 public TValue $value;
 
                 public function typeOfValue(): \Tyhp\Type {
@@ -173,12 +324,16 @@ public class GenericObjectEmitterTests
     }
 
     [Fact]
+    [Trait("Category", "Story27")]
     public void Emit_NewTypeParameter_UsesRuntimeClassNameLookup()
     {
         var php = CompileAndEmit("""
             <?tyhp
-            class Factory<T> {
-                public function create(): mixed {
+            type ZeroArg = object {
+                public function ping(): void;
+            };
+            class Factory<T extends __New<ZeroArg>> {
+                public function create(): T {
                     return new T();
                 }
 
@@ -190,6 +345,58 @@ public class GenericObjectEmitterTests
 
         php.Should().Contain(
             "new ($this->__tyhpGeneric->genericType(\\Factory::class, 'T')->getUnderlyingType()->getName())");
+    }
+
+    [Fact]
+    [Trait("Category", "Story27")]
+    public void Emit_FunctionNewTypeParameter_UsesVariantTypeName()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            type ZeroArg = object {
+                public function ping(): void;
+            };
+            function make<T extends __New<ZeroArg>>(): T {
+                return new T();
+            }
+            """);
+
+        php.Should().Contain("new ($__generic_T->getName())");
+        php.Should().Contain("make__tyhpGeneric");
+    }
+
+    [Fact]
+    [Trait("Category", "Story27")]
+    public void Emit_NewUtility_SpellsLikeShape()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            type ZeroArg = object {
+                public function ping(): void;
+            };
+            function take(__New<ZeroArg> $x): void {}
+            """);
+
+        php.Should().Contain("function take(object $x)");
+        php.Should().NotContain("__New");
+    }
+
+    [Fact]
+    [Trait("Category", "Story27")]
+    public void Emit_NewUtilityIntersection_DropsIllegalObject()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            interface Logger {}
+            type Logged = Logger & object {
+                public function extra(): void;
+            };
+            function take(__New<Logged> $x): void {}
+            """);
+
+        php.Should().Contain("function take(\\Logger $x)");
+        php.Should().NotContain("function take(object");
+        php.Should().NotContain("__New");
     }
 
     [Fact]
@@ -304,13 +511,7 @@ public class GenericObjectEmitterTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             result.RequiresRuntimeGenericTracking.Should().NotBeNull();
             result.RequiresRuntimeGenericTracking!.Should().Contain(s =>
@@ -415,13 +616,7 @@ public class GenericObjectEmitterTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             result.RequiresRuntimeGenericTracking.Should().NotBeNull();
             result.RequiresRuntimeGenericTracking!.Should().Contain(s =>
@@ -596,13 +791,7 @@ public class GenericObjectEmitterTests
         {
             var project = CreateProject(runtimeGenericChecks, phpVersion);
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = phpVersion,
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: phpVersion));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

@@ -13,7 +13,10 @@ namespace Tyhp.TyhpLang.Ast
     ///     ;
     ///
     /// The constructor may declare `: void` (no return) or `: parent(args)`
-    /// (delegating to the parent constructor).
+    /// (delegating to the parent constructor). The annotation is optional on
+    /// `tyhpClassCtorWithReturnType` (`ReturnType=tyhpCtorReturnType?`); omitting
+    /// it is equivalent to `: void` — no `parent::__construct` insertion — and the
+    /// visitor attaches no `ctorReturnType` grammar addon in that case.
     /// </summary>
     public class TyhpCtorReturnTypeAst : Base2Ast
     {

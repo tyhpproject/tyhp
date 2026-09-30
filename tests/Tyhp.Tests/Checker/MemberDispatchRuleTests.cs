@@ -105,6 +105,37 @@ public class MemberDispatchRuleTests
     }
 
     [Fact]
+    public void Check_AssignmentToByRefParameter_DoesNotReport4200()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function fill(string &$out): void {
+                $out = "x";
+            }
+            """);
+
+        diagnostics.Warnings.Should().NotContain(d => d.Code == MessageCode.CheckerUnusedVariable);
+    }
+
+    [Fact]
+    public void Check_AssignmentToNestedClosureByRefParameter_DoesNotReport4200()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class C {
+                public function go(): void {
+                    $_handler = function (mixed &$out): bool {
+                        $out = 1;
+                        return true;
+                    };
+                }
+            }
+            """);
+
+        diagnostics.Warnings.Should().NotContain(d => d.Code == MessageCode.CheckerUnusedVariable);
+    }
+
+    [Fact]
     public void Check_CircularDisposableLocalsInMethod_ReportsOnce()
     {
         var diagnostics = CompileAndCheck("""
@@ -261,14 +292,7 @@ public class MemberDispatchRuleTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4", skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

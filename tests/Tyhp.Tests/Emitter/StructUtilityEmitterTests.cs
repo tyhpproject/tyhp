@@ -9,27 +9,26 @@ using Tyhp.Tests.TestHelpers;
 namespace Tyhp.Tests.Emitter;
 
 /// <summary>
-/// Story 08.5 Phase 5 / <c>\Tyhp\…</c> utility types must erase to a PHP surface in signatures
-/// (not leak as <c>\__StructKey</c> / <c>\Tyhp\ReturnType</c> class hints).
+/// Story 08.5 Phase 5 / global <c>__</c> utility types must erase to a PHP surface in signatures
+/// (not leak as <c>\__StructKey</c> / <c>\__CallableReturnType</c> class hints).
 /// </summary>
 [Trait("Category", "Emitter")]
 public class StructUtilityEmitterTests
 {
     [Theory]
     [InlineData("__StructKey<Point>", "string")]
-    [InlineData("__Properties<Point>", "string")]
+    [InlineData("__Properties<Point>", "array")]
     [InlineData("__StructDef<__StructRecord<Point, '$x', int>>", "array")]
-    [InlineData("\\Tyhp\\ReturnType<callable<string, int>>", "int")]
-    [InlineData("\\Tyhp\\Parameters<callable<string, int>>", "array")]
-    [InlineData("__CallableReturnType<callable<string, int>>", "int")]
-    [InlineData("__CallableParametersStruct<callable<string, int>>", "array")]
-    [InlineData("__CallableParametersTuple<callable<string, int>>", "array")]
-    [InlineData("__CallableParametersRest<callable<string, int>>", "mixed")]
+    [InlineData("__CallableReturnType<callable(string $s): int>", "int")]
+    [InlineData("__CallableParametersTuple<callable(string $s): int>", "array")]
+    [InlineData("__CallableParametersStruct<callable(string $s): int>", "array")]
+    [InlineData("__CallableParametersRest<callable(string $s): int>", "mixed")]
+    [InlineData("__Nullable<int>", "?int")]
     public void Emit_StructAndTyhpUtilityParameter_ErasesToPhpSurface(string tyhpType, string phpHint)
     {
         var php = CompileAndEmit($$"""
             <?tyhp
-            struct Point { int $x = 0; string $y = ''; }
+            type Point = struct { int $x = 0; string $y = ''; };
             function take({{tyhpType}} $value): void {}
             """);
 
@@ -44,6 +43,7 @@ public class StructUtilityEmitterTests
         php.Should().NotContain("__CallableParametersStruct");
         php.Should().NotContain("__CallableParametersTuple");
         php.Should().NotContain("__CallableParametersRest");
+        php.Should().NotContain("__Nullable");
     }
 
     [Fact]
@@ -106,13 +106,7 @@ public class StructUtilityEmitterTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

@@ -6,6 +6,7 @@ using Tyhp.Domain.Exceptions;
 namespace Tyhp.Tests.Config;
 
 [Trait("Category", "Config")]
+[Collection("ProcessGlobalState")]
 public class LintFileSymlinkPathTests
 {
     [Fact]

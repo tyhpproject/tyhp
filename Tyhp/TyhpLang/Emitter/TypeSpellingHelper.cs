@@ -15,6 +15,7 @@ namespace Tyhp.TyhpLang.Emitter
     /// <summary>
     /// Produces PHP type spellings from bound type-expression AST nodes.
     /// Shared by alias-map collection and alias conversion so keys and lookups stay aligned.
+    /// Union hints flatten nested alias expansions and drop duplicate members before joining.
     /// </summary>
     internal static class TypeSpellingHelper
     {
@@ -78,6 +79,9 @@ namespace Tyhp.TyhpLang.Emitter
                 PhpNamedTypeAst namedType => SpellNamedType(
                     namedType, typeAliasMap, erasingParams, resolvingAliases, scope, namespacePrefix, preserveGenericParameters),
                 PhpBuiltinTypeAst builtinType => SpellBuiltinType(builtinType, typeAliasMap),
+                TyhpObjectShapeAst => "object",
+                TyhpCallableShapeAst => "callable",
+                TyhpStructShapeAst => "array",
                 TyhpReturnTypeGuardAst => "bool",
                 TyhpTemplateStringTypeAst template => template.ValueString ?? "string",
                 _ => "",
@@ -99,11 +103,11 @@ namespace Tyhp.TyhpLang.Emitter
                 return "";
             }
 
-            // PSR-12 §6.2: one space before and after `|` / `&` in union and intersection types.
+            // PER-CS 3.0 §2.5: no spaces around `|` / `&` in union and intersection types.
             var separator = typeExpr.TypeKind switch
             {
-                PhpTypeKind.Union => " | ",
-                PhpTypeKind.Intersection => " & ",
+                PhpTypeKind.Union => "|",
+                PhpTypeKind.Intersection => "&",
                 _ => "",
             };
 
@@ -116,15 +120,29 @@ namespace Tyhp.TyhpLang.Emitter
                 .Select(t => Spell(
                     t, typeAliasMap, erasingParams, resolvingAliases, scope, namespacePrefix, preserveGenericParameters))
                 .Where(p => !string.IsNullOrWhiteSpace(p))
-                // Literal unions such as `'a' | 'b'` widen to `string | string`; collapse duplicates
-                // so the PHP hint is a single scalar (or a clean mixed-scalar union).
-                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             if (parts.Count == 0)
             {
                 return "";
             }
+
+            // Alias expansion often returns a full union string as one member
+            // (`JsonAssoc` → `string|int|…|array`). Flatten nested `|`, drop duplicate
+            // atoms, and keep a single `null` before joining. Literal unions such as `'a' | 'b'`
+            // widen to `string | string` and collapse the same way.
+            if (typeExpr.TypeKind == PhpTypeKind.Union)
+            {
+                var unionParts = parts;
+                if (typeExpr.IsNullable)
+                {
+                    unionParts = parts.Concat(["null"]).ToList();
+                }
+
+                return ComposePhpUnionParts(unionParts);
+            }
+
+            parts = parts.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
             // `mixed` cannot be combined in a union/intersection or marked nullable in PHP
             // (e.g. `?mixed` and `mixed|string` are fatal errors). Whenever a composite contains
@@ -144,28 +162,14 @@ namespace Tyhp.TyhpLang.Emitter
                 parts = NormalizePhpIntersectionParts(parts);
             }
 
-            // Prefer PHP nullable shorthand: `T | null` / `null | T` → `?T` (single simple type only).
-            if (typeExpr.TypeKind == PhpTypeKind.Union && parts.Count == 2)
-            {
-                var nullIndex = parts.FindIndex(p => string.Equals(p, "null", StringComparison.OrdinalIgnoreCase));
-                if (nullIndex >= 0)
-                {
-                    var other = parts[1 - nullIndex];
-                    if (IsSimplePhpTypeName(other))
-                    {
-                        return "?" + other;
-                    }
-                }
-            }
-
             // After intersection normalization a single survivor is not joined with `&`.
             var result = separator.Length > 0 && parts.Count > 1
-                ? string.Join(separator, parts)
+                ? JoinPhpCompoundType(parts, separator[0])
                 : parts.First();
 
             if (typeExpr.IsNullable)
             {
-                result = "?" + result;
+                result = ComposePhpUnionParts([result, "null"]);
             }
 
             return result;
@@ -463,8 +467,8 @@ namespace Tyhp.TyhpLang.Emitter
 
         /// <summary>
         /// Erases Story 08.5 Phase 5 struct/type utilities, Story 16.5 callable-signature
-        /// utilities, and <c>\Tyhp\…</c> utilities to their PHP surface. These types are
-        /// checker-only carriers — emitting <c>\__StructKey</c> / <c>\Tyhp\ReturnType</c> /
+        /// utilities, and other global <c>__</c> utilities to their PHP surface. These types are
+        /// checker-only carriers — emitting <c>\__StructKey</c> /
         /// <c>\__CallableReturnType</c> produces a fatal undefined-class type hint.
         /// Documented erasure targets live in <c>Examples/NewBuiltinTypes.tyhp</c>.
         /// </summary>
@@ -495,8 +499,11 @@ namespace Tyhp.TyhpLang.Emitter
             switch (utility.Behavior)
             {
                 case UtilityBehavior.StructKey:
-                case UtilityBehavior.Properties:
                     spelling = "string";
+                    return true;
+
+                case UtilityBehavior.Properties:
+                    spelling = "array";
                     return true;
 
                 case UtilityBehavior.StructRecord:
@@ -519,6 +526,7 @@ namespace Tyhp.TyhpLang.Emitter
                     return true;
 
                 case UtilityBehavior.CallableParametersRest:
+                case UtilityBehavior.CallableParametersSlice:
                     // Variadic *element* type (`Rest<T> ...$args`). Spelling `array` would make
                     // PHP demand each unpacked argument be an array.
                     spelling = "mixed";
@@ -598,6 +606,47 @@ namespace Tyhp.TyhpLang.Emitter
                     spelling = "mixed";
                     return true;
 
+                case UtilityBehavior.SuperType:
+                    spelling = "object";
+                    return true;
+
+                case UtilityBehavior.New:
+                    spelling = SpellUtilityTypeArgument(
+                        GetFirstGenericTypeArgument(addonHost),
+                        typeAliasMap,
+                        erasingParams,
+                        resolvingAliases,
+                        scope,
+                        namespacePrefix,
+                        preserveGenericParameters);
+                    if (string.IsNullOrWhiteSpace(spelling))
+                    {
+                        spelling = "object";
+                    }
+
+                    return true;
+
+                case UtilityBehavior.CurrentScope:
+                    spelling = "?object";
+                    return true;
+
+                case UtilityBehavior.CallableThis:
+                    spelling = "?object";
+                    return true;
+
+                case UtilityBehavior.CallableScope:
+                    spelling = "object|string|null";
+                    return true;
+
+                case UtilityBehavior.IndexKeys:
+                    spelling = "string|int";
+                    return true;
+
+                case UtilityBehavior.IndexValueType:
+                case UtilityBehavior.IndexValueTypes:
+                    spelling = "mixed";
+                    return true;
+
                 default:
                     return false;
             }
@@ -629,8 +678,8 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         /// <summary>
-        /// <c>\Tyhp\ReturnType&lt;callable&lt;…, TReturn&gt;&gt;</c> / closure forms → spell
-        /// <c>TReturn</c>. Bare <c>callable</c> without type args → <c>mixed</c>.
+        /// <c>__CallableReturnType&lt;callable(…): TReturn&gt;</c> / closure forms → spell
+        /// <c>TReturn</c>. Bare <c>callable</c> without a shape → <c>mixed</c>.
         /// </summary>
         private static string SpellCallableReturnTypeArgument(
             ITypeExpression? callableArg,
@@ -647,11 +696,24 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             var leaf = UnwrapSingleTypeLeaf(callableArg);
-            var callableArgs = GetAllGenericTypeArguments(leaf as IBase2Ast ?? callableArg);
-            if (callableArgs.Count > 0)
+            if (leaf is TyhpCallableShapeAst shape)
             {
                 return SpellUtilityTypeArgument(
-                    callableArgs[^1],
+                    shape.ReturnType,
+                    typeAliasMap,
+                    erasingParams,
+                    resolvingAliases,
+                    scope,
+                    namespacePrefix,
+                    preserveGenericParameters);
+            }
+
+            // `\Closure<C, …>` — return comes from TCallableShape, not a return-last slot.
+            var callableArgs = GetAllGenericTypeArguments(leaf as IBase2Ast ?? callableArg);
+            if (callableArgs.Count > 0 && IsClosureSpelling(leaf))
+            {
+                return SpellCallableReturnTypeArgument(
+                    callableArgs[0],
                     typeAliasMap,
                     erasingParams,
                     resolvingAliases,
@@ -741,6 +803,28 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             return typeExpr;
+        }
+
+        private static bool IsClosureSpelling(ITypeExpression? type)
+        {
+            if (type is null)
+            {
+                return false;
+            }
+
+            if (string.Equals(type.BoundSymbol?.Name, "Closure", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var spelling = type switch
+            {
+                PhpNamedTypeAst named => named.Name?.ValueString ?? named.Name?.Identifier ?? named.Identifier,
+                PhpBuiltinTypeAst builtin => builtin.Identifier,
+                _ => type.Identifier ?? type.ValueString,
+            };
+            spelling = (spelling ?? "").TrimStart('\\');
+            return string.Equals(spelling, "Closure", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -950,6 +1034,235 @@ namespace Tyhp.TyhpLang.Emitter
             return !name.Contains('|') && !name.Contains('&') && !name.Contains('<');
         }
 
+        /// <summary>
+        /// PER-CS 3.0 §2.5: wrap a union/intersection when the single-line spelling is long
+        /// enough, with the split symbol at the start of each continuation line.
+        /// </summary>
+        private const int PhpCompoundTypeWrapWidth = 120;
+
+        private static string JoinPhpCompoundType(IReadOnlyList<string> parts, char separator)
+        {
+            if (parts.Count == 0)
+            {
+                return "";
+            }
+
+            if (parts.Count == 1)
+            {
+                return parts[0];
+            }
+
+            var single = string.Join(separator.ToString(), parts);
+            // Wrap unions only. Intersection-only types stay on one line so a mixed DNF
+            // union member such as `(ArrayAccess&Traversable)` is never split (PER-CS 3.0 §2.5).
+            if (separator != '|'
+                || (single.Length <= PhpCompoundTypeWrapWidth && !parts.Any(p => p.Contains('\n'))))
+            {
+                return single;
+            }
+
+            var builder = new System.Text.StringBuilder(parts[0]);
+            for (var i = 1; i < parts.Count; i++)
+            {
+                builder.Append('\n').Append(separator).Append(parts[i]);
+            }
+
+            return builder.ToString();
+        }
+
+        private static List<string> MoveNullLast(List<string> parts)
+        {
+            var nullCount = parts.RemoveAll(p => string.Equals(p, "null", StringComparison.OrdinalIgnoreCase));
+            if (nullCount > 0)
+            {
+                parts.Add("null");
+            }
+
+            return parts;
+        }
+
+        /// <summary>
+        /// PHP DNF requires parentheses around intersection members of a union
+        /// (<c>array|(A&amp;B)</c>, not <c>array|A&amp;B</c>).
+        /// </summary>
+        private static string ParenthesizeIntersectionUnionMember(string atom)
+        {
+            if (string.IsNullOrWhiteSpace(atom) || atom[0] == '(')
+            {
+                return atom;
+            }
+
+            return HasTopLevelAmpersand(atom) ? "(" + atom + ")" : atom;
+        }
+
+        private static bool HasTopLevelAmpersand(string spelled)
+        {
+            var depthAngle = 0;
+            var depthParen = 0;
+            foreach (var ch in spelled)
+            {
+                switch (ch)
+                {
+                    case '<':
+                        depthAngle++;
+                        break;
+                    case '>':
+                        if (depthAngle > 0)
+                        {
+                            depthAngle--;
+                        }
+
+                        break;
+                    case '(':
+                        depthParen++;
+                        break;
+                    case ')':
+                        if (depthParen > 0)
+                        {
+                            depthParen--;
+                        }
+
+                        break;
+                    case '&' when depthAngle == 0 && depthParen == 0:
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Flatten nested PHP union spellings, drop duplicate atoms, keep a single
+        /// <c>null</c>, collapse <c>mixed</c>, and apply <c>?T</c> shorthand for a lone
+        /// simple type plus null. Used after alias expansion so
+        /// <c>JsonAssoc|JsonObject|null</c> becomes one reduced hint rather than two
+        /// concatenated scalar runs.
+        /// </summary>
+        private static string ComposePhpUnionParts(IEnumerable<string> spelledParts)
+        {
+            var parts = FlattenAndDedupePhpUnionParts(spelledParts);
+            if (parts.Count == 0)
+            {
+                return "";
+            }
+
+            if (parts.Any(p => p == "mixed"))
+            {
+                return "mixed";
+            }
+
+            if (parts.Count == 2)
+            {
+                var nullIndex = parts.FindIndex(p => string.Equals(p, "null", StringComparison.OrdinalIgnoreCase));
+                if (nullIndex >= 0)
+                {
+                    var other = parts[1 - nullIndex];
+                    if (IsSimplePhpTypeName(other))
+                    {
+                        return "?" + other;
+                    }
+                }
+            }
+
+            var unionMembers = MoveNullLast(parts)
+                .Select(ParenthesizeIntersectionUnionMember)
+                .ToList();
+            return JoinPhpCompoundType(unionMembers, '|');
+        }
+
+        private static List<string> FlattenAndDedupePhpUnionParts(IEnumerable<string> spelledParts)
+        {
+            var result = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void AddAtom(string atom)
+            {
+                if (string.IsNullOrWhiteSpace(atom))
+                {
+                    return;
+                }
+
+                atom = atom.Trim();
+                if (seen.Add(atom))
+                {
+                    result.Add(atom);
+                }
+            }
+
+            foreach (var part in spelledParts)
+            {
+                if (string.IsNullOrWhiteSpace(part))
+                {
+                    continue;
+                }
+
+                foreach (var atom in SplitPhpUnionAtoms(part))
+                {
+                    if (atom.Length >= 2 && atom[0] == '?' && IsSimplePhpTypeName(atom[1..]))
+                    {
+                        AddAtom(atom[1..]);
+                        AddAtom("null");
+                    }
+                    else
+                    {
+                        AddAtom(atom);
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Split a spelled PHP union on top-level <c>|</c> only — not inside
+        /// <c>&lt;…&gt;</c> (PHPDoc generics) or <c>(…)</c> (DNF intersections).
+        /// </summary>
+        private static List<string> SplitPhpUnionAtoms(string spelled)
+        {
+            var atoms = new List<string>();
+            if (string.IsNullOrWhiteSpace(spelled))
+            {
+                return atoms;
+            }
+
+            var depthAngle = 0;
+            var depthParen = 0;
+            var start = 0;
+            for (var i = 0; i < spelled.Length; i++)
+            {
+                switch (spelled[i])
+                {
+                    case '<':
+                        depthAngle++;
+                        break;
+                    case '>':
+                        if (depthAngle > 0)
+                        {
+                            depthAngle--;
+                        }
+
+                        break;
+                    case '(':
+                        depthParen++;
+                        break;
+                    case ')':
+                        if (depthParen > 0)
+                        {
+                            depthParen--;
+                        }
+
+                        break;
+                    case '|' when depthAngle == 0 && depthParen == 0:
+                        atoms.Add(spelled[start..i].Trim());
+                        start = i + 1;
+                        break;
+                }
+            }
+
+            atoms.Add(spelled[start..].Trim());
+            return atoms;
+        }
+
         private static string EraseGenericParameter(
             GenericTypeParameterSymbol genericParam,
             IReadOnlyDictionary<string, string>? typeAliasMap,
@@ -1147,6 +1460,8 @@ namespace Tyhp.TyhpLang.Emitter
                     return "callable";
                 case StructCheckedType:
                     return "array";
+                case ObjectShapeCheckedType:
+                    return "object";
                 case LiteralCheckedType literal:
                     return SpellCheckedLiteral(
                         literal, typeAliasMap, erasingParams, resolvingAliases, scope, namespacePrefix);
@@ -1184,7 +1499,7 @@ namespace Tyhp.TyhpLang.Emitter
                 return "?" + spelled;
             }
 
-            return spelled + " | null";
+            return ComposePhpUnionParts([spelled, "null"]);
         }
 
         private static string SpellCheckedUnion(
@@ -1199,33 +1514,9 @@ namespace Tyhp.TyhpLang.Emitter
                 .Select(m => SpellCheckedType(
                     m, typeAliasMap, erasingParams, resolvingAliases, scope, namespacePrefix))
                 .Where(p => !string.IsNullOrWhiteSpace(p))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            if (parts.Count == 0)
-            {
-                return "";
-            }
-
-            if (parts.Any(p => p == "mixed"))
-            {
-                return "mixed";
-            }
-
-            if (parts.Count == 2)
-            {
-                var nullIndex = parts.FindIndex(p => string.Equals(p, "null", StringComparison.OrdinalIgnoreCase));
-                if (nullIndex >= 0)
-                {
-                    var other = parts[1 - nullIndex];
-                    if (IsSimplePhpTypeName(other))
-                    {
-                        return "?" + other;
-                    }
-                }
-            }
-
-            return parts.Count == 1 ? parts[0] : string.Join(" | ", parts);
+            return ComposePhpUnionParts(parts);
         }
 
         private static string SpellCheckedIntersection(
@@ -1254,7 +1545,7 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             parts = NormalizePhpIntersectionParts(parts);
-            return parts.Count == 1 ? parts[0] : string.Join(" & ", parts);
+            return JoinPhpCompoundType(parts, '&');
         }
 
         private static string SpellCheckedLiteral(
@@ -1555,8 +1846,11 @@ namespace Tyhp.TyhpLang.Emitter
             switch (behavior)
             {
                 case UtilityBehavior.StructKey:
-                case UtilityBehavior.Properties:
                     spelling = "string";
+                    return true;
+
+                case UtilityBehavior.Properties:
+                    spelling = "array";
                     return true;
 
                 case UtilityBehavior.StructRecord:
@@ -1577,6 +1871,7 @@ namespace Tyhp.TyhpLang.Emitter
                     return true;
 
                 case UtilityBehavior.CallableParametersRest:
+                case UtilityBehavior.CallableParametersSlice:
                     spelling = "mixed";
                     return true;
 
@@ -1667,6 +1962,52 @@ namespace Tyhp.TyhpLang.Emitter
                     return true;
 
                 case UtilityBehavior.MethodReturnType:
+                    spelling = "mixed";
+                    return true;
+
+                case UtilityBehavior.SuperType:
+                    spelling = "object";
+                    return true;
+
+                case UtilityBehavior.New:
+                    if (typeArgs.Count == 0)
+                    {
+                        spelling = "object";
+                        return true;
+                    }
+
+                    spelling = SpellCheckedType(
+                        typeArgs[0],
+                        typeAliasMap,
+                        erasingParams,
+                        resolvingAliases,
+                        scope,
+                        namespacePrefix);
+                    if (string.IsNullOrWhiteSpace(spelling))
+                    {
+                        spelling = "object";
+                    }
+
+                    return true;
+
+                case UtilityBehavior.CurrentScope:
+                    spelling = "?object";
+                    return true;
+
+                case UtilityBehavior.CallableThis:
+                    spelling = "?object";
+                    return true;
+
+                case UtilityBehavior.CallableScope:
+                    spelling = "object|string|null";
+                    return true;
+
+                case UtilityBehavior.IndexKeys:
+                    spelling = "string|int";
+                    return true;
+
+                case UtilityBehavior.IndexValueType:
+                case UtilityBehavior.IndexValueTypes:
                     spelling = "mixed";
                     return true;
 

@@ -10,7 +10,10 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
     {
         public ITypeExpression? DeclaredType { get; internal set; }
 
-        public IExpression? ValueExpression { get; protected set; }
+        public IExpression? ValueExpression { get; internal set; }
+
+        /// <summary>Tyhpdef <c>fallback const</c>. Resolved with the same package rules as <c>fallback function</c>.</summary>
+        public bool IsFallback { get; internal set; }
 
         public ConstantSymbol(
             string name,

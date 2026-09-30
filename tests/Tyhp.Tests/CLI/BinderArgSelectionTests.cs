@@ -123,8 +123,25 @@ public class BinderArgSelectionTests
         ActionConfigProvider.ValueTakingFlags.Should().Contain("--include");
         ActionConfigProvider.ValueTakingFlags.Should().Contain("--exclude");
         ActionConfigProvider.ValueTakingFlags.Should().Contain("--cache-dir");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--suppress-warnings");
         ActionConfigProvider.ValueTakingFlags.Should().Contain("--max-fix-iterations");
         ActionConfigProvider.ValueTakingFlags.Should().Contain("--tyhp-project");
         ActionConfigProvider.ValueTakingFlags.Should().Contain("--locale");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--pid-file");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--ide-port");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--xdebug-port");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--sourcemap-dir");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--ide-key");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--log-level");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--package-path");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--source");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--output-file");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--php");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--php-targets");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--php-runtime-dir");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--validate");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--audit-stubs");
+        ActionConfigProvider.ValueTakingFlags.Should().Contain("--split");
+        ActionConfigProvider.ValueTakingFlags.Should().NotContain("--composer-package");
     }
 }

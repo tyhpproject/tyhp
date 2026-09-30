@@ -1,3 +1,4 @@
+using Tyhp.Domain.Services;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 
@@ -88,13 +89,15 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             // Normalize separators so the same checks work on Windows and Unix paths.
-            var normalized = sourceFile.Replace('\\', '/');
-            if (normalized.Contains("/runtime/packages/", StringComparison.OrdinalIgnoreCase))
+            // In-tree runtime/packages, a sibling tyhp-runtime-src checkout, and
+            // TYHP_RUNTIME_SRC all publish stable FQNs.
+            if (RuntimePackagePaths.IsRuntimePackageSource(sourceFile))
             {
                 return true;
             }
 
             // Composer-vendored Tyhp packages contribute tyhp_src / tyhpdef under vendor/.
+            var normalized = sourceFile.Replace('\\', '/');
             if (normalized.Contains("/vendor/", StringComparison.OrdinalIgnoreCase)
                 && (normalized.Contains("/tyhp_src/", StringComparison.OrdinalIgnoreCase)
                     || normalized.Contains("/tyhpdef/", StringComparison.OrdinalIgnoreCase)))

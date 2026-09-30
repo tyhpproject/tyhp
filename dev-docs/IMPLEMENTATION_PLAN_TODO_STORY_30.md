@@ -64,8 +64,8 @@ The project has three distinct documentation layers:
 
 ## Phase 1: Write the README.md
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -146,8 +146,8 @@ The README must include these sections in order:
 
 ## Phase 2: Review and Update JSON Documentation Content (Part 1 — Introduction, Tyhpdef, CLI, Project, FAQ Sections)
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -239,8 +239,8 @@ Review and update the JSON documentation content files in `docs/content/` for ac
 
 ## Phase 3: Review and Update JSON Documentation Content (Part 2 — Tyhp Language Section)
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -285,7 +285,7 @@ Review and update the 33 JSON content files in the Tyhp language section of `doc
 29. `tyhp_3100_internalModifier.json` — The `internal` visibility modifier
 30. `tyhp_3200_initPropertyModifier.json` — The `init` property modifier
 31. `tyhp_3300_nullConditionalAssignment.json` — Null-conditional assignment (`$obj?->prop = val`)
-32. `tyhp_3400_newTypeConstraint.json` — `new<TArgs...>` constructable object type
+32. `tyhp_3400_newTypeConstraint.json` — object shapes and `__New<T>`
 33. `tyhp_3500_genericDefaults.json` — Generic type parameter defaults
 
 **Note:** The documentation JSON files for features introduced in Stories 25-23 (e.g., `tyhp_3100_internalModifier.json`, `tyhp_3200_initPropertyModifier.json`, `tyhp_3300_nullConditionalAssignment.json`, `tyhp_3400_newTypeConstraint.json`, `tyhp_3500_genericDefaults.json`) are **reviewed, updated, and completed** during this phase rather than authored from scratch by their respective feature stories. Several of these files already exist in `docs/content/` (and are listed in `toc.json`), so this phase must treat them as existing stubs/drafts to verify and finish — do NOT recreate or duplicate them. For any such feature whose file is genuinely missing, create it using the existing documentation files as templates for structure and formatting conventions. Each file should cover the feature's syntax, semantics, examples, and any relevant configuration options.
@@ -324,8 +324,8 @@ Review and update the 33 JSON content files in the Tyhp language section of `doc
 
 ## Phase 4: Error Message Quality Pass
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -415,8 +415,8 @@ For each existing `.resx` entry, verify:
 
 ## Phase 5: Update CONTRIBUTING.md
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -478,8 +478,8 @@ The `CONTRIBUTING.md` file was adapted from TypeScript's contributing guide and 
 
 ## Phase 6: Performance Profiling Infrastructure and Build/Release Pipeline
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -568,6 +568,45 @@ The `DebugAction` already has ANTLR parser decision profiling (`parser.Profile =
 ### Dependencies
 
 - **Previous phases:** Phase 4 (error messages should be in place for any build-time errors)
+- **Provides for future phases:** Phase 7 (the guide's availability claims must match the shipped toolchain this phase hardens)
+
+---
+
+## Phase 7: AIDevGuide Regeneration and Verification
+
+### Phase Overview
+
+Every story from 20.6 on carries its own AIDevGuide update, so by the time this story runs the bundle should already be current. This phase is the capstone verification: regenerate `AIDevGuide/` from the prompt in `AIDevGuide/REGEN.md` and diff it against the incrementally-maintained bundle. A difference is a finding either way — either a story skipped its update, or the prompt still asks for something the language outgrew.
+
+`AIDevGuide/` is the bundle an agent loads to write Tyhp *applications*, distinct from `docs/content/` (the published human documentation this story's Phases 1–3 cover) and from `CONTRIBUTING.md` (compiler contributors, Phase 5). Its audience is an agent that already knows PHP, so it documents only the deltas.
+
+### Deliverables
+
+- Regenerated `AIDevGuide/guide/*.md`, `AIDevGuide/handbook/*.md`, `QUICK_GUIDE.md`, `AGENTS.md`, `CLAUDE.md`, and both `00-index.md` files
+- An updated `AIDevGuide/REGEN.md` whose section list, per-section content notes, and acceptance checks match the shipped language
+- A short written diff summary: what the regeneration changed versus the incrementally-maintained bundle, and which story should have caught each item
+
+### Implementation Details
+
+**Part A: Reconcile the prompt before regenerating.** `REGEN.md` hardcodes per-feature claims that go stale as stories land — for example a fixed section count, "`= Type` defaults (note defaults not yet applied — pass all type args)" in item 7, and "`internal` not in language" in item 22. Correct the prompt first, or the regeneration faithfully reproduces the stale claim.
+
+**Part B: Regenerate and diff.** Run the prompt, then compare against the committed bundle. Treat any surprise as a gap in the story that shipped the feature, and note it so the pattern can be fixed rather than just the text.
+
+**Part C: Verify the availability claims against code, not stories.** `guide/28-availability-gotchas.md` is the highest-risk file: its "use freely" / "use the PHP form instead" / "not in the language yet" lists are the ones an agent trusts to decide what to write. Check each entry against the emitter and checker, per `REGEN.md`'s own instruction that code wins over stories.
+
+**Part D: Re-vendor.** `AIDevGuide/README.md` describes copying the bundle into downstream Tyhp projects. Confirm those instructions still match the layout.
+
+### Acceptance Criteria
+
+- Regenerating from `REGEN.md` produces no unexplained differences from the committed bundle
+- `REGEN.md`'s section list matches the files that exist, and its acceptance checks state the real counts
+- No entry in `guide/28-availability-gotchas.md` contradicts the shipped emitter or checker
+- Cross-references resolve to real sibling files; no `§`-only or line-number references
+- Every difference found is attributed to the story that should have carried it
+
+### Dependencies
+
+- **Previous phases:** Phases 1–6 (the shipped surface, error messages, and build tooling the guide describes)
 - **Provides for future phases:** None (this is the final phase)
 
 ---

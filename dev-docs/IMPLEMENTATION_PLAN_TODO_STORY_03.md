@@ -10,6 +10,10 @@
 > **Generated:** 2026-03-19
 > **Prerequisites:** Story 02 (Binder — symbols, scopes, name resolution, tyhpdef loading)
 > **Status:** SUBSTANTIALLY COMPLETE (2026-07-31 audit) — grammar/AST/visitor/binder for extension operators and tyhpdef inline extensions landed. Residual: bare `>` operator overload parse gap (see `FOUND_BUGS.md` / `INCOMPLETE.md`).
+>
+> **Story 20.6 note:** Class-body tyhpdef `extension function` / `extension fn` / `extension operator` become **thin mappings** only (`=>` expression, PHP arrow-function rules, always erased at emit; no brace bodies; no `__TyhpInlineExt_*` backer). This story's brace-bodied syntax and synthetic-class emit remain as written; Story 20.6 supersedes them. Do not rewrite examples here.
+>
+> **Story 27.2 note:** Standalone `extension { }` declaration syntax moves the target onto the block (`extension Name extends Type` / nested `extends Type { }`). `operator +<T>` and `extends T $this` as **declaration** forms are replaced there. Adaptation qualifiers `E::operator +<Money>` in `use extension` stay. This completed plan’s declaration examples are historical.
 
 ---
 
@@ -131,8 +135,8 @@ Story 09: Emitter (rewrites extension operator usage to static calls)
 
 ## Phase 1: Grammar Changes — Extension Operator Overloads with Target Type
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -205,8 +209,8 @@ After modifying the grammar:
 
 ## Phase 2: Grammar Changes — Tyhpdef Inline Extension Members
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -295,8 +299,8 @@ The `T_TYHP_EXTENSION` token at the start of a tyhpdef class statement is unambi
 
 ## Phase 3: Grammar Changes — `use extension` in Tyhpdef Class Bodies
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -346,8 +350,8 @@ The adaptation syntax matches PHP trait adaptations at the grammar level for a f
 
 ## Phase 4: AST and Visitor — Extension Operator Overloads
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -461,8 +465,8 @@ public TyhpOperatorOverloadAst VisitTyhpExtensionOperatorOverload(
 
 ## Phase 5: AST and Visitor — Tyhpdef Inline Extension Members
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -579,8 +583,8 @@ public override TyhpImportExtensionAst VisitTyhpdefClassUseExtension(
 
 ## Phase 6: Binder — Extension Operator Overloads and Tyhpdef Inline Extensions
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -731,8 +735,8 @@ Add in the 4000s range (checker — see Story 08 for full implementation):
 
 ## Phase 7: Update Documentation and Examples
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

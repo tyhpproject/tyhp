@@ -37,6 +37,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     // Closure parameter types are never CheckNode'd — still count import usage
                     // for TYHP4130 (parity with function/method parameter types).
                     context.MarkImportNames(param.Type, outerState);
+                    ExternTypeUse.ReportIfCheckedType(paramType, param.Type, closureState, diagnostics);
                 }
                 else if (expectedCallable is not null && i < expectedCallable.ParameterTypes.Count)
                 {
@@ -55,9 +56,12 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     paramType = CheckedTypes.Unresolved;
                 }
 
+                // Callback parameters are contravariant: the closure must accept every
+                // value the expected facet may pass (`?int` expected → `int` declared fails;
+                // `int` expected → `?int` declared is fine). Bidirectional assignability
+                // would accept `fn(int)` at `array_map`'s zip `?P_i` slots.
                 if (param.Type is not null && expectedCallable is not null
                     && i < expectedCallable.ParameterTypes.Count
-                    && !context.IsAssignable(paramType, expectedCallable.ParameterTypes[i])
                     && !context.IsAssignable(expectedCallable.ParameterTypes[i], paramType))
                 {
                     CheckerHelpers.ReportError(
@@ -66,7 +70,16 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 }
 
                 var variable = new VariableSymbol(param.Name) { IsParameter = true, IsRef = param.IsRef };
-                var varState = VariableState.ForParameter(variable, paramType, param.IsRef);
+
+                // A variadic closure parameter (`T ...$args`) collects its arguments into an
+                // int-keyed array, so inside the body the variable's type is `array<int, T>`
+                // rather than the declared element type `T` — same storage-type rule as
+                // `DeclarationRule.Members` / `ExtensionRule` for function/method parameters.
+                var variableType = param.IsVariadic
+                    ? CallableSignatureReflection.VariadicParameterStorageType(paramType)
+                    : paramType;
+
+                var varState = VariableState.ForParameter(variable, variableType, param.IsRef);
                 varState.IsInferred = param.Type is null;
                 closureState.Variables[param.Name.TrimStart('$')] = varState;
             }
@@ -136,7 +149,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
-            // Story 16 Phase 1/2: PropertyPath / Expression contextual-type the inline fn as callable.
+            // Story 16 Phase 1/2: PropertyPath / Expression contextual-type the inline fn via TCallableShape.
             if (PropertyPathSupport.TryMapToCallable(parameterType, out var mapped)
                 || ExpressionTreeSupport.TryMapToCallable(parameterType, out mapped))
             {
@@ -172,14 +185,6 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (type is CallableCheckedType direct)
             {
                 return direct;
-            }
-
-            if (type is GenericCheckedType { TypeArguments.Count: > 0 } generic
-                && CheckerHelpers.IsBuiltInName(generic.BaseType, "callable"))
-            {
-                return new CallableCheckedType(
-                    generic.TypeArguments.Take(generic.TypeArguments.Count - 1).ToList(),
-                    generic.TypeArguments[^1]);
             }
 
             if (CheckerHelpers.IsBuiltInName(type, "callable"))

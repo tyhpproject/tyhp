@@ -10,6 +10,8 @@
 > **Generated:** 2026-02-16
 > **Prerequisite:** Story 01 (Foundation: diagnostic system, `CompilationService`, `BuildAction` skeleton), Story 02 (Binder: symbols, scopes, name resolution, tyhpdef loading), Story 03 (Extension operator overloads, tyhpdef inline extensions), Story 08 (Checker: at least basic type checking and validation)
 > **Status:** SUBSTANTIALLY COMPLETE (2026-07-31 audit) — `TyhpEmitter` PHP pass-through and `tests/conformance/story09/` fixtures landed. Phase checkboxes in this doc were never updated. Feature transforms belong to Story 11.
+>
+> **Story 20.6 note:** Class-body tyhpdef `extension function` / `extension operator` become **thin mappings** (`=>` only, spliced at the call site). This story's `__TyhpInlineExt_*` emit for those members is superseded; do not rewrite the Phase 5.4 / 5.5 text here.
 
 ---
 
@@ -59,7 +61,7 @@ Story 08: Checker (Type validation, diagnostics)
 Story 23: Optimizer (extension inlining, constant folding, dead code elimination)
     │         NOTE: The emitter receives an optionally-optimized AST
     │         (the optimizer phase runs only when optimization is enabled).
-    │         package.tyhp.json (Story 20) is generated BEFORE optimization.
+    │         extra.tyhp.package (Story 20) is generated BEFORE optimization.
     ▼
 ┌────────────────────────────────────────────────────────────────┐
 │  STORY 09: Emitter (Basic PHP Output)  ◄── THIS PLAN           │
@@ -146,8 +148,8 @@ Tyhp/TyhpLang/Emitter/
 
 ## Phase 1: Emitter Architecture, EmitContext, and AST-to-Emit Dispatch Framework
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -285,8 +287,8 @@ Note: A project may have multiple entry points (e.g., a web handler and a CLI to
 
 ## Phase 2: PHPOutputFile.FromAstTree() — AST Splitting into Output File Units
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -445,8 +447,8 @@ Code without a namespace declaration is in the global namespace (`\`). The split
 
 ## Phase 3: TyhpEmitter Core — PHP Pass-Through (Declarations and Top-Level Constructs)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -635,8 +637,8 @@ Handle `PhpDeclareAst`:
 
 ## Phase 4: TyhpEmitter Core — PHP Pass-Through (Statements and Expressions)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -921,8 +923,8 @@ Handle `PhpNopStatementAst`:
 
 ## Phase 5: ConvertAliases() — Tyhp-to-PHP Transformations
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1074,8 +1076,8 @@ If `EmitConfig.EntryPointAutoloader` is set and the current output file is a roo
 
 ## Phase 6: Generate(), PruneFileImports(), and Merge()
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1201,8 +1203,8 @@ The `EmitItem.emit(indentLevel)` method uses 4-space indentation. The `Generate(
 
 ## Phase 7: Output File Writing and Pipeline Integration
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1349,8 +1351,8 @@ After each PHP file is written, the writer should have a hook for writing the co
 
 ## Phase 8: End-to-End Validation and Emitter MessageCodes
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

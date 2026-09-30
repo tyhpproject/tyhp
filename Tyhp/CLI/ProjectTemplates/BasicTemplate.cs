@@ -66,11 +66,29 @@ namespace Tyhp.CLI.ProjectTemplates
                 "type": "project",
                 "require": {
                     "php": "{{PHP_CONSTRAINT}}",
-                    "tyhp/php": "{{PHP_PACKAGE_VERSION}}",
-                    "tyhp/core": "{{CORE_PACKAGE_VERSION}}"
+                    "tyhp/core": "@dev"
+                },
+                "require-dev": {
+                    "tyhpdef/php": "@dev",
+                    "tyhp/compiler": "{{COMPILER_PACKAGE_VERSION}}"
+                },
+                "config": {
+                    "allow-plugins": {
+                        "tyhp/core": true
+                    }
                 },
                 "minimum-stability": "alpha",
-                "prefer-stable": true
+                "prefer-stable": true,
+                "scripts": {
+                    "tyhp": "vendor/bin/tyhp",
+                    "post-autoload-dump": [
+                        "vendor/bin/tyhp --install-binary",
+                        "vendor/bin/tyhp generate_tyhpdef --vendor"
+                    ]
+                },
+                "scripts-descriptions": {
+                    "tyhp": "Forward extra args to the Tyhp CLI (e.g. composer tyhp build)"
+                }
             }
 
             """;

@@ -23,6 +23,7 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
             public CompilationOptions? Options { get; init; }
             public bool PhpExtensionLoaded { get; set; }
             public HashSet<string> LoadedRuntimePackages { get; } = new(StringComparer.OrdinalIgnoreCase);
+            public int NextOverlaySequence { get; set; } = 1;
         }
 
         private static void LoadUserTyhpdefs(
@@ -48,7 +49,7 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
             {
                 foreach (var matchedPath in ResolveIncludePattern(projectRoot, includePattern))
                 {
-                    // package.tyhp.json manifests are loaded via DiscoverPackageManifestPaths /
+                    // composer.json package manifests are loaded via DiscoverPackageManifestPaths /
                     // LoadPackageManifest — skip them here so JSON is not parsed as tyhpdef.
                     if (IsPackageManifestPath(matchedPath))
                     {
@@ -69,6 +70,36 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
                     {
                         context.PhpExtensionLoaded = true;
                     }
+                }
+            }
+
+            if (options.ApplyTyhpdefOverlays == false
+                || options.TyhpdefOverlayPaths == null
+                || options.TyhpdefOverlayPaths.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var overlayPattern in options.TyhpdefOverlayPaths)
+            {
+                foreach (var matchedPath in ResolveIncludePattern(projectRoot, overlayPattern)
+                    .OrderBy(static path => path, StringComparer.Ordinal))
+                {
+                    if (IsPackageManifestPath(matchedPath))
+                    {
+                        continue;
+                    }
+
+                    TryLoadPackageFile(
+                        matchedPath,
+                        "project:tyhp.json",
+                        UserTyhpdefLoadOrder,
+                        results,
+                        diagnostics,
+                        loadedPaths,
+                        options.Tagless,
+                        isOverlay: true,
+                        overlaySequence: context.NextOverlaySequence++);
                 }
             }
         }
@@ -128,7 +159,9 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
         }
 
         private static string GetConfiguredPhpVersion(CompilationOptions? options)
-            => options?.PhpVersion ?? "8.4";
+            => string.IsNullOrWhiteSpace(options?.PhpVersion)
+                ? CompilationOptions.DefaultPhpVersionWhenUnset
+                : options.PhpVersion;
 
         private static bool VersionMatchesPhpTarget(string candidateVersion, string targetVersion)
         {
@@ -144,15 +177,33 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
                 && string.Equals(candidateParts[1], targetParts[1], StringComparison.Ordinal);
         }
 
-        private static bool IsMatchingPhpExtensionVendorPackage(string packageDirName, string phpVersion)
+        /// <summary>
+        /// Legacy per-minor Composer directory <c>php-8.2</c> (not <c>php-ext-curl</c>).
+        /// </summary>
+        private static bool TryGetLegacyPhpVendorMinor(string packageDirName, out string minor)
         {
+            minor = "";
             if (!packageDirName.StartsWith("php-", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
 
-            return VersionMatchesPhpTarget(packageDirName["php-".Length..], phpVersion);
+            var rest = packageDirName["php-".Length..];
+            var parts = rest.Split('.', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2
+                || !int.TryParse(parts[0], out _)
+                || !int.TryParse(parts[1], out _))
+            {
+                return false;
+            }
+
+            minor = rest;
+            return true;
         }
+
+        private static bool IsMatchingPhpExtensionVendorPackage(string packageDirName, string phpVersion)
+            => TryGetLegacyPhpVendorMinor(packageDirName, out var minor)
+                && VersionMatchesPhpTarget(minor, phpVersion);
 
         private static bool IsPhpExtensionVendorPackage(string packageDirName)
             => string.Equals(packageDirName, "php", StringComparison.OrdinalIgnoreCase)
@@ -161,13 +212,23 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
         private static bool IsPhpExtensionTyhpdefPath(string path)
         {
             var normalized = path.Replace('\\', '/');
-            return normalized.Contains("/php-extensions/", StringComparison.OrdinalIgnoreCase)
-                || normalized.Contains("/packages/php/", StringComparison.OrdinalIgnoreCase)
+            return normalized.Contains("/packages/php/", StringComparison.OrdinalIgnoreCase)
+                || normalized.Contains("/tyhpdef/php/", StringComparison.OrdinalIgnoreCase)
                 || normalized.Contains("/tyhp/php/", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Composer <c>name</c> <c>tyhp/core</c> wins over directory spelling so path-repo
+        /// installs such as <c>dist/tyhp-core/805.0.1</c> still count as the runtime package.
+        /// </summary>
         private static string? TryGetRuntimePackageName(string manifestPath)
         {
+            var fromComposer = TryReadTyhpComposerPackageShortName(manifestPath);
+            if (!string.IsNullOrEmpty(fromComposer))
+            {
+                return fromComposer;
+            }
+
             var packageDir = Path.GetFileName(Path.GetDirectoryName(manifestPath));
             if (string.IsNullOrEmpty(packageDir))
             {
@@ -184,6 +245,45 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
             return null;
         }
 
+        private static string? TryReadTyhpComposerPackageShortName(string manifestPath)
+        {
+            var directory = Path.GetDirectoryName(manifestPath);
+            if (string.IsNullOrEmpty(directory))
+            {
+                return null;
+            }
+
+            var composerJson = Path.Combine(directory, "composer.json");
+            if (!File.Exists(composerJson))
+            {
+                return null;
+            }
+
+            try
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(composerJson));
+                if (!document.RootElement.TryGetProperty("name", out var nameElement)
+                    || nameElement.ValueKind != System.Text.Json.JsonValueKind.String)
+                {
+                    return null;
+                }
+
+                var name = nameElement.GetString();
+                if (string.IsNullOrWhiteSpace(name)
+                    || !name.StartsWith("tyhp/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+
+                var shortName = name["tyhp/".Length..];
+                return string.IsNullOrWhiteSpace(shortName) ? null : shortName;
+            }
+            catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException)
+            {
+                return null;
+            }
+        }
+
         private static void TrackLoadedPackage(string manifestPath, TyhpdefLoadContext context)
         {
             var packageDirName = Path.GetFileName(Path.GetDirectoryName(manifestPath));
@@ -192,8 +292,10 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
                 return;
             }
 
+            var composerShortName = TryReadTyhpComposerPackageShortName(manifestPath);
             var phpVersion = GetConfiguredPhpVersion(context.Options);
-            if (string.Equals(packageDirName, "php", StringComparison.OrdinalIgnoreCase)
+            if (string.Equals(composerShortName, "php", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(packageDirName, "php", StringComparison.OrdinalIgnoreCase)
                 || (packageDirName.StartsWith("php-", StringComparison.OrdinalIgnoreCase)
                     && IsMatchingPhpExtensionVendorPackage(packageDirName, phpVersion))
                 || IsPhpExtensionTyhpdefPath(manifestPath))

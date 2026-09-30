@@ -1,0 +1,7 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+class UserService {
+    public type NameType = string;
+}

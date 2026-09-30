@@ -1,0 +1,29 @@
+<?tyhp
+namespace App;
+
+interface Logger {
+    public function log(string $message): void;
+}
+
+type TimestampedLogger = Logger & object {
+    public function getLastLogAt(): int;
+};
+
+class FileLogger implements Logger {
+    public function log(string $message): void {}
+
+    public function getLastLogAt(): int {
+        return 1;
+    }
+}
+
+function take(TimestampedLogger $logger): int {
+    return $logger->getLastLogAt();
+}
+
+function main(): void {
+    echo take(new FileLogger());
+    echo "\n";
+}
+
+main();

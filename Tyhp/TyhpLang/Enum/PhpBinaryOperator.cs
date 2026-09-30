@@ -53,10 +53,61 @@ namespace Tyhp.TyhpLang.Enum
     public static class PhpBinaryOperatorExtensions
     {
         public static PhpBinaryOperator? FromToken(IToken? token)
-            => FromToken(token?.Type ?? -1);
+            => FromToken(token?.Type ?? -1, token?.Text);
 
-        public static PhpBinaryOperator? FromToken(int token)
-            => (token) switch
+        /// <summary>
+        /// When <paramref name="text"/> is present it is authoritative. Tyhpdef token ids are not
+        /// <c>TyhpParser</c> ids; the integer is used only when the spelling is absent.
+        /// </summary>
+        public static PhpBinaryOperator? FromToken(int token, string? text = null)
+        {
+            if (!string.IsNullOrEmpty(text))
+            {
+                var spelling = text.Trim();
+                if (spelling.Length > 0 && char.IsLetter(spelling[0]))
+                {
+                    return spelling.ToLowerInvariant() switch
+                    {
+                        "and" => PhpBinaryOperator.LogicalAnd,
+                        "or" => PhpBinaryOperator.LogicalOr,
+                        "xor" => PhpBinaryOperator.LogicalXor,
+                        "instanceof" or "is" => PhpBinaryOperator.InstanceOf,
+                        _ => null,
+                    };
+                }
+
+                return spelling switch
+                {
+                    "+" => PhpBinaryOperator.Plus,
+                    "-" => PhpBinaryOperator.Minus,
+                    "*" => PhpBinaryOperator.Multiply,
+                    "/" => PhpBinaryOperator.Divide,
+                    "%" => PhpBinaryOperator.Modulo,
+                    "**" => PhpBinaryOperator.Power,
+                    "==" => PhpBinaryOperator.Equal,
+                    "!=" => PhpBinaryOperator.NotEqual,
+                    "===" => PhpBinaryOperator.Identical,
+                    "!==" => PhpBinaryOperator.NotIdentical,
+                    ">" => PhpBinaryOperator.GreaterThan,
+                    "<" => PhpBinaryOperator.LessThan,
+                    "<=" => PhpBinaryOperator.LessThanOrEqual,
+                    ">=" => PhpBinaryOperator.GreaterThanOrEqual,
+                    "<=>" => PhpBinaryOperator.Spaceship,
+                    "&&" => PhpBinaryOperator.BooleanAnd,
+                    "||" => PhpBinaryOperator.BooleanOr,
+                    "&" => PhpBinaryOperator.BitwiseAnd,
+                    "|" => PhpBinaryOperator.BitwiseOr,
+                    "^" => PhpBinaryOperator.BitwiseXor,
+                    "<<" => PhpBinaryOperator.ShiftLeft,
+                    ">>" => PhpBinaryOperator.ShiftRight,
+                    "." => PhpBinaryOperator.Concat,
+                    "??" => PhpBinaryOperator.Coalesce,
+                    "|>" => PhpBinaryOperator.Pipe,
+                    _ => null,
+                };
+            }
+
+            return token switch
             {
                 TyhpLang.Parser.TyhpParser.T_SYM_PLUS => PhpBinaryOperator.Plus,
                 TyhpLang.Parser.TyhpParser.T_SYM_MINUS => PhpBinaryOperator.Minus,
@@ -87,10 +138,11 @@ namespace Tyhp.TyhpLang.Enum
                 TyhpLang.Parser.TyhpParser.T_COALESCE => PhpBinaryOperator.Coalesce,
                 TyhpLang.Parser.TyhpParser.T_PIPE => PhpBinaryOperator.Pipe,
                 TyhpLang.Parser.TyhpParser.T_INSTANCEOF => PhpBinaryOperator.InstanceOf,
-                // `is`/`isa`/`isan`/`is_a`/`is_an` are Tyhp aliases for `instanceof` (see Tyhp/TyhpLang/Grammar/TyhpParser.g4
+                // `is` is the Tyhp alias for `instanceof` (see Tyhp/TyhpLang/Grammar/TyhpParser.g4
                 // phpExprBinaryOpGrammarAddon002: "alias of T_INSTANCEOF").
                 TyhpLang.Parser.TyhpParser.T_TYHP_IS => PhpBinaryOperator.InstanceOf,
                 _ => null
             };
+        }
     }
 } 

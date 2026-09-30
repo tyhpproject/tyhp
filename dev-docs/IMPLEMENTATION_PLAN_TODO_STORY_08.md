@@ -11,6 +11,8 @@
 > **Prerequisites:** Story 01 (Diagnostic System, `DiagnosticBag`, `CompilationResult`, `CompilationService`), Story 02 (Binder — symbols, scopes, name resolution, tyhpdef loading), Story 03 (Extension operator overloads, tyhpdef inline extensions), Story 05 (BoundSymbol on AST nodes — provides `astNode.BoundSymbol` for direct symbol access), Story 06 (Built-in Types, Grammar Fixes, and Compiler Infrastructure)
 > **Status:** SUBSTANTIALLY COMPLETE (2026-07-31 audit) — `TyhpChecker`, `TypeComparer`, `TypeInferrer`, and rules are implemented and wired. Phase checkboxes in this doc were never updated. Known incomplete acceptance items (esp. call-argument validation) are listed in `INCOMPLETE.md`.
 > **Post-completion fixes verified 2026-07-31 (RESOLVED_BUGS):** item **35** (all-literal param/return types → `StaticValueTypeHelper`) and item **40** (`return <expr>;` in `__construct`/`__destruct` → **4153**) — DONE; remaining Story 08 gaps stay in `INCOMPLETE.md` / `FOUND_BUGS.md`.
+>
+> **Story 20.6 note:** Class-body tyhpdef `extension function` / `extension operator` become **thin mappings** (`=>` only; no brace bodies). Section 6.1.2's brace-body / `$this` in function-body wording stays as Story 03 shipped it; Story 20.6 supersedes the syntax.
 
 ---
 
@@ -277,8 +279,8 @@ From Story 06:
 
 ## Phase 1: TyhpChecker Core Architecture and CheckerState Operations
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -747,8 +749,8 @@ Add corresponding entries to the `.resx` resource file(s) created in Story 01.
 
 ## Phase 2: VariableState, Type Inference, and Expression Type Resolution
 
-> **[Phase Runner] Runtime/Model:** `claude/opus` | `cursor/opus`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -955,7 +957,7 @@ Compute the type of an expression by dispatching on AST node type:
 | Operator | Left Type | Right Type | Result Type |
 |----------|-----------|------------|-------------|
 | `==`, `===`, `!=`, `!==`, `<`, `>`, `<=`, `>=` | any | any | `bool` |
-| `<=>` | any | any | `int` |
+| `<=>` | any | any | `-1\|0\|1` (subtype of `int`) |
 
 **Logical operators:**
 
@@ -1022,8 +1024,8 @@ These are called by all subsequent check methods when they need to know the type
 
 ## Phase 3: Type Compatibility Checking (TypeComparer)
 
-> **[Phase Runner] Runtime/Model:** `claude/opus` | `cursor/opus`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -1156,7 +1158,7 @@ When `iterable` has generic type arguments:
 - When checking `IsAssignableTo(array<K, V>, iterable<K, V>)`, return `true` (with generic argument compatibility checks)
 - When checking `IsAssignableTo(SomeTraversable<K, V>, iterable<K, V>)` where `SomeTraversable` implements `\Traversable<K, V>`, return `true`
 
-**Note:** `\Traversable` is defined in the PHP extension Composer package (`tyhp/php-{phpVersion}`). If the package is not installed, `iterable` still works for `array` but the `\Traversable` side of the equivalence cannot be checked. The checker should gracefully handle the case where `\Traversable` is not defined — it should still accept `array` as `iterable` and emit a warning if `iterable` is used but `\Traversable` is not available.
+**Note:** `\Traversable` is defined in the PHP extension Composer package (`tyhpdef/php-{phpVersion}`). If the package is not installed, `iterable` still works for `array` but the `\Traversable` side of the equivalence cannot be checked. The checker should gracefully handle the case where `\Traversable` is not defined — it should still accept `array` as `iterable` and emit a warning if `iterable` is used but `\Traversable` is not available.
 
 **Implementation approach:** Add these rules to `IsAssignableTo()` as special cases checked BEFORE the general subtype/compatibility rules (between rules 6 and 7 in the existing list). The `iterable` type name is hardcoded in the checker as a known built-in type, similar to how `mixed`, `void`, and `never` are handled.
 
@@ -1269,7 +1271,7 @@ Substitute generic type parameters with their concrete type arguments:
 **`decimal` type:**
 - Treated as a semi-scalar: supports arithmetic operations
 - NOT a subtype of `int` or `float` (separate type)
-- Operator overloads from `tyhp/decimal`'s package (discovered via `package.tyhp.json`) define valid operations
+- Operator overloads from `tyhp/decimal`'s package (discovered via `extra.tyhp.package`) define valid operations
 
 **`struct` types:**
 - Structural typing: two structs with the same property shapes are compatible
@@ -1333,8 +1335,8 @@ Add convenience methods to `TyhpChecker`:
 
 ## Phase 4: Tier 1 — Core PHP Type Checking (Declarations, Statements, Expressions)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1454,7 +1456,7 @@ Implement the first tier of type checks covering standard PHP type system valida
   - Declare the value variable with the inferred value type
 - **Async iteration (`foreach (await $expr as $item)`):** When the foreach expression is an `await` expression:
   - Must be inside an async function context (`IsInAsyncContext = true`), otherwise report `CheckerAwaitOutsideAsync` (4028)
-  - If the awaited expression is `AsyncIterable<T>` (from `tyhp/async`'s package (discovered via `package.tyhp.json`)): this is async iteration. The loop variable type is `T`. For key-value async iteration with `AsyncKeyValueIterator<TKey, TValue>`, the key type is `TKey` and value type is `TValue`.
+  - If the awaited expression is `AsyncIterable<T>` (from `tyhp/async`'s package (discovered via `extra.tyhp.package`)): this is async iteration. The loop variable type is `T`. For key-value async iteration with `AsyncKeyValueIterator<TKey, TValue>`, the key type is `TKey` and value type is `TValue`.
   - If the awaited expression is `Promise<Iterable<T>>`: resolve the Promise to `Iterable<T>`, then iterate synchronously. The loop variable type is `T`. This is resolve-then-iterate, not true async iteration.
   - If the awaited expression is neither `AsyncIterable<T>` nor `Promise<Iterable<T>>`, report a type error.
 - **Missing `await` on `AsyncIterable<T>`:** If the foreach expression (without `await`) has type `AsyncIterable<T>`, report an error: "Cannot iterate `AsyncIterable<T>` without `await`; use `foreach (await $expr as ...)`"
@@ -2032,8 +2034,8 @@ Beyond what's in §4.1:
 
 ## Phase 5: Tier 2 — Tyhp-Specific Type Checking
 
-> **[Phase Runner] Runtime/Model:** `claude/opus` | `cursor/opus`
-> **[Phase Runner] Review Level:** `High`
+
+
 
 ### Phase Overview
 
@@ -2540,8 +2542,8 @@ Tyhp requires all parameters to have types. For closure/fn expression parameters
 
 ## Phase 6: Tier 3 — Advanced Tyhp Feature Checks
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -2978,8 +2980,8 @@ Expand the existing restricted feature rule with Tyhp-specific prohibitions:
 
 ## Phase 7: Pipeline Integration, Configuration, and Validation
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

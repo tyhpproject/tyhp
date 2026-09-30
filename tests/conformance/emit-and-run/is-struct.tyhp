@@ -1,0 +1,11 @@
+<?tyhp
+type Money = struct {
+    int $cents = 0;
+};
+
+function main(): void {
+    mixed $x = new Money();
+    echo ($x is Money) ? "yes" : "no";
+}
+
+main();

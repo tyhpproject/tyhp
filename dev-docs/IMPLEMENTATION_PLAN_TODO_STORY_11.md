@@ -159,8 +159,8 @@ Before making any potentially destructive changes to existing files:
 
 ## Phase 1: Emitter Infrastructure — Context, Helpers, and Transformer Interface
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -258,8 +258,8 @@ Establish the shared infrastructure that all feature-specific transformers depen
 
 ## Phase 2: Struct Emission — Structs to Associative Arrays
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -341,8 +341,8 @@ The transformer must handle several struct-related AST patterns:
 
 ## Phase 3: Type Aliases, Trait Requirements, and Simple Erasures
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -409,8 +409,8 @@ Implement the transformers for compile-time-only features that are erased or sim
 
 ## Phase 4: Extension Methods — Static Method Call Rewriting
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -489,8 +489,8 @@ Implement the `ExtensionMethodTransformer` that rewrites extension method call s
 
 ## Phase 5: Operator Overloads — Declaration and Call-Site Rewriting
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -601,8 +601,8 @@ This transformer handles three distinct aspects:
 
 ## Phase 6: `with` Keyword and Short Function Syntax
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -890,8 +890,8 @@ Add `build.experimentalReadonlyCloneWith` (boolean, default `false`) to the proj
 
 ## Phase 7: Disposables — Scope-Based Auto-Dispose
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1060,8 +1060,8 @@ The disposable transformation is scope-aware. Instead of try/finally wrapping, i
 
 ## Phase 8: Generics — Type Erasure and Runtime Type Tracking
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1215,8 +1215,8 @@ The emitter reads the `RequiresRuntimeGenericTracking` flag from the class symbo
 
 ## Phase 9: Async/Await — Promise and Fiber Integration
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1372,8 +1372,8 @@ Implement the `AsyncAwaitTransformer` that transforms Tyhp's async/await syntax 
 
 ## Phase 10: Compile-Time Constructs and Final Integration
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 

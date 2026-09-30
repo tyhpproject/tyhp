@@ -1,0 +1,41 @@
+<div id="function.json-encode" class="refentry">
+  <div class="refnamediv">
+    <h1 class="refname">json_encode</h1>
+    <p class="verinfo">(PHP 5 &gt;= 5.2.0, PHP 7, PHP 8, PECL json &gt;= 1.2.0)</p>
+    <p class="refpurpose"><span class="dc-title">Returns the JSON representation of a value</span></p>
+  </div>
+  <div id="refsect1-function.json-encode-description" class="refsect1 description">
+    <h3 class="title">Description</h3>
+    <p class="para rdfs-comment">Returns a string containing the JSON representation of the supplied <code class="parameter">value</code>.</p>
+    <blockquote class="note"><p>The encoding is affected by supplied <code class="parameter">flags</code>.</p></blockquote>
+  </div>
+  <div id="refsect1-function.json-encode-parameters" class="refsect1 parameters">
+    <h3 class="title">Parameters</h3>
+    <p class="para">
+      <dl>
+        <dt><code class="parameter">value</code></dt>
+        <dd><p class="para">The value being encoded. Can be any type except a resource.</p></dd>
+        <dt><code class="parameter">flags</code></dt>
+        <dd><p class="para">Bitmask of JSON encode options.</p></dd>
+        <dt><code class="parameter">depth</code></dt>
+        <dd><p class="para">Maximum nesting depth.</p></dd>
+      </dl>
+    </p>
+  </div>
+  <div id="refsect1-function.json-encode-returnvalues" class="refsect1 returnvalues">
+    <h3 class="title">Return Values</h3>
+    <p class="para">Returns a JSON encoded string on success or <strong><code>false</code></strong> on failure.</p>
+  </div>
+  <div id="refsect1-function.json-encode-errors" class="refsect1 errors">
+    <h3 class="title">Errors/Exceptions</h3>
+    <p class="para">Throws JsonException when JSON_THROW_ON_ERROR is set.</p>
+  </div>
+</div>
+<div id="class.jsonexception" class="classsynopsis">
+  <div class="classsynopsisinfo">
+    <span class="ooclass"><strong class="classname">JsonException</strong></span>
+  </div>
+  <div class="refnamediv">
+    <p class="refpurpose"><span class="dc-title">Exception thrown if JSON_THROW_ON_ERROR is set</span></p>
+  </div>
+</div>

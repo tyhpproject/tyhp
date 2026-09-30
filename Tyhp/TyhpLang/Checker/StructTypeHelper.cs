@@ -37,12 +37,17 @@ namespace Tyhp.TyhpLang.Checker
         /// <summary>
         /// Materializes a property map for struct, class, or interface types.
         /// </summary>
+        /// <param name="instancePropertiesOnly">
+        /// When true, static properties are omitted (PHP <c>clone($object, $withProperties)</c>
+        /// only sets instance properties).
+        /// </param>
         public static StructCheckedType? TryGetPropertyShape(
             ICheckedType type,
             CheckerState state,
             SymbolTree symbolTree,
             GlobalScope globalScope,
-            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType)
+            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType,
+            bool instancePropertiesOnly = false)
         {
             if (type is StructCheckedType structType)
             {
@@ -54,7 +59,8 @@ namespace Tyhp.TyhpLang.Checker
                 return null;
             }
 
-            var shape = BuildFromObjectDeclaration(obj, state, symbolTree, globalScope, resolveType);
+            var shape = BuildFromObjectDeclaration(
+                obj, state, symbolTree, globalScope, resolveType, instancePropertiesOnly);
             return MaybeSubstitute(type, shape, state, symbolTree, globalScope, resolveType);
         }
 
@@ -100,10 +106,19 @@ namespace Tyhp.TyhpLang.Checker
             CheckerState state,
             SymbolTree symbolTree,
             GlobalScope globalScope,
-            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType)
+            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType,
+            bool instancePropertiesOnly = false)
         {
             var properties = new Dictionary<string, StructPropertyInfo>(StringComparer.Ordinal);
-            CollectProperties(obj, state, symbolTree, globalScope, resolveType, properties, new HashSet<ObjectDeclarationSymbol>());
+            CollectProperties(
+                obj,
+                state,
+                symbolTree,
+                globalScope,
+                resolveType,
+                properties,
+                new HashSet<ObjectDeclarationSymbol>(),
+                instancePropertiesOnly);
             return new StructCheckedType(properties);
         }
 
@@ -127,7 +142,8 @@ namespace Tyhp.TyhpLang.Checker
             GlobalScope globalScope,
             Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType,
             Dictionary<string, StructPropertyInfo> properties,
-            HashSet<ObjectDeclarationSymbol> visited)
+            HashSet<ObjectDeclarationSymbol> visited,
+            bool instancePropertiesOnly = false)
         {
             if (!visited.Add(obj))
             {
@@ -136,12 +152,25 @@ namespace Tyhp.TyhpLang.Checker
 
             if (TypeComparer.TryGetParentDeclaration(obj, symbolTree, globalScope) is { } parent)
             {
-                CollectProperties(parent, state, symbolTree, globalScope, resolveType, properties, visited);
+                CollectProperties(
+                    parent,
+                    state,
+                    symbolTree,
+                    globalScope,
+                    resolveType,
+                    properties,
+                    visited,
+                    instancePropertiesOnly);
             }
 
             foreach (var member in obj.Members.Values)
             {
                 if (member is not ObjectPropertySymbol { DeclaredType: { } declaredType, Visibility: var visibility } property)
+                {
+                    continue;
+                }
+
+                if (instancePropertiesOnly && property.SymbolType == SymbolType.StaticObjectProperty)
                 {
                     continue;
                 }

@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Tyhp.CLI;
@@ -9,17 +10,28 @@ using Tyhp.TyhpLang.Emitter;
 namespace Tyhp.Domain.Services
 {
     /// <summary>
-    /// Generates or updates <c>composer.json</c> in the build output directory for PSR-4 autoloading.
+    /// Generates or updates <c>composer.json</c> at the published package root for PSR-4 autoloading.
     /// </summary>
     public sealed class ComposerJsonService
     {
         private static readonly JsonSerializerOptions JsonWriteOptions = new()
         {
             WriteIndented = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };
 
-        private const string PhpStubsPackage = "tyhp/php";
+        private const string PhpStubsPackage = "tyhpdef/php";
         private const int MaxDirectorySearchDepth = 10;
+
+        /// <summary>
+        /// Runtime package source checkout. A repository root (with a <c>packages/</c> child)
+        /// or the <c>packages</c> directory itself.
+        /// </summary>
+        internal const string RuntimeSrcEnvironmentVariable = "TYHP_RUNTIME_SRC";
+
+        private static readonly object RuntimePackagesRootGate = new();
+        private static string? _cachedRuntimePackagesRoot;
+        private static string? _cachedRuntimePackagesKey;
 
         private readonly DiagnosticBag _diagnostics;
 
@@ -149,8 +161,8 @@ namespace Tyhp.Domain.Services
                 };
             }
 
-            var psr4Mappings = ComputePsr4Mappings(outputFiles, project);
-            var functionFiles = ComputeFunctionAutoloadFiles(outputFiles, project);
+            var psr4Mappings = ComputePsr4Mappings(outputFiles, project, outputDirectory);
+            var functionFiles = ComputeFunctionAutoloadFiles(outputFiles, project, outputDirectory);
             var requiredPackages = DetermineRequiredPackages(outputFiles, emitContext);
 
             MergeAutoloadSection(root, psr4Mappings, functionFiles);
@@ -179,7 +191,8 @@ namespace Tyhp.Domain.Services
 
         internal static Dictionary<string, string> ComputePsr4Mappings(
             IReadOnlyList<PHPOutputFile> outputFiles,
-            Project project)
+            Project project,
+            string composerDirectory)
         {
             var mappings = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -199,9 +212,12 @@ namespace Tyhp.Domain.Services
                     continue;
                 }
 
-                var relativePath = ToOutputRelativePath(outputFile.OutputFilePath, project.Output.Path);
+                var relativePath = ToComposerRelativePath(
+                    outputFile.OutputFilePath,
+                    composerDirectory,
+                    project.GetProjectPath());
                 var directoryPath = Path.GetDirectoryName(relativePath)?.Replace('\\', '/') ?? "";
-                if (string.IsNullOrWhiteSpace(directoryPath))
+                if (string.IsNullOrWhiteSpace(directoryPath) || directoryPath == ".")
                 {
                     continue;
                 }
@@ -224,13 +240,17 @@ namespace Tyhp.Domain.Services
 
         internal static List<string> ComputeFunctionAutoloadFiles(
             IReadOnlyList<PHPOutputFile> outputFiles,
-            Project project)
+            Project project,
+            string composerDirectory)
         {
             var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var outputFile in outputFiles)
             {
-                var relativePath = ToOutputRelativePath(outputFile.OutputFilePath, project.Output.Path);
+                var relativePath = ToComposerRelativePath(
+                    outputFile.OutputFilePath,
+                    composerDirectory,
+                    project.GetProjectPath());
                 if (relativePath.EndsWith("_functions.php", StringComparison.OrdinalIgnoreCase))
                 {
                     files.Add(relativePath.Replace('\\', '/'));
@@ -352,11 +372,11 @@ namespace Tyhp.Domain.Services
             foreach (var package in packages)
             {
                 var sourceVersion = ResolvePackageSourceVersion(package, runtimePackages);
-                // Path repos use the source composer.json version (X.Y).
-                // Packagist artifacts are 80N.X.Y for the project's output.phpVersion.
+                // Path repos use the source composer.json version.
+                // Packagist: tyhpdef/* keeps that version; tyhp/* runtime helpers are 80N.X.Y.
                 var constraint = runtimePackages.ContainsKey(package)
                     ? sourceVersion
-                    : EncodeRuntimePackageVersion(project.PhpVersion, sourceVersion);
+                    : ResolvePackagistConstraint(package, project.PhpVersion, sourceVersion);
                 require[package] = constraint;
                 anyPrerelease = anyPrerelease || constraint.Contains('-', StringComparison.Ordinal);
                 if (runtimePackages.ContainsKey(package))
@@ -476,14 +496,350 @@ namespace Tyhp.Domain.Services
             => BuildRuntimePackagePathMap();
 
         /// <summary>
+        /// Locates the runtime package tree for path repositories and PHP-source harvest
+        /// catalog indexing. <see cref="RuntimeSrcEnvironmentVariable"/> when it points at a
+        /// checkout, otherwise a sibling <c>../tyhp-runtime-src/packages</c>. Does not
+        /// require an in-tree <c>runtime/packages</c> directory.
+        /// </summary>
+        internal static string? TryResolveRuntimePackagesRoot()
+        {
+            var env = Environment.GetEnvironmentVariable(RuntimeSrcEnvironmentVariable) ?? "";
+            var cwd = Directory.GetCurrentDirectory();
+            var key = env + "\0" + cwd + "\0" + AppContext.BaseDirectory;
+            lock (RuntimePackagesRootGate)
+            {
+                if (string.Equals(_cachedRuntimePackagesKey, key, StringComparison.Ordinal))
+                {
+                    return _cachedRuntimePackagesRoot;
+                }
+
+                var resolved = ResolveRuntimePackagesRoot(env, [AppContext.BaseDirectory, cwd]);
+                _cachedRuntimePackagesKey = key;
+                _cachedRuntimePackagesRoot = resolved;
+                return resolved;
+            }
+        }
+
+        /// <summary>
+        /// Same resolution as <see cref="TryResolveRuntimePackagesRoot"/> with an explicit
+        /// environment value and start directories (tests).
+        /// </summary>
+        internal static string? ResolveRuntimePackagesRoot(
+            string? runtimeSrcEnvironment,
+            IReadOnlyList<string> startDirectories)
+        {
+            var fromEnv = TryResolveFromEnvironment(runtimeSrcEnvironment);
+            if (fromEnv != null)
+            {
+                return fromEnv;
+            }
+
+            foreach (var startDirectory in startDirectories)
+            {
+                var resolved = SearchUpwardForRuntimePackages(startDirectory);
+                if (resolved != null)
+                {
+                    return resolved;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Require / suggest / require-dev package names from a Composer manifest
+        /// (the PHP package being wrapped, not the <c>tyhp/*</c> wrapper).
+        /// </summary>
+        internal sealed class ComposerDependencySet
+        {
+            public string Name { get; init; } = "";
+
+            public HashSet<string> Require { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+            public HashSet<string> Suggest { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+            public HashSet<string> RequireDev { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+            /// <summary>
+            /// Package names from <c>extra.tyhp.require</c> (ambient for compiled-library consumers).
+            /// </summary>
+            public HashSet<string> ExtraTyhpRequire { get; } = new(StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Reads <c>require</c>, <c>suggest</c>, <c>require-dev</c>, and
+        /// <c>extra.tyhp.require</c> keys from <paramref name="composerJsonPath"/>.
+        /// Returns null when the file is missing or not an object.
+        /// </summary>
+        internal static ComposerDependencySet? TryReadDependencySet(string composerJsonPath)
+        {
+            if (string.IsNullOrWhiteSpace(composerJsonPath) || !File.Exists(composerJsonPath))
+            {
+                return null;
+            }
+
+            JsonObject? root;
+            try
+            {
+                root = JsonNode.Parse(File.ReadAllText(composerJsonPath))?.AsObject();
+            }
+            catch (Exception ex) when (ex is IOException or JsonException)
+            {
+                return null;
+            }
+
+            if (root is null)
+            {
+                return null;
+            }
+
+            var set = new ComposerDependencySet
+            {
+                Name = GetNodeStringValue(root["name"]) ?? "",
+            };
+            FillNameSet(root["require"] as JsonObject, set.Require);
+            FillNameSet(root["suggest"] as JsonObject, set.Suggest);
+            FillNameSet(root["require-dev"] as JsonObject, set.RequireDev);
+            var extraTyhp = (root["extra"] as JsonObject)?["tyhp"] as JsonObject;
+            FillNameSet(extraTyhp?["require"] as JsonObject, set.ExtraTyhpRequire);
+            return set;
+        }
+
+        /// <summary>
+        /// Adds missing <c>require</c> entries on a <c>tyhp/*</c> wrapper
+        /// <c>composer.json</c>. Existing constraints are kept. Does not encode
+        /// Packagist 80N versions or rewrite repositories (Story 21.5 owns that).
+        /// </summary>
+        internal static void EnsureRequireEntries(
+            string composerJsonPath,
+            IReadOnlyDictionary<string, string> packages)
+        {
+            if (string.IsNullOrWhiteSpace(composerJsonPath)
+                || packages is null
+                || packages.Count == 0
+                || !File.Exists(composerJsonPath))
+            {
+                return;
+            }
+
+            JsonObject root;
+            try
+            {
+                root = JsonNode.Parse(File.ReadAllText(composerJsonPath))?.AsObject()
+                    ?? new JsonObject();
+            }
+            catch (Exception ex) when (ex is IOException or JsonException)
+            {
+                return;
+            }
+
+            var require = root["require"] as JsonObject ?? new JsonObject();
+            var changed = false;
+            foreach (var (package, constraint) in packages)
+            {
+                if (string.IsNullOrWhiteSpace(package) || require.ContainsKey(package))
+                {
+                    continue;
+                }
+
+                require[package] = string.IsNullOrWhiteSpace(constraint) ? "*" : constraint;
+                changed = true;
+            }
+
+            if (!changed)
+            {
+                return;
+            }
+
+            root["require"] = require;
+            try
+            {
+                File.WriteAllText(composerJsonPath, root.ToJsonString(JsonWriteOptions) + Environment.NewLine);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+
+        internal const string TyhpdefDevConstraint = "@dev";
+
+        /// <summary>
+        /// Puts <c>tyhpdef/*</c> packages in <c>require-dev</c> and
+        /// <c>extra.tyhp.require</c> as <c>@dev</c>. Removes them from
+        /// <c>require</c> (PHP-source harvest used to pin <c>tyhpdef/php</c> there with
+        /// the stubs package version, e.g. <c>0.0.1</c>). Adds a path
+        /// repository when that package is present under the resolved runtime
+        /// packages root (<c>TYHP_RUNTIME_SRC</c>, then a sibling
+        /// <c>tyhp-runtime-src/packages</c>).
+        /// </summary>
+        internal static void EnsureTyhpdefRequireDevEntries(
+            string composerJsonPath,
+            IReadOnlyCollection<string> packages)
+        {
+            if (string.IsNullOrWhiteSpace(composerJsonPath)
+                || packages is null
+                || packages.Count == 0
+                || !File.Exists(composerJsonPath))
+            {
+                return;
+            }
+
+            JsonObject root;
+            try
+            {
+                root = JsonNode.Parse(File.ReadAllText(composerJsonPath))?.AsObject()
+                    ?? new JsonObject();
+            }
+            catch (Exception ex) when (ex is IOException or JsonException)
+            {
+                return;
+            }
+
+            var require = root["require"] as JsonObject ?? new JsonObject();
+            var requireDev = GetOrCreateObject(root, "require-dev");
+            var extraRequire = GetOrCreateExtraTyhpRequire(root);
+            if (requireDev is null)
+            {
+                return;
+            }
+
+            var changed = false;
+            var pathRepositories = new List<(string Name, string Directory)>();
+            var runtimePackages = GetRuntimePackagePathMap();
+            var wrapperDirectory = Path.GetDirectoryName(Path.GetFullPath(composerJsonPath));
+
+            foreach (var package in packages)
+            {
+                if (string.IsNullOrWhiteSpace(package))
+                {
+                    continue;
+                }
+
+                if (require.ContainsKey(package))
+                {
+                    require.Remove(package);
+                    changed = true;
+                }
+
+                if (SetConstraint(requireDev, package, TyhpdefDevConstraint))
+                {
+                    changed = true;
+                }
+
+                if (extraRequire is not null && SetConstraint(extraRequire, package, TyhpdefDevConstraint))
+                {
+                    changed = true;
+                }
+
+                if (runtimePackages.TryGetValue(package, out var directory)
+                    && !string.IsNullOrWhiteSpace(wrapperDirectory))
+                {
+                    var relative = Path.GetRelativePath(wrapperDirectory, directory).Replace('\\', '/');
+                    if (!string.IsNullOrWhiteSpace(relative) && relative != ".")
+                    {
+                        pathRepositories.Add((package, relative));
+                    }
+                }
+            }
+
+            root["require"] = require;
+            if (pathRepositories.Count > 0)
+            {
+                var before = root["repositories"]?.ToJsonString();
+                MergeRepositoriesSection(root, pathRepositories);
+                if (root["repositories"]?.ToJsonString() != before)
+                {
+                    changed = true;
+                }
+            }
+
+            if (!changed)
+            {
+                return;
+            }
+
+            try
+            {
+                File.WriteAllText(composerJsonPath, root.ToJsonString(JsonWriteOptions) + Environment.NewLine);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+
+        private static JsonObject? GetOrCreateObject(JsonObject parent, string key)
+        {
+            if (parent[key] is JsonObject existing)
+            {
+                return existing;
+            }
+
+            if (parent.ContainsKey(key))
+            {
+                return null;
+            }
+
+            var created = new JsonObject();
+            parent[key] = created;
+            return created;
+        }
+
+        private static JsonObject? GetOrCreateExtraTyhpRequire(JsonObject root)
+        {
+            var extra = GetOrCreateObject(root, "extra");
+            if (extra is null)
+            {
+                return null;
+            }
+
+            var tyhp = GetOrCreateObject(extra, "tyhp");
+            if (tyhp is null)
+            {
+                return null;
+            }
+
+            return GetOrCreateObject(tyhp, "require");
+        }
+
+        private static bool SetConstraint(JsonObject section, string package, string constraint)
+        {
+            if (section[package] is JsonValue existing
+                && existing.TryGetValue<string>(out var text)
+                && string.Equals(text, constraint, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            section[package] = constraint;
+            return true;
+        }
+
+        private static void FillNameSet(JsonObject? section, HashSet<string> names)
+        {
+            if (section is null)
+            {
+                return;
+            }
+
+            foreach (var property in section)
+            {
+                var key = property.Key.Trim();
+                if (key.Length > 0)
+                {
+                    names.Add(key);
+                }
+            }
+        }
+
+        /// <summary>
         /// Maps each on-disk runtime package's Composer <c>name</c> (e.g. <c>tyhp/core</c>) to its
-        /// absolute directory under <c>runtime/packages/</c>, or an empty map when the runtime
-        /// package root cannot be located (the build then proceeds without path repositories).
+        /// absolute directory under the resolved runtime packages root, or an empty map when that
+        /// root cannot be located (the build then proceeds without path repositories).
         /// </summary>
         private static Dictionary<string, string> BuildRuntimePackagePathMap()
         {
             var map = new Dictionary<string, string>(StringComparer.Ordinal);
-            var runtimePackagesRoot = ResolveRuntimePackagesRoot();
+            var runtimePackagesRoot = TryResolveRuntimePackagesRoot();
             if (runtimePackagesRoot == null)
             {
                 return map;
@@ -527,24 +883,46 @@ namespace Tyhp.Domain.Services
         }
 
         /// <summary>
-        /// Locates the compiler's <c>runtime/packages/</c> directory by walking upward from the
-        /// running assembly's base directory and the current working directory — the same roots the
-        /// tyhpdef loader uses to discover runtime packages.
+        /// <paramref name="runtimeSrcEnvironment"/> is a tyhp-runtime-src checkout (a
+        /// <c>packages/</c> child) or that <c>packages</c> directory itself.
         /// </summary>
-        private static string? ResolveRuntimePackagesRoot()
+        private static string? TryResolveFromEnvironment(string? runtimeSrcEnvironment)
         {
-            foreach (var startDirectory in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
+            if (string.IsNullOrWhiteSpace(runtimeSrcEnvironment))
             {
-                var resolved = SearchUpwardForRuntimePackages(startDirectory);
-                if (resolved != null)
-                {
-                    return resolved;
-                }
+                return null;
             }
 
-            return null;
+            string full;
+            try
+            {
+                full = Path.GetFullPath(runtimeSrcEnvironment.Trim());
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+
+            if (!Directory.Exists(full))
+            {
+                return null;
+            }
+
+            var packages = Path.Combine(full, "packages");
+            if (Directory.Exists(packages))
+            {
+                return Path.GetFullPath(packages);
+            }
+
+            return full;
         }
 
+        /// <summary>
+        /// Walks upward from <paramref name="startDirectory"/> for a sibling
+        /// <c>../tyhp-runtime-src/packages</c> (or a <c>tyhp-runtime-src</c> directory that
+        /// itself contains <c>packages/</c>). Stops there. Does not require in-tree
+        /// <c>runtime/packages</c>.
+        /// </summary>
         private static string? SearchUpwardForRuntimePackages(string startDirectory)
         {
             if (string.IsNullOrWhiteSpace(startDirectory))
@@ -565,10 +943,23 @@ namespace Tyhp.Domain.Services
             var depth = 0;
             while (directory != null && depth++ < MaxDirectorySearchDepth)
             {
-                var candidate = Path.Combine(directory.FullName, "runtime", "packages");
-                if (Directory.Exists(candidate))
+                if (string.Equals(directory.Name, "tyhp-runtime-src", StringComparison.OrdinalIgnoreCase))
                 {
-                    return candidate;
+                    var nested = Path.Combine(directory.FullName, "packages");
+                    if (Directory.Exists(nested))
+                    {
+                        return Path.GetFullPath(nested);
+                    }
+                }
+
+                var sibling = Path.GetFullPath(Path.Combine(
+                    directory.FullName,
+                    "..",
+                    "tyhp-runtime-src",
+                    "packages"));
+                if (Directory.Exists(sibling))
+                {
+                    return sibling;
                 }
 
                 directory = directory.Parent;
@@ -638,8 +1029,54 @@ namespace Tyhp.Domain.Services
             return $"tyhp/{directoryName}";
         }
 
+        internal const string CompilerPackageName = "tyhp/compiler";
+
         /// <summary>
-        /// Maps <c>output.phpVersion</c> plus a package's independent <c>X.Y</c>
+        /// Fallback when <c>runtime/packages/compiler/composer.json</c> cannot be read (published
+        /// CLI without the in-tree packages). Must match that package's <c>version</c>.
+        /// </summary>
+        internal const string CompilerPackageVersionFallback = "805.1.0-beta.1";
+
+        /// <summary>
+        /// Composer version of <c>tyhp/compiler</c> as the package versions itself (compiler tag,
+        /// not runtime <c>80N.X.Y</c>).
+        /// </summary>
+        internal static string ResolveCompilerPackageVersion()
+        {
+            var packages = GetRuntimePackagePathMap();
+            if (packages.TryGetValue(CompilerPackageName, out var directory))
+            {
+                var fromDisk = RuntimePackageVersions.TryReadComposerVersion(directory);
+                if (!string.IsNullOrWhiteSpace(fromDisk))
+                {
+                    return fromDisk;
+                }
+            }
+
+            return CompilerPackageVersionFallback;
+        }
+
+        /// <summary>
+        /// Packagist constraint for a runtime package when path repositories are not used.
+        /// <c>tyhpdef/*</c> publishes its <c>composer.json</c> version as-is;
+        /// compiled <c>tyhp/*</c> helpers are <c>80N.X.Y</c> for <paramref name="phpVersion"/>.
+        /// </summary>
+        internal static string ResolvePackagistConstraint(
+            string packageName,
+            string phpVersion,
+            string packageSourceVersion)
+        {
+            if (packageName.StartsWith("tyhpdef/", StringComparison.Ordinal))
+            {
+                var source = packageSourceVersion.Trim();
+                return string.IsNullOrEmpty(source) ? packageSourceVersion : source;
+            }
+
+            return EncodeRuntimePackageVersion(phpVersion, packageSourceVersion);
+        }
+
+        /// <summary>
+        /// Maps <c>output.phpVersion</c> plus a compiled runtime package's independent <c>X.Y</c>
         /// to the Packagist artifact version <c>80N.X.Y</c>.
         /// </summary>
         internal static string EncodeRuntimePackageVersion(string phpVersion, string packageSourceVersion)
@@ -688,21 +1125,21 @@ namespace Tyhp.Domain.Services
                 _ => null,
             };
 
-        private static string ToOutputRelativePath(string outputFilePath, string outputPathPrefix)
+        private static string ToComposerRelativePath(
+            string outputFilePath,
+            string composerDirectory,
+            string projectPath)
         {
-            var normalized = outputFilePath.Replace('\\', '/');
-            var prefix = outputPathPrefix.Replace('\\', '/').TrimEnd('/');
-            if (string.IsNullOrWhiteSpace(prefix))
+            if (string.IsNullOrWhiteSpace(outputFilePath))
             {
-                return normalized;
+                return "";
             }
 
-            if (normalized.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase))
-            {
-                return normalized[(prefix.Length + 1)..];
-            }
-
-            return normalized;
+            var phpFull = Path.IsPathRooted(outputFilePath)
+                ? Path.GetFullPath(outputFilePath)
+                : Path.GetFullPath(Path.Combine(projectPath, outputFilePath));
+            var composerFull = Path.GetFullPath(composerDirectory);
+            return Path.GetRelativePath(composerFull, phpFull).Replace('\\', '/');
         }
 
         private static string NormalizePsr4Namespace(string ns)

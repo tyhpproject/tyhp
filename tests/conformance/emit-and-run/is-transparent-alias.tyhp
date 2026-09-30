@@ -1,0 +1,9 @@
+<?tyhp
+type Foo = string;
+
+function main(): void {
+    mixed $x = "hi";
+    echo ($x is Foo) ? "yes" : "no";
+}
+
+main();

@@ -32,6 +32,10 @@ namespace Tyhp.TyhpLang.Checker
                 CallableCheckedType c =>
                     ContainsUnboundGeneric(c.ReturnType)
                     || c.ParameterTypes.Any(ContainsUnboundGeneric),
+                ParameterPackCheckedType p =>
+                    (p.SourceCallable is not null && ContainsUnboundGeneric(p.SourceCallable))
+                    || p.Members.Any(ContainsUnboundGeneric),
+                HomogeneousVariadicCheckedType h => ContainsUnboundGeneric(h.ElementType),
                 StructCheckedType s => s.Properties.Values.Any(p => ContainsUnboundGeneric(p.Type)),
                 _ => false,
             };
@@ -112,9 +116,13 @@ namespace Tyhp.TyhpLang.Checker
 
             if (pattern is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol param })
             {
+                // `__ClassName<Foo>` is a branded string, not an object. Binding it to a naked
+                // `T extends object` in `T|__ClassName<T>` is the wrong arm — the brand argument
+                // (`Foo`) is filled by the structured `__ClassName<T>` member instead.
                 if (!TypeComparer.IsUnresolvedType(actual)
                     && !TypeComparer.IsMixedType(actual)
-                    && !bindings.ContainsKey(param))
+                    && !bindings.ContainsKey(param)
+                    && !SymbolNameTypeHelper.IsSymbolNameType(actual))
                 {
                     bindings[param] = actual;
                 }
@@ -124,19 +132,17 @@ namespace Tyhp.TyhpLang.Checker
 
             // Callable-keyed utilities mention TCallable but the argument is a bag / return
             // value, not the callable. Binding TCallable from that actual would steal the
-            // inference that should come from the callback argument.
+            // inference that should come from the callback argument. `__Properties<T>` is the
+            // same shape: T comes from the object argument, not from the property bag.
             if (SymbolNameTypeHelper.TryGetUtilitySymbol(pattern, out var utility)
-                && utility.Behavior is UtilityBehavior.CallableParametersStruct
-                    or UtilityBehavior.CallableParametersTuple
-                    or UtilityBehavior.CallableParametersRest
-                    or UtilityBehavior.CallableReturnType
-                    or UtilityBehavior.ReturnType)
+                && UtilityTypeResolver.IsCallSiteExpandingUtility(utility.Behavior))
             {
                 return;
             }
 
-            // `callable<TValue, TResult>` / `\Closure<…>` vs a closure or callable argument —
-            // unify parameter slots and the return-last result (binds array_map's TResult).
+            // `callable(TValue): TResult` / `\Closure<callable(...)>` vs a closure or callable
+            // argument — unify parameter slots and the return-last result on the callable
+            // facet (binds array_map's TResult). Closure class args are not return-last.
             var patternCallables = CallableArityFacetBuilder.GetCallableFacets(pattern);
             var actualCallables = CallableArityFacetBuilder.GetCallableFacets(actual);
             if (patternCallables.Count > 0 && actualCallables.Count > 0)
@@ -166,29 +172,169 @@ namespace Tyhp.TyhpLang.Checker
                 return;
             }
 
+            if (pattern is GenericCheckedType unionPattern
+                && actual is UnionCheckedType actualUnion)
+            {
+                foreach (var member in actualUnion.Members)
+                {
+                    CollectGenericBindings(unionPattern, member, bindings);
+                }
+
+                return;
+            }
+
             if (pattern is GenericCheckedType patternGeneric
                 && actual is GenericCheckedType actualGeneric
                 && patternGeneric.TypeArguments.Count > 0
-                && actualGeneric.TypeArguments.Count > 0)
+                && actualGeneric.TypeArguments.Count > 0
+                && GenericTypeArgumentsAlign(pattern, actual))
             {
                 // Align from the right so `array<TValue>` matches `array<K,V>`'s value slot
-                // (single-arg shorthand vs full key/value form).
+                // (single-arg shorthand vs full key/value form). `\Closure<T>` is the exception:
+                // the callable shape is the first argument and the rest are defaulted
+                // `$this` / scope parameters, so a 1-arg pattern matches the shape, not the scope.
                 var patternArgs = patternGeneric.TypeArguments;
                 var actualArgs = actualGeneric.TypeArguments;
-                var offset = Math.Max(0, actualArgs.Count - patternArgs.Count);
-                for (var i = 0; i < patternArgs.Count && offset + i < actualArgs.Count; i++)
+                var closure = CallableArityFacetBuilder.IsClosureTypeName(patternGeneric.BaseType);
+                var offset = closure ? 0 : Math.Max(0, actualArgs.Count - patternArgs.Count);
+                var limit = closure ? Math.Min(patternArgs.Count, actualArgs.Count) : patternArgs.Count;
+                for (var i = 0; i < limit && offset + i < actualArgs.Count; i++)
                 {
                     CollectGenericBindings(patternArgs[i], actualArgs[offset + i], bindings);
                 }
             }
-            else if (pattern is UnionCheckedType patternUnion && actual is UnionCheckedType actualUnion
-                     && patternUnion.Members.Count == actualUnion.Members.Count)
+            else if (TryBindClassNameBrandFromString(pattern, actual, bindings))
+            {
+                return;
+            }
+            else if (pattern is UnionCheckedType patternUnion)
+            {
+                BindUnionPattern(patternUnion, actual, bindings);
+            }
+        }
+
+        /// <summary>
+        /// Pairwise matching is only for all-naked unions (<c>T|U</c> vs <c>int|string</c>).
+        /// Mixed shapes such as <c>T|__ClassName&lt;T&gt;</c> vs
+        /// <c>__ClassName&lt;A&gt;|__ClassName&lt;B&gt;</c> must not pair <c>T</c> with a brand.
+        /// Non-parameter arms run first so a branded <c>__ClassName&lt;Foo&gt;</c> fills
+        /// <c>T</c> from the brand argument rather than binding <c>T = __ClassName&lt;Foo&gt;</c>.
+        /// </summary>
+        private static void BindUnionPattern(
+            UnionCheckedType patternUnion,
+            ICheckedType actual,
+            Dictionary<GenericTypeParameterSymbol, ICheckedType> bindings)
+        {
+            if (actual is UnionCheckedType actualUnion
+                && patternUnion.Members.Count == actualUnion.Members.Count
+                && patternUnion.Members.All(IsNakedTypeParameter))
             {
                 for (var i = 0; i < patternUnion.Members.Count; i++)
                 {
                     CollectGenericBindings(patternUnion.Members[i], actualUnion.Members[i], bindings);
                 }
+
+                return;
             }
+
+            var actualMembers = EnumerateUnionMembers(actual).ToList();
+            foreach (var actualMember in actualMembers)
+            {
+                foreach (var member in patternUnion.Members)
+                {
+                    if (!IsNakedTypeParameter(member))
+                    {
+                        CollectGenericBindings(member, actualMember, bindings);
+                    }
+                }
+            }
+
+            foreach (var actualMember in actualMembers)
+            {
+                foreach (var member in patternUnion.Members)
+                {
+                    if (IsNakedTypeParameter(member))
+                    {
+                        CollectGenericBindings(member, actualMember, bindings);
+                    }
+                }
+            }
+        }
+
+        private static IEnumerable<ICheckedType> EnumerateUnionMembers(ICheckedType type)
+        {
+            if (type is UnionCheckedType union)
+            {
+                foreach (var member in union.Members)
+                {
+                    foreach (var inner in EnumerateUnionMembers(member))
+                    {
+                        yield return inner;
+                    }
+                }
+
+                yield break;
+            }
+
+            yield return type;
+        }
+
+        private static bool IsNakedTypeParameter(ICheckedType type)
+        {
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            return type is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol };
+        }
+
+        /// <summary>
+        /// A class-name <c>string</c> matches <c>__ClassName&lt;T&gt;</c> as <c>T = object</c>
+        /// (the brand's default). Without this, naked <c>T</c> in <c>T|__ClassName&lt;T&gt;</c>
+        /// binds <c>T = string</c> and fails <c>T extends object</c>.
+        /// </summary>
+        private static bool TryBindClassNameBrandFromString(
+            ICheckedType pattern,
+            ICheckedType actual,
+            Dictionary<GenericTypeParameterSymbol, ICheckedType> bindings)
+        {
+            if (pattern is not GenericCheckedType { TypeArguments.Count: > 0 } brand
+                || !SymbolNameTypeHelper.TryGetBehavior(pattern, out var behavior)
+                || !SymbolNameTypeHelper.IsOptionalSingleObjectBrand(behavior)
+                || !IsStringType(actual))
+            {
+                return false;
+            }
+
+            CollectGenericBindings(
+                brand.TypeArguments[0],
+                CheckedTypes.FromSymbol(new BuiltInTypeSymbol("object")),
+                bindings);
+            return true;
+        }
+
+        private static bool IsStringType(ICheckedType type) =>
+            type is SimpleCheckedType { ResolvedSymbol: BuiltInTypeSymbol { Name: var name } }
+                && string.Equals(name, "string", StringComparison.OrdinalIgnoreCase)
+            || type is LiteralCheckedType { UnderlyingType: SimpleCheckedType { ResolvedSymbol: BuiltInTypeSymbol { Name: var underlying } } }
+                && string.Equals(underlying, "string", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// <c>__ClassName&lt;T&gt;</c> vs <c>Iterator&lt;K,V&gt;</c> are both generic but must
+        /// not unify T from Iterator's type arguments. Same-utility brands still unify
+        /// (<c>__ClassName&lt;T&gt;</c> vs <c>__ClassName&lt;Foo&gt;</c>). Non-utility generics
+        /// (<c>Traversable</c> vs <c>Iterator</c>) keep the existing type-argument walk.
+        /// </summary>
+        private static bool GenericTypeArgumentsAlign(ICheckedType pattern, ICheckedType actual)
+        {
+            if (!SymbolNameTypeHelper.TryGetUtilitySymbol(pattern, out var patternUtility))
+            {
+                return true;
+            }
+
+            return SymbolNameTypeHelper.TryGetUtilitySymbol(actual, out var actualUtility)
+                && actualUtility.Behavior == patternUtility.Behavior;
         }
     }
 }

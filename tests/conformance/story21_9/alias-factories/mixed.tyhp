@@ -1,0 +1,10 @@
+<?tyhp
+declare(strict_types=1);
+namespace MixedNs;
+
+use App\Types\{ User, UserId };
+
+function take(UserId $id): User {
+    UserId();
+    return new User();
+}

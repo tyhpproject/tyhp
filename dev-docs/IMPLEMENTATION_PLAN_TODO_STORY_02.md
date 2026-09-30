@@ -125,8 +125,8 @@ Before making any potentially destructive changes to existing files:
 
 ## Phase 1: Implement BaseSymbol Properties and Symbol Data Model
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -298,8 +298,8 @@ Update `SymbolTypeHelper`:
 
 ## Phase 2: Implement the Binding Walk — Declaration Pass
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -543,8 +543,8 @@ The existing `SymbolTypeHelper.GetAllowedChildren()` method defines which symbol
 
 ## Phase 3: Implement Name Resolution on SymbolTree
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -711,8 +711,8 @@ When resolving types in generic contexts:
 
 ## Phase 4: Wire Up Tyhpdef Loading into the Binder
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -861,8 +861,8 @@ Add error codes for tyhpdef-related issues (in the 8000s range as specified in t
 
 ## Phase 5: Integration, Pipeline Wiring, and Validation
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

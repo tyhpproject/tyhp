@@ -24,18 +24,19 @@ public class WithKeywordEmitterTests
         {
             project ??= CreateProject(phpVersion);
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = phpVersion,
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                Checker = new CheckerOptions
-                {
-                    PhpVersion = phpVersion,
-                    ExperimentalReadonlyCloneWith = project.Build.ExperimentalReadonlyCloneWith,
-                },
-            });
+            var result = compilationService.ParseFiles(
+                [filePath],
+                IsolatedCompilation.CreateOptions(
+                    tempDir,
+                    phpVersion: phpVersion,
+                    configure: o =>
+                    {
+                        o.Checker = new CheckerOptions
+                        {
+                            PhpVersion = phpVersion,
+                            ExperimentalReadonlyCloneWith = project.Build.ExperimentalReadonlyCloneWith,
+                        };
+                    }));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))
@@ -187,10 +188,10 @@ public class WithKeywordEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x = 0;
                 int $y = 0;
-            }
+            };
             function move(Point $p): array {
                 return $p with [x => 1];
             }
@@ -278,6 +279,61 @@ public class WithKeywordEmitterTests
         php.Should().Contain("clone(new Color(), ['alpha' => 128])");
         php.Should().NotContain("ObjectHelper");
         php.Should().NotContain("new class");
+        php.Should().NotContain(" with ");
+    }
+
+    [Fact]
+    public void Emit_CloneWith_TrailingComma_DoesNotEmitEmptyArrayElement()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Config {
+                public bool $enabled = true;
+            }
+            function copyConfig(Config $cfg): Config {
+                return clone $cfg with [enabled => false,];
+            }
+            """);
+
+        php.Should().Contain(@"\Tyhp\ObjectHelper::with(clone $cfg, ['enabled' => false])");
+        php.Should().NotMatchRegex(@",\s*,");
+        php.Should().NotContain(" with ");
+    }
+
+    [Fact]
+    public void Emit_CloneWith_NestedArrayTrailingComma_DoesNotEmitEmptyArrayElement()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Config {
+                public array $items = [];
+            }
+            function copyConfig(Config $cfg): Config {
+                return clone $cfg with [items => [1, 2,]];
+            }
+            """);
+
+        php.Should().Contain(@"\Tyhp\ObjectHelper::with(clone $cfg, ['items' => [1, 2]])");
+        php.Should().NotMatchRegex(@",\s*,");
+    }
+
+    [Fact]
+    public void Emit_CloneWith_Readonly_NestedArrayTrailingComma_DoesNotEmitEmptyArrayElement()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Color {
+                public readonly array $channels = [];
+            }
+            function copyColor(Color $c): Color {
+                return clone $c with [channels => [1, 2,]];
+            }
+            """,
+            phpVersion: "8.4",
+            project: CreateProject("8.4", experimentalReadonlyCloneWith: true));
+
+        php.Should().Contain("['channels' => [1, 2]]");
+        php.Should().NotMatchRegex(@",\s*,");
         php.Should().NotContain(" with ");
     }
 }

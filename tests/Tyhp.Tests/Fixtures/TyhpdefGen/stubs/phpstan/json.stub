@@ -1,0 +1,15 @@
+<?php
+
+/**
+ * STUB-ONLY SUMMARY MUST NOT APPEAR
+ * @param mixed $value
+ * @return string|false
+ */
+function json_encode(mixed $value, int $flags = 0, int $depth = 512): string|false {}
+
+/**
+ * Takes a JSON encoded string and converts it into a PHP value.
+ * @param string $json
+ * @return array|object|null
+ */
+function json_decode(string $json): mixed {}

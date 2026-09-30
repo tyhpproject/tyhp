@@ -29,13 +29,7 @@ public class CallSiteRewriteEmitterTests
         {
             var project = CreateProject();
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))
@@ -136,6 +130,58 @@ public class CallSiteRewriteEmitterTests
     }
 
     [Fact]
+    public void Operator_Cast_StandaloneExtension_RewritesToStaticConvertToOnExtension()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+            }
+            extension MoneyOperators extends Money {
+                operator convert (self $value): int {
+                    int $n = $value->amount;
+                    return $n;
+                }
+            }
+            function toInt(Money $m): int {
+                return (int)$m;
+            }
+            """);
+
+        php.Should().Contain("\\MoneyOperators::__toInt($m)");
+        php.Should().Contain("public static function __toInt(");
+        php.Should().NotContain("$m->__toInt()");
+        php.Should().NotContain("(int)$m");
+    }
+
+    [Fact]
+    public void Operator_ImplicitConvertFrom_StandaloneExtension_RewritesToStaticFromOnExtension()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+            }
+            extension MoneyOperators extends Money {
+                operator convert (int $value) {
+                    Money $m = new Money();
+                    $m->amount = $value;
+                    return $m;
+                }
+            }
+            function takeMoney(Money $m): void {}
+            function pass(int $n): void {
+                takeMoney($n);
+            }
+            """);
+
+        php.Should().Contain("takeMoney(\\MoneyOperators::__from($n))");
+        php.Should().Contain("public static function __from(");
+        php.Should().NotContain("\\Money::__from(");
+        php.Should().NotContain("takeMoney($n);");
+    }
+
+    [Fact]
     public void Operator_UnaryNot_RewritesToStaticCall()
     {
         var php = CompileAndEmit("""
@@ -165,8 +211,8 @@ public class CallSiteRewriteEmitterTests
             class Money {
                 public int $amount = 0;
             }
-            extension MoneyFormatting {
-                function format(extends Money $this, string $currency): string {
+            extension MoneyFormatting extends Money {
+                function format(string $currency): string {
                     return $currency . ' ' . $this->amount;
                 }
             }
@@ -175,8 +221,11 @@ public class CallSiteRewriteEmitterTests
             }
             """);
 
-        php.Should().Contain("\\MoneyFormatting::format($m, 'USD')");
+        php.Should().Contain("$m->amount");
+        php.Should().Contain("'USD'");
         php.Should().NotContain("$m->format(");
+        php.Should().Contain("class MoneyFormatting");
+        php.Should().Contain("function format(");
     }
 
     [Fact]
@@ -184,8 +233,8 @@ public class CallSiteRewriteEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            extension StringExtensions {
-                function toCamelCase(extends string $this): string {
+            extension StringExtensions extends string {
+                function toCamelCase(): string {
                     return $this;
                 }
             }
@@ -194,8 +243,10 @@ public class CallSiteRewriteEmitterTests
             }
             """);
 
-        php.Should().Contain("\\StringExtensions::toCamelCase($text)");
+        php.Should().Contain("return $text;");
         php.Should().NotContain("$text->toCamelCase(");
+        php.Should().Contain("class StringExtensions");
+        php.Should().Contain("function toCamelCase(");
     }
 
     [Fact]
@@ -203,11 +254,11 @@ public class CallSiteRewriteEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            extension StringExtensions {
-                function toSnakeCase(extends string $this): string {
+            extension StringExtensions extends string {
+                function toSnakeCase(): string {
                     return $this;
                 }
-                function truncate(extends string $this, int $maxLength): string {
+                function truncate(int $maxLength): string {
                     return $this;
                 }
             }
@@ -216,9 +267,12 @@ public class CallSiteRewriteEmitterTests
             }
             """);
 
-        php.Should().Contain("\\StringExtensions::truncate(\\StringExtensions::toSnakeCase($input), 50)");
+        php.Should().Contain("return $input;");
         php.Should().NotContain("->toSnakeCase(");
         php.Should().NotContain("->truncate(");
+        php.Should().Contain("class StringExtensions");
+        php.Should().Contain("function toSnakeCase(");
+        php.Should().Contain("function truncate(");
     }
 
     // --- Tyhpdef operator: native passthrough vs mapped extension ---
@@ -247,7 +301,7 @@ public class CallSiteRewriteEmitterTests
     }
 
     [Fact]
-    public void Tyhpdef_ExtensionOperatorWithBody_RewritesToOwnerClassMethod()
+    public void Tyhpdef_ExtensionOperatorWithBody_SplicesCallSite()
     {
         var php = CompileAndEmitWithTyhpdef(
             """
@@ -255,9 +309,7 @@ public class CallSiteRewriteEmitterTests
             namespace Lib;
             final class Money {
                 public function plus(Money $other): Money;
-                extension operator +(self $left, self $right): self {
-                    return $left->plus($right);
-                }
+                extension operator +(self $left, self $right): self => $left->plus($right);
             }
             """,
             """
@@ -268,9 +320,10 @@ public class CallSiteRewriteEmitterTests
             }
             """);
 
-        // Inline extension operators rewrite to the owner class's collapsed __add (Story 11).
-        php.Should().Contain("\\Lib\\Money::__add($a, $b)");
+        php.Should().Contain("$a->plus($b)");
         php.Should().NotContain("$a + $b");
+        php.Should().NotContain("__add");
+        php.Should().NotContain("__TyhpInlineExt_");
     }
 
     [Fact]
@@ -296,16 +349,11 @@ public class CallSiteRewriteEmitterTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([tyhpdefPath, tyhpPath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([tyhpdefPath, tyhpPath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             result.Diagnostics.Errors.Should().Contain(d =>
-                d.Code == MessageCode.TyhpdefExtensionOperatorRequiresBody);
+                d.Code == MessageCode.TyhpdefExtensionOperatorRequiresBody
+                && (d.Message ?? "").Contains("thin", StringComparison.OrdinalIgnoreCase));
         }
         finally
         {
@@ -326,13 +374,7 @@ public class CallSiteRewriteEmitterTests
         {
             var project = CreateProject();
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([tyhpdefPath, tyhpPath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([tyhpdefPath, tyhpPath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

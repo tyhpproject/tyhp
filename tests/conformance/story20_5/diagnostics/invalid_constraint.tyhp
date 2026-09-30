@@ -1,0 +1,3 @@
+<?tyhp
+declare(php="not-a-constraint!!");
+function should_be_absent(): void {}

@@ -1,0 +1,10 @@
+<?tyhp
+function isBound<T>(mixed $value): bool {
+    return $value is T;
+}
+
+function main(): void {
+    echo isBound<string>("ok") ? "yes" : "no";
+}
+
+main();

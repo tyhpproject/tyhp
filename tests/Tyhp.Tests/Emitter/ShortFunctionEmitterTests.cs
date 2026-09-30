@@ -23,13 +23,7 @@ public class ShortFunctionEmitterTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))
@@ -83,7 +77,7 @@ public class ShortFunctionEmitterTests
         php.Should().Contain("return 5;");
         php.Should().Contain("private static function double(int $x): int");
         php.Should().Contain("return $x * 2;");
-        php.Should().Contain("protected final function id(string $s): string");
+        php.Should().Contain("final protected function id(string $s): string");
         php.Should().Contain("return $s;");
         php.Should().NotContain("fn getVal");
         php.Should().NotContain("fn double");
@@ -131,26 +125,20 @@ public class ShortFunctionEmitterTests
     }
 
     [Fact]
-    public void Emit_ExtensionShortFunction_EmitsPublicStaticFunction()
+    public void Emit_ExtensionShortFunction_SplicesArrowBodyIntoCallSite()
     {
-        // Parse-only emit (same pattern as AsyncAwaitEmitterTests) so extension checker rules
-        // that need a fuller project context do not obscure the emission assertion.
-        var parseResult = ParserTestHelper.ParseTyhpContent("""
+        var php = CompileAndEmit("""
             <?tyhp
             extension IntExt extends int {
                 fn twice(): int => $this * 2;
             }
+            function demo(int $n): int {
+                return $n->twice();
+            }
             """);
-        parseResult.Diagnostics.HasErrors.Should().BeFalse(
-            $"parse errors: {string.Join(", ", parseResult.Diagnostics)}");
-        var srcFile = parseResult.Ast.Should().BeAssignableTo<SrcFileAst>().Subject;
-        var context = EmitContext.Create(new GlobalScope(), new DiagnosticBag());
-        var outputFiles = new TyhpEmitter(context).Emit([srcFile]);
-        var php = string.Join('\n', outputFiles.Select(f => f.GeneratedContent ?? string.Empty));
 
-        php.Should().Contain("public static function twice(): int");
-        php.Should().Contain("return $this * 2;");
-        php.Should().NotContain("public static twice(");
+        php.Should().Contain("return ($n * 2)");
+        php.Should().NotContain("$n->twice(");
         php.Should().NotContain("fn twice");
     }
 }

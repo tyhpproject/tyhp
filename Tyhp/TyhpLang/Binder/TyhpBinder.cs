@@ -10,6 +10,7 @@ using Tyhp.TyhpLang.Binder.Resolution;
 using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Binder
@@ -28,6 +29,20 @@ namespace Tyhp.TyhpLang.Binder
         private int _bindDepth;
         private TyhpdefSymbolRegistrar? _tyhpdefRegistrar;
         private string _currentTyhpdefPackageSource = "<tyhpdef>";
+        private bool _tyhpdefDuplicateMemberErrors;
+        private bool _tyhpdefIsOverlay;
+        private bool _tyhpdefOverlayMemberReplace;
+        private HashSet<string>? _overlayReplacedFunctionNames;
+        private HashSet<string>? _overlayReplacedMemberNames;
+        private HashSet<string>? _overlayPartialKeptNames;
+        private List<OverlayPartialPendingRename>? _overlayPartialPendingRenames;
+        private List<OverlayPartialTypeHeaderNoop>? _overlayPartialTypeHeaderNoops;
+        private Dictionary<string, string>? _tyhpdefLayer1Stamps;
+        private readonly List<string> _phpVersionConstraintStack = [];
+        private readonly List<string> _extGateStack = [];
+        private List<string>? _pendingFileExtGates;
+        private bool _currentFilePhpGateInactive;
+        private int _phpDeclareBlockDepth;
 
         /// <summary>
         /// Creates a new binder instance.
@@ -53,6 +68,10 @@ namespace Tyhp.TyhpLang.Binder
                 return null;
             }
 
+            _phpVersionGatedDeclarations.Clear();
+            _uncompiledVersionVariants.Clear();
+            _declarationNameResolver = null;
+            _pendingFileUseExtensions.Clear();
             _globalScope = new GlobalScope();
             PopulateBuiltIns(_globalScope);
 
@@ -81,9 +100,17 @@ namespace Tyhp.TyhpLang.Binder
                 }
             }
 
-            // Pass 2: Name resolution — resolve type references on symbols
+            ReportReservedPhp86Names();
+
+            MarkDeclarationsWithUncompiledVersionVariants();
+
+            // Pass 2: Name resolution — resolve type references on symbols.
+            // File-level `use extension` / `global use extension` wait until every declaration
+            // exists (same timing as class-body pending paths) so a forward reference is not a
+            // silent no-op and a missing name reports TyhpdefExtensionNotFound.
             try
             {
+                ResolvePendingFileUseExtensions();
                 RunResolutionPass();
             }
             catch (Exception ex) when (ex is not OutOfMemoryException) // StackOverflowException and AccessViolationException cannot be caught in managed .NET
@@ -106,9 +133,9 @@ namespace Tyhp.TyhpLang.Binder
             Types.PopulateGlobal(globalScope);
             Constants.PopulateGlobal(globalScope);
             Variables.PopulateGlobal(globalScope);
-            UtilityTypes.PopulateGlobal(globalScope);
             SymbolNameTypes.PopulateGlobal(globalScope);
             StructUtilityTypes.PopulateGlobal(globalScope);
+            MagicUtilityTypes.PopulateGlobal(globalScope);
             TypeNameAlgebraTypes.PopulateGlobal(globalScope);
             Functions.PopulateGlobal(globalScope);
         }
@@ -138,15 +165,71 @@ namespace Tyhp.TyhpLang.Binder
 
             SetOwningFileRecursive(srcFile, srcFile);
 
-            foreach (var child in srcFile.AstChildren)
+            var previousInactive = _currentFilePhpGateInactive;
+            var previousStackCount = _phpVersionConstraintStack.Count;
+            var previousExtStackCount = _extGateStack.Count;
+            var previousBlockDepth = _phpDeclareBlockDepth;
+            try
             {
-                if (child == null) continue;
+                ApplyFileLevelPhpGates(srcFile, fileScope.DeclarationSymbol);
 
-                if (child is PhpTopStatementListAst topStmtList)
+                foreach (var child in srcFile.AstChildren)
                 {
-                    BindTopStatementList(topStmtList, fileScope);
+                    if (child == null) continue;
+
+                    if (child is PhpTopStatementListAst topStmtList)
+                    {
+                        BindTopStatementList(topStmtList, fileScope);
+                    }
                 }
             }
+            finally
+            {
+                _phpDeclareBlockDepth = previousBlockDepth;
+                _currentFilePhpGateInactive = previousInactive;
+                while (_phpVersionConstraintStack.Count > previousStackCount)
+                {
+                    _phpVersionConstraintStack.RemoveAt(_phpVersionConstraintStack.Count - 1);
+                }
+
+                while (_extGateStack.Count > previousExtStackCount)
+                {
+                    _extGateStack.RemoveAt(_extGateStack.Count - 1);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reports a binder duplicate-name error, labeling the first declaration when known.
+        /// Include-layer tyhpdef member clashes use <see cref="MessageCode.TyhpdefDuplicateDeclaration"/>
+        /// with the same <c>declared here</c> label when the original span is known.
+        /// </summary>
+        private void ReportBinderOrTyhpdefDuplicate(
+            IBase2Ast node,
+            IBaseSymbol? existing,
+            string name)
+        {
+            if (_tyhpdefDuplicateMemberErrors)
+            {
+                _diagnostics.AddDuplicateFromAst(
+                    MessageCode.TyhpdefDuplicateDeclaration,
+                    node,
+                    _currentFileName,
+                    existing,
+                    name);
+                return;
+            }
+
+            ReportBinderDuplicate(node, existing, name);
+        }
+
+        private void ReportBinderDuplicate(
+            IBase2Ast node,
+            IBaseSymbol? existing,
+            string name,
+            MessageCode code = MessageCode.BinderDuplicateSymbolDeclaration)
+        {
+            _diagnostics.AddDuplicateFromAst(code, node, _currentFileName, existing, name);
         }
 
         /// <summary>

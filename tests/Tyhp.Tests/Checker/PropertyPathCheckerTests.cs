@@ -9,7 +9,7 @@ using Tyhp.Tests.TestHelpers;
 namespace Tyhp.Tests.Checker;
 
 /// <summary>
-/// Story 16 Phase 1 — <c>PropertyPath&lt;T, R&gt;</c> call-argument validation (TYHP4320/4321).
+/// Story 16 Phase 1 — <c>PropertyPath&lt;TCallableShape&gt;</c> call-argument validation (TYHP4320/4321).
 /// </summary>
 [Trait("Category", "Checker")]
 public class PropertyPathCheckerTests
@@ -22,7 +22,7 @@ public class PropertyPathCheckerTests
             class User {
                 public string $name;
             }
-            function take(\Tyhp\PropertyPath<User, string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
                 take(fn ($u) => $u->name);
             }
@@ -45,7 +45,7 @@ public class PropertyPathCheckerTests
             class User {
                 public Address $address;
             }
-            function take(\Tyhp\PropertyPath<User, string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
                 take(fn ($u) => $u->address->city);
             }
@@ -68,7 +68,7 @@ public class PropertyPathCheckerTests
             class User {
                 public ?Address $address;
             }
-            function take(\Tyhp\PropertyPath<User, ?string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): ?string> $path): void {}
             function demo(): void {
                 take(fn ($u) => $u?->address?->city);
             }
@@ -88,8 +88,8 @@ public class PropertyPathCheckerTests
             class User {
                 public string $name;
             }
-            function take(\Tyhp\PropertyPath<User, string> $path): void {}
-            function forward(\Tyhp\PropertyPath<User, string> $path): void {
+            function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
+            function forward(\Tyhp\PropertyPath<callable(User): string> $path): void {
                 take($path);
             }
             """);
@@ -108,7 +108,7 @@ public class PropertyPathCheckerTests
             class User {
                 public string $name;
             }
-            function take(?\Tyhp\PropertyPath<User, string> $path): void {}
+            function take(?\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
                 take(null);
             }
@@ -149,14 +149,17 @@ public class PropertyPathCheckerTests
             class User {
                 public string $name;
             }
-            function take(\Tyhp\PropertyPath<User, string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(\Closure $c): void {
                 take($c);
             }
             """);
 
         diagnostics.Errors.Should().Contain(
-            d => d.Code == MessageCode.CheckerPropertyPathRequiresInlineFn);
+            d => d.Code == MessageCode.CheckerPropertyPathRequiresInlineFn
+                && d.Message.Contains("callable(", StringComparison.Ordinal)
+                && d.Message.Contains("): ", StringComparison.Ordinal)
+                && !d.Message.Contains("callable<", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -167,7 +170,7 @@ public class PropertyPathCheckerTests
             class User {
                 public string $name;
             }
-            function take(\Tyhp\PropertyPath<User, string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
                 take(function ($u) { return $u->name; });
             }
@@ -185,7 +188,7 @@ public class PropertyPathCheckerTests
             class User {
                 public function name(): string { return ""; }
             }
-            function take(\Tyhp\PropertyPath<User, string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
                 take(fn ($u) => $u->name());
             }
@@ -203,7 +206,7 @@ public class PropertyPathCheckerTests
             class User {
                 public string $name;
             }
-            function take(\Tyhp\PropertyPath<User, string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
                 take(fn ($u) => \strtolower($u->name));
             }
@@ -222,7 +225,7 @@ public class PropertyPathCheckerTests
                 public string $first;
                 public string $last;
             }
-            function take(\Tyhp\PropertyPath<User, string> $path): void {}
+            function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
                 take(fn ($u) => $u->first . $u->last);
             }
@@ -242,14 +245,7 @@ public class PropertyPathCheckerTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4", skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

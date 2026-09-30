@@ -1,0 +1,2 @@
+<?tyhp
+function always_present(): void {}

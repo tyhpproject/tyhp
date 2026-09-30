@@ -1,0 +1,6 @@
+<?tyhpdef
+// Fixture for AstCacheRoundTripTests: a real on-disk file with a stable absolute path
+// (unlike synthetic <tyhpdef:embedded:...> names that depend on CWD). Content is
+// deliberately trivial — the test only exercises AstCacheService round-tripping, not any
+// particular declaration.
+function ast_cache_probe(int $value): int;

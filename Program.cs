@@ -31,6 +31,13 @@ if (ActionConfigProvider.ReadInitialActionFromArgs(args, rawArgs)) {
 // flag would otherwise swallow the Tyhp flag behind it (`--no-interaction --no-tyhpdef`).
 var cliArgs = ComposerAction.SelectTyhpConfigArgs(ActionConfigProvider.InitialAction, args);
 
+// The command-line binder keeps the last value of a repeated key. Join repeated --source,
+// --include, --exclude, --suppress-warnings, and --php-targets flags into one comma-separated
+// value each.
+// Do this before SelectBinderArgs: that step drops a later command verb, and the flags after it
+// would otherwise be joined into this command.
+cliArgs = ActionConfigProvider.AccumulateRepeatedListFlags(cliArgs);
+
 // Positional paths travel to configuration as `path:*` keys, never through the command-line binder,
 // which would read `/tmp/demo` as the Windows-style switch `--tmp/demo` and eat the flag behind it.
 cliArgs = ActionConfigProvider.SelectBinderArgs(cliArgs);

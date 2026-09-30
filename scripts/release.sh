@@ -30,8 +30,8 @@ usage() {
 Usage: scripts/release.sh <patch|minor|major|X.Y.Z[-prerelease]|vX.Y.Z[-prerelease]>
 
 Examples:
-  scripts/release.sh 805.0.0-alpha.1
-  scripts/release.sh v805.0.0-alpha.1
+  scripts/release.sh 805.1.0-beta.1
+  scripts/release.sh v805.1.0-beta.1
   scripts/release.sh patch
 EOF
 }
@@ -192,7 +192,7 @@ read_current_version() {
 assert_valid_version() {
   local value="$1"
   if ! [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-    echo "Invalid version format: ${value}. Expected X.Y.Z or X.Y.Z-prerelease (e.g. 805.0.0-alpha.1)." >&2
+    echo "Invalid version format: ${value}. Expected X.Y.Z or X.Y.Z-prerelease (e.g. 805.1.0-beta.1)." >&2
     exit 1
   fi
 }

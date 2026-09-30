@@ -15,7 +15,11 @@ namespace Tyhp.TyhpLang.Checker
     public static partial class TypeComparer
     {
         private static readonly DiagnosticBag SilentDiagnostics = new();
-        private static int _templateStringMaxStates = 256;
+
+        // 0 means the default 256. Stored per thread so one checker's budget
+        // cannot replace another's while tests run in parallel.
+        [ThreadStatic]
+        private static int _templateStringMaxStates;
 
         [ThreadStatic]
         private static int _templateStringCheckDepth;
@@ -23,14 +27,15 @@ namespace Tyhp.TyhpLang.Checker
         [ThreadStatic]
         private static bool _templateStringBudgetExceeded;
 
-        /// <summary>Configures the template-string matcher step budget (default 256).</summary>
+        /// <summary>Configures the template-string matcher step budget for this thread (default 256).</summary>
         public static void ConfigureTemplateStringMaxStates(int maxStates) =>
             _templateStringMaxStates = maxStates > 0 ? maxStates : 256;
 
-        internal static int TemplateStringMaxStates => _templateStringMaxStates;
+        internal static int TemplateStringMaxStates =>
+            _templateStringMaxStates > 0 ? _templateStringMaxStates : 256;
 
         internal static TemplateStringMatchBudget CreateTemplateStringBudget() =>
-            new(_templateStringMaxStates);
+            new(TemplateStringMaxStates);
 
         internal static bool TryConsumeTemplateStringBudgetExceeded()
         {
@@ -139,6 +144,22 @@ namespace Tyhp.TyhpLang.Checker
 
         internal static bool IsNullLiteral(ICheckedType type) =>
             type is LiteralCheckedType { Value: null };
+
+        internal static bool IsTrueType(ICheckedType type) =>
+            type is LiteralCheckedType { Value: true } || IsBuiltInName(type, "true");
+
+        internal static bool IsFalseType(ICheckedType type) =>
+            type is LiteralCheckedType { Value: false } || IsBuiltInName(type, "false");
+
+        /// <summary>
+        /// <c>true</c>/<c>false</c>/<c>null</c> as a literal checked type vs the same
+        /// builtin name (and vice versa) so excluding one encoding drops the other.
+        /// </summary>
+        internal static bool AreEquivalentIdentityLiterals(ICheckedType left, ICheckedType right) =>
+            (IsNullLiteral(left) || IsBuiltInName(left, "null"))
+                && (IsNullLiteral(right) || IsBuiltInName(right, "null"))
+            || IsTrueType(left) && IsTrueType(right)
+            || IsFalseType(left) && IsFalseType(right);
 
         internal static bool IsNeverType(ICheckedType type) =>
             type.IsNever || type.Kind == CheckedTypeKind.Never;

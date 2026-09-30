@@ -1,3 +1,4 @@
+using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
@@ -28,6 +29,27 @@ namespace Tyhp.TyhpLang.Checker
         /// <c>: static</c> results, <c>instanceof static</c>, etc.).
         /// </summary>
         Static,
+        /// <summary>
+        /// Transient marker for bare <c>...</c> as a generic type argument. Valid only as
+        /// the first of exactly two arguments on built-in <c>callable</c>.
+        /// </summary>
+        CallableArityWildcard,
+        /// <summary>
+        /// Transient marker for postfix <c>T...</c> as a generic type argument
+        /// (homogeneous PHP variadic). Valid only as the last parameter before return
+        /// on built-in <c>callable</c>.
+        /// </summary>
+        HomogeneousVariadic,
+        /// <summary>
+        /// Ordered list of types from pack-preserving utilities and Rest splice.
+        /// Not a union and not an array.
+        /// </summary>
+        ParameterPack,
+        /// <summary>
+        /// Structural object type from a <c>type Alias = object { … }</c> (or an
+        /// intersection that includes a shape). Not a PHP class.
+        /// </summary>
+        ObjectShape,
     }
 
     public sealed class SimpleCheckedType : ICheckedType
@@ -133,6 +155,13 @@ namespace Tyhp.TyhpLang.Checker
 
         public IReadOnlyList<ICheckedType> TypeArguments { get; }
 
+        /// <summary>
+        /// Story 21.6 Phase 5: inferred Closures from arrow functions, first-class callables,
+        /// and <c>fromCallable</c> of a non-Closure cannot be <c>bind</c>/<c>bindTo</c>/<c>call</c>
+        /// rebound. Not part of assignability or <see cref="DisplayName"/>.
+        /// </summary>
+        public bool IsNonRebindableClosure { get; init; }
+
         public CheckedTypeKind Kind => CheckedTypeKind.Generic;
 
         public string DisplayName =>
@@ -147,6 +176,14 @@ namespace Tyhp.TyhpLang.Checker
         public bool IsVoid => false;
 
         public bool IsMixed => BaseType.IsMixed;
+
+        public GenericCheckedType With(
+            ICheckedType? baseType = null,
+            IReadOnlyList<ICheckedType>? typeArguments = null) =>
+            new GenericCheckedType(baseType ?? BaseType, typeArguments ?? TypeArguments)
+            {
+                IsNonRebindableClosure = IsNonRebindableClosure,
+            };
     }
 
     public sealed class LiteralCheckedType : ICheckedType
@@ -294,43 +331,128 @@ namespace Tyhp.TyhpLang.Checker
         public bool IsMixed => false;
     }
 
-    public sealed class CallableCheckedType : ICheckedType
+    /// <summary>
+    /// Structural object type from <c>object { … }</c> on a type-alias RHS.
+    /// Width subtyping matches public instance members (except <c>__construct</c>).
+    /// Identity is the declaring alias plus type arguments, or a structural member map.
+    /// </summary>
+    public sealed class ObjectShapeCheckedType : ICheckedType
     {
-        public CallableCheckedType(
-            IReadOnlyList<ICheckedType> parameterTypes,
-            ICheckedType returnType,
-            IReadOnlyList<string?>? parameterNames = null,
-            bool lastParameterIsVariadic = false)
+        public ObjectShapeCheckedType(
+            TyhpObjectShapeAst shape,
+            IBaseSymbol? declaringAlias = null,
+            IReadOnlyList<ICheckedType>? typeArguments = null,
+            ObjectShapeMemberMap? members = null)
         {
-            ParameterTypes = parameterTypes;
-            ReturnType = returnType;
-            ParameterNames = NormalizeParameterNames(parameterTypes.Count, parameterNames);
-            LastParameterIsVariadic = lastParameterIsVariadic && parameterTypes.Count > 0;
+            Shape = shape;
+            DeclaringAlias = declaringAlias;
+            TypeArguments = typeArguments ?? [];
+            Members = members;
         }
+
+        public TyhpObjectShapeAst Shape { get; }
+
+        public IBaseSymbol? DeclaringAlias { get; }
+
+        public IReadOnlyList<ICheckedType> TypeArguments { get; }
+
+        /// <summary>
+        /// Resolved members from the shape AST. Null on cycle stubs (identity only).
+        /// </summary>
+        public ObjectShapeMemberMap? Members { get; }
+
+        public CheckedTypeKind Kind => CheckedTypeKind.ObjectShape;
+
+        public string DisplayName
+        {
+            get
+            {
+                var name = !string.IsNullOrEmpty(DeclaringAlias?.Name)
+                    ? DeclaringAlias!.Name
+                    : "object{…}";
+                if (TypeArguments.Count == 0)
+                {
+                    return name;
+                }
+
+                return $"{name}<{string.Join(", ", TypeArguments.Select(arg => arg.DisplayName))}>";
+            }
+        }
+
+        public bool IsNullable => false;
+
+        public bool IsNever => false;
+
+        public bool IsVoid => false;
+
+        public bool IsMixed => false;
+    }
+
+        public sealed class CallableCheckedType : ICheckedType
+        {
+            public CallableCheckedType(
+                IReadOnlyList<ICheckedType> parameterTypes,
+                ICheckedType returnType,
+                IReadOnlyList<string?>? parameterNames = null,
+                bool lastParameterIsVariadic = false,
+                bool isAnyArity = false)
+            {
+                IsAnyArity = isAnyArity;
+                ParameterTypes = isAnyArity ? [] : parameterTypes;
+                ReturnType = returnType;
+                ParameterNames = isAnyArity
+                    ? null
+                    : NormalizeParameterNames(parameterTypes.Count, parameterNames);
+                LastParameterIsVariadic = !isAnyArity
+                    && lastParameterIsVariadic
+                    && parameterTypes.Count > 0;
+            }
 
         public IReadOnlyList<ICheckedType> ParameterTypes { get; }
 
         public ICheckedType ReturnType { get; }
 
         /// <summary>
-        /// Parameter names when this facet came from a function, method, or closure symbol.
-        /// Facets synthesized from <c>callable&lt;…&gt;</c> type arguments have no names.
-        /// Length matches <see cref="ParameterTypes"/> when non-null. Equality ignores names.
+        /// Parameter names when this facet came from a function, method, closure, or
+        /// <c>callable(…): R</c> shape. Length matches <see cref="ParameterTypes"/> when
+        /// non-null. Equality ignores names.
         /// </summary>
         public IReadOnlyList<string?>? ParameterNames { get; }
 
         /// <summary>
-        /// True when this facet is the single-extra variadic sibling
-        /// (<c>f(T $a, U ...$rest)</c> modeled as arity N+1). Equality ignores this flag.
+        /// True when this facet is a trailing PHP variadic
+        /// (<c>f(T $a, U ...$rest)</c> or <c>callable(T, U ...): R</c>).
+        /// Equality includes this flag.
         /// </summary>
         public bool LastParameterIsVariadic { get; }
 
         /// <summary>
-        /// Rebuilds this facet with substituted parameter/return types, keeping names and the
-        /// variadic flag.
+        /// True when this is the any-arity wildcard <c>callable(...): TReturn</c>.
+        /// Distinct from a zero-parameter facet (empty <see cref="ParameterTypes"/> with
+        /// <see cref="IsAnyArity"/> false). Equality includes this flag.
         /// </summary>
-        internal CallableCheckedType MapTypes(Func<ICheckedType, ICheckedType> map) =>
-            new(ParameterTypes.Select(map).ToList(), map(ReturnType), ParameterNames, LastParameterIsVariadic);
+        public bool IsAnyArity { get; }
+
+        /// <summary>
+        /// Rebuilds this facet with substituted parameter/return types, keeping names, the
+        /// variadic flag, and the any-arity flag.
+        /// </summary>
+        internal CallableCheckedType MapTypes(Func<ICheckedType, ICheckedType> map)
+        {
+            var mappedParams = ParameterTypes.Select(map).ToList();
+            var mappedReturn = map(ReturnType);
+            if (IsAnyArity)
+            {
+                return new CallableCheckedType([], mappedReturn, isAnyArity: true);
+            }
+
+            var spliced = ParameterPack.SpliceParameterList(mappedParams, out var packVariadic);
+            return new CallableCheckedType(
+                spliced,
+                mappedReturn,
+                ParameterNames is null || spliced.Count != ParameterTypes.Count ? null : ParameterNames,
+                LastParameterIsVariadic || packVariadic);
+        }
 
         private static IReadOnlyList<string?>? NormalizeParameterNames(
             int arity,
@@ -358,8 +480,43 @@ namespace Tyhp.TyhpLang.Checker
 
         public CheckedTypeKind Kind => CheckedTypeKind.Callable;
 
-        public string DisplayName =>
-            $"callable({string.Join(", ", ParameterTypes.Select(p => p.DisplayName))}): {ReturnType.DisplayName}";
+        public string DisplayName
+        {
+            get
+            {
+                if (IsAnyArity)
+                {
+                    return $"callable(...): {ReturnType.DisplayName}";
+                }
+
+                var paramNames = new string[ParameterTypes.Count];
+                for (var i = 0; i < ParameterTypes.Count; i++)
+                {
+                    var name = ParameterTypes[i].DisplayName;
+                    var isVariadic = LastParameterIsVariadic && i == ParameterTypes.Count - 1;
+                    var parameterName = ParameterNames is not null && i < ParameterNames.Count
+                        ? ParameterNames[i]
+                        : null;
+
+                    if (isVariadic)
+                    {
+                        // `callable(T ...): R` (unnamed) / `callable(T ...$args): R` (named) —
+                        // no space between `...` and a written `$name`.
+                        name += string.IsNullOrEmpty(parameterName)
+                            ? " ..."
+                            : " ...$" + parameterName;
+                    }
+                    else if (!string.IsNullOrEmpty(parameterName))
+                    {
+                        name += " $" + parameterName;
+                    }
+
+                    paramNames[i] = name;
+                }
+
+                return $"callable({string.Join(", ", paramNames)}): {ReturnType.DisplayName}";
+            }
+        }
 
         public bool IsNullable => false;
 
@@ -456,6 +613,140 @@ namespace Tyhp.TyhpLang.Checker
         public bool IsMixed => true;
     }
 
+    /// <summary>
+    /// Transient marker for bare <c>...</c> as a generic type argument. Not a
+    /// user-written value type. Valid unknown-arity callables use
+    /// <c>callable(...): R</c> shapes, not this marker.
+    /// </summary>
+    public sealed class CallableArityWildcardCheckedType : ICheckedType
+    {
+        private CallableArityWildcardCheckedType()
+        {
+        }
+
+        public static CallableArityWildcardCheckedType Instance { get; } = new();
+
+        public CheckedTypeKind Kind => CheckedTypeKind.CallableArityWildcard;
+
+        public string DisplayName => "...";
+
+        public bool IsNullable => false;
+
+        public bool IsNever => false;
+
+        public bool IsVoid => false;
+
+        public bool IsMixed => false;
+    }
+
+    /// <summary>
+    /// Transient marker for postfix <c>T...</c> as a generic type argument. Not valid on
+    /// user generics / <c>array</c> / <c>\Closure</c>. Homogeneous variadic callable
+    /// parameters are spelled <c>callable(T ...$args): R</c>.
+    /// </summary>
+    public sealed class HomogeneousVariadicCheckedType : ICheckedType
+    {
+        public HomogeneousVariadicCheckedType(ICheckedType elementType)
+        {
+            ElementType = elementType;
+        }
+
+        public ICheckedType ElementType { get; }
+
+        public CheckedTypeKind Kind => CheckedTypeKind.HomogeneousVariadic;
+
+        public string DisplayName => $"{ElementType.DisplayName}...";
+
+        public bool IsNullable => false;
+
+        public bool IsNever => false;
+
+        public bool IsVoid => false;
+
+        public bool IsMixed => false;
+    }
+
+    /// <summary>
+    /// How <see cref="ParameterPackCheckedType"/> maps each member of a deferred or expanded pack.
+    /// </summary>
+    public enum ParameterPackMap
+    {
+        Identity,
+        Nullable,
+        NonNullable,
+    }
+
+    /// <summary>
+    /// Ordered list of types from pack-preserving utilities. Not a union and not an array.
+    /// Expanded packs have <see cref="Members"/>; deferred packs keep
+    /// <see cref="SourceCallable"/> until substitution fills <c>TCallable</c>.
+    /// </summary>
+    public sealed class ParameterPackCheckedType : ICheckedType
+    {
+        public ParameterPackCheckedType(
+            IReadOnlyList<ICheckedType> members,
+            ICheckedType? sourceCallable = null,
+            ParameterPackMap map = ParameterPackMap.Identity,
+            bool lastMemberIsVariadic = false)
+        {
+            Members = members;
+            SourceCallable = sourceCallable;
+            Map = map;
+            LastMemberIsVariadic = lastMemberIsVariadic && members.Count > 0;
+        }
+
+        public IReadOnlyList<ICheckedType> Members { get; }
+
+        public ICheckedType? SourceCallable { get; }
+
+        public ParameterPackMap Map { get; }
+
+        public bool LastMemberIsVariadic { get; }
+
+        public bool IsDeferred => Members.Count == 0 && SourceCallable is not null;
+
+        public CheckedTypeKind Kind => CheckedTypeKind.ParameterPack;
+
+        public string DisplayName
+        {
+            get
+            {
+                if (Members.Count > 0)
+                {
+                    var names = new string[Members.Count];
+                    for (var i = 0; i < Members.Count; i++)
+                    {
+                        var name = Members[i].DisplayName;
+                        if (LastMemberIsVariadic && i == Members.Count - 1)
+                        {
+                            name += "...";
+                        }
+
+                        names[i] = name;
+                    }
+
+                    return string.Join(", ", names);
+                }
+
+                var inner = SourceCallable?.DisplayName ?? "unresolved";
+                return Map switch
+                {
+                    ParameterPackMap.Nullable => $"__Nullable<__CallableParametersRest<{inner}>>",
+                    ParameterPackMap.NonNullable => $"__NonNullable<__CallableParametersRest<{inner}>>",
+                    _ => $"__CallableParametersRest<{inner}>",
+                };
+            }
+        }
+
+        public bool IsNullable => false;
+
+        public bool IsNever => false;
+
+        public bool IsVoid => false;
+
+        public bool IsMixed => false;
+    }
+
     /// <summary>Factory methods and singletons for common checked types.</summary>
     public static class CheckedTypes
     {
@@ -473,13 +764,41 @@ namespace Tyhp.TyhpLang.Checker
 
         public static ICheckedType Unresolved { get; } = UnresolvedCheckedType.Instance;
 
+        public static ICheckedType CallableArityWildcard { get; } =
+            CallableArityWildcardCheckedType.Instance;
+
         public static ICheckedType Bool { get; } = FromSymbol(new BuiltInTypeSymbol("bool"));
         public static ICheckedType Int { get; } = FromSymbol(new BuiltInTypeSymbol("int"));
         public static ICheckedType Float { get; } = FromSymbol(new BuiltInTypeSymbol("float"));
         public static ICheckedType String { get; } = FromSymbol(new BuiltInTypeSymbol("string"));
 
+        /// <summary>
+        /// PHP array keys are <c>int|string</c>. Bare <c>array</c> is
+        /// <c>array&lt;int|string, mixed&gt;</c>; one-arg <c>array&lt;V&gt;</c> is
+        /// <c>array&lt;int|string, V&gt;</c> (not int-only list keys).
+        /// </summary>
+        public static ICheckedType PhpArrayKey { get; } = UnionTypes(Int, String);
+
+        /// <summary>
+        /// Native PHP <c>&lt;=&gt;</c> always returns <c>-1</c>, <c>0</c>, or <c>1</c>
+        /// (a subtype of <c>int</c>). Overloaded <c>&lt;=&gt;</c> uses its declared return instead.
+        /// Literal values are <c>long</c> so they match declared <c>-1|0|1</c> annotations.
+        /// </summary>
+        public static ICheckedType SpaceshipResult { get; } = CreateSpaceshipResult();
+
         public static ICheckedType FromSymbol(IBaseSymbol symbol) =>
             new SimpleCheckedType(symbol);
+
+        private static ICheckedType CreateSpaceshipResult()
+        {
+            var underlying = new SimpleCheckedType(new BuiltInTypeSymbol("int"));
+            return UnionTypes(
+            [
+                new LiteralCheckedType(-1L, underlying),
+                new LiteralCheckedType(0L, underlying),
+                new LiteralCheckedType(1L, underlying),
+            ]);
+        }
 
         /// <summary>
         /// Resolves an AST type expression to a checked type.
@@ -633,8 +952,24 @@ namespace Tyhp.TyhpLang.Checker
                     left is StaticCheckedType ls &&
                     right is StaticCheckedType rs &&
                     AreTypesEqual(ls.DeclaringType, rs.DeclaringType),
+                CheckedTypeKind.ObjectShape =>
+                    left is ObjectShapeCheckedType lo &&
+                    right is ObjectShapeCheckedType ro &&
+                    TypeComparer.AreTypesEqual(lo, ro),
                 CheckedTypeKind.Never or CheckedTypeKind.Void or CheckedTypeKind.Mixed or CheckedTypeKind.Unresolved =>
                     left.DisplayName == right.DisplayName,
+                CheckedTypeKind.HomogeneousVariadic =>
+                    left is HomogeneousVariadicCheckedType lh &&
+                    right is HomogeneousVariadicCheckedType rh &&
+                    AreTypesEqual(lh.ElementType, rh.ElementType),
+                CheckedTypeKind.ParameterPack =>
+                    left is ParameterPackCheckedType lp &&
+                    right is ParameterPackCheckedType rp &&
+                    lp.Map == rp.Map &&
+                    lp.LastMemberIsVariadic == rp.LastMemberIsVariadic &&
+                    lp.Members.Count == rp.Members.Count &&
+                    lp.Members.Zip(rp.Members).All(pair => AreTypesEqual(pair.First, pair.Second)) &&
+                    AreTypesEqual(lp.SourceCallable, rp.SourceCallable),
                 _ => left.DisplayName == right.DisplayName,
             };
         }

@@ -1,7 +1,10 @@
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Binder.Scopes;
+using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
+using Tyhp.TyhpLang.Emitter.Splice;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Emitter
@@ -10,9 +13,17 @@ namespace Tyhp.TyhpLang.Emitter
     {
         private const string OutputFileDeclareKey = "output_file";
         private const string AutoloadDeclareKey = "autoload";
+        private const string PhpDeclareKey = "php";
 
         public static IEnumerable<PHPOutputFile> Split(SrcFileAst srcFile, EmitContext context)
         {
+            // Inactive file-level `declare(php=…);` skips the whole file (binder already
+            // omitted its symbols). Match that by producing no PHP output units.
+            if (IsPhpVersionGateInactiveFile(srcFile, context))
+            {
+                return [];
+            }
+
             var collector = new SplitCollector(srcFile, context);
 
             foreach (var child in srcFile.AstChildren)
@@ -56,6 +67,9 @@ namespace Tyhp.TyhpLang.Emitter
                 this._srcFile = srcFile;
                 this._context = context;
             }
+
+            private bool HasRuntimeGates(IBase2Ast node)
+                => RuntimeGateEmission.GetConditions(node, this._context.Config.TargetPhpVersion).Count > 0;
 
             public void ProcessTopStatementList(
                 PhpTopStatementListAst topList,
@@ -105,6 +119,11 @@ namespace Tyhp.TyhpLang.Emitter
                 if (statement is PhpImportDeclListAst importList)
                 {
                     this._fileImports.Add(importList);
+                    return true;
+                }
+
+                if (IsCompileTimeOnlyTopStatement(statement))
+                {
                     return true;
                 }
 
@@ -180,6 +199,11 @@ namespace Tyhp.TyhpLang.Emitter
                         this.AddImportList(importList);
                         break;
 
+                    case TyhpImportExtensionAst:
+                        // `use extension` / `global use extension` are compile-time only;
+                        // they never emit PHP and are not library entrypoints (TYHP7505).
+                        break;
+
                     case PhpDeclareAst declareAst:
                         this.HandleDeclareStatement(declareAst, singleFileMode);
                         break;
@@ -193,23 +217,67 @@ namespace Tyhp.TyhpLang.Emitter
                         break;
 
                     case TyhpStructDeclAst:
-                    case TyhpTypeAliasAst:
+                        break;
+
+                    case TyhpTypeAliasAst typeAlias:
+                        if (ShouldEmitSourceTypeAliasFactory(typeAlias)
+                            && ShouldEmitPhpVersionGatedDeclaration(typeAlias)
+                            && !NoEmitAttributeSupport.ShouldOmitDeclaration(typeAlias))
+                        {
+                            this.AddNamespaceFunction(typeAlias);
+                        }
+
                         break;
 
                     case PhpObjectTypeDeclAst objectDecl when !IsWrappedTopStatement(statement):
-                        this.AddObjectFile(objectDecl);
+                        if (ShouldEmitPhpVersionGatedDeclaration(objectDecl)
+                            && !NoEmitAttributeSupport.ShouldOmitDeclaration(objectDecl))
+                        {
+                            this.AddObjectFile(objectDecl);
+                        }
+
                         break;
 
                     case TyhpExtensionDeclAst extensionDecl when !IsWrappedTopStatement(statement):
-                        this.AddExtensionFile(extensionDecl);
+                        if (ShouldEmitPhpVersionGatedDeclaration(extensionDecl)
+                            && !NoEmitAttributeSupport.ShouldOmitDeclaration(extensionDecl)
+                            && SpliceAst.ExtensionDeclEmitsPhpBackerClass(extensionDecl))
+                        {
+                            this.AddExtensionFile(extensionDecl);
+                        }
+
                         break;
 
                     case PhpFunctionDeclAst functionDecl:
-                        this.AddNamespaceFunction(functionDecl);
+                        if (ShouldEmitPhpVersionGatedDeclaration(functionDecl))
+                        {
+                            if (FallbackDeclaration.IsFallback(functionDecl) || this.HasRuntimeGates(functionDecl))
+                            {
+                                // `fallback` / runtime-gated functions emit inside an `if`; like other
+                                // existence gates they are evaluated after the plain declarations.
+                                this.GetFunctionBucket().GatedStatements.Add(functionDecl);
+                            }
+                            else
+                            {
+                                this.AddNamespaceFunction(functionDecl);
+                            }
+                        }
+
                         break;
 
                     case PhpConstDeclListAst constList:
-                        this.AddNamespaceConstants(constList);
+                        if (ShouldEmitPhpVersionGatedDeclaration(constList))
+                        {
+                            if (FallbackDeclaration.IsFallback(constList) || this.HasRuntimeGates(constList))
+                            {
+                                this.GetFunctionBucket().GatedStatements.Add(constList);
+                            }
+                            else
+                            {
+                                this.AddNamespaceConstants(constList);
+                            }
+                        }
+
                         break;
 
                     case PhpIfAst ifAst
@@ -244,6 +312,7 @@ namespace Tyhp.TyhpLang.Emitter
                 switch (gatedDecl)
                 {
                     case PhpFunctionDeclAst:
+                    case TyhpTypeAliasAst:
                         this.GetFunctionBucket().GatedStatements.Add(gate);
                         break;
 
@@ -328,9 +397,28 @@ namespace Tyhp.TyhpLang.Emitter
                 this._objectFiles.Add(outputFile);
             }
 
-            private void AddNamespaceFunction(PhpFunctionDeclAst functionDecl)
+            private void AddNamespaceFunction(ITopStatement functionOrAlias)
             {
-                this.GetFunctionBucket().Statements.Add(functionDecl);
+                this.GetFunctionBucket().Statements.Add(functionOrAlias);
+            }
+
+            /// <summary>
+            /// Source <c>.tyhp</c> type aliases emit a Type factory in the namespace functions
+            /// file. Tyhpdef aliases stay type-only (no PHP function).
+            /// </summary>
+            private bool ShouldEmitSourceTypeAliasFactory(TyhpTypeAliasAst alias)
+            {
+                if (string.Equals(alias.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                var file = this._srcFile.FileName
+                    ?? this._srcFile.Identifier
+                    ?? alias.BoundSymbol?.SourceFile
+                    ?? string.Empty;
+                return !file.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase)
+                    && !file.Contains("<tyhpdef:", StringComparison.OrdinalIgnoreCase);
             }
 
             private void AddNamespaceConstants(ITopStatement constantStatement)
@@ -372,7 +460,24 @@ namespace Tyhp.TyhpLang.Emitter
 
             private void AddToSingleOutputFile(ITopStatement statement)
             {
-                if (statement is TyhpStructDeclAst or TyhpTypeAliasAst)
+                if (statement is TyhpStructDeclAst || IsCompileTimeOnlyTopStatement(statement))
+                {
+                    return;
+                }
+
+                if (statement is TyhpTypeAliasAst typeAlias
+                    && !ShouldEmitSourceTypeAliasFactory(typeAlias))
+                {
+                    return;
+                }
+
+                if (statement is IBase2Ast gated && !ShouldEmitPhpVersionGatedDeclaration(gated))
+                {
+                    return;
+                }
+
+                if (statement is PhpObjectTypeDeclAst or TyhpExtensionDeclAst
+                    && NoEmitAttributeSupport.ShouldOmitDeclaration((IBase2Ast)statement))
                 {
                     return;
                 }
@@ -399,6 +504,11 @@ namespace Tyhp.TyhpLang.Emitter
 
                 if (statement is PhpDeclareAst declareAst && declareAst.Body != null)
                 {
+                    if (IsPhpOnlyDeclare(declareAst) && IsPhpVersionGateInactive(declareAst))
+                    {
+                        return;
+                    }
+
                     this.CollectDeclareBodyStatements(declareAst.Body, this._pendingRootStatements);
                     return;
                 }
@@ -456,6 +566,29 @@ namespace Tyhp.TyhpLang.Emitter
                         this._singleOutputFilePath = outputFilePath;
                     }
 
+                    return;
+                }
+
+                // `declare(php=…) { … }` is compile-time only: unwrap the body so inner
+                // declarations classify as PSR-4 / functions / entry-point, like
+                // `output_file` extracting its body rather than emitting a PHP declare.
+                if (IsPhpOnlyDeclare(declareAst) && IsDeclareBlockBody(declareAst.Body))
+                {
+                    if (IsPhpVersionGateInactive(declareAst) || declareAst.Body == null)
+                    {
+                        return;
+                    }
+
+                    foreach (var inner in EnumerateDeclareBodyStatements(declareAst.Body))
+                    {
+                        this.ClassifyStatement(inner, singleFileMode);
+                    }
+
+                    return;
+                }
+
+                if (IsPhpOnlyDeclare(declareAst))
+                {
                     return;
                 }
 
@@ -536,6 +669,7 @@ namespace Tyhp.TyhpLang.Emitter
                 return new PHPOutputFile
                 {
                     SourceFileAst = this._srcFile,
+                    SourceFileName = this._srcFile.FileName,
                     OutputFilePath = outputFilePath,
                     FileDeclares = this.GetDeclaresForNamespace(namespaceStatement),
                     FileImports = this.GetImportsForNamespace(namespaceStatement),
@@ -568,6 +702,14 @@ namespace Tyhp.TyhpLang.Emitter
 
                     this._singleOutputFilePath = outputFilePath;
                     return true;
+                }
+
+                if (IsPhpOnlyDeclare(declareAst))
+                {
+                    // Empty `declare(php=…);` is Tyhp-only (like `output_file` without a body):
+                    // consume it so it never lands in FileDeclares. Blocks return false so
+                    // ClassifyStatement can unwrap the body.
+                    return !IsDeclareBlockBody(declareAst.Body);
                 }
 
                 this._fileDeclares.Add(declareAst);
@@ -616,17 +758,28 @@ namespace Tyhp.TyhpLang.Emitter
 
             private void CollectDeclareBodyStatements(IStatement body, ICollection<ITopStatement> target)
             {
+                foreach (var stmt in EnumerateDeclareBodyStatements(body))
+                {
+                    if (!IsCompileTimeOnlyTopStatement(stmt))
+                    {
+                        target.Add(stmt);
+                    }
+                }
+            }
+
+            private static IEnumerable<ITopStatement> EnumerateDeclareBodyStatements(IStatement body)
+            {
                 switch (body)
                 {
                     case PhpStatementBlockAst block:
                         foreach (var stmt in block.GetAllNotNull())
                         {
-                            target.Add(stmt);
+                            yield return stmt;
                         }
 
                         break;
                     case ITopStatement topStatement:
-                        target.Add(topStatement);
+                        yield return topStatement;
                         break;
                 }
             }
@@ -699,13 +852,17 @@ namespace Tyhp.TyhpLang.Emitter
                     : "\\" + this._currentNamespaceName + "\\" + shortName;
             }
 
+            private static bool IsCompileTimeOnlyTopStatement(ITopStatement statement)
+                => statement is TyhpImportExtensionAst;
+
             private static bool IsDeclarationStatement(ITopStatement statement)
                 => statement is PhpObjectTypeDeclAst
                     or TyhpExtensionDeclAst
                     or PhpFunctionDeclAst
                     or TyhpStructDeclAst
                     or TyhpTypeAliasAst
-                    or PhpConstDeclListAst;
+                    or PhpConstDeclListAst
+                    or TyhpImportExtensionAst;
 
             private static bool IsWrappedTopStatement(ITopStatement statement)
                 => statement is IStatement stmt && IsWrappedObjectDeclaration(stmt);
@@ -780,6 +937,128 @@ namespace Tyhp.TyhpLang.Emitter
                 /// </summary>
                 public List<ITopStatement> GatedStatements { get; } = [];
             }
+        }
+
+        private static bool IsPhpVersionGateInactiveFile(SrcFileAst srcFile, EmitContext context)
+        {
+            if (srcFile.BoundSymbol is FileSymbol { IsPhpVersionGateInactive: true })
+            {
+                return true;
+            }
+
+            foreach (var child in ((IBaseScope)context.GlobalScope).GetAllChildScopes())
+            {
+                if (child is not FileScope fileScope)
+                {
+                    continue;
+                }
+
+                if (!FileScopeMatchesSource(fileScope, srcFile))
+                {
+                    continue;
+                }
+
+                return fileScope.DeclarationSymbol.IsPhpVersionGateInactive;
+            }
+
+            return false;
+        }
+
+        private static bool FileScopeMatchesSource(FileScope fileScope, SrcFileAst srcFile)
+        {
+            var symbol = fileScope.DeclarationSymbol;
+            return string.Equals(symbol.FileName, srcFile.FileName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(symbol.SourceFile, srcFile.FileName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(symbol.FileName, srcFile.Identifier, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(symbol.SourceFile, srcFile.Identifier, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsPhpDeclareKey(string? identifier) =>
+            string.Equals(identifier, PhpDeclareKey, StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsExtDeclareKey(string? identifier) =>
+            string.Equals(identifier, "ext", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsTyhpOnlyDeclareKey(string? identifier) =>
+            string.Equals(identifier, OutputFileDeclareKey, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(identifier, AutoloadDeclareKey, StringComparison.OrdinalIgnoreCase)
+            || IsPhpDeclareKey(identifier)
+            || IsExtDeclareKey(identifier);
+
+        private static bool IsPhpOnlyDeclare(PhpDeclareAst declare)
+        {
+            var hasPhp = false;
+            foreach (var directive in declare.Declarations?.GetAllNotNull() ?? [])
+            {
+                if (IsPhpDeclareKey(directive.Identifier) || IsExtDeclareKey(directive.Identifier))
+                {
+                    hasPhp = true;
+                    continue;
+                }
+
+                if (!IsTyhpOnlyDeclareKey(directive.Identifier))
+                {
+                    return false;
+                }
+            }
+
+            return hasPhp;
+        }
+
+        private static bool IsPhpVersionGateInactive(PhpDeclareAst declareAst)
+            => declareAst.BoundSymbol is DeclareBlockSymbol { IsPhpVersionGateInactive: true };
+
+        private static bool ShouldEmitPhpVersionGatedDeclaration(IBase2Ast node)
+        {
+            if (!HasTyhpPhpGateAttribute(node))
+            {
+                return true;
+            }
+
+            return node.BoundSymbol != null;
+        }
+
+        private static bool HasTyhpPhpGateAttribute(IBase2Ast node)
+        {
+            foreach (var attributeNode in node.AstAttributes)
+            {
+                if (attributeNode is PhpAttributeAst attribute && IsTyhpPhpGateAttribute(attribute))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsTyhpPhpGateAttribute(PhpAttributeAst attribute)
+        {
+            if (attribute.Name is PhpNameAst { BoundSymbol: ObjectDeclarationSymbol objectSymbol }
+                && IsTyhpPhpFullyQualifiedName(objectSymbol.FullyQualifiedName))
+            {
+                return true;
+            }
+
+            var written = attribute.Name switch
+            {
+                PhpNameAst name => name.ValueString,
+                TokenValueAst token => token.ValueString,
+                { } expr => expr.Identifier,
+                _ => null,
+            };
+            return IsTyhpPhpFullyQualifiedName(written);
+        }
+
+        private static bool IsTyhpPhpFullyQualifiedName(string? name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return false;
+            }
+
+            var trimmed = name.Trim();
+            return trimmed.Equals("\\Tyhp\\Php", StringComparison.OrdinalIgnoreCase)
+                || trimmed.Equals("Tyhp\\Php", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

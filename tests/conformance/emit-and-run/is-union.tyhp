@@ -1,0 +1,12 @@
+<?tyhp
+type IntOrString = int|string;
+
+function demo(mixed $x): bool {
+    return $x is IntOrString;
+}
+
+function main(): void {
+    echo demo("hi") ? "yes" : "no";
+}
+
+main();

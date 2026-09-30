@@ -8,6 +8,10 @@ declare(strict_types=1);
 
 namespace App;
 
+/**
+ * @template TValue
+ */
+#[\Tyhp\GenericRuntime(erased: false, factory: "new_App_Container__tyhpGeneric", layouts: [1], compiler: "805.1.0.0")]
 class Container
 {
     use \Tyhp\Concerns\HasGenerics;

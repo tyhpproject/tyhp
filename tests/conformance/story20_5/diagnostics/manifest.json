@@ -1,0 +1,153 @@
+{
+  "suite": "story20_5/diagnostics",
+  "description": "Story 20.5 — PHP version-gate diagnostics (4300–4306) and sibling-alternate lint",
+  "defaults": {
+    "action": "lint",
+    "config": {
+      "phpVersion": "8.2"
+    }
+  },
+  "cases": [
+    {
+      "id": "happy_path_php84",
+      "file": "happy_path.tyhp",
+      "config": { "phpVersion": "8.4" },
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "happy_path_php82_omits_gated",
+      "file": "happy_path.tyhp",
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "alternate_variants_php82",
+      "file": "alternate_variants.tyhp",
+      "config": { "phpVersion": "8.2" },
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "alternate_variants_php83",
+      "file": "alternate_variants.tyhp",
+      "config": { "phpVersion": "8.3" },
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "alternate_variants_php84",
+      "file": "alternate_variants.tyhp",
+      "config": { "phpVersion": "8.4" },
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "alternate_variants_php85",
+      "file": "alternate_variants.tyhp",
+      "config": { "phpVersion": "8.5" },
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "file_level_inactive_php82",
+      "file": "file_level_inactive.tyhp",
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "file_level_active_php85",
+      "file": "file_level_inactive.tyhp",
+      "config": { "phpVersion": "8.5" },
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "nested_unsatisfiable_4302",
+      "file": "nested_unsatisfiable.tyhp",
+      "config": { "phpVersion": "8.4" },
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4302]
+      }
+    },
+    {
+      "id": "overlap_4303",
+      "file": "overlap.tyhp",
+      "config": { "phpVersion": "8.4" },
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4303]
+      }
+    },
+    {
+      "id": "struct_attribute_4304",
+      "file": "struct_attribute.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4304]
+      }
+    },
+    {
+      "id": "extension_attribute_4304",
+      "file": "extension_attribute.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4304]
+      }
+    },
+    {
+      "id": "tyhpdef_extension_attribute_4304",
+      "file": "tyhpdef_extension_attribute.tyhpdef",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4304]
+      }
+    },
+    {
+      "id": "invalid_constraint_4300",
+      "file": "invalid_constraint.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4300]
+      }
+    },
+    {
+      "id": "mixed_declare_4301",
+      "file": "mixed_declare.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4301]
+      }
+    },
+    {
+      "id": "missing_version_arg_4305",
+      "file": "missing_version_arg.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4305]
+      }
+    },
+    {
+      "id": "default_php_version_4306",
+      "file": "default_version.tyhp",
+      "config": { "phpVersion": "" },
+      "expect": {
+        "warningCodes": [4306]
+      }
+    },
+    {
+      "id": "tyhpdef_disjoint_php82",
+      "file": "tyhpdef_disjoint.tyhpdef",
+      "config": { "phpVersion": "8.2" },
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "tyhpdef_disjoint_php84",
+      "file": "tyhpdef_disjoint.tyhpdef",
+      "config": { "phpVersion": "8.4" },
+      "expect": { "errorCount": 0 }
+    },
+    {
+      "id": "tyhpdef_overlap_4303",
+      "file": "tyhpdef_overlap.tyhpdef",
+      "config": { "phpVersion": "8.4" },
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4303]
+      }
+    }
+  ]
+}

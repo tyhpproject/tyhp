@@ -24,6 +24,7 @@ namespace Tyhp.TyhpLang.Checker
             [UtilityBehavior.UsedTraitName] = "__UsedTraitName",
             [UtilityBehavior.InterfaceName] = "__InterfaceName",
             [UtilityBehavior.CompatibleTypeName] = "__CompatibleTypeName",
+            [UtilityBehavior.SuperTypeName] = "__SuperTypeName",
             [UtilityBehavior.PropertyName] = "__PropertyName",
             [UtilityBehavior.MethodName] = "__MethodName",
             [UtilityBehavior.ConstName] = "__ConstName",
@@ -129,6 +130,42 @@ namespace Tyhp.TyhpLang.Checker
             return CheckedTypes.FromSymbol(symbol);
         }
 
+        /// <summary>
+        /// Type argument substituted for an unbound callee parameter on
+        /// <c>__EnumName&lt;T&gt;</c>. Displays as <c>object</c>. Identity is distinct from a
+        /// written <c>object</c> argument, so <c>__EnumName&lt;E&gt;</c> widens only to this
+        /// placeholder and stays invariant against <c>__EnumName&lt;object&gt;</c> and
+        /// <c>__EnumName&lt;Other&gt;</c>.
+        /// </summary>
+        internal static readonly ICheckedType UnboundEnumBrandArgument = CreateUnboundEnumBrandArgument();
+
+        private static SimpleCheckedType CreateUnboundEnumBrandArgument()
+        {
+            var symbol = new BuiltInTypeSymbol("object")
+            {
+                FullyQualifiedName = "__UnboundEnumBrand",
+            };
+            return new SimpleCheckedType(symbol);
+        }
+
+        private static bool IsUnboundEnumBrandArgument(ICheckedType type) =>
+            type is SimpleCheckedType simple
+            && ReferenceEquals(simple.ResolvedSymbol, ((SimpleCheckedType)UnboundEnumBrandArgument).ResolvedSymbol);
+
+        private static bool WidensToUnboundEnumBrand(ICheckedType source, ICheckedType target)
+        {
+            if (!TryGetBehavior(source, out var sourceBehavior)
+                || !TryGetBehavior(target, out var targetBehavior)
+                || sourceBehavior != UtilityBehavior.EnumName
+                || targetBehavior != UtilityBehavior.EnumName)
+            {
+                return false;
+            }
+
+            var targetArgs = GetTypeArguments(target);
+            return targetArgs.Count == 1 && IsUnboundEnumBrandArgument(targetArgs[0]);
+        }
+
         private static bool IsObjectTypeArg(ICheckedType type) =>
             type is SimpleCheckedType { ResolvedSymbol: BuiltInTypeSymbol { Name: var n } }
             && string.Equals(n, "object", StringComparison.OrdinalIgnoreCase);
@@ -200,6 +237,14 @@ namespace Tyhp.TyhpLang.Checker
             // Use TypeComparer equality (FQN-normalized) so scope-registered builtins match
             // constructed / resolved forms of the same brand.
             if (TypeComparer.AreTypesEqual(source, target))
+            {
+                return true;
+            }
+
+            // Unbound callee generics substitute T with a placeholder on `__EnumName<T>`.
+            // `__EnumName<Suit>` matches that placeholder. A written `__EnumName<object>`
+            // is a different type argument and stays invariant, as does `__EnumName<Other>`.
+            if (WidensToUnboundEnumBrand(source, target))
             {
                 return true;
             }
@@ -281,28 +326,38 @@ namespace Tyhp.TyhpLang.Checker
             return false;
         }
 
+        /// <summary>
+        /// True when <paramref name="type"/> is <c>__ClassName&lt;T&gt;</c> (including the
+        /// normalized bare form <c>__ClassName&lt;object&gt;</c>).
+        /// </summary>
+        public static bool TryGetClassNameBrandArgument(ICheckedType type, out ICheckedType brand)
+        {
+            brand = null!;
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            if (!TryGetBehavior(type, out var behavior) || behavior != UtilityBehavior.ClassName)
+            {
+                return false;
+            }
+
+            var args = GetTypeArguments(type);
+            if (args.Count == 0)
+            {
+                return false;
+            }
+
+            brand = args[0];
+            return true;
+        }
+
         private static readonly HashSet<string> BoolReturningGuards = new(StringComparer.OrdinalIgnoreCase)
         {
-            "function_exists",
-            "class_exists",
-            "interface_exists",
-            "trait_exists",
-            "enum_exists",
-            "property_exists",
-            "method_exists",
-            "is_a",
-            "is_subclass_of",
+            // these are language constructs, not actual functions/methods
             "variable_exists",
             "isset",
-            "is_string",
-            "is_int",
-            "is_float",
-            "is_bool",
-            "is_array",
-            "is_null",
-            "is_object",
-            "is_callable",
-            "is_numeric",
         };
 
         public static bool IsBoolReturningGuard(string fnName) =>

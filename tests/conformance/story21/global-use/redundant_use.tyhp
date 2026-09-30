@@ -1,0 +1,9 @@
+<?tyhp
+
+// tyhp/core already has `global use extension \Tyhp\StringExtensions`.
+use extension \Tyhp\StringExtensions;
+
+function testRedundantLocalUse(): int {
+    string $s = "Hello";
+    return $s->length();
+}

@@ -103,6 +103,70 @@ public class ConstructorDestructorReturnRuleTests
     }
 
     [Fact]
+    public void Check_OmittedConstructorReturnType_IsAcceptedAsVoid()
+    {
+        // Omitting the constructor return type is equivalent to `: void`: the checker
+        // treats the ctor as void (bare `return;` is legal, value returns are rejected),
+        // and no `parent::__construct` insertion is implied.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            final class Widget {
+                private int $n;
+                public function __construct(int $n) {
+                    if ($n < 0) {
+                        return;
+                    }
+                    $this->n = $n;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerConstructorDestructorCannotReturnValue
+            || d.Code == MessageCode.CheckerIncompatibleReturnType
+            || d.Code == MessageCode.CheckerMissingReturnStatement
+            || d.Code == MessageCode.CheckerMagicMethodSignature);
+    }
+
+    [Fact]
+    public void Check_OmittedConstructorReturnType_ValueReturn_IsRejected()
+    {
+        // A value return inside an omitted-return-type constructor still violates the
+        // ctor-void rule (TYHP4153); the omitted form is `: void`, not an untyped ctor.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            final class Widget {
+                public function __construct(int $n) {
+                    return $n;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerConstructorDestructorCannotReturnValue);
+    }
+
+    [Fact]
+    public void Check_ParentConstructorReturnType_IsAccepted()
+    {
+        // `: parent(...)` remains the chaining form and is accepted by the checker.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Base {
+                public function __construct(int $x): void {}
+            }
+            final class Widget extends Base {
+                public function __construct(int $x): parent($x) {}
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerConstructorDestructorCannotReturnValue
+            || d.Code == MessageCode.CheckerIncompatibleReturnType
+            || d.Code == MessageCode.CheckerMagicMethodSignature);
+    }
+
+    [Fact]
     public void Check_UntypedOrdinaryMethod_StillAcceptsAnyReturn()
     {
         // Non-magic methods with no return annotation still resolve ExpectedReturnType to mixed;
@@ -176,14 +240,7 @@ public class ConstructorDestructorReturnRuleTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4", skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

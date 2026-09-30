@@ -10,6 +10,8 @@
 > **Generated:** 2026-02-16
 > **Prerequisites:** Story 01, Story 02, Story 03, Story 04
 > **Status:** COMPLETED (2026-07-31 audit) — grammar split, built-ins, package tyhpdef loading, tagless mode, and conformance fixtures landed. Phase acceptance checkboxes in this doc were never updated; residual notes in `INCOMPLETE.md`.
+>
+> **Story 20.6 note:** Class-body tyhpdef `extension function` / `extension operator` become **thin mappings** (`=>` only, erased at emit). Auto-activation of class-body members (4.6) stays; the brace-bodied syntax in this story is not rewritten.
 
 ---
 
@@ -48,7 +50,7 @@ Story 02: Binder (Symbols, Scopes, Name Resolution, Tyhpdef Loading)
 │  ┌──────────────────────────┐  ┌──────────────────────────┐ │
 │  │ Hardcoded Built-in Types │  │ External Tyhpdefs        │ │
 │  │ (C# compiler code:      │  │ (Composer packages:      │ │
-│  │  scalar types, decimal,  │  │  tyhp/php-{ver},         │ │
+│  │  scalar types, decimal,  │  │  tyhpdef/php-{ver},         │ │
 │  │  struct, generics,       │  │  tyhp/core, tyhp/async,  │ │
 │  │  utility types,          │  │  tyhp/decimal,           │ │
 │  │  compile-time constructs)│  │  tyhp/lambda)            │ │
@@ -61,7 +63,7 @@ Story 02: Binder (Symbols, Scopes, Name Resolution, Tyhpdef Loading)
 │                           │                                 │
 │  ┌────────────────────────▼───────────────────────────────┐ │
 │  │ Package Discovery & Symbol Registration                │ │
-│  │ (vendor/*/package.tyhp.json → TyhpdefSymbolRegistrar)  │ │
+│  │ (vendor/*/*/composer.json` (`extra.tyhp.package`) → TyhpdefSymbolRegistrar)  │ │
 │  └────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
     │
@@ -82,12 +84,12 @@ Story 09: Emitter (uses built-in types to know what runtime calls to emit)
 | Binder built-in variables | `Tyhp/TyhpLang/Binder/BuiltIn/Variables.cs` | Superglobals registered |
 | Binder tyhpdef loader | `Tyhp/TyhpLang/Binder/BuiltIn/Tyhpdef.cs` | ~262 lines, functional |
 | Old embedded tyhpdef data | `Tyhp/TyhpLang/Binder/BuiltIn/OLD_Tyhpdef.cs` | ~1,820 lines, entirely commented out |
-| Tyhp runtime packages | `runtime/packages/` (`tyhp/core`, `tyhp/decimal`, `tyhp/async`, `tyhp/lambda`) | Each has a `package.tyhp.json` entry point referencing its `.tyhpdef` and `.tyhp` files |
+| Tyhp runtime packages | `runtime/packages/` (`tyhp/core`, `tyhp/decimal`, `tyhp/async`, `tyhp/lambda`) | Each has a `extra.tyhp.package` entry point referencing its `.tyhpdef` and `.tyhp` files |
 | Promise runtime | `runtime/packages/async/src/Promise.php` | Functional |
 | Tyhpdef visitor/parser | `Tyhp/TyhpLang/Visitor/TyhpParserAstVisitor.Tyhpdef.cs` | ~1,178 lines, functional |
 | ANTLR parser grammar | `Tyhp/TyhpLang/Grammar/TyhpParser.g4` | Contains generic type argument rules that need fixing |
 | ANTLR lexer grammar | `Tyhp/TyhpLang/Grammar/TyhpLexer.g4` | Tyhpdef mode tokens |
-| Disposable interfaces | `runtime/packages/core/` (discovered via `package.tyhp.json`) | `IsDisposable`, `\Tyhp\Type`, etc. |
+| Disposable interfaces | `runtime/packages/core/` (discovered via `extra.tyhp.package`) | `IsDisposable`, `\Tyhp\Type`, etc. |
 
 ### Design Principles for This Phase
 
@@ -95,15 +97,15 @@ Story 09: Emitter (uses built-in types to know what runtime calls to emit)
 
 2. **Utility types live in the `\Tyhp` namespace.** These are TypeScript-inspired built-in utility types hardcoded as checker operations, registered as special generic types in the binder and resolved by the checker through type transformation.
 
-3. **External type definitions use Composer packages discovered via `package.tyhp.json`.** PHP extension types come from `tyhp/php-{phpVersion}` Composer packages, which contain both `.tyhpdef` files (PHP built-in function/class signatures) and `.tyhp` files (generic overlays on PHP classes like `Traversable<K,V>`, `Iterator<K,V>`, `Generator<K,V,S,R>`, SPL generics, and async method patterns). Runtime library types come from `tyhp/core`, `tyhp/decimal`, `tyhp/async`, `tyhp/lambda` Composer packages. Each package has a `package.tyhp.json` entry point with include globs that specify which `.tyhpdef` and `.tyhp` files to load.
+3. **External type definitions use Composer packages discovered via `extra.tyhp.package`.** PHP extension types come from `tyhpdef/php-{phpVersion}` Composer packages, which contain both `.tyhpdef` files (PHP built-in function/class signatures) and `.tyhp` files (generic overlays on PHP classes like `Traversable<K,V>`, `Iterator<K,V>`, `Generator<K,V,S,R>`, SPL generics, and async method patterns). Runtime library types come from `tyhp/core`, `tyhp/decimal`, `tyhp/async`, `tyhp/lambda` Composer packages. Each package has a `extra.tyhp.package` entry point with include globs that specify which `.tyhpdef` and `.tyhp` files to load.
 
-4. **Generic overlays on PHP classes** (like `Traversable<K,V>`, `Iterator<K,V>`, `Generator<K,V,S,R>`, SPL generics like `SplStack<T>`, `SplQueue<T>`, etc.) are defined as `.tyhp` files within the PHP extension Composer packages (e.g., `tyhp/php-8.2`), NOT hardcoded. These `.tyhp` overlay files are included alongside the `.tyhpdef` declaration files via the package's `package.tyhp.json` include globs.
+4. **Generic overlays on PHP classes** (like `Traversable<K,V>`, `Iterator<K,V>`, `Generator<K,V,S,R>`, SPL generics like `SplStack<T>`, `SplQueue<T>`, etc.) are defined as `.tyhp` files within the PHP extension Composer packages (e.g., `tyhpdef/php-8.2`), NOT hardcoded. These `.tyhp` overlay files are included alongside the `.tyhpdef` declaration files via the package's `extra.tyhp.package` include globs.
 
 5. **Compile-time constructs** (`nameof()`, `typeof()`, `default()`, `variable_exists()`) are hardcoded in the binder's built-in function registry.
 
 6. **`iterable` is treated as semantically equivalent to `array|\Traversable`** at checker time. This is a checker concern handled in Story 08, but Story 06 hardcodes `iterable` and `iterable<K,V>` as built-in generic types in the binder.
 
-7. **`package.tyhp.json` is the package entry point.** Each Composer package containing type definitions has a `package.tyhp.json` at its root with the following structure:
+7. **`extra.tyhp.package` is the package entry point.** Each Composer package containing type definitions has a `extra.tyhp.package` at its root with the following structure:
 
    ```json
    {
@@ -114,7 +116,7 @@ Story 09: Emitter (uses built-in types to know what runtime calls to emit)
    }
    ```
 
-   The `include` member is an array of path glob strings (relative to the package root) that specify which files to load. The manifest is **JSON only**; tyhpdef syntax lives in the referenced `.tyhpdef` and `.tyhp` files, not inside `package.tyhp.json`. This replaces using a single `package.tyhpdef` file as the entry point because: (a) a single tyhpdef file gets too large for big packages, and (b) packages may need to include `.tyhp` code (not just `.tyhpdef` declarations). For library-type Tyhp projects, `package.tyhp.json` is auto-generated by `tyhp compile` — the compiler generates it in the output directory with include globs pointing to the library's type definition files.
+   The `include` member is an array of path glob strings (relative to the package root) that specify which files to load. The manifest is **JSON only**; tyhpdef syntax lives in the referenced `.tyhpdef` and `.tyhp` files, not inside `extra.tyhp.package`. This replaces using a single `package.tyhpdef` file as the entry point because: (a) a single tyhpdef file gets too large for big packages, and (b) packages may need to include `.tyhp` code (not just `.tyhpdef` declarations). For library-type Tyhp projects, `extra.tyhp.package` is auto-generated by `tyhp compile` — the compiler generates it in the output directory with include globs pointing to the library's type definition files.
 
 8. **Restricted types (`void` and `never`) require explicit opt-in via generic constraints.** The types `void` and `never` are "restricted types" — they cannot be used as generic type arguments unless the generic parameter's constraint explicitly includes them. For example, `array<void>` is rejected because `array<T>` does not include `void` in its constraint, but `callable<void>` is valid because `callable`'s return-type parameter uses `TReturn extends void|never|mixed`. This system prevents nonsensical types (like `array<void>` or `SplStack<never>`) at the type-checking level while still allowing restricted types where they are semantically meaningful (as return types in callables and promises). Each generic type definition chooses which restricted types to opt in to: `callable` allows both `void` and `never` (functions can return nothing or always throw), while `Promise` allows `void` but not `never` (a promise that never resolves is not useful). Types like `array<T>`, `iterable<T>`, and SPL collections do not opt in to either.
 
@@ -144,8 +146,8 @@ Phase 1 (Grammar Fixes)
 
 ## Phase 1: ANTLR Grammar Fixes for Generic Type Arguments
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -259,13 +261,13 @@ Requires `antlr-ng` (`npm install -g antlr-ng`). Grammar regeneration is **not**
 
 Validate that existing tyhpdef files parse correctly with the fix by running `tyhp lint` on:
 
-- `runtime/packages/core/package.tyhp.json` (has `array<self|NamedType>` on line 10)
+- `runtime/packages/core/composer.json` (`extra.tyhp.package`) (has `array<self|NamedType>` on line 10)
 - `runtime/php-extensions/php8.2.9/ExtCore.tyhpdef`
 - All other runtime package tyhpdefs
 - All PHP extension tyhpdefs
 
 ```bash
-dotnet run --project tyhp.csproj -- lint runtime/packages/core/package.tyhp.json
+dotnet run --project tyhp.csproj -- lint runtime/packages/core/composer.json` (`extra.tyhp.package`)
 dotnet run --project tyhp.csproj -- lint runtime/php-extensions/php8.2.9/
 ```
 
@@ -284,7 +286,7 @@ dotnet run --project tyhp.csproj -- lint runtime/php-extensions/php8.2.9/
 - [ ] All usage contexts use `tyhpGenericTypeArguments`
 - [ ] The AST visitor handles both new rule forms correctly
 - [ ] ANTLR parser files are regenerated successfully
-- [ ] `runtime/packages/core/package.tyhp.json` parses without errors (tests `array<self|NamedType>`)
+- [ ] `runtime/packages/core/composer.json` (`extra.tyhp.package`) parses without errors (tests `array<self|NamedType>`)
 - [ ] All 16 PHP extension tyhpdef files parse without grammar-related errors
 - [ ] Type expressions like `array<int|string>`, `callable<string, void>`, `SomeClass<Foo|Bar>` are accepted as generic type arguments
 - [ ] Generic declarations like `class Foo<T extends Bar>`, `type Alias<T> = ...` continue to work
@@ -299,8 +301,8 @@ dotnet run --project tyhp.csproj -- lint runtime/php-extensions/php8.2.9/
 
 ## Phase 2: Tyhpdef Validation via Lint Command
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -386,7 +388,7 @@ Priority: Fix errors in the most commonly-used extensions first:
 
 **2.5 — Validate Runtime Package Tyhpdefs**
 
-Each runtime package has a `package.tyhp.json` entry point whose include globs reference the package's `.tyhpdef` and `.tyhp` files. Use the lint command to validate all files in each runtime package directory:
+Each runtime package has a `extra.tyhp.package` entry point whose include globs reference the package's `.tyhpdef` and `.tyhp` files. Use the lint command to validate all files in each runtime package directory:
 
 ```bash
 dotnet run --project tyhp.csproj -- lint runtime/packages/core/
@@ -431,7 +433,7 @@ Use `dotnet run --project Tyhp -- lint <path>` for all lint operations. See `LOC
 - [x] When no explicit paths are given, the lint command falls back to project-based discovery (existing behavior)
 - [x] `.tyhpdef` files are parsed using the tyhpdef parse mode and errors are reported via `DiagnosticBag`
 - [ ] All 16 PHP extension tyhpdef files at `runtime/php-extensions/php8.2.9/` have been validated
-- [ ] All 4 runtime package `package.tyhp.json` entry points and their referenced `.tyhpdef`/`.tyhp` files have been validated
+- [ ] All 4 runtime package `extra.tyhp.package` entry points and their referenced `.tyhpdef`/`.tyhp` files have been validated
 - [ ] Parse errors in critical PHP extension tyhpdefs (`ExtCore`, `ExtStandard`, `ExtSPL`) are fixed
 - [x] The lint command MUST exit with non-zero exit code if errors are found
 
@@ -446,8 +448,8 @@ Use `dotnet run --project Tyhp -- lint <path>` for all lint operations. See `LOC
 
 ## Phase 3: Hardcode Built-in Types, Utility Types, and Compile-Time Constructs
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -480,7 +482,7 @@ Register:
 - `decimal` as a special type backed by `float` (runtime uses bcmath/gmp via `tyhp/decimal` package)
 - `struct` as a special type backed by `array`
 
-These are fundamental type system aliases that must always be available. The full `\Tyhp\Decimal` class definition (methods, operators) is provided by the `tyhp/decimal` runtime package's type definition files (discovered via `package.tyhp.json`).
+These are fundamental type system aliases that must always be available. The full `\Tyhp\Decimal` class definition (methods, operators) is provided by the `tyhp/decimal` runtime package's type definition files (discovered via `extra.tyhp.package`).
 
 **3.3 — Hardcode Generic Built-in Types**
 
@@ -605,21 +607,21 @@ Each generic type definition chooses which restricted types to opt in to:
 
 ## Phase 4: Binder Integration — Package Tyhpdef Loading and Symbol Registration
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
-Extend the existing tyhpdef loading mechanism to support package discovery (from `vendor/*/package.tyhp.json`), implement the `TyhpdefSymbolRegistrar` that converts parsed tyhpdef ASTs into binder symbols registered in `GlobalScope`, and wire the loading pipeline into the `CompilationService` / `BuildAction` so that the checker and emitter can access external type information. This is the critical integration point — without the symbol registrar, the tyhpdef ASTs are parsed but have no effect on compilation.
+Extend the existing tyhpdef loading mechanism to support package discovery (from `vendor/*/*/composer.json` (`extra.tyhp.package`)), implement the `TyhpdefSymbolRegistrar` that converts parsed tyhpdef ASTs into binder symbols registered in `GlobalScope`, and wire the loading pipeline into the `CompilationService` / `BuildAction` so that the checker and emitter can access external type information. This is the critical integration point — without the symbol registrar, the tyhpdef ASTs are parsed but have no effect on compilation.
 
 **Current State:** `Tyhp/TyhpLang/Binder/BuiltIn/Tyhpdef.cs` (~262 lines) is **already implemented** with:
 - `Get(DiagnosticBag, CompilationOptions?)` — main entry point returning `IEnumerable<SrcFileAst>`
 - `LoadEmbeddedTyhpdefs()` — decompresses and parses `TyhpBuiltIn.Tyhpdef.AllKeyed`
-- `LoadBundledTyhpdefs()` — recursively loads all `*.tyhpdef` files from a `tyhpdef/` directory (this method is removed — PHP extension tyhpdefs are now distributed via the `tyhp/php-{phpVersion}` Composer package and its responsibility is replaced by `LoadPackageTyhpdefs()`)
+- `LoadBundledTyhpdefs()` — recursively loads all `*.tyhpdef` files from a `tyhpdef/` directory (this method is removed — PHP extension tyhpdefs are now distributed via the `tyhpdef/php-{phpVersion}` Composer package and its responsibility is replaced by `LoadPackageTyhpdefs()`)
 - `ParseContent()` — ANTLR lexer/parser/visitor pipeline for tyhpdef and tyhp parse modes
 - `FindTyhpdefDirectory()` — directory discovery with parent traversal and assembly location fallback
 
-**Still needed:** Package discovery from `vendor/*/package.tyhp.json` (covers runtime libraries AND PHP extension packages), user-configured tyhpdef paths, and the AST-to-symbol registration pipeline.
+**Still needed:** Package discovery from `vendor/*/*/composer.json` (`extra.tyhp.package`) (covers runtime libraries AND PHP extension packages), user-configured tyhpdef paths, and the AST-to-symbol registration pipeline.
 
 ### Deliverables
 
@@ -634,7 +636,7 @@ Extend the existing tyhpdef loading mechanism to support package discovery (from
 
 File: `Tyhp/TyhpLang/Binder/BuiltIn/Tyhpdef.cs`
 
-The existing `Get()` method already loads embedded and bundled tyhpdefs. Add a new `LoadPackageTyhpdefs()` method to discover `package.tyhp.json` files from Composer-installed packages, resolve their include globs, and load all matching `.tyhpdef` and `.tyhp` files:
+The existing `Get()` method already loads embedded and bundled tyhpdefs. Add a new `LoadPackageTyhpdefs()` method to discover `extra.tyhp.package` files from Composer-installed packages, resolve their include globs, and load all matching `.tyhpdef` and `.tyhp` files:
 
 ```csharp
 private static void LoadPackageTyhpdefs(List<SrcFileAst> results, DiagnosticBag diagnostics, CompilationOptions? options)
@@ -643,10 +645,10 @@ private static void LoadPackageTyhpdefs(List<SrcFileAst> results, DiagnosticBag 
 The full discovery order:
 
 1. **Embedded tyhpdefs** — already implemented via `LoadEmbeddedTyhpdefs()`
-2. **Package tyhpdefs** (NEW) — scan `{projectRoot}/vendor/*/*/package.tyhp.json` for all Composer dependency types (runtime libraries AND the `tyhp/php-{phpVersion}` PHP extension package). For each `package.tyhp.json` found, read its `include` array of glob patterns and resolve them relative to the package directory to load all matching `.tyhpdef` and `.tyhp` files.
+2. **Package tyhpdefs** (NEW) — scan `{projectRoot}/vendor/*/*/composer.json` (`extra.tyhp.package`) for all Composer dependency types (runtime libraries AND the `tyhpdef/php-{phpVersion}` PHP extension package). For each `extra.tyhp.package` found, read its `include` array of glob patterns and resolve them relative to the package directory to load all matching `.tyhpdef` and `.tyhp` files.
 3. **User project tyhpdefs** — from paths specified in `tyhp.json` (`tyhpdefInclude`/`tyhpdefExclude` glob patterns). The configuration schema is defined in Story 10; until then, this feature is not active and the code path must exist as a no-op with a `// PLACEHOLDER_STORY_10` comment.
 
-Update `Get()` to call `LoadPackageTyhpdefs()`. Note: PHP extension tyhpdefs are no longer bundled with the compiler — they are distributed as the `tyhp/php-{phpVersion}` Composer package and discovered via the same `vendor/*/package.tyhp.json` scan. The existing `LoadBundledTyhpdefs()` method is removed. Its responsibility is replaced by `LoadPackageTyhpdefs()`.
+Update `Get()` to call `LoadPackageTyhpdefs()`. Note: PHP extension tyhpdefs are no longer bundled with the compiler — they are distributed as the `tyhpdef/php-{phpVersion}` Composer package and discovered via the same `vendor/*/*/composer.json` (`extra.tyhp.package`) scan. The existing `LoadBundledTyhpdefs()` method is removed. Its responsibility is replaced by `LoadPackageTyhpdefs()`.
 
 **4.2 — Implement Tyhpdef AST to Symbol Registration**
 
@@ -686,7 +688,7 @@ Step 3:  Populate built-in variables (Variables.cs) — already exists
 Step 4:  Register built-in utility types (UtilityTypes.cs) — NEW from Phase 3
 Step 5:  Register compile-time constructs (Functions.cs) — NEW from Phase 3
 Step 6:  Call Tyhpdef.Get() to load embedded tyhpdefs — already implemented
-Step 7:  Call LoadPackageTyhpdefs() to discover vendor/*/package.tyhp.json and load all included files — NEW
+Step 7:  Call LoadPackageTyhpdefs() to discover vendor/*/*/composer.json` (`extra.tyhp.package`) and load all included files — NEW
 Step 8:  Run TyhpdefSymbolRegistrar on all tyhpdef ASTs — NEW
 Step 9:  Parse user .tyhp files
 Step 10: Bind user code
@@ -698,7 +700,7 @@ Note: `Tyhpdef.Get()` already returns parsed `SrcFileAst` instances for embedded
 
 Define conflict resolution rules:
 - If a tyhpdef declares a symbol that conflicts with a built-in type from `Types.cs`, the tyhpdef augments it (adds generic parameters, methods) rather than replaces it
-- If **two different Composer packages** (each discovered via a distinct `package.tyhp.json`) define the same fully-qualified type name, report a compile-time error: **`TyhpdefDuplicateFqnAcrossPackages` (8025)**. Do not resolve by silently preferring one package over the other.
+- If **two different Composer packages** (each discovered via a distinct `extra.tyhp.package`) define the same fully-qualified type name, report a compile-time error: **`TyhpdefDuplicateFqnAcrossPackages` (8025)**. Do not resolve by silently preferring one package over the other.
 - For multiple tyhpdef files **included from the same package** (or from embedded compiler tyhpdefs), apply registrar merge rules; incompatible duplicates use **`TyhpdefDuplicateDeclaration` (8002)** or other bind diagnostics as appropriate.
 - If a tyhpdef symbol conflicts with user code, report an error diagnostic
 - Namespace merging: if two tyhpdefs contribute symbols to the same namespace, merge them. If two tyhpdefs declare the same symbol with conflicting signatures, report an error diagnostic.
@@ -732,7 +734,7 @@ Function overloads are stored using an `Overloads` property (`List<FunctionDecla
 - [x] `Tyhpdef.Get()` method discovers and parses PHP extension tyhpdef files from the `vendor/` directory (already implemented)
 - [x] `ParseContent()` method handles ANTLR lexer/parser/visitor pipeline for tyhpdef and tyhp parse modes (already implemented)
 - [x] Directory discovery works for tyhpdef directories (already implemented)
-- [ ] `LoadPackageTyhpdefs()` is added to `Tyhpdef.cs` and discovers `vendor/*/package.tyhp.json` files, resolves their include globs, and loads all matching `.tyhpdef` and `.tyhp` files
+- [ ] `LoadPackageTyhpdefs()` is added to `Tyhpdef.cs` and discovers `vendor/*/*/composer.json` (`extra.tyhp.package`) files, resolves their include globs, and loads all matching `.tyhpdef` and `.tyhp` files
 - [ ] `TyhpdefSymbolRegistrar` is implemented and converts tyhpdef ASTs to binder symbols in `GlobalScope`
 - [ ] PHP extension tyhpdef symbols (functions, classes, constants) are registered into `GlobalScope`
 - [ ] Package tyhpdef symbols are registered into `GlobalScope` with correct priority
@@ -754,28 +756,28 @@ Function overloads are stored using an `Overloads` property (`List<FunctionDecla
 
 ## Phase 5: Promise, TaskScheduler, and Async Type Verification
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
-Verify the type signatures for Tyhp's async/await infrastructure (`Promise<T>`, `TaskScheduler`, event loop types). All async types are provided by the `tyhp/async` runtime package's type definition files (discovered via `package.tyhp.json` at `runtime/packages/async/`). This phase focuses on **verifying** that the package's type definitions provide everything the checker and emitter need, not on authoring type definitions.
+Verify the type signatures for Tyhp's async/await infrastructure (`Promise<T>`, `TaskScheduler`, event loop types). All async types are provided by the `tyhp/async` runtime package's type definition files (discovered via `extra.tyhp.package` at `runtime/packages/async/`). This phase focuses on **verifying** that the package's type definitions provide everything the checker and emitter need, not on authoring type definitions.
 
 ### Deliverables
 
-1. Verify that `tyhp/async`'s type definition files (discovered via `package.tyhp.json` at `runtime/packages/async/`) contain `Promise<TReturn extends void|mixed = void>` and related type definitions. Generic default `= void` syntax depends on Story 28. Until Story 28 is implemented, generic defaults are not supported. The tyhpdef declares the parameter without a default and relies on explicit type arguments at all call sites.
+1. Verify that `tyhp/async`'s type definition files (discovered via `extra.tyhp.package` at `runtime/packages/async/`) contain `Promise<TReturn extends void|mixed = void>` and related type definitions. Generic default `= void` syntax depends on Story 28. Until Story 28 is implemented, generic defaults are not supported. The tyhpdef declares the parameter without a default and relies on explicit type arguments at all call sites.
 2. Verify type definitions for `Promise::_async()` and `Promise::_await()` (async/await desugar targets) in the package's type definitions
 3. Verify type definitions for all static combinators/factories: `all<T>`, `race<T>`, `resolved<T>`, `rejected<T>`, `delay`, `timeout<T>`, `batch<TItem, TResult>`, `run<T>`, `fromGenerator`
 4. Verify type definitions for instance methods: `then<TResult>`, `catch<TResult>`, `finally`
 5. Verify type definitions for `EventLoop` (the event loop/task scheduler) from `runtime/packages/async/tyhp_src/EventLoop.tyhp`
 6. Verify type definitions for `AsyncIterator<T>`, `AsyncIterable<T>`, and `AsyncKeyValueIterator<TKey, TValue>` interfaces for async iteration support
-7. Integration with the package loading pipeline from Phase 4 (discovered from `vendor/tyhp/async/package.tyhp.json`)
+7. Integration with the package loading pipeline from Phase 4 (discovered from `vendor/tyhp/async/extra.tyhp.package`)
 
 ### Implementation Details
 
 **5.1 — Verify `Promise<T>` Class Type (Provided by Package Type Definitions)**
 
-The `Promise<T>` class definition is in `tyhp/async`'s type definition files (discovered via `package.tyhp.json` at `runtime/packages/async/`). This section documents what the package's type definitions must contain for reference.
+The `Promise<T>` class definition is in `tyhp/async`'s type definition files (discovered via `extra.tyhp.package` at `runtime/packages/async/`). This section documents what the package's type definitions must contain for reference.
 
 Cross-reference with the `.tyhpdef` and `.tyhp` files in `runtime/packages/async/` for the authoritative definitions:
 
@@ -827,13 +829,13 @@ The checker needs to know:
 
 **5.3 — Verify `EventLoop` Type**
 
-The `EventLoop` class is defined in the `tyhp/async` package's type definition files (discovered via `package.tyhp.json` at `runtime/packages/async/`). Verify its public API:
+The `EventLoop` class is defined in the `tyhp/async` package's type definition files (discovered via `extra.tyhp.package` at `runtime/packages/async/`). Verify its public API:
 
 - `start(): void` — start processing the event loop
 - `isRunning(): bool` — check if the loop is currently running
 - Static instance management methods
 
-EventLoop verification is required for Phase 5 completion. Define the `EventLoop` type in the package's `.tyhpdef` files (referenced by `package.tyhp.json`) even if users do not interact with it directly.
+EventLoop verification is required for Phase 5 completion. Define the `EventLoop` type in the package's `.tyhpdef` files (referenced by `extra.tyhp.package`) even if users do not interact with it directly.
 
 **5.4 — Verify `AsyncIterator<T>` and `AsyncIterable<T>` Interfaces**
 
@@ -850,7 +852,7 @@ interface AsyncIterable<T> {
 }
 ```
 
-These interfaces are defined in the `tyhp/async` package's type definition files (discovered via `package.tyhp.json` at `runtime/packages/async/`):
+These interfaces are defined in the `tyhp/async` package's type definition files (discovered via `extra.tyhp.package` at `runtime/packages/async/`):
 
 - `AsyncIterator<T>` — the core async iteration interface. `next()` returns `Promise<bool>` (true if there is a next value, false if exhausted). `current()` returns `Promise<T>` (the current value).
 - `AsyncIterable<T>` — provides an `AsyncIterator<T>` via `getAsyncIterator()`. Any type implementing this interface can be used with `foreach (await ... as ...)`.
@@ -881,7 +883,7 @@ Cross-reference with `Examples/AsyncAwait.tyhp` to ensure the type definitions s
 
 ### Acceptance Criteria
 
-- [x] `tyhp/async` package's type definition files (discovered via `package.tyhp.json` at `runtime/packages/async/`) contain all Promise-related type definitions
+- [x] `tyhp/async` package's type definition files (discovered via `extra.tyhp.package` at `runtime/packages/async/`) contain all Promise-related type definitions
 - [x] `Promise<TReturn extends void|mixed = void>` is defined as a generic class with all methods from `Promise.php`
 - [x] `Promise::_async<T extends void|mixed>(callable<T> $fn): static<T>` signature is defined
 - [x] `Promise::_await<T>(Promise<T> $promise): T` signature is defined
@@ -895,24 +897,24 @@ Cross-reference with `Examples/AsyncAwait.tyhp` to ensure the type definitions s
 - [x] `AsyncKeyValueIterator<TKey, TValue>` interface is defined (required, for key-value async iteration)
 - [ ] The `tyhp/async` package's type definition files parse without errors through the tyhpdef parser (use `tyhp lint runtime/packages/async/` to verify)
 - [x] The definitions are consistent with the runtime implementation
-- [ ] The package is discovered via `package.tyhp.json` and its included files are loaded by the binder via Composer dependency scanning (from Phase 4)
+- [ ] The package is discovered via `extra.tyhp.package` and its included files are loaded by the binder via Composer dependency scanning (from Phase 4)
 
 ### Dependencies
 
-- Phase 4 (Binder Integration) — the package loading pipeline must support discovering `package.tyhp.json` and loading included files
-- `runtime/packages/async/package.tyhp.json` and its included files are the authoritative source for type definitions
+- Phase 4 (Binder Integration) — the package loading pipeline must support discovering `extra.tyhp.package` and loading included files
+- `runtime/packages/async/extra.tyhp.package` and its included files are the authoritative source for type definitions
 - Generic type parameter support in tyhpdefs must be working
 
 ---
 
 ## Phase 6: Tyhpdef Distribution Strategy and Bundling Infrastructure
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
-Define and implement the strategy for how type definition files are distributed with the compiler and discovered at compile time. Built-in types are hardcoded in the compiler's C# code (always available). PHP extension types are distributed as a separate Composer package (`tyhp/php-{phpVersion}`) that users install alongside their project dependencies — this package contains both `.tyhpdef` files (PHP built-in function/class signatures) and `.tyhp` files (generic overlays on PHP classes and async method patterns). Runtime library types (`tyhp/core`, `tyhp/decimal`, `tyhp/async`, `tyhp/lambda`) are distributed as `.tyhpdef` and `.tyhp` files within their respective Composer packages. All packages are discovered via `vendor/*/package.tyhp.json`, which specifies include globs for the files to load.
+Define and implement the strategy for how type definition files are distributed with the compiler and discovered at compile time. Built-in types are hardcoded in the compiler's C# code (always available). PHP extension types are distributed as a separate Composer package (`tyhpdef/php-{phpVersion}`) that users install alongside their project dependencies — this package contains both `.tyhpdef` files (PHP built-in function/class signatures) and `.tyhp` files (generic overlays on PHP classes and async method patterns). Runtime library types (`tyhp/core`, `tyhp/decimal`, `tyhp/async`, `tyhp/lambda`) are distributed as `.tyhpdef` and `.tyhp` files within their respective Composer packages. All packages are discovered via `vendor/*/*/composer.json` (`extra.tyhp.package`), which specifies include globs for the files to load.
 
 ### Deliverables
 
@@ -929,19 +931,19 @@ Define and implement the strategy for how type definition files are distributed 
 | Component | Distribution Method | Discovery |
 |-----------|-------------------|-----------|
 | Built-in types | Hardcoded in compiler C# code | Always available |
-| PHP extension types | Layered Composer packages — a `tyhp/php-{major}` **base** package (e.g. `tyhp/php-8`) holding the items common to all `{major}.*` versions, plus per-minor `tyhp/php-{major}.{minor}` packages (e.g. `tyhp/php-8.2`, `tyhp/php-8.4`) that inherit the base and add/override version-specific declarations. Each contains `.tyhpdef` declarations + `.tyhp` generic overlays. | `vendor/tyhp/php-*/package.tyhp.json` |
-| Runtime library types | `.tyhpdef` and `.tyhp` files in each Composer package (`tyhp/core`, `tyhp/decimal`, `tyhp/async`, `tyhp/lambda`) | `vendor/tyhp/*/package.tyhp.json` |
+| PHP extension types | Layered Composer packages — a `tyhpdef/php-{major}` **base** package (e.g. `tyhpdef/php-8`) holding the items common to all `{major}.*` versions, plus per-minor `tyhpdef/php-{major}.{minor}` packages (e.g. `tyhpdef/php-8.2`, `tyhpdef/php-8.4`) that inherit the base and add/override version-specific declarations. Each contains `.tyhpdef` declarations + `.tyhp` generic overlays. | `vendor/tyhpdef/php-*/extra.tyhp.package` |
+| Runtime library types | `.tyhpdef` and `.tyhp` files in each Composer package (`tyhp/core`, `tyhp/decimal`, `tyhp/async`, `tyhp/lambda`) | `vendor/tyhp/*/composer.json` (`extra.tyhp.package`) |
 | User/project tyhpdefs | Referenced from `tyhp.json` configuration | Loaded from configured include paths |
 
 **PHP extension version resolution (target design):** Given the configured `phpVersion` (e.g. `8.4`), resolve PHP extension types as:
 
-1. **Exact minor match** — load the `tyhp/php-{major}.{minor}` package (which itself layers on top of its `tyhp/php-{major}` base). Use it if present.
-2. **Major fallback** — if no exact minor package is installed, fall back to the `tyhp/php-{major}` base package alone.
+1. **Exact minor match** — load the `tyhpdef/php-{major}.{minor}` package (which itself layers on top of its `tyhpdef/php-{major}` base). Use it if present.
+2. **Major fallback** — if no exact minor package is installed, fall back to the `tyhpdef/php-{major}` base package alone.
 3. **Error if neither** — if neither the exact minor package nor the major base package is available, report an error.
 
 Because a major-base fallback omits the minor-specific declarations, code that references a symbol introduced only in the minor package naturally fails to resolve (a normal "symbol not found" error) — no special handling is required for that case.
 
-**Note (out of scope — Story 21):** Creating the layered `tyhp/php-{major}` base + `tyhp/php-{major}.{minor}` Composer packages, and implementing the exact→major→error resolution above, is tracked in Story 21 (`IMPLEMENTATION_PLAN_TODO_STORY_21.md`). Until Story 21 is complete, the PHP extension type definition files reside at `runtime/php-extensions/php8.2.9/` and are loaded directly by the binder as a development fallback; the loader currently matches an extension directory by major.minor and emits the interim warning in 6.3 when no compatible directory is found (see 6.3 for the interim-vs-target behavior).
+**Note (out of scope — Story 21):** Creating the layered `tyhpdef/php-{major}` base + `tyhpdef/php-{major}.{minor}` Composer packages, and implementing the exact→major→error resolution above, is tracked in Story 21 (`IMPLEMENTATION_PLAN_TODO_STORY_21.md`). Until Story 21 is complete, the PHP extension type definition files reside at `runtime/php-extensions/php8.2.9/` and are loaded directly by the binder as a development fallback; the loader currently matches an extension directory by major.minor and emits the interim warning in 6.3 when no compatible directory is found (see 6.3 for the interim-vs-target behavior).
 
 **6.2 — Add Configuration Options for Tyhpdef Paths**
 
@@ -951,18 +953,18 @@ Add new configuration properties to `tyhp.json`. Until Story 10 defines the full
 
 - `TyhpdefInclude` (`List<string>`) — glob patterns for additional tyhpdef files to load
 - `TyhpdefExclude` (`List<string>`) — glob patterns for tyhpdef files to exclude
-- `PhpVersion` (`string`) — the `phpVersion` property determines which PHP extension tyhpdef files are loaded, via the exact→major→error resolution described in 6.1. **Target behavior (Story 21):** if neither the exact `tyhp/php-{major}.{minor}` package nor the `tyhp/php-{major}` base package can be resolved, report an error diagnostic. **Interim behavior (until Story 21 ships the packages):** this is a graceful warning instead — see 6.3.
+- `PhpVersion` (`string`) — the `phpVersion` property determines which PHP extension tyhpdef files are loaded, via the exact→major→error resolution described in 6.1. **Target behavior (Story 21):** if neither the exact `tyhpdef/php-{major}.{minor}` package nor the `tyhpdef/php-{major}` base package can be resolved, report an error diagnostic. **Interim behavior (until Story 21 ships the packages):** this is a graceful warning instead — see 6.3.
 
 Parse these from the `tyhp.json` configuration file and CLI arguments.
 
 **6.3 — Implement Graceful Fallback When Tyhpdefs Are Missing**
 
-If no compatible PHP extension package can be resolved for the configured `phpVersion` — i.e. neither an exact `tyhp/php-{major}.{minor}` package nor the `tyhp/php-{major}` base package is found (no matching `vendor/tyhp/php-*/package.tyhp.json`, and during development no matching `runtime/php-extensions/` directory):
+If no compatible PHP extension package can be resolved for the configured `phpVersion` — i.e. neither an exact `tyhpdef/php-{major}.{minor}` package nor the `tyhpdef/php-{major}` base package is found (no matching `vendor/tyhpdef/php-*/extra.tyhp.package`, and during development no matching `runtime/php-extensions/` directory):
 
-- **Interim behavior (current — until Story 21 ships the layered packages):** emit a `DiagnosticSeverity.Warning` diagnostic (`TYHP8026`): "PHP extension package not found. Install `tyhp/php-{phpVersion}` via Composer for full PHP built-in type checking." Continue compilation without them (the binder still has the hardcoded built-in scalar types from `Types.cs`). The compiler must not crash or fail to start. A successful major-base fallback (per 6.1) suppresses this warning.
-- **Target behavior (Story 21):** once the layered `tyhp/php-{major}` base + `tyhp/php-{major}.{minor}` packages exist and the exact→major resolution is implemented, failure to resolve *any* compatible package becomes an **error** (per 6.2), since a project then has no excuse for a missing PHP baseline. A major-base fallback still succeeds silently; only the case where even the major base is absent errors.
+- **Interim behavior (current — until Story 21 ships the layered packages):** emit a `DiagnosticSeverity.Warning` diagnostic (`TYHP8026`): "PHP extension package not found. Install `tyhpdef/php-{phpVersion}` via Composer for full PHP built-in type checking." Continue compilation without them (the binder still has the hardcoded built-in scalar types from `Types.cs`). The compiler must not crash or fail to start. A successful major-base fallback (per 6.1) suppresses this warning.
+- **Target behavior (Story 21):** once the layered `tyhpdef/php-{major}` base + `tyhpdef/php-{major}.{minor}` packages exist and the exact→major resolution is implemented, failure to resolve *any* compatible package becomes an **error** (per 6.2), since a project then has no excuse for a missing PHP baseline. A major-base fallback still succeeds silently; only the case where even the major base is absent errors.
 
-If a runtime package is missing (e.g., `tyhp/core` not installed, no `package.tyhp.json` found):
+If a runtime package is missing (e.g., `tyhp/core` not installed, no `extra.tyhp.package` found):
 - Emit a `DiagnosticSeverity.Warning` diagnostic: "Runtime package not found for `tyhp/core`. Install the package via Composer for full type checking of disposable interfaces, `\Tyhp\Type`, etc."
 - Continue compilation — built-in types from `Types.cs` and `UtilityTypes.cs` are still available
 
@@ -983,9 +985,9 @@ Ensure the build/release process:
 - Does not include `DebugProject/tyhpdef_gen/` in release builds (these are development artifacts)
 - Built-in types are compiled into the C# binary (no separate files needed)
 
-**6.6 — `package.tyhp.json` Generation (Deferred to Story 20)**
+**6.6 — `extra.tyhp.package` Generation (Deferred to Story 20)**
 
-Skip `package.tyhp.json` generation in this story. The full tyhpdef distribution mechanism (including `package.tyhp.json` generation) is handled by Story 20. Story 10 will wire up `ProjectType` configuration needed for this determination.
+Skip `extra.tyhp.package` generation in this story. The full tyhpdef distribution mechanism (including `extra.tyhp.package` generation) is handled by Story 20. Story 10 will wire up `ProjectType` configuration needed for this determination.
 
 ### Acceptance Criteria
 
@@ -996,7 +998,7 @@ Skip `package.tyhp.json` generation in this story. The full tyhpdef distribution
 - [ ] `OLD_Tyhpdef.cs` is removed
 - [ ] Build scripts are updated (no longer bundle PHP extension tyhpdefs alongside binary)
 - [ ] Configuration allows users to specify custom tyhpdef include/exclude patterns
-- [ ] `package.tyhp.json` generation is deferred to Story 20 (no generation logic in this story)
+- [ ] `extra.tyhp.package` generation is deferred to Story 20 (no generation logic in this story)
 
 ### Dependencies
 
@@ -1008,8 +1010,8 @@ Skip `package.tyhp.json` generation in this story. The full tyhpdef distribution
 
 ## Phase 7: Optional Open Tags (Extension-Driven Tagless Source Mode)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -1034,7 +1036,7 @@ This is purely a **front-end (grammar + lexer + config)** concern. The emitter i
 5. Visitor entry points `VisitTyhpTaglessFile` / `VisitTyhpdefTaglessFile` (and `GetCurrentLanguageMode` support for the new contexts) so the tagless parse trees produce the same `SrcFileAst` shape as the tagged equivalents.
 6. A new lexer-band diagnostic (1000s) raised when `?>` appears in a tagless file. The enum value lives only in `Tyhp/Domain/Exceptions/MessageCode.cs` with a matching `.resx` entry (per `CONVENTIONS.md` §1).
 7. Golden fixtures (see the Golden Fixtures section) covering tagless `.tyhp`/`.tyhpdef`, the optional-but-present open tag, and the `?>`-is-an-error case.
-8. Per-package tagless honoring in the tyhpdef package loader (`Tyhp/TyhpLang/Binder/BuiltIn/Tyhpdef.PackageLoading.cs` + `Tyhpdef.cs`): each `package.tyhp.json` may declare its own tagless setting, applied to that package's files independently of the consuming project's `source.tagless` (see 7.5).
+8. Per-package tagless honoring in the tyhpdef package loader (`Tyhp/TyhpLang/Binder/BuiltIn/Tyhpdef.PackageLoading.cs` + `Tyhpdef.cs`): each `extra.tyhp.package` may declare its own tagless setting, applied to that package's files independently of the consuming project's `source.tagless` (see 7.5).
 
 ### Implementation Details
 
@@ -1089,7 +1091,7 @@ File: `Tyhp/TyhpLang/Parser/TyhpLexer.GrammarMethods.cs` (`closeTagHandler()`)
 - **`.tyhpdef`:** the tyhpdef grammar is already single-block with no closing tag, so tagless mode for `.tyhpdef` only adds "open tag optional"; the 7.4 close-tag rule is effectively redundant there but harmless.
 - **AST cache:** the file hash already keys the cache, but tagless mode changes how identical bytes lex. Incorporate the tagless flag into the cache key (or invalidate when it differs) so a file does not pick up a stale AST when the setting toggles. (`AstCacheService` — see Story 01 / Phase 2 context.)
 - **Package-published files honor the *package's* tagless setting, not the consuming project's:** tagless is a property of how each source set was authored, so it must not leak across package boundaries. The consuming project's `source.tagless` (read by `CompilationService`) applies only to the project's own user code. Files loaded by the binder from a package are parsed according to that package's own setting:
-  - Composer/runtime package files discovered via `package.tyhp.json` (`Tyhp/TyhpLang/Binder/BuiltIn/Tyhpdef.PackageLoading.cs`): the manifest carries an optional tagless flag (nested `source.tagless`, or a convenience top-level `tagless`; default `false`). `LoadPackageManifest` reads it and passes it through `TryLoadPackageFile` → `Tyhpdef.ParseContent`, which configures the lexer (`ConfigureTagless`) and selects the tagless entry rule exactly as `CompilationService` does for user code.
+  - Composer/runtime package files discovered via `extra.tyhp.package` (`Tyhp/TyhpLang/Binder/BuiltIn/Tyhpdef.PackageLoading.cs`): the manifest carries an optional tagless flag (nested `source.tagless`, or a convenience top-level `tagless`; default `false`). `LoadPackageManifest` reads it and passes it through `TryLoadPackageFile` → `Tyhpdef.ParseContent`, which configures the lexer (`ConfigureTagless`) and selects the tagless entry rule exactly as `CompilationService` does for user code.
   - User-configured tyhpdef include paths (from the project's own `tyhp.json`) are part of the project, so they honor the project's `options.Tagless`.
   - Embedded built-in tyhpdefs and the development `runtime/php-extensions/` fallback are authored classic (open tags) and load with tagless `false`.
   - `Tyhpdef.ParseContent` therefore takes a `bool tagless` parameter (default `false`, so all existing callers and tagged content are unaffected) and applies tagless only to `ParseMode.Tyhp` / `ParseMode.Tyhpdef` (never raw PHP).
@@ -1106,7 +1108,7 @@ File: `Tyhp/TyhpLang/Parser/TyhpLexer.GrammarMethods.cs` (`closeTagHandler()`)
 - [ ] The dedicated `ST_TYHP_TAGLESS` lexer mode and `tyhpTaglessSrcFile` / `tyhpdefTaglessSrcFile` parser entry rules are added to the grammar and the parser/lexer are regenerated via `./compile_grammar.sh`; no synthetic open-tag token is injected.
 - [ ] The new diagnostic code exists only in `MessageCode.cs` with a matching `.resx` entry (per `CONVENTIONS.md` §1).
 - [ ] The AST cache correctly distinguishes tagless vs classic parses of identical bytes.
-- [ ] A package whose `package.tyhp.json` declares `source.tagless: true` has its tag-less `.tyhpdef`/`.tyhp` files loaded without parse errors, even when the consuming project's `source.tagless` is `false`; conversely a package without the flag (default `false`) still requires open tags. The project's own `source.tagless` does not affect how package files are parsed.
+- [ ] A package whose `extra.tyhp.package` declares `source.tagless: true` has its tag-less `.tyhpdef`/`.tyhp` files loaded without parse errors, even when the consuming project's `source.tagless` is `false`; conversely a package without the flag (default `false`) still requires open tags. The project's own `source.tagless` does not affect how package files are parsed.
 
 ### Dependencies
 
@@ -1157,7 +1159,7 @@ All new code must follow the Story 01 diagnostic system:
   - `8010` — `TyhpdefExtensionConflict` — an extension member conflicts with a declared member on the same tyhpdef class
   - `8011` — `TyhpdefExtensionNotFound` — a `use extension` reference in tyhpdef could not be resolved
   - `8012` — `TyhpdefInlineExtensionInvalidMember` — invalid member with the `extension` qualifier in tyhpdef
-  - `8025` — `TyhpdefDuplicateFqnAcrossPackages` — the same fully-qualified type name is defined in more than one Composer package (distinct `package.tyhp.json` roots)
+  - `8025` — `TyhpdefDuplicateFqnAcrossPackages` — the same fully-qualified type name is defined in more than one Composer package (distinct `extra.tyhp.package` roots)
 - **Required new `MessageCode` values** for this story:
   - `8006` — Built-in type registration failure
   - `8007` — Tyhpdef generic parameter count mismatch
@@ -1391,7 +1393,7 @@ Expected:
 
 ### Step 9: Verify Package Tyhpdef Loading Pipeline
 
-If the package loading infrastructure is implemented, verify that `vendor/*/package.tyhp.json` discovery works:
+If the package loading infrastructure is implemented, verify that `vendor/*/*/composer.json` (`extra.tyhp.package`) discovery works:
 
 ```bash
 # If a test project has vendor/ with tyhp packages installed:
@@ -1400,7 +1402,7 @@ dotnet run --project ../tyhp.csproj -- build --verbose .
 ```
 
 Expected:
-- The binder discovers `package.tyhp.json` files from installed Composer packages
+- The binder discovers `extra.tyhp.package` files from installed Composer packages
 - Symbols from the packages are registered in `GlobalScope`
 - User code can reference types defined in the packages
 

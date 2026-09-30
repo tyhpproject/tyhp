@@ -2,8 +2,8 @@
 declare(strict_types=1);
 namespace App;
 
-extension StringExtensions {
-    function shout(extends string $this): string {
+extension StringExtensions extends string {
+    function shout(): string {
         return \strtoupper($this);
     }
 }

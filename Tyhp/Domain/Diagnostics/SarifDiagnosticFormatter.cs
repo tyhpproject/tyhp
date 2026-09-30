@@ -80,7 +80,7 @@ namespace Tyhp.Domain.Diagnostics
         private const string ToolName = "tyhp";
         private const string ToolInformationUri = "https://tyhp.dev";
 
-        // A backtick span holding a placeholder is dropped whole (`{0}`, `${0}`, `tyhp/php-{0}`);
+        // A backtick span holding a placeholder is dropped whole (`{0}`, `${0}`, `tyhpdef/php-{0}`);
         // removing just the placeholder would strand the surrounding backticks in the description.
         private static readonly Regex BacktickedPlaceholderRegex = new(
             @"`[^`\r\n]*\{[0-9]+(?::[^}]*)?\}[^`\r\n]*`",

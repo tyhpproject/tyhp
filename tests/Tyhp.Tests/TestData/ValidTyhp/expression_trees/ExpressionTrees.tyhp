@@ -19,19 +19,19 @@ class Address {
     public string $city;
 }
 
-function takePath(PropertyPath<User, string> $path): string {
+function takePath(PropertyPath<callable(User): string> $path): string {
     return $path->getPath();
 }
 
-function takePredicate(Expression<User, bool> $pred): string {
+function takePredicate(Expression<callable(User): bool> $pred): string {
     return $pred->body->nodeType;
 }
 
-function takeComparator(Expression<User, User, int> $cmp): int {
+function takeComparator(Expression<callable(User, User): int> $cmp): int {
     return \count($cmp->parameters);
 }
 
-function takeZeroArg(Expression<int> $expr): int {
+function takeZeroArg(Expression<callable(): int> $expr): int {
     return 0;
 }
 
@@ -51,10 +51,10 @@ function demo(): void {
     string $nested = nameof(fn (User $u) => $u->address->city);
 }
 
-function serializePred(Expression<User, bool> $expr): string {
+function serializePred(Expression<callable(User): bool> $expr): string {
     return (string) ExpressionSerializer::toJson($expr);
 }
 
-function sameShape(Expression<User, bool> $a, Expression<User, bool> $b): bool {
+function sameShape(Expression<callable(User): bool> $a, Expression<callable(User): bool> $b): bool {
     return $a->equals($b) && ExpressionSerializer::equals($a, $b);
 }

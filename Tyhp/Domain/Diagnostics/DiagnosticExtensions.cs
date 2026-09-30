@@ -1,5 +1,6 @@
 using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 
 namespace Tyhp.Domain.Diagnostics
 {
@@ -80,6 +81,167 @@ namespace Tyhp.Domain.Diagnostics
             params object[] formatParams)
         {
             bag.AddFromAst(DiagnosticSeverity.Warning, code, node, fileName, formatParams);
+        }
+
+        /// <summary>
+        /// Adds a duplicate-declaration error whose primary span is
+        /// <paramref name="duplicateNode"/>. When <paramref name="existingSymbol"/> has a
+        /// declaring AST node, attaches a single <c>declared here</c> label on that original
+        /// span (including when it lives in another file). Missing original location still
+        /// emits the error with no label.
+        /// </summary>
+        public static void AddDuplicateFromAst(
+            this DiagnosticBag bag,
+            MessageCode code,
+            IBase2Ast duplicateNode,
+            string duplicateFileName,
+            IBaseSymbol? existingSymbol,
+            params object[] formatParams)
+        {
+            bag.AddDuplicateFromAst(
+                DiagnosticSeverity.Error,
+                code,
+                duplicateNode,
+                duplicateFileName,
+                existingSymbol,
+                formatParams);
+        }
+
+        /// <summary>
+        /// Adds a duplicate-declaration diagnostic whose primary span is
+        /// <paramref name="duplicateNode"/>. When <paramref name="existingSymbol"/> has a
+        /// declaring AST node, attaches a single <c>declared here</c> label on that original
+        /// span. Missing original location still emits the diagnostic with no label.
+        /// </summary>
+        public static void AddDuplicateFromAst(
+            this DiagnosticBag bag,
+            DiagnosticSeverity severity,
+            MessageCode code,
+            IBase2Ast duplicateNode,
+            string duplicateFileName,
+            IBaseSymbol? existingSymbol,
+            params object[] formatParams)
+        {
+            AddDuplicateCore(
+                bag,
+                severity,
+                code,
+                duplicateNode,
+                duplicateFileName,
+                TryDeclaredHereLabel(existingSymbol, duplicateFileName),
+                formatParams);
+        }
+
+        /// <summary>
+        /// Adds a duplicate-declaration error whose primary span is
+        /// <paramref name="duplicateNode"/>, labeling <paramref name="existingNode"/> when present.
+        /// </summary>
+        public static void AddDuplicateFromAst(
+            this DiagnosticBag bag,
+            MessageCode code,
+            IBase2Ast duplicateNode,
+            string duplicateFileName,
+            IBase2Ast? existingNode,
+            string? existingFileName,
+            params object[] formatParams)
+        {
+            bag.AddDuplicateFromAst(
+                DiagnosticSeverity.Error,
+                code,
+                duplicateNode,
+                duplicateFileName,
+                existingNode,
+                existingFileName,
+                formatParams);
+        }
+
+        /// <summary>
+        /// Adds a duplicate-declaration diagnostic whose primary span is
+        /// <paramref name="duplicateNode"/>, labeling <paramref name="existingNode"/> when present.
+        /// </summary>
+        public static void AddDuplicateFromAst(
+            this DiagnosticBag bag,
+            DiagnosticSeverity severity,
+            MessageCode code,
+            IBase2Ast duplicateNode,
+            string duplicateFileName,
+            IBase2Ast? existingNode,
+            string? existingFileName,
+            params object[] formatParams)
+        {
+            DiagnosticLabel? label = null;
+            if (existingNode != null)
+            {
+                label = LabelFromAst(
+                    existingNode,
+                    string.IsNullOrEmpty(existingFileName) ? duplicateFileName : existingFileName,
+                    CLI.Message.Localize("CLI_DiagnosticLabelDeclaredHere"));
+            }
+
+            AddDuplicateCore(
+                bag,
+                severity,
+                code,
+                duplicateNode,
+                duplicateFileName,
+                label,
+                formatParams);
+        }
+
+        private static void AddDuplicateCore(
+            DiagnosticBag bag,
+            DiagnosticSeverity severity,
+            MessageCode code,
+            IBase2Ast duplicateNode,
+            string duplicateFileName,
+            DiagnosticLabel? label,
+            object[] formatParams)
+        {
+            ArgumentNullException.ThrowIfNull(bag);
+            ArgumentNullException.ThrowIfNull(duplicateNode);
+
+            GetOptionalEnd(duplicateNode, out var endLine, out var endColumn);
+            var diagnostic = severity switch
+            {
+                DiagnosticSeverity.Error => Diagnostic.Error(
+                    code, duplicateFileName, duplicateNode.Line, duplicateNode.Column, formatParams, endLine, endColumn),
+                DiagnosticSeverity.Warning => Diagnostic.Warning(
+                    code, duplicateFileName, duplicateNode.Line, duplicateNode.Column, formatParams, endLine, endColumn),
+                DiagnosticSeverity.Info => Diagnostic.Info(
+                    code, duplicateFileName, duplicateNode.Line, duplicateNode.Column, formatParams, endLine, endColumn),
+                DiagnosticSeverity.Hint => Diagnostic.Hint(
+                    code, duplicateFileName, duplicateNode.Line, duplicateNode.Column, formatParams, endLine, endColumn),
+                _ => throw new ArgumentOutOfRangeException(nameof(severity), severity, "Unknown diagnostic severity")
+            };
+
+            if (label.HasValue)
+            {
+                diagnostic = diagnostic.WithLabels(label.Value);
+            }
+
+            bag.Add(diagnostic);
+        }
+
+        /// <summary>
+        /// Secondary <c>declared here</c> label for the first declaration, or
+        /// <see langword="null"/> when the original has no AST span.
+        /// </summary>
+        public static DiagnosticLabel? TryDeclaredHereLabel(
+            IBaseSymbol? existingSymbol,
+            string fallbackFileName)
+        {
+            if (existingSymbol?.DeclaringAstNode == null)
+            {
+                return null;
+            }
+
+            var fileName = string.IsNullOrEmpty(existingSymbol.SourceFile)
+                ? fallbackFileName
+                : existingSymbol.SourceFile;
+            return LabelFromAst(
+                existingSymbol.DeclaringAstNode,
+                fileName,
+                CLI.Message.Localize("CLI_DiagnosticLabelDeclaredHere"));
         }
 
         /// <summary>

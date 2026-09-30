@@ -8,9 +8,9 @@ namespace Tyhp.TyhpLang.Lint.Fixes
     /// </summary>
     public sealed class AddMissingTypeAnnotationFix : ILintFix
     {
-        // TypeAnnotationRule reports this for typed vars, parameters, and return types that
-        // lack an annotation — the diagnostic this fix will resolve once Story 08 supplies
-        // the inferred type.
+        // TypeAnnotationRule reports this for typed vars, parameters, properties, and return
+        // types that lack an annotation — the diagnostic this fix will resolve once Story 08
+        // supplies the inferred type.
         public MessageCode TargetCode => MessageCode.CheckerVariableTypeRequired;
 
         public string Description => "Add missing type annotation";

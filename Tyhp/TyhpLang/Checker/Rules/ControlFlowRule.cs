@@ -31,7 +31,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
         public bool Handles(IBase2Ast node) =>
             node is not PhpUnaryOpAst unary
             || string.Equals(unary.Operator?.ValueString, "throw", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(unary.Operator?.ValueString, "return", StringComparison.OrdinalIgnoreCase);
+            || string.Equals(unary.Operator?.ValueString, "return", StringComparison.OrdinalIgnoreCase)
+            || Binder.TyhpBinder.IsYieldOperator(unary);
 
         public bool SuppressChildTraversal(IBase2Ast node) =>
             node is not PhpUnaryOpAst;
@@ -50,7 +51,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     CheckTryCatch(tryCatch, state, context, diagnostics);
                     break;
                 case PhpStatementBlockAst block:
-                    CheckStatementBlock(block, state, context, diagnostics);
+                    context.CheckStatementSequence(block.GetAllNotNull(), state);
                     break;
                 case PhpReturnStatementAst returnStmt:
                     CheckReturn(returnStmt, returnStmt.Expression, state, context, diagnostics);
@@ -83,6 +84,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 case PhpUnaryOpAst unary when string.Equals(unary.Operator?.ValueString, "return", StringComparison.OrdinalIgnoreCase):
                     CheckReturn(unary, unary.Operand, state, context, diagnostics);
                     break;
+                // Source `yield` / `yield from` parse as prefix unary ops (see
+                // VisitPhpExprYieldValue / VisitPhpExprYieldFrom / VisitInnerStatementYield), not
+                // PhpYieldAst. Handles() must admit those operators or the generator-context /
+                // finally / yield-from checks never run.
+                case PhpUnaryOpAst unary when Binder.TyhpBinder.IsYieldOperator(unary):
+                    CheckYield(unary, unary.Operand, IsYieldFromUnary(unary), walkOperand: false, state, context, diagnostics);
+                    break;
             }
         }
 
@@ -93,11 +101,36 @@ namespace Tyhp.TyhpLang.Checker.Rules
             DiagnosticBag diagnostics)
         {
             CheckExistenceGateArgument(ifAst, state, context, diagnostics);
-            // Type-check the condition on a disposable probe so progressive `&&` narrowing
+            // Type-check the condition on a disposable probe so progressive `&&`/`||` narrowing
             // applied while validating operands cannot leak into the post-if continuation.
             CheckConditionExpression(ifAst.Condition, state, context, diagnostics);
 
             var beforeBranch = state.SnapShot();
+            if (ArrayAccessShapeSupport.TryProveCondition(ifAst.Condition, state, context, out var proven))
+            {
+                if (proven)
+                {
+                    var provenThenState = beforeBranch.Split(ScopeType.CodeBlock);
+                    ApplyConditionNarrowing(ifAst.Condition, provenThenState, context, positive: true);
+                    CheckStatement(ifAst.ThenStatement, provenThenState, context, diagnostics);
+                    state.AbsorbJoinedVariables(provenThenState);
+                    state.HasReturnedOnAllPaths = provenThenState.HasReturnedOnAllPaths;
+                    state.HasArrayAccessShapeCoverage = provenThenState.HasArrayAccessShapeCoverage;
+                    return;
+                }
+
+                if (ifAst.ElseStatement is not null)
+                {
+                    var provenElseState = beforeBranch.Split(ScopeType.CodeBlock);
+                    ApplyConditionNarrowing(ifAst.Condition, provenElseState, context, positive: false);
+                    CheckStatement(ifAst.ElseStatement, provenElseState, context, diagnostics);
+                    state.AbsorbJoinedVariables(provenElseState);
+                    state.HasReturnedOnAllPaths = provenElseState.HasReturnedOnAllPaths;
+                    state.HasArrayAccessShapeCoverage = provenElseState.HasArrayAccessShapeCoverage;
+                }
+
+                return;
+            }
             var thenState = beforeBranch.Split(ScopeType.CodeBlock);
             ApplyConditionNarrowing(ifAst.Condition, thenState, context, positive: true);
             CheckStatement(ifAst.ThenStatement, thenState, context, diagnostics);
@@ -132,7 +165,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
                 if (thenState.HasReturnedOnAllPaths)
                 {
+                    var covered = thenState.HasArrayAccessShapeCoverage;
                     state.AbsorbJoinedVariables(negativeState);
+                    state.HasArrayAccessShapeCoverage =
+                        covered || state.HasArrayAccessShapeCoverage;
                 }
                 else
                 {
@@ -180,7 +216,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 else
                 {
                     // Still validate compile-time constructs on the left operand.
-                    // Elvis uses a probe so progressive `&&` narrowing cannot leak.
+                    // Elvis uses a probe so progressive `&&`/`||` narrowing cannot leak.
                     var probe = state.Split(ScopeType.CodeBlock);
                     CheckerHelpers.CheckCompileTimeConstructsInTree(
                         ternary.Condition, probe, context, diagnostics);
@@ -332,25 +368,6 @@ namespace Tyhp.TyhpLang.Checker.Rules
             state.HasReturnedOnAllPaths = false;
         }
 
-        private static void CheckStatementBlock(
-            PhpStatementBlockAst block,
-            CheckerState state,
-            CheckerRuleContext context,
-            DiagnosticBag diagnostics)
-        {
-            foreach (var statement in block.GetAllNotNull())
-            {
-                context.CheckNode(statement, state);
-                // Expression statements that discard a #[\NoDiscard] return → TYHP4165;
-                // `(void) expr` is intentional discard and suppresses that warning.
-                CheckerHelpers.ReportNoDiscardIfDiscarded(statement, state, context, diagnostics);
-                if (state.HasReturnedOnAllPaths && statement is not PhpStatementBlockAst)
-                {
-                    // Unreachable code after return is detected per-statement in jump handling.
-                }
-            }
-        }
-
         private static void CheckStatement(
             IStatement? statement,
             CheckerState state,
@@ -359,11 +376,20 @@ namespace Tyhp.TyhpLang.Checker.Rules
         {
             if (statement is PhpStatementBlockAst block)
             {
-                CheckStatementBlock(block, state, context, diagnostics);
+                // Nested `{ … }` / if-arm blocks share the branch state. Function bodies use
+                // CheckerRuleContext.CheckStatementBlock (split + absorb) instead.
+                context.CheckStatementSequence(block.GetAllNotNull(), state);
             }
             else if (statement is not null)
             {
                 context.CheckNode(statement, state);
+                // A braceless if-arm is a single statement, not a list — CheckStatementSequence
+                // never runs for it. `return`/`throw`/`break`/`continue` already set
+                // HasReturnedOnAllPaths via their own dispatch above, but `exit`/`die` and other
+                // never-typed expression statements (e.g. a call to a `: never` function) only
+                // terminate through this check. Without it, `if ($c) exit; else exit;` would not
+                // mark either arm as terminated, and code after the if would be missed as dead.
+                context.MarkTerminatedIfNeverReturning(statement, state);
             }
         }
 
@@ -376,18 +402,40 @@ namespace Tyhp.TyhpLang.Checker.Rules
         {
             if (state.IsInsideFinally)
             {
-                CheckerHelpers.ReportWarning(diagnostics, state, node, MessageCode.CheckerReturnInFinally);
+                CheckerHelpers.ReportError(diagnostics, state, node, MessageCode.CheckerReturnInFinally);
             }
 
             // ControlFlowRule suppresses child traversal on return/jump, so compile-time
             // constructs inside the returned expression would otherwise never be validated.
             // Walk only those nodes (not a full CheckNode) to avoid re-entering statement
             // rules / closure bodies from expression context.
-            CheckerHelpers.CheckCompileTimeConstructsInTree(expression, state, context, diagnostics);
+            var previousExpected = state.ExpectedExpressionType;
+            if (!state.IsTypeGuardFunction
+                && ContextualNewInference.IsUsableExpectedType(state.ExpectedReturnType))
+            {
+                var expressionExpected = state.ExpectedReturnType!;
+                if (IsInsideGenerator(state)
+                    && TryGetGeneratorReturnPayloadType(expressionExpected, out var payloadType)
+                    && ContextualNewInference.IsUsableExpectedType(payloadType))
+                {
+                    expressionExpected = payloadType;
+                }
 
-            var actual = expression is not null
-                ? context.ResolveExpressionType(expression, state)
-                : CheckedTypes.Void;
+                state.ExpectedExpressionType = expressionExpected;
+            }
+
+            ICheckedType actual;
+            try
+            {
+                CheckerHelpers.CheckCompileTimeConstructsInTree(expression, state, context, diagnostics);
+                actual = expression is not null
+                    ? context.ResolveExpressionType(expression, state)
+                    : CheckedTypes.Void;
+            }
+            finally
+            {
+                state.ExpectedExpressionType = previousExpected;
+            }
 
             // PHP fatal: `Method X::__construct() cannot return a value` (same for `__destruct`).
             // Bare `return;` is legal; only a value-carrying return is rejected. Prefer a dedicated
@@ -416,7 +464,28 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
             else if (state.ExpectedReturnType is not null)
             {
-                context.CheckReturnType(node, actual, state.ExpectedReturnType, state);
+                var expected = state.ExpectedReturnType;
+                if (IsInsideGenerator(state)
+                    && TryGetGeneratorReturnPayloadType(expected, out var payloadType))
+                {
+                    // `return <value>;` inside a generator sets Generator::getReturn() — check
+                    // against TReturn (or mixed for bare Generator / Iterator / Traversable),
+                    // not against the Generator type itself.
+                    expected = payloadType;
+                }
+
+                context.CheckReturnType(node, actual, expected, state);
+            }
+
+            GeneratorBodyInference.CollectGeneratorReturn(actual, state);
+
+            if (state.TrackArrayAccessShapeOffsetGetCoverage
+                && expression is not null
+                && !actual.IsNever
+                && state.ExpectedReturnType is { } coveringExpected
+                && context.IsAssignable(actual, coveringExpected, state))
+            {
+                state.HasArrayAccessShapeCoverage = true;
             }
 
             state.HasReturnedOnAllPaths = true;
@@ -590,7 +659,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
                 // Conditions are checked against the pre-switch state (un-narrowed), matching
                 // InferMatch — the case label expression is not itself under the arm's narrowing.
-                // Use a probe so progressive `&&` narrowing cannot mutate the pre-switch state.
+                // Use a probe so progressive `&&`/`||` narrowing cannot mutate the pre-switch state.
                 if (arm.Conditions is not null)
                 {
                     foreach (var condition in arm.Conditions.GetAllNotNull())

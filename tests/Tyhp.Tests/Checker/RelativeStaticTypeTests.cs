@@ -20,8 +20,8 @@ public class RelativeStaticTypeTests
             <?tyhp
             namespace Test;
             final class Promise<TReturn extends void|mixed = void> {
-                public function __construct(callable<TReturn> $executor): void {}
-                public static function async<T extends void|mixed>(callable<T> $fn): static<T> {
+                public function __construct(callable(): TReturn $executor): void {}
+                public static function async<T extends void|mixed>(callable(): T $fn): static<T> {
                     return new self<T>($fn);
                 }
             }
@@ -157,14 +157,7 @@ public class RelativeStaticTypeTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

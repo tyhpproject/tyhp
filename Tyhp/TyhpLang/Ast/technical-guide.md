@@ -260,6 +260,14 @@ return PhpBinaryOpAst.Create(
 
 Grammar-extension hooks often attach extras via `.WithGrammarAddon("key", …)` rather than expanding fixed child slots (see [Grammar addons](#10-grammar-addons)).
 
+### Short-function / short-method / short-operator desugaring
+
+Named short functions (`fn f(): int => 1;`), short methods (`fn m(): int => 1;`), and `operator … => expr` are lowered at visit time into a body of `{ return expr; }`. After that, the tree looks the same as an authored `function f(): int { return 1; }`.
+
+`IsShortSyntax` on `PhpFunctionDeclAst`, `PhpMethodDeclAst`, and `TyhpOperatorOverloadAst` records that the source used `=>`. It is a real `SetFlag` / `HasFlag` bit (same pattern as `ReturnsRef`), so it survives `AstCacheService` serialize/deserialize. `TyhpOperatorOverloadAst.IsInlineExtension` is the same kind of flag (`-12` on that node). The block target on `TyhpExtensionDeclAst` / `TyhpdefStandaloneExtensionDeclAst` is the `extensionTargetType` grammar addon (`TargetType`), not a CLR auto-property — auto-properties are dropped on cache deserialize. `GenericParameters` is the same kind of addon. `IsTargetGroup` is flag `-1` on `TyhpExtensionDeclAst` only.
+
+`Create(..., isShortSyntax:)` takes the bit. Brace `function` / brace `operator` / bodyless operator signatures pass `false` (the default). Visitors set `true` only where `=>` was consumed.
+
 ### Entry rules
 
 | Extension | Parser entry (non-tagless) |
@@ -316,15 +324,19 @@ Examples:
 
 | Constant | Typical meaning |
 |---|---|
-| `-1` | anonymous class/struct; unary prefix; inline-output “echo” mode |
+| `-1` | anonymous class/struct; unary prefix; inline-output “echo” mode; `IsTargetGroup` on `TyhpExtensionDeclAst` |
 | `-3` | type expression `static` |
 | `-4` | short array syntax |
 | `-7` | match (vs switch) |
 | `-8` | default arm / array expansion |
 | `-9` | by-ref |
 | `-10` / `-11` / `-12` / … | variadic, returns-ref, async, extension, parenthesized typed-var, arrow fn, … |
-| `-14`, `-15` | method / property-hook returns-ref |
+| `-11` | `IsShortSyntax` on `PhpFunctionDeclAst` / `TyhpOperatorOverloadAst` (`fn` / `operator … => expr`; per-node, independent of array `-4`) |
+| `-12` | `IsInlineExtension` on `TyhpOperatorOverloadAst` (tyhpdef class-body `extension operator`; per-node, independent of type-expression nullable `-12`) |
+| `-14`, `-15` | method / property-hook returns-ref; `-15` is also `IsShortSyntax` on `PhpMethodDeclAst` |
+| `-16`, `-17` | `IsOmit` / `IsPartial` on `PhpMethodDeclAst` (overlay name-only `partial function`) |
 | `-20`, `-21` | tyhpdef deprecated / obsolete |
+| `-22`, `-23`, `-24` | tyhpdef `IsPartial` / `IsOmit` / `IsExtern` on `TyhpdefImportObjectDeclAst`; `TyhpdefImportFunctionDeclAst` uses `-22` `IsOmit` and `-23` `IsPartial` |
 | `7100` | async using-block |
 | `7200`, `7201` | using-resource has type / has variable |
 
@@ -365,7 +377,7 @@ Fluent helpers: `WithGrammarAddon` / `AddGrammarAddon` in `Base2AstExtensions` /
 | `parameters` | parameter-list addon | Checker extension rule |
 | `typeName` | named/builtin type spelling | Checker/Emitter type spelling & generics |
 | `memberName` | member identifier addon | TypeInferrer dereferenceables |
-| `ctorReturnType` | `TyhpCtorReturnTypeAst` | Emitter declarations |
+| `ctorReturnType` | `TyhpCtorReturnTypeAst` (absent when the ctor return type is omitted) | Emitter declarations |
 | `functionCall` | call-related addon | Visitor dereferenceables |
 | `alias` | alias name | Visitor objects |
 | `isAsync` | token/marker | Binder / visitor objects & tyhpdef |
@@ -374,6 +386,9 @@ Fluent helpers: `WithGrammarAddon` / `AddGrammarAddon` in `Base2AstExtensions` /
 | `aliasedAs` / `aliasOf` / `nameOrAlias` | tyhpdef naming | Tyhpdef visitor / binder |
 | `deprecatedOrObsolete` | marker node | Tyhpdef visitor |
 | `typeExpr` | type on const list | Binder tyhpdef |
+| `extensionTargetType` | `ITypeExpression` on `TyhpExtensionDeclAst`, `TyhpdefStandaloneExtensionDeclAst` | Header `extends Type`, or the target of a nested group (`IsTargetGroup`) |
+| `GenericParameters` | `TyhpGenericsTypeArgumentListAst` on those same decls | `extension Name<T>` / `extends<T>` |
+| `byRefReceiver` | `$this` token on an extension function or tyhpdef `fn` | Leading `&$this` receiver annotation (not a parameter) |
 
 Addons are first-class serialized subtrees. **Binder’s `SetOwningFileRecursive` only walks `AstChildren`**, not addons (see Pitfalls).
 
@@ -419,16 +434,17 @@ Strings are length-prefixed by UTF-8 **byte** length so readers can skip without
 - `AstCacheService.AddOrUpdate(SrcFileAst)` stores `node.Serialize()`.
 - Hits validate with `TryReadSrcFileKey` (Identifier + ValueString hash) **without** constructing nodes, then full `Deserialize`.
 - Only **error-free** parses are cached (user files and tyhpdefs). Partial recovery trees are never cached so diagnostics are not silently dropped on the next run.
+- A tyhpdef cache read that throws (corrupt blob, I/O error) is a `ParserUnknownError` warning. `ParseContent` deletes that cache file, parses the source, and tries one write. A failed write is the same warning, any partial blob is deleted, and the parsed AST is kept. The warning text is the underlying exception (`Failed to read AST cache for tyhpdef` / `Failed to cache tyhpdef AST`).
 - `BoundSymbol` / `OwningFile` are not in the blob; bind must re-run after deserialize.
 
 ### Non-serialized CLR properties
 
-Anything that is a normal C# auto-property **outside** the Children/Flags/Values model is **lost on deserialize**. Known cases:
+Anything that is a normal C# auto-property **outside** the Children/Flags/Values/GrammarAddons model is **lost on deserialize**. Known cases:
 
-- `TyhpOperatorOverloadAst.ExtensionTargetType`
-- `TyhpOperatorOverloadAst.IsInlineExtension`
 - `EmittedPhpExprAst.PhpText` (emitter-only; not cache-backed)
 - `ErrorAst.Context` / `UnexpectedNodeAst.Context`
+
+`TyhpOperatorOverloadAst.IsInlineExtension` is a flag, so it survives cache hits. Block-target state (`TargetType`, `GenericParameters`, `IsTargetGroup`, `byRefReceiver`) is an addon or a flag for the same reason. Do not put that state in CLR auto-properties.
 
 See [Weirdness](#18-weirdness-with-evidence) and [Open Questions](#open-questions--needs-clarification).
 
@@ -499,7 +515,7 @@ Carries lexer token text (`ValueString`) and token type (`ValueInt64`). Basis fo
 
 **Statements / control flow:** `PhpStatementBlockAst`, `PhpIfAst`, `PhpConditionalAst` / `Arm` / `ArmList`, `PhpLoopAst`, `PhpTryCatchAst`, `PhpCatchClauseAst` / `List`, `PhpReturnStatementAst`, `PhpJumpStatementAst`, `PhpGotoStatementAst`, `PhpLabelStatementAst`, `PhpEchoStatementAst`, `PhpGlobalStatementAst`, `PhpStaticStatementAst`, `PhpUnsetStatementAst`, `PhpNopStatementAst`, `PhpEmptyStatementAst`, `PhpIssetStatementAst`, `PhpEvalStatementAst` (file currently named `PhpEvalStatementAst copy.cs`).
 
-**Expressions:** `PhpBinaryOpAst`, `PhpUnaryOpAst`, `PhpTernaryOpAst`, `PhpScalarAst`, `PhpStringAst`, `PhpArrayAst`, `PhpArrayPairAst` / `List`, `PhpVariableAst` / `List`, `PhpNewAst`, `PhpYieldAst`, `PhpInlineFunctionAst`, `PhpExpressionListAst`, `PhpMagicConstantAst`, `PhpNameAst`.
+**Expressions:** `PhpBinaryOpAst`, `PhpUnaryOpAst`, `PhpTernaryOpAst`, `PhpScalarAst`, `PhpStringAst`, `PhpArrayAst`, `PhpArrayPairAst` / `List` (empty slots in `list()` / `[]` destructure are `CreateSkippedSlot` / `IsSkippedSlot`, not dropped nulls), `PhpVariableAst` / `List` (`Type` is the optional typed-foreach annotation), `PhpNewAst`, `PhpYieldAst`, `PhpInlineFunctionAst`, `PhpExpressionListAst`, `PhpMagicConstantAst`, `PhpNameAst`.
 
 **Dereferenceables:** `PhpDereferenceableAst`, `PhpDereferenceableExpressionAst`, `PhpCallAst`, `PhpArgumentAst` / `List`, `PhpArrayAccessAst`, `PhpInstanceMemberAccessAst`, `PhpStaticMemberAccessAst`, `PhpMemberAccessAst`, `PhpClassConstantAccessAst`.
 
@@ -512,18 +528,21 @@ Carries lexer token text (`ValueString`) and token type (`ValueInt64`). Basis fo
 | Node | Role |
 |---|---|
 | `TyhpSrcFileAst` | `.tyhp` root |
-| `TyhpStructDeclAst` / `TyhpStructPropertyAst` / `List` | Struct decls (named + anonymous). `AliasOf` may be a quoted string or decimal integer key (`IsNumericAlias`); emitter erases to string vs int PHP array keys. |
-| `TyhpExtensionDeclAst` / `TyhpExtensionFunctionListAst` | `extension Name extends T { … }` |
+| `TyhpStructDeclAst` / `TyhpStructPropertyAst` / `List` | Expression anonymous `new struct { … }`. Named structs are `type Name = struct { … };` (`TyhpStructShapeAst` on a type alias). `AliasOf` may be a quoted string or decimal integer key (`IsNumericAlias`); emitter erases to string vs int PHP array keys. |
+| `TyhpStructShapeAst` | Type-position / alias-RHS `struct { … }` and `struct extends Parent { … }`. Inline in parameters, returns, unions (`(struct { float $lat; float $lng; }) \| null`), and bounds. |
+| `TyhpExtensionDeclAst` / `TyhpExtensionFunctionListAst` | `extension Name<T>? extends Type? { … }` and a nested `extends<T>? Type { … }` group (`IsTargetGroup`). Members are functions, operators, and one-level groups. `$this` is implied. `&$this` is the `byRefReceiver` addon. Operators list every operand; `self` in those parameters is a type name at parse time. |
 | `TyhpImportExtensionAst` | `use extension …` |
-| `TyhpOperatorOverloadAst` | `operator` members (class / extension / tyhpdef inline) |
-| `TyhpTypeAliasAst` | `type Alias = …` (file or class member) |
+| `TyhpOperatorOverloadAst` | `operator` members (class / extension block / tyhpdef inline). Extension-block operators do not store a target on this node. |
+| `TyhpTypeAliasAst` | `type Alias = …` (file or class member). `ObjectShape` is the `TyhpObjectShapeAst` on a shape RHS (including `Nominal & object { … }`) |
+| `TyhpObjectShapeAst` | `object { … }` on a type-alias RHS only. Members are a `PhpClassBodyAst` of tyhpdef signatures plus PHP class consts (`PhpConstDeclListAst`). Not a class (no FQN). Intersection aliases keep this node as an item next to nominal parents |
 | `TyhpGenericIdentifierAst` | Name + generics |
 | `TyhpGenericsTypeArgumentAst` / `List` | `<T extends U = V>` |
 | `TyhpTypedVarExprAst` | `int $x = …` |
+| `TyhpAsyncBlockAst` | `async { … }` Promise-valued block (not a callable) |
 | `TyhpUsingBlockAst` / `TyhpUsingResourceAst` | `using` / `using await` |
-| `TyhpNameofAst` / `TyhpTypeofAst` / `TyhpDefaultAst` / `TyhpVariableExistsAst` | Compile-time helpers |
-| `TyhpReturnTypeGuardAst` | `: $x is T` return guards |
-| `TyhpCtorReturnTypeAst` | `: void` / `: parent(...)` |
+| `TyhpNameofAst` / `TyhpTypeofAst` / `TyhpDefaultAst` / `TyhpVariableExistsAst` | Compile-time helpers. `TyhpTypeofAst` and `TyhpDefaultAst` hold `ITypeExpression`; `TyhpNameofAst` / `TyhpVariableExistsAst` hold `IExpression`. |
+| `TyhpReturnTypeGuardAst` | `: $x is T` / `: $array[$key] is T` return guards (`GuardSubject` is the expression; `GuardVariable` is the bare `$param` token) |
+| `TyhpCtorReturnTypeAst` | `: void` / `: parent(...)` (omitted ctors attach no addon and emit as `: void`) |
 | `TyhpTemplateStringTypeAst` | Template string types in type position |
 
 ### Tyhpdef\* (stubs / imports)
@@ -531,14 +550,15 @@ Carries lexer token text (`ValueString`) and token type (`ValueInt64`). Basis fo
 | Node | Role |
 |---|---|
 | `TyhpdefSrcFileAst` | `.tyhpdef` root |
-| `TyhpdefImportObjectDeclAst` | class/trait/interface/enum import shells |
-| `TyhpdefImportFunctionDeclAst` | function signatures (+ async/extension/deprecated flags) |
-| `TyhpdefImportConstAst` / `Decl` / `DeclList` | const imports |
+| `TyhpdefImportObjectDeclAst` | class/trait/interface/enum import shells; `IsPartial` / `IsOmit` / `IsExtern` flags; optional `ProvidedBy` (`providedBy` grammar addon from `// @provided-by:`); DeclType `"extern"` for kind-unspecified `extern \Name;` |
+| `TyhpdefImportFunctionDeclAst` | function signatures (+ async/extension/deprecated flags); overlay name-only `IsPartial`; name-only `extern function` (`IsExtern`, optional `ProvidedBy`) |
+| `TyhpdefImportConstAst` / `Decl` / `DeclList` | const imports; name-only `extern const` (`IsExtern`, optional `ProvidedBy`; `IAttributedStatement`) |
 | `TyhpdefImportVariableAst` | variable imports |
 | `TyhpdefConstDeclAst` / `List` | const members inside import objects |
 | `TyhpdefPropertyAst` / `List` | property name lists |
 | `TyhpdefIdentifierAliasAst` | `Name as Alias` / `Class::Member as Alias` |
-| `TyhpdefInlineExtensionFunctionAst` | wraps lowered `PhpMethodDeclAst` for `extension function` in tyhpdef bodies |
+| `TyhpdefStandaloneExtensionDeclAst` | Standalone tyhpdef `extension Name<T>? extends Type? { … }`. Same `extensionTargetType` / `GenericParameters` addons as `TyhpExtensionDeclAst`. Nested groups are `TyhpExtensionDeclAst` with `IsTargetGroup`. Members are short `fn` / `operator` only. |
+| `TyhpdefInlineExtensionFunctionAst` | wraps lowered `PhpMethodDeclAst` for class-body `extension fn` (and standalone tyhpdef `fn`) members |
 
 ---
 
@@ -550,7 +570,7 @@ Carries lexer token text (`ValueString`) and token type (`ValueInt64`). Basis fo
 - Creating a symbol with a declaring node sets `declaringNode.BoundSymbol = this` (`BaseSymbol` ctor).
 - Name resolution also assigns `BoundSymbol` on reference nodes (`NameResolver`).
 - Reads GrammarAddons heavily for modifiers, generics, tyhpdef metadata; reads `AstAttributes` for attribute resolution.
-- Operator overloads: binder inspects `ExtensionTargetType` / `IsInlineExtension` on the **live** tree and may copy the target type onto `ObjectOperatorOverloadMethodSymbol.PendingExtensionTargetType`.
+- Operator overloads: binder inspects `ExtensionTargetType` / `IsInlineExtension` after parse or cache deserialize (both round-trip) and may copy the target type onto `ObjectOperatorOverloadMethodSymbol.PendingExtensionTargetType`.
 
 ### Checker
 
@@ -582,7 +602,7 @@ Visitors own Create/Error/GrammarAddon attachment. They should not be treated as
 
 4. **Dual string-type offsets** — `PhpEncapsListAst` uses `5000`, `PhpStringAst` uses `9000`, both for `PhpStringType`.
 
-5. **Non-serialized operator-overload fields** — `ExtensionTargetType` and `IsInlineExtension` are set by visitors after `Create` and are not Children/Flags. Cache deserialize would drop them unless something rehydrates them (binder currently reads them from the live tree; tyhpdefs that rely on these after a cache hit need verification — see Open Questions).
+5. **Extension block-target cache fields** — `IsTargetGroup` is flag `-1` on `TyhpExtensionDeclAst`. `TargetType` and `GenericParameters` are grammar addons (`extensionTargetType`, `GenericParameters`) on the extension decl and on a nested group. `byRefReceiver` is an addon on the member. `IsInlineExtension` remains flag `-12` on `TyhpOperatorOverloadAst`. `IsShortSyntax` on that node is flag `-11`.
 
 6. **`EmittedPhpExprAst.PhpText`** — Outside the serialize model; fine for ephemeral emitter nodes, dangerous if ever cached.
 
@@ -626,25 +646,22 @@ Visitors own Create/Error/GrammarAddon attachment. They should not be treated as
 
 ## Open Questions / Needs Clarification
 
-1. **Cache round-trip for `TyhpOperatorOverloadAst.ExtensionTargetType` / `IsInlineExtension`**  
-   These fields are not in the binary schema. Are extension / tyhpdef-inline operator overloads always re-parsed in practice for the scenarios that need these flags, or is there another rehydration path not found in Ast/? Needs confirmation against real cache-hit compiles of files containing `operator +<T>(...)` and tyhpdef `extension operator`.
-
-2. **Should `SetOwningFileRecursive` also visit `AstAttributes` and `AstGrammarAddons`?**  
+1. **Should `SetOwningFileRecursive` also visit `AstAttributes` and `AstGrammarAddons`?**  
    Current binder only walks `AstChildren`. Unclear if null `OwningFile` on attribute names has caused bugs or is papered over by always using the declaration’s file name.
 
-3. **`IArgumentList` and `IUnexpectedNode`**  
+2. **`IArgumentList` and `IUnexpectedNode`**  
    Appear unused. Intentional future hooks, leftovers, or incomplete refactors?
 
-4. **`PhpEvalStatementAst copy.cs` filename**  
+3. **`PhpEvalStatementAst copy.cs` filename**  
    Should be renamed for hygiene; confirm there is no second `PhpEvalStatementAst.cs` expected.
 
-5. **Registry stability / cache versioning**  
+4. **Registry stability / cache versioning**  
    There is no explicit AST binary format version field beyond layout heuristics (`reserved[0]` for GrammarAddons). How production builds invalidate caches after NodeType renumbering is outside this folder (likely content hash + toolchain version elsewhere) — not fully traced here.
 
-6. **Whether GrammarAddon keys are a closed set**  
+5. **Whether GrammarAddon keys are a closed set**  
    Keys are stringly typed across Visitor/Binder/Checker/Emitter. No central enum/constants file was found under `Ast/`.
 
-7. **`UnexpectedNodeAst` vs `ErrorAst` policy**  
+6. **`UnexpectedNodeAst` vs `ErrorAst` policy**  
    When visitors choose one over the other is scattered; a single recovery policy doc was not found in Ast source.
 
 ---

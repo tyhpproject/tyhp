@@ -17,6 +17,12 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         /// </summary>
         public bool IsEnumCase { get; internal set; }
 
+        /// <summary>
+        /// PHP constant name when a tyhpdef <c>as</c> alias is the Tyhp-facing <see cref="BaseSymbol.Name"/>.
+        /// Emit rewrites the alias back to this spelling.
+        /// </summary>
+        public string? OriginalPhpName { get; internal set; }
+
         public ObjectConstantSymbol(
             string name,
             string? sourceFile = null,

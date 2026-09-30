@@ -7,7 +7,7 @@ trait HasId {}
 class User {
     use HasId;
     public string $name;
-    public const FLAG = 1;
+    public const int FLAG = 1;
     public function greet(): string {
         return 'hi';
     }

@@ -8,6 +8,10 @@ declare(strict_types=1);
 
 namespace App;
 
+/**
+ * @template T
+ */
+#[\Tyhp\GenericRuntime(erased: false, factory: "new_App_Box__tyhpGeneric", layouts: [1], compiler: "805.1.0.0")]
 class Box
 {
     use \Tyhp\Concerns\HasGenerics;

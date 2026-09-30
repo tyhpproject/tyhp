@@ -48,7 +48,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             ICheckedType keyType;
             if (isAwait)
             {
-                var kind = ClassifyAsyncForeach(iterableType, context, out valueType, out keyType);
+                var kind = ClassifyAsyncForeach(iterableType, loopState, context, out valueType, out keyType);
                 if (kind == AsyncForeachKind.None)
                 {
                     CheckerHelpers.ReportError(
@@ -75,13 +75,15 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 }
                 else
                 {
-                    valueType = ExtractIterableValueType(iterableType);
-                    keyType = ExtractIterableKeyType(iterableType);
+                    valueType = ExtractIterableValueType(iterableType, loopState, context);
+                    keyType = ExtractIterableKeyType(iterableType, loopState, context);
                 }
             }
 
-            DeclareForeachVariable(loop.ValueVariable, valueType, loopState, diagnostics);
-            DeclareForeachVariable(loop.KeyVariable, keyType, loopState, diagnostics);
+            DeclareForeachVariable(
+                loop.ValueVariable, valueType, "value", loopState, context, diagnostics);
+            DeclareForeachVariable(
+                loop.KeyVariable, keyType, "key", loopState, context, diagnostics);
         }
 
         private static void CheckTryCatch(
@@ -96,10 +98,12 @@ namespace Tyhp.TyhpLang.Checker.Rules
             state.Merge(tryState);
 
             var mergedReturned = tryState.HasReturnedOnAllPaths;
+            var seenCatchTypes = new Dictionary<string, IBase2Ast>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var catchClause in tryCatch.CatchClauses?.GetAllNotNull() ?? [])
             {
-                ValidateCatchTypes(catchClause, state, context, diagnostics);
+                AttributeRule.ValidateDeclarationAttributes(catchClause, state, context, diagnostics);
+                ValidateCatchTypes(catchClause, state, context, diagnostics, seenCatchTypes);
 
                 var catchState = beforeTry.Split(ScopeType.CodeBlock);
                 if (catchClause.Variable is not null
@@ -111,6 +115,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                             new Binder.Symbols.VariableSymbol(key),
                             catchType,
                             isReference: false);
+                    context.ResolveExpressionType(catchClause.Variable, catchState);
                 }
 
                 context.CheckStatementBlock(catchClause.Body, catchState);
@@ -133,7 +138,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             PhpCatchClauseAst catchClause,
             CheckerState state,
             CheckerRuleContext context,
-            DiagnosticBag diagnostics)
+            DiagnosticBag diagnostics,
+            Dictionary<string, IBase2Ast> seenCatchTypes)
         {
             var types = catchClause.ExceptionTypes?.GetAllNotNull().ToList() ?? [];
             if (catchClause.Body is null || !catchClause.Body.GetAllNotNull().Any())
@@ -152,6 +158,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 // `instanceof`). Resolve as types so `$e` is typed and TYHP4040 is accurate.
                 var resolved = CheckerHelpers.ResolveInstanceofTargetType(
                     typeName, state, context, context.SymbolTree, context.GlobalScope);
+                ExternTypeUse.ReportIfCheckedType(resolved, typeName, state, diagnostics);
                 if (resolved is IntersectionCheckedType)
                 {
                     CheckerHelpers.ReportError(
@@ -169,7 +176,41 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     CheckerHelpers.ReportError(
                         diagnostics, state, catchClause, MessageCode.CheckerCatchNotThrowable, resolved.DisplayName);
                 }
+
+                var key = CatchTypeKey(typeName, resolved);
+                if (string.IsNullOrEmpty(key))
+                {
+                    continue;
+                }
+
+                if (seenCatchTypes.TryGetValue(key, out var firstType))
+                {
+                    var fileName = CheckerHelpers.ResolveDiagnosticFileName(state, typeName);
+                    diagnostics.AddDuplicateFromAst(
+                        DiagnosticSeverity.Warning,
+                        MessageCode.CheckerDuplicateCatch,
+                        typeName,
+                        fileName,
+                        firstType,
+                        fileName,
+                        key);
+                }
+                else
+                {
+                    seenCatchTypes[key] = typeName;
+                }
             }
+        }
+
+        private static string CatchTypeKey(IClassName typeName, ICheckedType resolved)
+        {
+            if (CheckerHelpers.TryGetObjectDeclaration(resolved) is { } obj
+                && !string.IsNullOrEmpty(obj.FullyQualifiedName))
+            {
+                return obj.FullyQualifiedName;
+            }
+
+            return TypeComparer.GetClassNameText(typeName) ?? resolved.DisplayName;
         }
 
         private static ICheckedType ResolveCatchType(

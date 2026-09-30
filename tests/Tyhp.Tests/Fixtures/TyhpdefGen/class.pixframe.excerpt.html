@@ -1,0 +1,87 @@
+<div id="class.pixframe" class="reference">
+  <h1 class="title">The <span class="classname">Pixframe</span> class</h1>
+  <div class="partintro">
+    <p class="verinfo">(PECL pixframe 2, PECL pixframe 3)</p>
+    <div class="section" id="pixframe.synopsis">
+      <h2 class="title">Class synopsis</h2>
+      <div class="classsynopsis">
+        <div class="classsynopsisinfo">
+          <span class="ooclass"><span class="modifier">class</span> <strong class="classname">Pixframe</strong></span>
+        </div>
+        <div class="methodsynopsis dc-description">
+          <span class="modifier">public</span>
+          <span class="modifier">function</span>
+          <span class="methodname">adaptiveBlurImage</span>(
+          <span class="methodparam"><span class="type">float</span> <code class="parameter">$radius</code></span>,
+          <span class="methodparam"><span class="type">float</span> <code class="parameter">$sigma</code></span>
+          ): <span class="type">bool</span>
+        </div>
+      </div>
+    </div>
+    <div class="section" id="pixframe.pixframe.methodtypes">
+      <h2 class="title">Image methods and global methods</h2>
+      <p class="para">
+        The Pixframe class has the ability to hold and operate on multiple images simultaneously.
+      </p>
+    </div>
+    <div class="section" id="pixframe.constants">
+      <h2 class="title">Predefined Constants</h2>
+      <dl>
+        <dt id="pixframe.constants.channel-default"><code class="parameter">Pixframe::CHANNEL_DEFAULT</code></dt>
+        <dd><p class="para">The default channel mode used by image methods that accept a channel argument.</p></dd>
+        <dt id="pixframe.constants.compression-undefined"><code class="parameter">Pixframe::COMPRESSION_UNDEFINED</code></dt>
+        <dd>
+          <div class="warning"><strong class="warning">Warning</strong>
+            <p class="para">This constant has been DEPRECATED as of Pixframe 4.0.0 and should not be relied upon.</p>
+          </div>
+        </dd>
+      </dl>
+    </div>
+  </div>
+  <div id="pixframe.adaptiveblurimage" class="refentry">
+    <div class="refnamediv">
+      <h1 class="refname">Pixframe::adaptiveBlurImage</h1>
+      <p class="refpurpose"><span class="dc-title">Adds adaptive blur filter to image</span></p>
+    </div>
+    <div class="refsect1 description" id="refsect1-pixframe.adaptiveblurimage-description">
+      <h3 class="title">Description</h3>
+      <p class="para rdfs-comment">Adds an adaptive blur filter to image.</p>
+    </div>
+    <div class="warning"><strong class="warning">Warning</strong>
+      <p class="para">This function has been DEPRECATED as of Pixframe 3.4.4. Relying on this function is highly discouraged.</p>
+    </div>
+    <div class="refsect1 parameters" id="refsect1-pixframe.adaptiveblurimage-parameters">
+      <h3 class="title">Parameters</h3>
+      <p class="para">
+        <dl>
+          <dt><code class="parameter">radius</code></dt>
+          <dd><p class="para">The radius of the Gaussian, in pixels.</p></dd>
+          <dt><code class="parameter">sigma</code></dt>
+          <dd><p class="para">The standard deviation of the Gaussian, in pixels.</p></dd>
+        </dl>
+      </p>
+    </div>
+    <div class="refsect1 returnvalues" id="refsect1-pixframe.adaptiveblurimage-returnvalues">
+      <h3 class="title">Return Values</h3>
+      <p class="para">Returns true on success.</p>
+    </div>
+  </div>
+  <div id="pixframe.clone" class="refentry">
+    <div class="refnamediv">
+      <h1 class="refname">Pixframe::clone</h1>
+      <p class="refpurpose"><span class="dc-title">Makes a copy of a Pixframe object</span></p>
+    </div>
+    <div class="warning"><strong class="warning">Warning</strong>
+      <p class="para">This function has been DEPRECATED as of pixframe 3.1.0 in favour of using the clone keyword.</p>
+    </div>
+    <div class="refsect1 parameters" id="refsect1-pixframe.clone-parameters">
+      <h3 class="title">Parameters</h3>
+      <p class="para">
+        <dl>
+          <dt><code class="parameter">this</code></dt>
+          <dd><p class="para">This parameter does not exist on the class page.</p></dd>
+        </dl>
+      </p>
+    </div>
+  </div>
+</div>

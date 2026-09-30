@@ -10,7 +10,7 @@ namespace Tyhp.TyhpLang
     /// Identifies compile-time-only overload <em>signatures</em>, which the binder skips and the
     /// emitter erases so that only the single implementation survives.
     ///
-    /// Two forms are recognized:
+    /// Three forms are recognized:
     /// <list type="bullet">
     ///   <item>
     ///     Top-level functions written as bodyless <c>function name(...): T;</c> carry an
@@ -23,6 +23,11 @@ namespace Tyhp.TyhpLang
     ///     structurally: a bodyless, non-abstract method whose name matches an implementation (a
     ///     same-named method that has a body) in the same type body. Abstract and interface methods
     ///     are legitimately bodyless with no implementation sibling, so they are excluded.
+    ///   </item>
+    ///   <item>
+    ///     Extension members are <see cref="PhpFunctionDeclAst"/> (not class methods). Bodyless
+    ///     <c>function name(...): T;</c> in an <c>extension</c> body is an overload signature when
+    ///     a same-named member with a body exists in that extension.
     ///   </item>
     /// </list>
     /// </summary>
@@ -78,6 +83,43 @@ namespace Tyhp.TyhpLang
             }
 
             return implementedMethodNames.Contains(method.Identifier);
+        }
+
+        /// <summary>
+        /// Collects the names (case-insensitive) of extension functions that provide an
+        /// implementation (a body, including desugared <c>fn … =&gt;</c>).
+        /// </summary>
+        public static HashSet<string> CollectImplementedExtensionFunctionNames(
+            IEnumerable<IExtensionMemberAst> members)
+        {
+            var implemented = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var member in members)
+            {
+                if (member is PhpFunctionDeclAst function
+                    && function.Body != null
+                    && !string.IsNullOrEmpty(function.Identifier))
+                {
+                    implemented.Add(function.Identifier);
+                }
+            }
+
+            return implemented;
+        }
+
+        /// <summary>
+        /// True when an extension function is an erasable overload signature: it is bodyless
+        /// and a same-named implementation exists in the same extension body.
+        /// </summary>
+        public static bool IsExtensionFunctionOverloadSignature(
+            PhpFunctionDeclAst function,
+            ISet<string> implementedFunctionNames)
+        {
+            if (function.Body != null || string.IsNullOrEmpty(function.Identifier))
+            {
+                return false;
+            }
+
+            return implementedFunctionNames.Contains(function.Identifier);
         }
     }
 }

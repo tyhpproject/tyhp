@@ -8,7 +8,7 @@ using Tyhp.Tests.TestHelpers;
 namespace Tyhp.Tests.Checker;
 
 /// <summary>
-/// Undeclared type names inside <c>callable&lt;…&gt;</c> (and other generic type args) must
+/// Undeclared type names inside <c>callable(...)</c> (and other generic type args) must
 /// diagnose — FOUND_BUGS 2026-08-12 callable/<c>TResult</c> audit.
 /// </summary>
 [Trait("Category", "Checker")]
@@ -20,7 +20,7 @@ public class CallableUnresolvedTypeArgumentTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            function take(callable<?TResult, int> $cb): int {
+            function take(callable(?TResult): int $cb): int {
                 return $cb(null);
             }
             """);
@@ -36,7 +36,7 @@ public class CallableUnresolvedTypeArgumentTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            function take(callable<?TResult, int> $cb): int {
+            function take(callable(?TResult): int $cb): int {
                 return $cb(null);
             }
             """);
@@ -44,7 +44,7 @@ public class CallableUnresolvedTypeArgumentTests
         var diagnostic = errors.Should().ContainSingle(
             e => NamesUnresolvedSymbol(e, "TResult")).Subject;
 
-        // `callable<?TResult, int>` — TResult starts after `callable<?`
+        // `callable(?TResult): int` — TResult starts after `callable(): ?`
         diagnostic.Column.Should().BeGreaterThan(0);
         diagnostic.Line.Should().Be(3);
     }
@@ -57,7 +57,7 @@ public class CallableUnresolvedTypeArgumentTests
             namespace Test;
             final class Box<TReturn> {
                 public function continueWith<TContinueReturn>(
-                    callable<?TReturn, ?\Throwable, TContinueReturn> $continuation
+                    callable(?TReturn, ?\Throwable): TContinueReturn $continuation
                 ): self {
                     return $this;
                 }
@@ -78,7 +78,7 @@ public class CallableUnresolvedTypeArgumentTests
             namespace Test;
             final class Promise<TReturn extends void|mixed = mixed> {
                 public function continueWith<TContinueReturn>(
-                    callable<?TResult, ?\Throwable, TContinueReturn> $continuation
+                    callable(?TResult, ?\Throwable): TContinueReturn $continuation
                 ): self {
                     return new self<TContinueReturn>(function () use ($continuation) {
                         try {
@@ -157,16 +157,16 @@ public class CallableUnresolvedTypeArgumentTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
-            result.GlobalScope.Should().NotBeNull("bind should succeed");
+            if (result.GlobalScope is null)
+            {
+                return result.Diagnostics.Errors
+                    .Where(e => e.FileName is not null
+                        && e.FileName.Replace('\\', '/').EndsWith(fileName, StringComparison.Ordinal))
+                    .ToList();
+            }
+
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
 
             var symbolTree = new SymbolTree(result.GlobalScope!);

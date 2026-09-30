@@ -117,13 +117,9 @@ public class CompilationServiceIntegrationTests
         files.Should().NotBeEmpty();
         var result = compilationService.ParseFiles(
             files,
-            new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            IsolatedCompilation.CreateOptions(
+                Path.GetDirectoryName(files[0])!,
+                phpVersion: "8.4"));
 
         result.ParsedFiles.Should().NotBeNull();
         result.ParsedFiles!.Count.Should().Be(files.Count);

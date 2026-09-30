@@ -19,7 +19,7 @@ Emission is step 8 in `Tyhp/CLI/BuildAction.cs`. The CLI builds an `EmitContext`
 - Splitting one or more `SrcFileAst` trees into one PHP file per PSR-4 object, namespace functions file, `declare(output_file=…)`, or entry-point script.
 - AST-level rewriting of Tyhp-only constructs into PHP-compatible forms (`AliasConverter` and helpers).
 - Walking the rewritten AST and building an `EmitItem` tree of PHP text fragments.
-- Rendering that tree into PSR-12-oriented PHP strings (opening tag, declares, namespace, imports, body).
+- Rendering that tree into PER-CS 3.0 PHP strings (opening tag, declares, namespace, imports, body).
 - Recording runtime Composer packages required by emitted code (`EmitContext.RequiredPackages`, e.g. `tyhp/core`, `tyhp/async`).
 
 ### What the emitter is *not*
@@ -67,11 +67,12 @@ Defined in `TyhpEmitter.cs`.
 Order in `TyhpEmitter.Emit()`:
 
 1. **`SplitSourceFile`** — `PHPOutputFile.FromAstTree` → `PHPOutputFileSplitter.Split`
-2. **`ConvertAliasesForAll`** — per-file `AliasConverter.Convert`
-3. **`MergeOutputFiles`** — merge non-PSR4 files that share the same output path
-4. **`BuildEmitTrees`** — build `EmitItem` trees via `EmitNode`
-5. **`PruneImportsForAll`** — drop unused / erased / FQ-static-call imports; fold `AdditionalImports`
-6. **`GenerateAll`** — `PHPOutputFile.Generate` → `GeneratedContent`
+2. **`ExtensionBlockSelfRewriter.Rewrite`** — block-target extension `self` / `self::` / `new self()` in member signatures and bodies become the target type’s PHP spelling, before splice clones those bodies
+3. **`ConvertAliasesForAll`** — per-file `AliasConverter.Convert`
+4. **`MergeOutputFiles`** — merge non-PSR4 files that share the same output path
+5. **`BuildEmitTrees`** — build `EmitItem` trees via `EmitNode`
+6. **`PruneImportsForAll`** — drop unused / erased / FQ-static-call imports; fold `AdditionalImports`
+7. **`GenerateAll`** — `PHPOutputFile.Generate` → `GeneratedContent`
 
 > Note: `IMPLEMENTATION_PLAN_TODO_STORY_11.md` ADR text lists Merge after Build/Prune. The **implemented** order merges **before** building emit trees so merged statement lists are what the walk sees.
 
@@ -89,7 +90,7 @@ Order in `TyhpEmitter.Emit()`:
 
 `EmitNode` is a two-stage switch:
 
-1. Declarations / structural nodes (namespace, import, object, extension, function, const, declare, method, property, trait use, enum case). Struct and type-alias declarations emit **empty** items (erased at file level; usages rewritten earlier).
+1. Declarations / structural nodes (namespace, import, object, extension, function, const, declare, method, property, trait use, enum case). Struct declarations emit empty items. Source type-alias declarations emit a `\Tyhp\Type` factory (`EmitTypeAliasFactory`); tyhpdef aliases stay empty.
 2. Else `IStatement` → `EmitStatement`.
 3. Else diagnostic `EmitterUnsupportedAstNode` and a `/* TYHP: unsupported construct */` comment line.
 
@@ -105,7 +106,7 @@ Expressions are usually **string-built** (`BuildExpression`) and attached as sta
 | --- | --- |
 | `TyhpEmitter.cs` | Constructor, `Emit()` pipeline, `EmitNode`, merge, entry-point Promise wrapping |
 | `EmitContext.cs` / `EmitConfig` | Shared emit state, alias maps, checker flags, package requirements, disposable/async helpers |
-| `EmitItem.cs` | Tree of PHP text segments; `emit(indent)` renders; children sorted by `EmitType` then source order |
+| `EmitItem.cs` | Tree of PHP text segments; `emit(indent)` renders; `emit(indent, collector)` is the same string plus source-map tracking; children sorted by `EmitType` then source order |
 | `PHPOutputFile.cs` | One output file’s AST slices + generate/prune/merge |
 | `PHPOutputFileSplitter.cs` | Split source AST into output-file units |
 | `OutputPathResolver.cs` | PSR-4 object paths, `_functions.php`, entry-point path, `output_file` paths |
@@ -117,10 +118,11 @@ Expressions are usually **string-built** (`BuildExpression`) and attached as sta
 | Partial | Responsibility |
 | --- | --- |
 | `TyhpEmitter.Declarations.cs` | Namespaces, imports, classes/interfaces/traits/enums, extensions, functions/methods/properties, overload-signature erasure |
+| `TyhpEmitter.TypeAliasFactories.cs` | Source type-alias `\Tyhp\Type` factories (file-level functions, class-level static methods) |
 | `TyhpEmitter.Expressions.cs` | Expression spelling: calls, `new`, member access, `nameof`/`typeof`/`default`/`variable_exists`, typed vars, etc. |
 | `TyhpEmitter.Statements.cs` | Control flow, `using` blocks/calls, typed-var statements, switches/match |
 | `TyhpEmitter.Types.cs` | Thin wrapper over `TypeSpellingHelper.Spell` |
-| `TyhpEmitter.Helpers.cs` | Doc comments, modifiers, namespace prefix, async detection, diagnostics helpers |
+| `TyhpEmitter.Helpers.cs` | Doc comments, modifiers, namespace prefix, async detection, diagnostics helpers. `FormatModifiers` never spells Tyhp `internal`. `FormatTypeDeclarationModifiers` keeps only `abstract`/`final`/`readonly` (PHP has no class visibility). After strip, class members use `EnsureClassMemberVisibility` / `EnsureMethodVisibility` so `internal` members emit `public`; top-level functions/consts/classes stay unprefixed. |
 | `TyhpEmitter.Generics.cs` | Mechanism C setup: GenericObject trait use, ctor prologue, runtime type expressions, property type registration helpers |
 | `TyhpEmitter.GenericClasses.cs` | Mechanism C chain: `__initGenerics__tyhpGeneric`, parent chain args, generic factory `new_<MangledFqn>__tyhpGeneric` |
 | `TyhpEmitter.GenericVariants.cs` | Mechanism D: wrapper + `__tyhpGeneric` Closure binder; call-site `binder(types…)(values…)` |
@@ -134,18 +136,39 @@ Expressions are usually **string-built** (`BuildExpression`) and attached as sta
 | File | Responsibility |
 | --- | --- |
 | `AliasConverter.cs` | Pre-emit AST rewrite: aliases, structs, extension calls, operators, `with`, magic constants, types, PropertyPath / Expression |
+| `AliasConverter.Splice.cs` | Integrates `CallSiteSpliceEngine` into the same walk: splice extension method / operator call sites before falling back to static calls; inserts ref-bound hoist statements |
+| `Splice/CallSiteSpliceEngine.cs` | Shared call-site splice: substitute receiver/args/defaults, parenthesize, fixpoint nested splices of **splice-owned** callees only (`IsSpliceOwnedCallee`: extension method / operator / tyhpdef thin mapping — not an ordinary class method that happens to be a single `return`), by-value / ref-bound hoist, `self`/`parent`/`static` rewrite. Block-target `self` is already the target spelling; a `self` bound to another object is left alone |
+| `Splice/SpliceAnalysis.cs` | Writes (incl. callee `&` params), use/order/fidelity, accessibility, referenceability (`HasAccessor` / `GetHookReturnsRef`) |
+| `Splice/SpliceAst.cs` | Clone (serialize + copy `BoundSymbol` / `OriginalAst`), single-return extract (including unary `return` from `=>`), simple-arg test, `MemberHasPhpBacker` (`!IsShortSyntax` on Tyhp `extension { }` members; class-owned always true), `ExtensionDeclEmitsPhpBackerClass`, `#[\Tyhp\Optimize\Inline]` on tyhpdef wrappers |
+| `Splice/SpliceTypes.cs` | `SpliceRequest` / `SpliceResult` / `SpliceEngineContext` / `SpliceDeclineReason` |
 | `PropertyPathEmissionHelper.cs` | Story 16 Phase 1: `fn` → `new \Tyhp\PropertyPath(...)`; `\Closure` targets extract `->callable` |
 | `ExpressionTreeEmissionHelper.cs` | Story 16 Phase 2: `fn` → `new \Tyhp\Expression(...)` with nested `\Tyhp\Expression\*` nodes |
-| `StructEmissionHelper.cs` | Struct → array (or custom backing) construction/access/`with`/`clone` |
-| `WithKeywordHelper.cs` | Object-form `with` → ObjectHelper / PHP 8.5 `clone()` / assignments / experimental readonly wrappers |
-| `TypeSpellingHelper.cs` | PHP type-hint spelling: erase generics, expand aliases, structs → `array`, etc. |
+| `StructEmissionHelper.cs` | Struct → array (or custom backing) construction/access/`with`/`clone`. `MergeArrayPairs` / `CreateArrayFromWithList` drop `IsSkippedSlot` pairs (`GetAllExcludingSkippedSlots`) so a trailing-comma artifact cannot become an interior empty PHP element after merge |
+| `WithKeywordHelper.cs` | Object-form `with` → ObjectHelper / PHP 8.5 `clone()` / assignments / experimental readonly wrappers. Value-array stringification (`RenderArray` / `RenderArrayPairList`) uses `GetAllTrimmingTrailingSkippedSlots` and skips leftover skip slots — same trailing-comma trim as `BuildArrayExpression`, never destructuring empty elements |
+| `TypeSpellingHelper.cs` | PHP type-hint spelling: erase generics, expand aliases, flatten/dedupe unions, structs → `array`, etc. |
+| `ExtensionBlockSelfRewriter.cs` | Before splice, rewrites block-target extension `self` to the target’s PHP spelling (FQCN or builtin / struct lowering). Skips nested object declarations. Does not rewrite `static` or `parent` |
 | `EmitHelpers.cs` | Unique vars, `EmitPhpTypeHint`, `IsStructType`, `IsExtensionMethodCall` |
-| `OperatorOverloadResolver.cs` | Pick matching operator form at call sites (emit) and for checker return-type inference |
+| `OperatorOverloadResolver.cs` | Pick matching operator form at call sites (emit) and for checker return-type inference. Binary selection returns null when both operand types are known and no form matches (no wrong-shape first-arity fallback); unknown operands may still pick a best-effort arity match. Parameter types that resolve to a `type` alias (`TypeAliasSymbol` / `ObjectTypeAliasSymbol`) are expanded before matching, so `operator +(self, DecimalValue)` accepts `\Decimal\Decimal` when `DecimalValue = Decimal\|int`. |
 | `OperatorMethodNameGenerator.cs` | Deterministic `__add`, `__toString`, … names |
 | `NameGeneration/TypeNameFormatter.cs` | Type segments for convert-to method names (`Foo|Bar` → `FooOrBar`, generics → `Of…`) |
 | `EmittedFqnHelper.cs` | Binder FQN → emitted FQN with `output.namespacePrefix` (skip tyhpdef / runtime packages) |
 | `DeclarationExistenceGateHelper.cs` | `if (!function_exists(…)) { function … }` gates: move with declaration, rewrite gate args |
-| `GeneratedNames` (`Tyhp/TyhpLang/GeneratedNames.cs`) | Shared compiler-generated PHP names (`__tyhpGeneric`, `__initGenerics__tyhpGeneric`, factories) — reserved by the checker too |
+| `GeneratedNames` (`Tyhp/TyhpLang/GeneratedNames.cs`) | Shared compiler-generated PHP names (`__tyhpGeneric`, `__initGenerics__tyhpGeneric`, factories, `InlineTempVariablePrefix` = `__tyhpInlineTemp`) — reserved by the checker too |
+
+### `SourceMap/`
+
+VLQ Base64 encoding and mapping collection for Source Map v3. Deep guide: `SourceMap/technical-guide.md`.
+
+| File | Role |
+| --- | --- |
+| `SourceMap/VlqEncoder.cs` | Encode/decode signed integers as self-delimiting Base64 VLQ (`internal`) |
+| `SourceMap/SourceMapping.cs` | One generated → original segment (`public readonly record struct`) |
+| `SourceMap/SourceMapCollector.cs` | Generated-position tracker and mapping accumulator (`public`) |
+| `SourceMap/SourceMapGenerator.cs` | Source Map v3 JSON from a collector (`internal`) |
+| `SourceMap/SourceMapWriter.cs` | `.map` files, `sourceMappingURL` comments, inline data URLs (`internal`) |
+| `SourceMap/SourceMapValidator.cs` | Validates Source Map v3 JSON against generated PHP (`internal`) |
+
+`.map` file writing is `SourceMapWriter`, used by `OutputWriterService`. `PHPOutputFile.SourceMap()` returns Source Map v3 JSON when a `SourceMapCollector` was assigned before `Generate()`; left `null`, `Generate()` stays on the fast `emit(int)` path and `SourceMap()` returns `""`. `TyhpEmitter.GenerateAll` assigns the collector when `build.generateSourcemap` is true. `SourceMapValidator` checks JSON/VLQ/coverage against that PHP; the live writer runs it when sourcemaps are on (see `SourceMap/technical-guide.md`).
 
 ### `PHP8.3/`
 
@@ -155,15 +178,16 @@ Placeholder files (`ClassFile.cs`, `FunctionFile.cs`, `ObjectDefinition.cs`, mem
 
 | Test area | File |
 | --- | --- |
-| Pipeline / basics | `EmitterTests.cs`, `EmitterEndToEndTests.cs` |
+| Pipeline / basics | `EmitterTests.cs`, `EmitterEndToEndTests.cs`, `PerCsEmitterTests.cs` |
 | Mechanism C | `MechanismCEmitterTests.cs`, `GenericObjectEmitterTests.cs` |
 | Mechanism D | `GenericVariantEmitterTests.cs` |
 | Property hooks | `PropertyHookEmitterTests.cs` (native 8.4+ vs polyfill 8.2) |
 | Pipe `\|\>` | `PipeOperatorEmitterTests.cs` (native 8.5 vs nested-call lowering 8.2/8.4) |
-| Operators / extensions | `OperatorOverloadEmitterTests.cs`, `ExtensionMethodEmitterTests.cs`, `CallSiteRewriteEmitterTests.cs` |
+| Operators / extensions | `OperatorOverloadEmitterTests.cs`, `ExtensionMethodEmitterTests.cs`, `CallSiteRewriteEmitterTests.cs`, `CallSiteSpliceEmitterTests.cs` |
 | Structs / with | `StructEmitterTests.cs`, `WithKeywordEmitterTests.cs` |
 | Async / disposables | `AsyncAwaitEmitterTests.cs`, `UsingBlockEmitterTests.cs`, `Disposable*EmitterTests.cs` |
 | Naming / imports | `TypeNameFormatterTests.cs`, `ImportConsolidationTests.cs`, `RelativeQualifiedNameEmitterTests.cs` |
+| Source maps | `VlqEncoderTests.cs`, `SourceMapCollectorTests.cs`, `EmitItemSourceMapTests.cs`, `SourceMapGeneratorTests.cs`, `PHPOutputFileSourceMapTests.cs`, `SourceMapWriterTests.cs`, `SourceMapValidatorTests.cs`, `SourceMapEndToEndTests.cs` |
 
 ---
 
@@ -189,10 +213,16 @@ SrcFileAst (bound)
 
 ### `EmitItem` rendering model
 
-- Factories: `Line`, `Block`, `BlockBraceNextLine` (PSR-12 brace-on-next-line for named types/methods), `MultiLine`, `Empty`, `AttachDocComment`.
+- Factories: `Line`, `Block`, `BlockBraceNextLine` (PER-CS brace-on-next-line for non-empty named types/methods; empty types/methods/constructors compact to `signature {}` at render time), `MultiLine`, `Empty`, `AttachDocComment`.
 - `SortedChildren()` orders children by `EmitType` numeric value, then original index — so trait uses, constants, properties, constructor, methods land in a stable class-member order even if collected interleaved.
 - `emit(indentLevel)` joins non-empty segments with newlines and indents embedded multiline content (closures, switches). Sibling children must never be concatenated without a separator — that previously glued statements into `$a = 1;    $b = 2;` (indent looked like mid-line spacing) and adjacent braces into `}function …`.
-- `PHPOutputFile.AppendBodyChildren` joins top-level declarations with a blank line (`\n\n`) so multiple functions/classes in one output file stay PSR-12 separated.
+- Control-structure headers (`if` / `elseif` / `while` / `for` / `foreach` / `switch` / `do-while` / `catch` / `match`) whose parenthesized expression contains a newline emit PER-CS 3.0 form: `if (` then the expression starting on the next indented line, then `) {`. Single-line conditions stay `if ($x) {`. Catch unions use unspaced `|` (`catch (A|B $e)`).
+- `emit(indentLevel, SourceMapCollector collector)` returns the same PHP string, and additionally reports each fragment to the collector as it is written. Indent whitespace and the `\n` separators between segments use a null provider (no mapping). Each content line uses `this.Provider`. Whitespace-only children are peeked via `emit(indentLevel + 1)` and skipped without touching the collector, matching the non-tracking path. `PHPOutputFile.Generate` calls this overload only when `SourceMapCollector` is set; otherwise it uses the non-tracking `emit(int)` fast path. Prune-time `EmitBody` peeks never pass the collector, so import pruning cannot pollute mappings.
+- `PHPOutputFile.AppendBodyChildren` joins top-level declarations with a blank line (`\n\n`) so multiple functions/classes in one output file stay PER-CS separated. When tracking, those separators are reported with a null provider so the collector stays aligned with the joined string.
+
+### `PHPOutputFile` sourcemap wiring
+
+`SourceMapCollector` is the single enable/store flag: set it before `Generate()`, leave it `null` for the fast path. `FromAstTree` sets `SourceFileName` from `SrcFileAst.FileName` (project-relative). Tracking `Generate()` resets the collector first (so a second `Generate()` cannot double-track), registers that path, reports preamble (`<?php`, declares, namespace, `use`) with a null provider, then calls `emit(indent, collector)` for body items. `SourceMap(includeSourcesContent, sourceContentProvider)` builds JSON via `SourceMapGenerator` using `Path.GetFileName(OutputFilePath)` and `SourceRoot`. `TyhpEmitter.GenerateAll` assigns the collector and a `SourceRoot` directory prefix of `SourceFileName` when `build.generateSourcemap` is true — never a URL-style `../src/` from the output directory. `Merge` replaces any populated collector with a fresh one and keeps this file's `SourceFileName` / `SourceRoot` when set. Diagnostics `TYHP5020`–`TYHP5022` (`EmitterSourceMapGenerationFailed`, `EmitterSourceMapWriteFailed`, `EmitterSourceMapInvalidMapping`) are non-fatal warnings emitted by `SourceMapWriter` during JSON generation, `.map` writes, and invalid-mapping checks.
 
 ### `EmitType` (member ordering)
 
@@ -200,23 +230,43 @@ Defined in `Tyhp/TyhpLang/Enum/EmitType.cs`. Important class-body values (ascend
 
 `ObjectTraitUse` → constants → static props → instance props → constructor → destructor → static methods → instance methods → function statements…
 
-`EmitGenericInitHook` uses `ObjectInstanceMethods`; the factory uses a static method emit type. Trait injection uses `ObjectTraitUse` so PSR-12 blank-line-after-trait-use can fire in `EmitItem.emit`.
+`EmitGenericInitHook` uses `ObjectInstanceMethods`; the factory uses a static method emit type. Trait injection uses `ObjectTraitUse` so PER-CS blank-line-after-trait-use can fire in `EmitItem.emit`.
 
 ### Type hints vs runtime types
 
-- **Signatures / hints:** `TypeSpellingHelper.Spell` / `BuildTypeExpression` — erase generics to constraints or `mixed`, expand aliases, structs → `array` (or rewritten backing FQN). Union and intersection separators are spaced per PSR-12 §6.2 (`int | string`, `A & B`). Closure and arrow return/parameter types are included: the binder resolves those annotations onto `GenericTypeParameterSymbol`, and spelling erases them the same way as method signatures (bare `fn(): T` must never reach PHP). When a classic / arrow closure omits an authored param or return type but call-site / annotation contextual typing recovered one, `EmitContext.InferredClosureSignatures` (from the checker) supplies that `ICheckedType` and `TypeSpellingHelper.SpellCheckedType` spells it with the same erasure rules — so `_async<array<…>>(function () { … })` emits `: array` even though Tyhp source left the return blank. Pure `mixed` inferences are omitted (no stronger PHP surface than an untyped param/return). **PHPDoc / SA surface:** `TypeSpellingHelper.SpellForPhpDoc` / `BuildPhpDocTypeExpression` keep bare type-parameter names and type-argument lists (used by polyfill `@property*` tags on generic hosts).
-- **Runtime reflection values:** `BuildRuntimeTypeExpression` (in generics partials) produces `\Tyhp\Type` / `\Tyhp\NamedType` expressions for `typeof`, property registration, Mechanism D binders, and optional runtime checks. Class names inside `Type::generic` / `fromClassName` use the bound object's FQCN (`ResolveRuntimeClassName`) so same-namespace unqualified spellings (e.g. `Deferred` in `namespace Tyhp`) emit `\Tyhp\Deferred::class`, not `\Deferred::class`. A free type parameter never becomes `Type::fromClassName(T::class)` — it uses the Mechanism D capture, the class GenericObject lookup, or erased `Type::mixed()` when the binding is unavailable in the current emit context. While emitting a method or function, `_currentCallableGenericParamNames` records that callable's own type-parameter names so unbound call-site type args (e.g. `other<T>(…)` inside `wrap<T>`) still erase instead of spelling a fake class.
+- **Signatures / hints:** `TypeSpellingHelper.Spell` / `BuildTypeExpression` — erase generics to constraints or `mixed`, expand aliases, structs → `array` (or rewritten backing FQN), object shapes and `__New<Shape>` → `object` (or nominal conjuncts from an intersection; illegal `object` members drop). After alias expansion, `ComposePhpUnionParts` flattens nested `|`, drops duplicate atoms (`T|T` → `T`), keeps a single `null` last, and still uses `?T` for a lone simple type plus null — so overlapping aliases such as `JsonAssoc|JsonObject|null` emit `string|int|float|bool|array|\stdClass|null`, not two concatenated scalar runs. Splits respect `<…>` (PHPDoc generics) and `(…)` (DNF intersections). `SpellCheckedType` uses the same reducer. Union and intersection separators have no spaces per PER-CS 3.0 §2.5 (`int|string`, `A&B`). Unions longer than 120 characters wrap with `|` at the start of each continuation line; intersections stay on one line so mixed DNF keeps each `(A&B)` segment together. Methods that implement `\ArrayAccess::{offsetExists,offsetGet,offsetSet,offsetUnset}` spell those parameters (and `offsetGet`'s return) as PHP `mixed` (`_emitNativeArrayAccessOffsetAsMixed`) so native contravariance is satisfied; checker types stay `TKey`/`TValue`. Closure and arrow return/parameter types are included: the binder resolves those annotations onto `GenericTypeParameterSymbol`, and spelling erases them the same way as method signatures (bare `fn(): T` must never reach PHP). When a classic / arrow closure omits an authored param or return type but call-site / annotation contextual typing recovered one, `EmitContext.InferredClosureSignatures` (from the checker) supplies that `ICheckedType` and `TypeSpellingHelper.SpellCheckedType` spells it with the same erasure rules — so `_async<array<…>>(function () { … })` emits `: array` even though Tyhp source left the return blank. Pure `mixed` inferences are omitted (no stronger PHP surface than an untyped param/return). **PHPDoc / SA surface:** `TypeSpellingHelper.SpellForPhpDoc` / `BuildPhpDocTypeExpression` keep bare type-parameter names and type-argument lists (used by polyfill `@property*` tags on generic hosts).
+- **Runtime reflection values:** `BuildRuntimeTypeExpression` (in generics partials) produces `\Tyhp\Type` / `\Tyhp\NamedType` expressions for `typeof`, property registration, Mechanism D binders, optional runtime checks, and source type-alias factory bodies. Class names inside `Type::generic` / `fromClassName` use the bound object's FQCN (`ResolveRuntimeClassName`) so same-namespace unqualified spellings (e.g. `Deferred` in `namespace Tyhp`) emit `\Tyhp\Deferred::class`, not `\Deferred::class`. A free type parameter never becomes `Type::fromClassName(T::class)` — it uses the Mechanism D capture, the class GenericObject lookup, or erased `Type::mixed()` when the binding is unavailable in the current emit context. A callable that mentions its own type parameter as a call-site type argument (`wrap<T>` calling `other<T>(…)`) is itself a Mechanism D variant, so `T` reads the binder capture rather than erasing. `_currentCallableGenericParamNames` still records those names so a non-variant callable cannot spell a fake `T::class`. **Structs** emit `\Tyhp\Type::struct('Name', [phpKey => Type, …], [requiredKeys])` instead of `fromClassName` (structs have no PHP class). Recursive struct fields fall back to `Type::array()`. **Object shapes** emit `\Tyhp\Type::objectShape('Name', ['method', …], ['prop', …])` (existence-only v1; `__construct` is omitted). `$x is ClockShape` lowers to `\Tyhp\Type::is($x, ClockShape())` (source factory) or an inlined `Type::objectShape(...)` for tyhpdef aliases — never native `instanceof ClockShape` and never a synthetic PHP `class ClockShape`. **Callable shapes** emit `\Tyhp\Type::callableShape('Name')` (existence-only v1: `\is_callable`; signatures are not compared). `$fn is Predicate<int>` lowers to `\Tyhp\Type::is($fn, Predicate(\Tyhp\Type::int()))` (source factory) or an inlined `Type::callableShape('Predicate')` for tyhpdef aliases — never native `instanceof Predicate` and never `Type::generic('Predicate', …)`. `$x is Point` for a struct-shape alias still uses `\Tyhp\Type::is` with `Type::struct(...)`. `$x is User` for a real class stays native `instanceof`. **`array` / `iterable` type arguments** emit `Type::generic('array', …)` / `Type::generic('iterable', …)` with a string name, not `\array::class`. `typeof(array<…>)` / `typeof(iterable<…>)` use that generic path rather than the bare `Type::array()` / `Type::iterable()` scalar factory — a parameterized builtin is not a simple scalar spelling and must not collapse to the scalar factory call. `GuessGenericParamName` labels those arguments: one-argument `array<T>` / `iterable<T>` is `TValue` (PHP's value-type shorthand); two-argument `array<TKey, TValue>` / `iterable<TKey, TValue>` is index 0 `TKey` and index 1 `TValue`. **Source alias factories:** `_aliasFactoryGenericParamExprs` maps the alias's own generic parameters to `$T` inside `EmitTypeAliasFactory` (not `typeof(T)` / HasGenerics). Nested **source** aliases become factory calls (`UserId()`, `self::NameType()`, `\App\Types\UserId()`), both in factory bodies and at `typeof` / `is` / `default` call sites. **Tyhpdef** aliases inline `BuildRuntimeTypeExpression` of their body (no PHP function). Two-member `T|null` unions prefer `Type::nullable`. `self` / `static` / `parent` in a class-level factory body emit `Type::fromClassName(self::class)` (etc.). Template-string aliases emit `Type::string()`; bare `callable` aliases emit `Type::callable()`; callable-shape aliases emit `Type::callableShape('Name')`. Call-site lowering: `typeof(UserId)` → `UserId()`; `typeof(Optional<int>)` → `Optional(\Tyhp\Type::int())`; `typeof(self\UserIdType)` → `self::UserIdType()`; `typeof(C\NameType)` → `C::NameType()`; `$x is UserId` → `\Tyhp\Type::is($x, UserId())`; `$x is User` (a real class) stays native `instanceof`; `default(UserId)` → `UserId()->defaultValue()`. An alias of a class still uses `Type::is`, not native `instanceof` of the underlying class. Requires `tyhp/core` whenever this lowering needs `\Tyhp\Type`.
+
+### Type-alias Type factories
+
+Source `type Alias = …` declarations always emit a PHP factory that returns `\Tyhp\Type`, even when the compilation unit never writes `typeof`. Hints still expand through `TypeSpellingHelper` / `TypeAliasMap` (`function f(UserId $id)` → `int $id`); the factory is never used in a PHP type-hint position. Requires package `tyhp/core`.
+
+| Declaration | PHP |
+|---|---|
+| File-level `type UserId = int;` | `function UserId(): \Tyhp\Type` in the alias's namespace, `_functions.php` with other namespace functions (`AddNamespaceFunction`) |
+| File-level `type Optional<T = mixed> = T\|null;` | `function Optional(?\Tyhp\Type $T = null): \Tyhp\Type` with `$T ??= \Tyhp\Type::mixed();` then `Type::nullable($T)` |
+| Class-level `public type NameType = string;` | `public static function NameType(): \Tyhp\Type` via `EmitClassMember` |
+
+Generic parameters are all optional PHP parameters defaulting to `null`, then coalesced to the alias's generic default (or `Type::mixed()`). `Type::union` is used only for two or more non-nullable-shaped members. Circular source aliases (binder TYHP3029) do not emit a recursive factory, except object-shape and callable-shape aliases whose descriptors are name-only (`Type::objectShape` / `Type::callableShape`) and therefore not recursive. `declare(php=…)` / `#[\Tyhp\Php]` / `#[\Tyhp\NoEmit]` follow the same keep/drop rules as other declarations. Tyhpdef aliases never emit a PHP function.
+
+Covered by `TypeAliasEmitterTests` (declaration factories and call-site `typeof` / `is` / `default` lowering).
 
 ### File splitting rules (summary)
 
 `PHPOutputFileSplitter`:
 
 - **Named object types** → one PSR-4 file via `OutputPathResolver.ResolveObjectPath`.
-- **Functions / consts / ungated root code in a namespace** → `…/Namespace/_functions.php` (existence-gated functions sorted last).
+- **Tyhp `extension { }`** → a PSR-4 backer class only when at least one member has a brace body (`!IsShortSyntax`). All-`=>` extensions produce no PHP file.
+- **Functions / consts / source type-alias factories / ungated root code in a namespace** → `…/Namespace/_functions.php` (existence-gated functions sorted last).
 - **`declare(output_file="…")`** → force single output path for subsequent content.
-- **Entry points** (top-level executable code without `output_file`) → path mirroring source under output (`ResolveEntryPointPath`).
-- **`TyhpStructDeclAst` / `TyhpTypeAliasAst`** → no output file of their own (erased).
+- **Entry points** (top-level executable code without `output_file`) → path mirroring source under output (`ResolveEntryPointPath`). Library TYHP7505 uses this flag. `use extension` / `global use extension` are compile-time only and never become entry points. `declare(php=…) { … }` unwraps; inner **executable** statements still do, inner `extension` / other declarations do not.
+- **`TyhpStructDeclAst`** → no output file of their own (erased). Named `type Name = struct { };` aliases (file-level or class-member) also emit nothing (no `\Tyhp\Type` factory); `new Name() with` / `new C\Name() with` rewrites to array construction via `StructEmissionHelper`. Inline `struct { … }` in type position spells as `array`. `$x is C\Point` reifies to `\Tyhp\Type::is($x, Type::struct(…))`, not `new \C\Point` or an alias factory.
+- **Source `TyhpTypeAliasAst`** → namespace function in `_functions.php` (see type-alias factories above). Tyhpdef aliases are skipped.
+- **Class-body `TyhpTypeAliasAst`** → `static function` on the owning class (`EmitClassMember`), not an empty item.
 - **Existence gates** (`if (!function_exists('…')) { function … }`) travel with the gated declaration.
+- **File-level `declare(php=…);` inactive** (`FileSymbol.IsPhpVersionGateInactive`) → no output files for that source (binder already omitted symbols).
+- **Block `declare(php=…) { … }`** → never a PHP `declare`. Active blocks unwrap their body into the same classification path as siblings (so inner executable code is still an entry point; inner `extension` declarations are not); inactive blocks contribute no statements. Empty `declare(php=…);` is omitted from `FileDeclares` the same way `output_file` without a body is.
+- **`use extension` / `global use extension`** → compile-time only; skipped by the splitter (no PHP `use`, no entry-point file).
 
 ---
 
@@ -226,7 +276,7 @@ Tyhp has no PHP generics. Emission uses three related strategies documented in `
 
 ### Type erasure (always)
 
-In type-hint positions, generic parameters become their constraint or `mixed` (`TypeSpellingHelper`). Generic argument lists are stripped from class/function names (`StripGenericsFromName`). Union/intersection spellings collapse when `mixed` appears. Intersection constraints are normalized to PHP-legal forms: class/interface conjuncts are kept (`Foo & Bar`); illegal members (`object`, `array` from structs, `callable`, scalars) are dropped, with fallback to a single useful builtin so `object&TProperties` (→ `object&array`) erases to `object` rather than `mixed` (e.g. `ObjectHelper::with`).
+In type-hint positions, generic parameters become their constraint or `mixed` (`TypeSpellingHelper`). Generic argument lists are stripped from class/function names (`StripGenericsFromName`). Union spellings flatten nested alias expansions and drop duplicate atoms before join; union/intersection spellings collapse when `mixed` appears. Intersection constraints are normalized to PHP-legal forms: class/interface conjuncts are kept (`Foo&Bar`); illegal members (`object`, `array` from structs, `callable`, scalars) are dropped, with fallback to a single useful builtin so `object&TProperties` (→ `object&array`) erases to `object` rather than `mixed` (e.g. `ObjectHelper::with`).
 
 ### Mechanism C — class / instance generics (`TyhpEmitter.Generics.cs` + `GenericClasses.cs`)
 
@@ -234,7 +284,7 @@ Used when the checker marks an `ObjectDeclarationSymbol` in `RequiresRuntimeGene
 
 **Shape:**
 
-1. Apply `\Tyhp\Concerns\HasGenerics` **once**, at the **topmost** generic level in the chain (`ShouldApplyGenericObjectTrait`). The trait hosts a public `\Tyhp\GenericObject $__tyhpGeneric` bag created in `__bootTrait_Tyhp_Concerns_HasGenerics` and composes `BootsTraits` for `tyhpBootTraits()`. Lower levels must not re-apply the trait.
+1. Apply `\Tyhp\Concerns\HasGenerics` **once**, at the **topmost** generic level in the chain (`ShouldApplyGenericObjectTrait`). The trait hosts a public `\Tyhp\GenericObject $__tyhpGeneric` bag created in `__bootTrait_Tyhp_Concerns_HasGenerics` and composes `BootsTraits` for `tyhpBootTraits()`. Lower levels must not re-apply the trait. Skip when the author already wrote `use HasGenerics;` / `use \Tyhp\Concerns\HasGenerics;` (`ObjectAlreadyUsesGenericObjectTrait`). Trait-use names are `PhpNameAst` nodes whose text lives in `ValueString` while `Identifier` stays `""`, so matching must use `NameText` (`Identifier` if non-empty, else `ValueString`) — `Identifier ?? ValueString` never falls through.
 2. Each level in the chain emits `protected function __initGenerics__tyhpGeneric(?\Tyhp\Type ...$generics): void` (`GeneratedNames.GenericInitHook`). The hook starts with `$this->tyhpBootTraits();` so factories that use `newInstanceWithoutConstructor()` still create the bag.
 3. The hook records this level’s bindings keyed by declaring class FQN, registers generic-typed property types, then either `parent::__initGenerics__tyhpGeneric(...)` or `$this->__tyhpGeneric->markBound()`.
 4. Every constructor (author or synthesized) gets a prologue:
@@ -245,7 +295,7 @@ Used when the checker marks an `ObjectDeclarationSymbol` in `RequiresRuntimeGene
    }
    ```
    Uses `self::` (not `$this->`) so a derived override is not dispatched with the wrong argument list.
-5. Instantiation of a tracked generic class goes through a generated factory `new_<MangledFqn>__tyhpGeneric` (Reflection `newInstanceWithoutConstructor` + init hook + constructor), not bare `new` with type args on the class name.
+5. Instantiation of a tracked generic class goes through a generated factory `new_<MangledFqn>__tyhpGeneric` (Reflection `newInstanceWithoutConstructor` + init hook + constructor), not bare `new` with type args on the class name. Omitted type arguments at `new` use explicit AST args first, then checker `ExpressionTypes` when context inferred `Box<int>` from the expected type, then `null` so the factory applies declared defaults.
 6. **Free generic property set checks:** properties (and promoted params) typed exactly `T` or `?T` (a class generic parameter — not `Promise<T>`, `array<T>`, etc.) get an always-on runtime set check when not `readonly` and when the author did not already write hooks:
    - **PHP ≥ 8.4:** a synthetic native set hook: `set(mixed $value) { $this->__tyhpGeneric->checkProperty('name', $value); $this->name = $value; }`
    - **PHP &lt; 8.4:** a PropertyAccessor registration with `Type::mixed()` and a set method (`__set_<prop>__tyhpPropertyHook`) that calls `checkProperty` + `__tyhpPropertyHook->setBacking` (PA's own type check is a no-op; the real check is in the method)
@@ -269,16 +319,18 @@ Supersedes Mechanism A for callable generics. The **emitted** shape is D
 
 When the checker marks a callable in `RequiresGenericVariant`:
 
-1. **Wrapper** under the declared name: same value signature; body delegates into the binder. Type args are `null`, or `Type::fromCallableReturn($param)` when a value parameter is typed `callable<…, T>` / `Closure<…, T>` matching a binder generic (so PHP callers that omit `<T>` still bind from the callable’s reflected return type).
+1. **Wrapper** under the declared name: same value signature; body delegates into the binder. Type args are `null`, or `Type::fromCallableReturn($param)` when a value parameter is typed `callable(...): T` / `\Closure<callable(...): T>` matching a binder generic (so PHP callers that omit `<T>` still bind from the callable’s reflected return type). Closure class type arguments are not return-last.
 2. **Binder** named `Name__tyhpGeneric` taking only `?\Tyhp\Type $__generic_<Param>` parameters and returning `\Closure` with the author’s value signature. **Type-arg defaults / null-coalescing run on the binder itself** (above `return function …`), then the Closure captures the settled `$__generic_*` values; the author’s body lives inside that Closure.
 3. Interfaces / abstract methods emit **both** signatures so implementors must declare the binder.
 4. Call sites flagged in `GenericCallTargets` emit `callee__tyhpGeneric(typeArgs…)(valueArgs…)` via `TryBuildGenericVariantCall`.
 
-`typeof(T)` / `default(T)` inside a variant read the captured `$__generic_T` parameters (`BuildVariantTypeofLookup` / `BuildVariantDefaultLookup`), not the instance registry — which is why free functions and static methods can use their own generics at runtime.
+`typeof(T)` / `default(T)` inside a variant read the captured `$__generic_T` parameters (`BuildVariantTypeofLookup` / `BuildVariantDefaultLookup`), not the instance registry — which is why free functions and static methods can use their own generics at runtime. `new T(...)` where `T` is a binder generic emits `new ($__generic_T->getName())(...)` (`TryBuildNewGenericTypeParameterExpression`). Class-generic `new T(...)` still uses the NamedType lookup `getUnderlyingType()->getName()`.
 
 `new self<T>(…)` / bare `new static(…)` inside a flagged body routes through the current class’s Mechanism C factory when the class is in the generic chain, so method generics bind onto the constructed instance (e.g. `Promise::_async` with `: self<T>`). Parameterized `new static<…>` is rejected by the checker (TYHP4168).
 
-`instanceof T` / `is T` reify the same way (`TryBuildReifiedInstanceofCheck`). **Builtin** targets (`is int`, `instanceof string`, and the other `\Tyhp\Type` scalar factories) reify to `\Tyhp\Type::is($x, \Tyhp\Type::int())` because native PHP `instanceof` requires a class name. **Parameterized** targets (`instanceof self<T>`, `instanceof Box<U>`) reify to `\Tyhp\Type::is($x, Type::generic(…))` via `BuildRuntimeGenericFromClassAndArgs` so type arguments are not erased by native PHP `instanceof`. Bare `instanceof static` / `instanceof Foo` stay as PHP `instanceof`. Parameterized `instanceof static<…>` is forbidden.
+`is T` / `instanceof T` (`TryBuildReifiedInstanceofCheck`): after expanding transparent aliases, a `#[\Tyhp\NativeTypeTest]` function or concrete static method registered for exact `T` emits `\Fqn($x)` or `\Class::method($x)` (e.g. `$x is string` → `\is_string($x)`). Unmarked class / interface / enum / trait stay native PHP `instanceof`. Otherwise `\Tyhp\Type::is` — unmarked scalars, unions, structs, generic parameters, unmarked aliases, object-shape aliases, callable-shape aliases. **Parameterized aliases** (`$fn is Predicate<int>`) use the alias factory / inlined shape descriptor before the generic-class path, so they never become `Type::generic('Predicate', …)`. **Parameterized** nominals (`$x is self<T>`, `$x is Box<U>`) reify to `\Tyhp\Type::is($x, Type::generic(…))` via `BuildRuntimeGenericFromClassAndArgs` so type arguments are not erased by native PHP `instanceof`. Bare `$x is static` / `$x is Foo` stay as PHP `instanceof`. Parameterized `$x is static<…>` is forbidden.
+
+`$x is ?T` (parser wraps the RHS in a synthetic prefix `?` unary, `CheckerHelpers.IsNullableInstanceofMarker`) always reifies to `\Tyhp\Type::is($x, \Tyhp\Type::nullable(<target>))` — never native `instanceof ?ClassName`, since PHP has no such syntax, even for a plain declared class that would otherwise stay native. `<target>` is built by `BuildInstanceofTargetRuntimeType`, which shares the builtin-scalar / alias-factory / parameterized-generic helpers above and falls back to `BuildTypeofFromName` for a bare in-scope type parameter. `BuildTypeofFromName` emits `fromClassName(self::class)` (and `parent` / `static`) for relative keywords inside a class; it takes the GenericObject / Mechanism D lookup only when the name is an actual in-scope generic parameter (`IsObjectGenericParamName` / `IsVariantGenericParamName` or a bound `GenericTypeParameterSymbol`), matching `TryBuildReifiedInstanceofCheck`. Unresolved barewords fall back to `Type::mixed()` on checker-bypass emit; the checker reports TYHP3003 so a full compile does not emit them. `instanceof ?T` has no grammar path (the nullable `?` addon is `is`-only) and remains a parse error.
 
 ### Optional runtime checks
 
@@ -296,9 +348,9 @@ When the checker marks a callable in `RequiresGenericVariant`:
 | `PropertyHookGetMethod(prop)` | `__get_<prop>__tyhpPropertyHook` |
 | `PropertyHookSetMethod(prop)` | `__set_<prop>__tyhpPropertyHook` |
 | `PropertyHookInitHook` | `__initPropertyHooks__tyhpPropertyHook` |
-| `ExtensionReceiverThisAlias` | `$this_` (emit-time rename only; not checker-reserved) |
+| `ExtensionReceiverThisAlias` | `$this_` (emit-time name of the synthesized extension receiver; not checker-reserved) |
 
-The checker reserves the generic / property-hook names so user declarations cannot collide case-insensitively with generated symbols. `ExtensionReceiverThisAlias` is an emit-only spelling for receivers the author named `$this`.
+The checker reserves the generic / property-hook names so user declarations cannot collide case-insensitively with generated symbols. `ExtensionReceiverThisAlias` is the PHP name of a block-target extension’s synthesized receiver. A sibling parameter already spelled `$this_` lengthens the alias (`$this__`, …).
 
 ---
 
@@ -308,7 +360,7 @@ Owned by `TyhpEmitter.PropertyAccessors.cs`. Gate: `ShouldLowerPropertyAccessors
 
 ### PHP ≥ 8.4 (default `EmitConfig.TargetPhpVersion` is `"8.4"`)
 
-- Native property hook syntax is emitted multiline (PSR-12 / PHPCS): the property line opens `{`, each hook sits on its own indented line, and hook bodies use `BuildMethodBodyInline(..., compact: false)` so statements are not jammed onto one line. Tests assert no trailing `;` after hook blocks and no empty `()` on parameterless `get`. Abstract / interface hooks with a null body (`get;` / `set;` from `VisitPropertyHookBody`) emit a bare semicolon, not `{}`. Hook attributes (`#[…]` before each hook name) emit inline on the hook line. By-ref get (`&get`, ampersand before the hook name) is emitted natively. No `UsesPropertyAccessors` trait. Free object-generic properties without author hooks also receive a synthetic multiline set hook (see Mechanism C §6). Promoted constructor parameters that carry hooks force a multiline parameter list.
+- Native property hook syntax is emitted multiline (PER-CS 3.0): the property line opens `{`, each hook sits on its own indented line, and hook bodies use `BuildMethodBodyInline(..., compact: false)` so statements are not jammed onto one line. Tests assert no trailing `;` after hook blocks and no empty `()` on parameterless `get`. Abstract / interface hooks with a null body (`get;` / `set;` from `VisitPropertyHookBody`) emit a bare semicolon, not `{}`. Hook attributes (`#[…]` before each hook name) emit inline on the hook line. By-ref get (`&get`, ampersand before the hook name) is emitted natively. No `UsesPropertyAccessors` trait. Free object-generic properties without author hooks also receive a synthetic multiline set hook (see Mechanism C §6). Promoted constructor parameters that carry hooks force a multiline parameter list with a trailing comma.
 
 ### PHP &lt; 8.4 polyfill
 
@@ -316,7 +368,7 @@ Authored `&get` is **not** polyfilled: the checker rejects it with TYHP4167 (`Ch
 
 When the object has hooked properties (including promoted constructor params with hooks, and synthetic free-generic set-check properties) **or** an ancestor lowers hooks (property-hook chain):
 
-1. Inject `use \Tyhp\Concerns\UsesPropertyAccessors;` at the **topmost** hooked level only (descendants inherit the bag). Skip when an ancestor is already in the property-hook chain. Also treats author `HasPropertyAccessors` as already covered.
+1. Inject `use \Tyhp\Concerns\UsesPropertyAccessors;` at the **topmost** hooked level only (descendants inherit the bag). Skip when an ancestor is already in the property-hook chain. Also treats author `HasPropertyAccessors` / `UsesPropertyAccessors` as already covered (`ObjectAlreadyUsesPropertyAccessorsTrait`, same `NameText` matching as HasGenerics — `PhpNameAst.Identifier` is `""`).
 2. **Do not emit** the hooked property declaration with native hook syntax (`ShouldSkipEmittingHookedProperty` — covers author hooks and synthetic free-generic names). Attributes on those hooks are **stripped** with warning `EmitterAttributeStrippedForPhpVersion` (TYHP5017) — the polyfill cannot preserve ReflectionProperty::getHook attribute semantics.
 3. Emit private methods `__get_<prop>__tyhpPropertyHook` / `__set_<prop>__tyhpPropertyHook` for each author (or synthetic) hook body. Registration uses a Mechanism C–style init chain, **not** inline ctor registration for ordinary (non-promoted) properties:
    - Each level in the chain emits `protected function __initPropertyHooks__tyhpPropertyHook(): void` (`GeneratedNames.PropertyHookInitHook`). The hook starts with `$this->tyhpBootTraits();`, early-exits when `isInitialized(self::class)` if this level registers accessors, registers **this level’s** accessors only (`declaringClass: self::class`) via **Mechanism D** on `PropertyAccessorObject::register<TType>` (never `\Tyhp\Generic::bind`), then `parent::__initPropertyHooks__tyhpPropertyHook()` when an ancestor also lowers hooks, or `$this->__tyhpPropertyHook->markBound()` at the topmost level.
@@ -423,7 +475,7 @@ Gate: `IsPhpVersionAtLeast(8, 5)`.
 
 `(void)` is not a value-producing cast (see Grammar §7). Statement form and for-list items
 share the same unary AST path. Native emit preserves source cast spelling and spaces after
-the cast per PSR-12 §6.1. On &lt; 8.5 the cast token is unknown — omit it; the discard has no
+the cast per PER-CS §6.1. On &lt; 8.5 the cast token is unknown — omit it; the discard has no
 runtime effect beyond evaluating the expression.
 
 | Source | ≥ 8.5 (native) | &lt; 8.5 (lowered) |
@@ -499,6 +551,7 @@ present.
 | Top-level / namespace `const` `#[…]` | ≥ 8.5 — `AttachAttributes` on `EmitType.RootStatement` | Strip + TYHP5017 (`targetDescription`: `constant`); `const` line unchanged | `EmitConstDeclaration` |
 | Class / object `const` `#[…]` | ≥ 8.0 (all Tyhp targets) | N/A — always attach | `EmitConstDeclaration` |
 | Property-hook `#[…]` (inline) | ≥ 8.4 — `FormatInlineAttributes` in native hook block | When hooks are polyfilled (&lt; 8.4): property + hooks omitted from native syntax; `ReportStrippedPropertyHookAttributes` → TYHP5017 per hook | `PropertyAccessors` + `ReportStrippedAttributes` |
+| Parameter `#[…]` (inline) | ≥ 8.0 (all Tyhp targets) — `FormatInlineAttributes` in `FormatParameter` / `FormatParameterWithoutPromotion` | N/A — always prefix | `FormatParameter` |
 
 | Source (target &lt; gate) | Emitted | Diagnostic |
 | --- | --- | --- |
@@ -506,7 +559,143 @@ present.
 | `{ #[Attr] get { … } }` on hooked prop (&lt; 8.4 polyfill) | polyfill methods / register; no native hook `#[…]` | TYHP5017 per hook attribute |
 
 Helpers: `AttachAttributes`, `FormatInlineAttributes`, `ReportStrippedAttributes`,
-`ReportStrippedPropertyHookAttributes` in `TyhpEmitter.Helpers.cs`.
+`ReportStrippedPropertyHookAttributes` in `TyhpEmitter.Helpers.cs`. `CollectAttributeLines`
+and `ReportStrippedAttributes` skip any attribute whose class is tagged `#[\Tyhp\NoEmit]`
+(see §6i), so compile-time-only attributes are never treated as a PHP-version representation
+problem.
+
+---
+
+## 6g. PHP version gate stripping (`declare(php=…)` / `#[\Tyhp\Php]`)
+
+Gate constructs are never written as `declare(php=…)` / `#[\Tyhp\Php]` in emitted PHP (runtime checks
+that replace them are described at the end of this section). They follow the same
+Tyhp-only declare filter as `output_file` and `autoload`: `IsTyhpOnlyDeclareKey` in
+`TyhpEmitter.Helpers.cs` and `PHPOutputFile.FormatDeclare`.
+
+**`declare(php="…")`**
+
+- The `php` directive is never written. `declare(strict_types=1)` and other real PHP directives
+  in a *separate* sequential `declare` still emit. (`php` mixed with other keys in the *same*
+  `declare` is a checker error; emit still drops `php` and keeps the remaining keys.)
+- **File-level** unsatisfied gate: splitter returns no `PHPOutputFile`s for that source when
+  `FileSymbol.IsPhpVersionGateInactive`.
+- **Block** form: `EmitDeclareStatement` checks `DeclareBlockSymbol.IsPhpVersionGateInactive` on
+  `PhpDeclareAst.BoundSymbol` (binder stamps that symbol onto the declare AST). Inactive → empty
+  item. Active php-only blocks unwrap: body statements emit onto the parent with no
+  `declare(php=…) { }` wrapper. Splitter does the same unwrap so inner classes/functions land on
+  the usual PSR-4 / `_functions.php` paths.
+- Nested `declare(php=…)` inside a function uses the same emit unwrap/skip; there is no second
+  declare-filter mechanism.
+
+**`#[\Tyhp\Php(…)]`**
+
+- **Gating** (keep vs drop the host declaration) is identified by bound FQCN `\Tyhp\Php` or
+  written `\Tyhp\Php` / `Tyhp\Php` (same recognition as the binder). Positional and named
+  `version:` arguments are both attributes of that class.
+- **Attribute-line stripping** is not a second `\Tyhp\Php` name check: `\Tyhp\Php` is tagged
+  `#[\Tyhp\NoEmit]`, so `CollectAttributeLines` omits it through the general rule in §6i. Any
+  other attributes on the same declaration still emit.
+- Declarations the binder omitted (unsatisfied attribute → no `BoundSymbol`) are not split into
+  output files and `EmitNode` / `EmitClassMember` skip them. Declarations *without* `#[\Tyhp\Php]`
+  still emit when unbound so parse-only emitter tests keep working.
+
+**Runtime checks (`RuntimeGateEmission`, `TyhpEmitter.FallbackDeclarations.cs`)**
+
+`output.phpVersion` is the oldest PHP the output runs on, so a surviving php gate is classified over
+every version at or above it by `PhpVersionConstraint.ClassifyAtOrAbove` (Never / Always /
+Conditional). Only Conditional gates emit, as a `\PHP_VERSION_ID` expression built from the
+constraint's breakpoint intervals. `declare(ext="…")` always emits `\extension_loaded('…')` /
+`!\extension_loaded('…')`.
+
+- The binder stamps each symbol with `EffectivePhpVersionConstraints` (declare stack plus
+  `#[\Tyhp\Php]`) and `EffectiveExtGates` (enclosing `declare(ext)`, outermost first).
+  `RuntimeGateEmission.GetConditions(node, minimum)` turns that into the list of `if` conditions.
+- `TryEmitConditionalDeclaration` (called at the top of `EmitNode`) wraps `PhpFunctionDeclAst`,
+  `PhpObjectTypeDeclAst` and `PhpConstDeclListAst` in nested `if` blocks: php condition, ext
+  conditions, then the `fallback` existence check innermost. `_fallbackWrapped` stops the inner
+  `EmitNode` call from wrapping again. A `PhpConstDeclListAst` emits `\define(NAME, value)` inside
+  the checks, with `!\defined(NAME)` innermost for `fallback const`; `NAME` has no leading backslash
+  in the global namespace.
+- A `declare(php=…)` / `declare(ext=…)` block that is a statement inside a function body
+  (`EmitDeclareStatement` with `EmitType.FunctionStatement` / `SubBlockStatement`) wraps its
+  unwrapped body in `if` blocks built from `RuntimeGateEmission.GetBlockConditions`, which reads only
+  the block's own gates (`DeclareBlockSymbol.PhpVersionConstraint`, `DeclareBlockSymbol.ExtGate`);
+  the enclosing declaration already carries the outer ones. Top-level blocks still unwrap and rely on
+  the gates stamped on the declarations inside.
+  `EmitStatementSequence` (used by `EmitBlockContents` and `EmitDeclareBodyUnwrapped`) merges two
+  adjacent active blocks whose ext gates are opposite (`RuntimeGateEmission.AreComplementaryExtGates`)
+  into one `if (…) { … } else { … }` through `EmitBraceSegments`, in source order. Opposite php gates
+  cannot pair: only the variant that matches `output.phpVersion` compiles, so its partner is never
+  bound.
+- The splitter routes a function or const with a `fallback` marker or any runtime condition to
+  `NamespaceFunctionBucket.GatedStatements` (emitted after plain declarations); classes keep their
+  PSR-4 file and the wrapper is applied there.
+- `BaseSymbol.HasUncompiledVersionVariants` suppresses the php condition (not the ext condition).
+  The binder sets it when the same function/type name is also declared under a php gate that is not
+  satisfied at `output.phpVersion` but could hold on a newer PHP — either an unbound record in
+  `_phpVersionGatedDeclarations` or a name inside an unbound `declare(php)` block
+  (`_uncompiledVersionVariants`). Only the matching declaration is compiled, so wrapping it would leave
+  the name undeclared on the newer version.
+- `ext` is a Tyhp-only declare key alongside `php` (`IsExtDeclareKey`).
+
+Covered by `PhpVersionGateEmitterTests`, `RuntimeGateEmitterTests` and `FallbackDeclarationEmitterTests`.
+
+---
+
+## 6h. `#[\Tyhp\PhpType]` emit hint
+
+`#[\Tyhp\PhpType('…')]` is compile-time only. The constructor string replaces the host’s **PHP
+type** (parameter, function/method return, property, typed class constant). Checker types stay
+the Tyhp annotation. Usages (and the `PhpType` class itself) are omitted from emitted PHP
+because `\Tyhp\PhpType` is tagged `#[\Tyhp\NoEmit]` (§6i) — not because emit special-cases the
+`PhpType` name. Hint lookup still uses `PhpTypeAttributeSupport.IsPhpTypeAttribute` (bound FQCN
+or written name) in `TyhpEmitter.PhpType.cs`.
+
+Lookup and inherit live in `TyhpEmitter.PhpType.cs`:
+
+- Local attribute on the host wins.
+- Otherwise a non-private ancestor method/property that this declaration satisfies can supply
+  the hint (BFS via `TypeComparer.EnumerateDirectAncestors`), so implementors do not repeat it.
+- Constructor promotion: one attribute on the promoted parameter covers the emitted
+  `public mixed $id` (param and property are the same signature fragment).
+- `__construct` / `__destruct` do not inherit or emit a return hint.
+- File-level `const` currently has no PHP type; the attribute is stripped and no type is
+  injected (`const mixed TAG` is invalid at file scope).
+
+Covered by `PhpTypeEmitterTests`.
+
+---
+
+## 6i. `#[\Tyhp\NoEmit]` declaration and usage erasure
+
+`#[\Tyhp\NoEmit]` is the single emit-omission rule for compile-time-only types. Helper:
+`NoEmitAttributeSupport` (`Tyhp/TyhpLang/Emitter/NoEmitAttributeSupport.cs`).
+
+**Marker recognition** (non-recursive): an attribute *is* `\Tyhp\NoEmit` when its bound FQCN or
+written name is `\Tyhp\NoEmit` / `Tyhp\NoEmit`. The self-tagged `NoEmit` class does not require
+walking “is NoEmit tagged with NoEmit” — one lookup of the immediate attribute list is enough.
+
+**Declaration erasure:** a `class` / `interface` / `trait` / `enum` (and an `extension` that would
+otherwise emit a backer) whose own attribute list contains the marker is not split into a PHP
+file (`PHPOutputFileSplitter`) and `EmitNode` / `EmitObjectDeclaration` emit an empty item.
+Nested types are covered if they go through `EmitObjectDeclaration`.
+
+**Usage erasure:** `CollectAttributeLines` / `ReportStrippedAttributes` skip an attribute when
+it is the marker, or when its `BoundSymbol` is an `ObjectDeclarationSymbol` whose declaring
+node is tagged with the marker. The host declaration still emits; only that `#[…]` line is
+dropped. PHP attributes are not inherited, so only the class’s immediate attribute list is
+read.
+
+`\Tyhp\Php`, `\Tyhp\PhpType`, and `\Tyhp\NoEmit` are all tagged this way in `tyhp/core`. A later
+user-defined `#[\Tyhp\NoEmit] final class MyCompileTimeOnly` gets both behaviors with no further
+emitter changes.
+
+Version gating (`IsTyhpPhpGateAttribute` / binder `TyhpBinder.PhpVersionAttributes`) and PhpType
+hint substitution (`PhpTypeAttributeSupport`) stay name-specific to those two classes. They
+must not be inferred from “has NoEmit.”
+
+Covered by `NoEmitEmitterTests` and the existing Php / PhpType emitter tests.
 
 ---
 
@@ -519,7 +708,7 @@ Phase 2 of `Emit()`: `PHPOutputFile.ConvertAliases` → `new AliasConverter(cont
 ### What `AliasConverter` does (high level)
 
 1. Collect **protected member names** (anything after `->`) so case-insensitive tyhpdef alias maps cannot rewrite `$this->promise` into a class FQN.
-2. Collect **struct / object / typed variable** maps per function-like scope (and a global frame) because many `PhpVariableAst` nodes are unbound at use sites. Typed-variable collection also retains the full declared `ITypeExpression` so operator rewriting can recover `array<T>` / `array<K,V>` element types for `$arr[$i]` (the symbol map alone only stores the erased `array` builtin).
+2. Collect **struct / object / typed variable** maps per function-like scope (and a global frame) because many `PhpVariableAst` nodes are unbound at use sites. Typed-variable collection also retains the full declared `ITypeExpression` so operator rewriting can recover `array<T>` / `array<K,V>` element types for `$arr[$i]` (the symbol map alone only stores the erased `array` builtin). `foreach` value variables over `array<Struct>` / `iterable<Struct>` are registered as that struct (from checker `ExpressionTypes` on the binding node, or by peeling the iterable's declared type expression) so `$m->prop` rewrites the same way as an annotated `Struct $m`. When `ExpressionTypes` records the binding as Unresolved, that peel is skipped so `$item->prop` is not rewritten as array keys.
 3. Expand statement-context object `with` **in place** before the tree walk (assignments become property-assignment sequences). The same expand pass also statement-splits compound-assign / increment temps and overloaded postfix `++`/`--` used as values.
 4. `AstWalker.TransformTree` with `PreTransformWith` + `TransformNode` for the rest. The walk maintains `_functionStack` (per function-like frame for typed-var lookups) and `_classStack` (enclosing `ObjectDeclarationSymbol` for each `PhpObjectTypeDeclAst`) so `$this` resolves to the current class during operator-overload matching (`ResolveOperatorExpressionType`) and extension-method receiver resolution (`ResolveReceiverType`) — `$this` is never in the typed-var maps and is unbound by the binder. `_classStack` reflects the enclosing `PhpObjectTypeDeclAst` being walked, which for a **trait** is the trait's own declaration (method bodies are not inlined per user). Property-typed `$this->prop OP …` still resolves via the trait's declared members; a direct-operand `$this OP other` whose overload is declared only on a composing class is recovered by searching classes/enums that `use` the trait (temporarily pushing each user onto `_classStack` so `$this` matches that user's `self` parameters) and emitting `static::__op(...)` for late static binding — except extension operators, which still target the extension/owner FQN.
 
@@ -528,16 +717,18 @@ Phase 2 of `Emit()`: `PHPOutputFile.ConvertAliases` → `new AliasConverter(cont
 | Concern | Behavior |
 | --- | --- |
 | Type / tyhpdef aliases | Names and type nodes rewritten via `TypeAliasMap` / `TyhpdefAliasMap` built in `EmitContext.Create`. Replacements **copy `AstGrammarAddons`** so `new Foo<T>()` type args survive a tyhpdef `use` rewrite (otherwise Mechanism C factories get `null` type args). |
-| Structs | `new` / property access / `with` / `clone` via `StructEmissionHelper` (array or custom backing from `build.structBacking`) |
+| Structs | `new` / property access / `with` / `clone` via `StructEmissionHelper` (array or custom backing from `build.structBacking`). Property rewrite (`TryRewriteStructPropertyAccess`) only maps **declared** properties to `['key']`; methods / unknown names stay as `->name` so `$recv->ext()` is rewritten as an extension call rather than `$recv['ext']()`. Receiver typing consults checker `ExpressionTypes` when the AST node was memoized. An Unresolved receiver (checker recovery) is not rewritten to `[]` and is not used as an extension splice target. |
 | Object `with` | `WithKeywordHelper` (ObjectHelper, PHP 8.5 clone, experimental readonly clone-with; also PHP 8.5 keyword `clone(...)` lowering) |
-| Extension methods | Instance call → FQ static call on extension class; tracks FQ static imports for pruning. Receiver resolution (`ResolveReceiverType`) special-cases `$this` via `_classStack` so `$this->extensionMethod(...)` called from inside the extended class's own method also rewrites (`$this` has no `BoundSymbol` / typed-var entry otherwise). |
-| Extension `$this` receiver | `EmitExtensionMethod` / static operator branches: when the receiver (or operand) is named `$this`, set `EmitContext.ExtensionReceiverThisAlias` via `ResolveCollisionSafeThisAlias` — normally `GeneratedNames.ExtensionReceiverThisAlias` (`$this_`), or `$this__`/`$this___`/… if a sibling parameter/operand is already named that — spell it in the signature / `$this_ = $l` alias line, and rewrite body / nested-closure `$this` via `BuildVariableExpression` (WeakSelf still wins when active). Convert-to (`EmitConvertTo`) is always an instance method, so a self-operand literally named `$this` skips the alias line entirely instead of reassigning `$this` (PHP forbids `$this = $this;`) |
-| Operator overloads | Binary/unary/empty/cast → static/`__to*` calls via `OperatorOverloadResolver` + `OperatorMethodNameGenerator`. Implicit **convert** at call arguments, constructor arguments, and `return` jumps: when the formal parameter/return type is a single (nullable-unwrapped) target and the actual expression's type has a matching convert-to / convert-from overload, rewrite to `$expr->__to{T}()` or `\Type::__from($expr)` (`TryRewriteImplicitConvert`, using `_functionStack` return types and resolved callee `ParameterInfo` lists — including post-extension-rewrite static calls and `new Type(...)`'s `__construct` params via `TryRewriteConstructorArgumentConverts`; both share `RewriteArgumentListConverts` for positional/named argument matching). `ResolveStaticOperatorTarget`: standalone `extension E { operator +<T> }` rewrites to `E::__op` (methods emit on E); tyhpdef inline `extension operator` rewrites to the owner/`ExtensionTargetSymbol` (methods emit on the owner). Call-site selection looks up forms on the left operand's type first, then the right: class/interface via `ObjectDeclarationSymbol.ExtensionContributedOperators` (plus class-level overloads), and builtins/scalars via `BuiltInTypeSymbol.ExtensionContributedOperators` (e.g. `'-' * $n` → `\StringOperators::__multiply('-', $n)` when `operator *<string>` is in scope). When an operand resolves to a **trait** with no matching form, composing classes/enums that `use` the trait are probed (with `_classStack` temporarily set to each user) and a hit emits `static::__op(...)` so the shared trait method late-binds; extension forms still use the extension/owner FQN. Convert-to casts and implicit convert-to at call/return/`new` sites on trait-`$this` also accept a composing class's convert-to (`TraitComposingClassHasConvertToOverload`) and keep the instance call (`$this->__to{T}()`). `OperatorOverloadResolver` treats `self` as the owning class **or** owning builtin when matching forms. `ResolveOperatorExpressionType` recovers array-element types from `array<T>` / `array<K,V>` (bound declared types or collected type-expression maps) so `$arr[$i] += …` / `$arr[$i++] += …` can select overloads and extract by-ref temps; it still refuses to fall through to the array receiver itself. `$this` resolves via `_classStack` (pushed for each `PhpObjectTypeDeclAst`) so `$this->prop += …`, `$this->items[$i] += …`, and `$this->prop + …` rewrite the same way as `$o->prop`. Overloaded postfix `++`/`--` used as a value (`$b = $a++`) is statement-split before the tree walk (`$__old = $a; $a = \Type::__increment($a);` … `$__old`) so the expression yields the prior value; short-circuit / ternary-arm / `else if`-condition / loop-condition sites that cannot be split (conditionally or repeatedly evaluated) report TYHP5019. |
-| PropertyPath (Story 16 Phase 1) | In `RewriteArgumentListConverts`: when the parameter type is `\Tyhp\PropertyPath` (BoundSymbol / name; generics may already be erased) and the argument is an arrow `fn` whose body is a property/`?->` chain, rewrite to `new \Tyhp\PropertyPath($sourceType, $resultType, [$segments…], $fn)` via `PropertyPathEmissionHelper` and `RequirePackage("tyhp/lambda")`. A chain with `?->` appends `nullSafeFlags: [bool…]` so the runtime builds `NullSafeAccessExpression` nodes. Source/result strings prefer remaining generic args, else authored fn annotations, else `EmitContext.InferredClosureSignatures`; free type parameters erase to `mixed` rather than spelling `T::class`, and nullable types keep their `?`. When the parameter is `\Closure` and the argument is a PropertyPath/Expression value (typed var or `new`), rewrite to `$arg->callable`. |
-| Expression trees (Story 16 Phase 2–3) | After the PropertyPath rewrite attempt, when the parameter type is `\Tyhp\Expression` (not PropertyPath) and the argument is an arrow `fn`, `ExpressionTreeEmissionHelper` walks the body bottom-up into nested `new \Tyhp\Expression\XxxExpression(...)` nodes and wraps `new \Tyhp\Expression(body:, parameters:, callable:, returnType:)`. Per-node type strings come from `EmitContext.ExpressionTypes` (checker memo), falling back to `'mixed'`. Captures emit as `ConstantExpression($var, …)`. `is` / `instanceof` emit `InstanceofExpression` (operand + target type string / `Class::class`); the RHS is not rewritten as a value node. Multi-parameter fns emit one `ParameterExpression` per parameter. PropertyPath call sites stay on the Phase 1 helper. `nameof(fn ($x) => $x->a->b)` is folded by `BuildNameofExpression` to the last segment string — not an Expression construction. Free-function callees are resolved in the current output file's namespace (`ResolveNamespacedFreeFunction`) so `namespace App; sortBy(fn …)` still rewrites. |
+| Extension splice | **Before** the static-call rewrite, `CallSiteSpliceEngine` substitutes a single-`return` body at the call site (always on; not an optimizer pass — `optimize: none` still splices). When the call-site `BoundSymbol` is a bodyless overload signature, `SpliceAst.ImplementationForSplice` splices the implementation that owns `Overloads` (the bodyless node has no expression to substitute). Receiver / args / omitted defaults replace `$this` and parameters; the result is parenthesized; nested **splice-owned** callees (extension methods / operators / tyhpdef thin mappings — `IsSpliceOwnedCallee`) reduce to a fixpoint. Ordinary class methods are left as real calls even when their body is a single `return` (otherwise `$left->plus($right)` after an extension `operator +` splice would collapse to `$left` and drop `$right`). `OriginalAst` is stamped for sourcemaps. Repeated by-value args hoist to `($t = $arg)` at first use; repeated `&` args (including `extends T &$this`) emit `$t = &$arg;` in the enclosing statement list (`GeneratedNames.InlineTempVariablePrefix`). Simple variables / literals / constants skip the local. **Mechanism D extension methods are not spliced** (`RequiresGenericVariantFor`): the bound type argument must reach the binder at the call site. Unspliceable sites with a PHP backer (`HasPhpBacker = !IsShortSyntax` on Tyhp `extension { }` members) keep `\Ext::method(...)`; erased members (`=>`, tyhpdef thin mappings) are checker `TYHP4181`. Null-safe `?->` is not spliced. Tyhpdef class-body thin mappings always splice; `self::` / `parent::` / `static::` rewrite to the **receiver** class (`InlineExtensionReceiverClass`), never `__TyhpInlineExt_*`. Block-target extension `self` is already the target’s PHP spelling before splice (`ExtensionBlockSelfRewriter`), so an inlined body does not leave `self` meaning the extension class or the caller. A `self` still bound to a different object (a nested class) stays `self`. The static-call fallback prepends the receiver positionally and keeps other named arguments; it does not emit a `$this` / `this` argument name. If splice declines, compiler-generated scopes do **not** fall back to a synthetic static call or a fake owner `__add`. |
+| Extension backer class | `EmitExtensionDeclaration` emits `class Name { public static function … }` for brace members only, including members nested in `extends Type { }` groups. Short `fn` / `operator … =>` members are omitted from PHP. A block-target method’s first PHP parameter is the synthesized receiver (`$this_`), not a source argument. That parameter is by-ref (`&$this_`) only when the member is annotated `&$this`. A pure or by-value method emits `$this_` with no `&`, including object, class, interface, enum, scalar, `array`, and struct targets. `self` in the signature and body is the target’s PHP spelling. Operator methods keep `OperatorMethodNameGenerator` names (`__add`, …); convert-to/from stay `E::__to{T}` / `E::__from`, with `self` operands spelled as that group’s target. Convert-to is the form whose operand is that target, or whose operand is still the keyword `self` / `static`. `ExtensionBlockSelfRewriter` replaces `self` with the target spelling before `EmitConvertGroup`, so classification uses the target (and `OriginalAst` when it still names `self`), not only the keyword text left on the parameter. A multi-target extension (`extension E { extends A {...} extends B {...} }`) shares one backer, so two to-forms under different nested targets can land on the same `__to{T}` name (same return type, different post-rewrite operand); `EmitConvertTo` unions their operand types and dispatches by guard rather than keeping only the first. `EmitConvertFrom`'s single fixed `__from` name is shared the same way across every nested target's from-forms; its return type unions every distinct target those forms actually construct. A single-`return` brace member is both emitted and spliced at Tyhp call sites **unless** the member is Mechanism D (`RequiresGenericVariant`) — those emit a `public static` wrapper + `__tyhpGeneric` binder and are called, not spliced. Multi-statement members are emitted and called. If every member is `=>`, the splitter skips the PSR-4 file and emit returns empty — no backer class at all. Mixed members: the class contains only brace members. Class-owned `operator` / methods always emit; omitting the PHP method applies to extension members only. Class-body tyhpdef `extension fn` is unchanged (implicit receiver, no header `extends`). |
+| Extension methods | Instance call → FQ static call on the extension class when splice declines or the body is not a single `return` (`$x->m(currency: …)` → `\E::m($x, currency: …)`). The receiver is the first positional argument. Source named arguments are kept; `$this` is not one of them. If the call is not already bound, `ResolveExtensionMethod` runs, then a block-target match on `ExtensionBlockTargetSymbol` (the synthesized receiver’s type AST is not always resolvable from the global method index). A call-site `hide` (on the receiver, the file’s `use extension`, or a global `use extension`) suppresses the bound symbol and that block-target fallback, so the call stays an instance call. Receiver resolution (`ResolveReceiverType`) special-cases `$this` via `_classStack` so `$this->extensionMethod(...)` called from inside the extended class's own method also rewrites (`$this` has no `BoundSymbol` / typed-var entry otherwise). |
+| Extension `$this` receiver | `ActivateExtensionReceiverEmit` sets `EmitContext.ExtensionReceiverThisAlias` for every block-target method (`$this_`, or `$this__` / `$this___` / … when a real parameter already uses that spelling) and prepends that parameter on the PHP signature. The prepended parameter carries `&` only when the member is annotated `&$this`. Body and nested-closure `$this` rewrite through `BuildVariableExpression` (WeakSelf still wins when active). Operator operands keep their source names; a `$this` operand on a static operator branch uses the same alias (`$this_ = $l`). Convert-to (`EmitConvertTo`) on a class is always an instance method, so a self-operand literally named `$this` skips the alias line entirely instead of reassigning `$this` (PHP forbids `$this = $this;`). Standalone extension convert-to is a static method on E (`E::__toInt($o)`). |
+| Operator overloads | Binary/unary/empty/cast → static/`__to*` calls via `OperatorOverloadResolver` + `OperatorMethodNameGenerator`. Implicit **convert** at call arguments, constructor arguments, and `return` jumps: when the formal parameter/return type is a single target and the actual expression's type has a matching convert-to / convert-from overload, rewrite to `$expr->__to{T}()` or `\Type::__from($expr)` for class-owned convert. `?T` unwraps to `T`. A nullable union or intersection (`?(string|int)`, `?(Foo&Bar)`) keeps every arm, so it is not one convert target (`TryRewriteImplicitConvert`, using `_functionStack` return types and resolved callee `ParameterInfo` lists — including post-extension-rewrite static calls and `new Type(...)`'s `__construct` params via `TryRewriteConstructorArgumentConverts`; both share `RewriteArgumentListConverts` for positional/named argument matching). Standalone `extension E { operator convert<T> }` convert-to/from rewrite to `E::__to{T}($expr)` / `E::__from($expr)` (methods emit as static on E); compiler-generated tyhpdef inline convert keeps the class-owned instance/`Type::__from` target. `ResolveStaticOperatorTarget`: standalone `extension E { operator +<T> }` rewrites to `E::__op` (methods emit on E); a compiler-generated tyhpdef inline `extension operator` has **no** PHP target (splice already ran; never `__TyhpInlineExt_*` or a fake owner `__add`). Call-site selection looks up forms on the left operand's type first, then the right: class/interface via `ObjectDeclarationSymbol.ExtensionContributedOperators` (plus class-level overloads), and builtins/scalars via `BuiltInTypeSymbol.ExtensionContributedOperators` (e.g. `'-' * $n` → `\StringOperators::__multiply('-', $n)` when `operator *<string>` is in scope). When an operand resolves to a **trait** with no matching form, composing classes/enums that `use` the trait are probed (with `_classStack` temporarily set to each user) and a hit emits `static::__op(...)` so the shared trait method late-binds; extension forms still use the extension/owner FQN. Convert-to casts and implicit convert-to at call/return/`new` sites on trait-`$this` also accept a composing class's convert-to (`TryFindConvertToOverload`) and keep the instance call (`$this->__to{T}()`) unless the matching form is a standalone extension (then `E::__to{T}($this)`). `OperatorOverloadResolver` treats `self` as the owning class **or** owning builtin when matching forms. A block-target convert operand whose `self` was rewritten to the target type still counts as convert-to when that operand binds to the owning type. `ResolveOperatorExpressionType` recovers array-element types from `array<T>` / `array<K,V>` (bound declared types or collected type-expression maps) so `$arr[$i] += …` / `$arr[$i++] += …` can select overloads and extract by-ref temps; it still refuses to fall through to the array receiver itself. `$this` resolves via `_classStack` (pushed for each `PhpObjectTypeDeclAst`) so `$this->prop += …`, `$this->items[$i] += …`, and `$this->prop + …` rewrite the same way as `$o->prop`. Overloaded postfix `++`/`--` used as a value (`$b = $a++`) is statement-split before the tree walk (`$__old = $a; $a = \Type::__increment($a);` … `$__old`) so the expression yields the prior value; short-circuit / ternary-arm / `else if`-condition / loop-condition sites that cannot be split (conditionally or repeatedly evaluated) report TYHP5019. |
+| PropertyPath (Story 16 Phase 1) | In `RewriteArgumentListConverts`: when the parameter type is `\Tyhp\PropertyPath` (BoundSymbol / name; generics may already be erased) and the argument is an arrow `fn` whose body is a property/`?->` chain, rewrite to `new \Tyhp\PropertyPath($sourceType, $resultType, [$segments…], $fn)` via `PropertyPathEmissionHelper` and `RequirePackage("tyhp/lambda")`. The same rewrite runs for typed-local `PropertyPath<…> $p = fn (…) => …` via `TransformTypedVarExpressionCapture`. A chain with `?->` appends `nullSafeFlags: [bool…]` so the runtime builds `NullSafeAccessExpression` nodes. Source/result strings prefer remaining generic args, else authored fn annotations, else `EmitContext.InferredClosureSignatures`; free type parameters erase to `mixed` rather than spelling `T::class`, and nullable types keep their `?`. When the parameter is `\Closure` and the argument is a PropertyPath/Expression value (typed var or `new`), rewrite to `$arg->callable`. |
+| Expression trees (Story 16 Phase 2–3) | After the PropertyPath rewrite attempt, when the parameter type is `\Tyhp\Expression` (not PropertyPath) and the argument is an arrow `fn`, `ExpressionTreeEmissionHelper` walks the body bottom-up into nested `new \Tyhp\Expression\XxxExpression(...)` nodes and wraps `new \Tyhp\Expression(body:, parameters:, callable:, returnType:)`. Typed-local `Expression<callable(…): R> $e = fn (…) => …` uses the same helper from `TransformTypedVarExpressionCapture`. Per-node type strings come from `EmitContext.ExpressionTypes` (checker memo), falling back to `'mixed'`. Captures emit as `ConstantExpression($var, …)`. `is` / `instanceof` emit `InstanceofExpression` (operand + target type string / `Class::class`); the RHS is not rewritten as a value node. Multi-parameter fns emit one `ParameterExpression` per parameter. PropertyPath call sites stay on the Phase 1 helper. `nameof(fn ($x) => $x->a->b)` is folded by `BuildNameofExpression` to the last segment string — not an Expression construction. Free-function callees are resolved in the current output file's namespace (`ResolveNamespacedFreeFunction`) so `namespace App; sortBy(fn …)` still rewrites. |
 | Magic constants | Tyhp `__TYHP_*` → PHP equivalents |
-| Builtin / named types | Spell through alias maps; erase structs |
-| Symbol-name / algebra / Phase 5 utilities | `TypeSpellingHelper.TryEraseSymbolNameType` / `TryEraseTypeNameAlgebraType` / `TryEraseUtilityType` — `__ClassName`/`__MethodName`/… → `string`; `__TypeName`/`__AsType`/… → `string` or resolved type; `__StructKey`/`__Properties` → `string`; `__StructDef`/`\Tyhp\Parameters`/`__CallableParametersStruct`/`__CallableParametersTuple`/… → `array`; `__CallableParametersRest` → `mixed` (variadic element type; `array` would make PHP demand each unpacked argument be an array); `\Tyhp\ReturnType<callable<…,T>>` / `__CallableReturnType<callable<…,T>>` → `T` (via `CallableSignatureReflection`; unbound `TCallable` → `mixed`) |
+| Builtin / named types | Spell through alias maps; erase structs in hint positions. Named types under `typeof(...)` are not erased to `array` so `typeof(Point)` can emit `\Tyhp\Type::struct(...)`. |
+| Symbol-name / algebra / Phase 5 utilities | `TypeSpellingHelper.TryEraseSymbolNameType` / `TryEraseTypeNameAlgebraType` / `TryEraseUtilityType` — `__ClassName`/`__MethodName`/… → `string`; `__TypeName`/`__AsType`/… → `string` or resolved type; `__StructKey` → `string`; `__Properties` / `__StructDef`/`__CallableParametersStruct`/`__CallableParametersTuple`/… → `array`; `__CallableParametersRest` → `mixed` (variadic element type; `array` would make PHP demand each unpacked argument be an array); `__CallableReturnType<callable(...): T>` → `T` (via `CallableSignatureReflection`; unbound `TCallable` → `mixed`); `__SuperType` → `object`; `__SuperTypeName` → `string`; `__CurrentScope` / `__CallableThis` → `?object`; `__CallableScope` → `object|string|null`; `__IndexKeys` → `string|int`; `__IndexValueType` / `__IndexValueTypes` → `mixed` |
 
 ### Alias maps
 
@@ -545,10 +736,17 @@ Phase 2 of `Emit()`: `PHPOutputFile.ConvertAliases` → `new AliasConverter(cont
 
 - `TypeAliasSymbol` / `ObjectTypeAliasSymbol` → spelled PHP type strings (also `Class\Alias` and `self\Alias` keys for object aliases).
 - `UseIncludeSymbol` → tyhpdef / `use` alias map (`Name` → `ImportedName`). Still used for
-  class/const/variable declaration aliases and file-level `use` imports.
+  const/variable declaration aliases and file-level `use` imports. **Source type-alias**
+  class-kind imports (`use App\Types\UserId`) are excluded so `UserId` is not rewritten to a
+  relative FQN; factory calls keep the short name and import prune rewrites to `use function`.
 - `FunctionDeclarationSymbol.OriginalPhpName` → same free-name tyhpdef alias map for
   `function php_name as tyhpName` (symbol is registered under `tyhpName`; emit erases to the PHP
   name).
+- `ObjectDeclarationSymbol.OriginalPhpName` → same free-name map for
+  `class php_name as tyhpName` (including compiled-library `class Name as Name__tyhpExtensionBacker`).
+- `ObjectConstantSymbol.OriginalPhpName` → the same free-name map for a class constant
+  `IS as IS_OP`. `Type::IS_OP` is not an instance-member position, so it erases with the
+  free-name map rather than `TyhpdefMemberAliasMap`.
 - `ObjectMethodSymbol.OriginalPhpName` → `TyhpdefMemberAliasMap` (member `as` aliases). Member
   positions are protected from the free-name map so a class alias like `Promise` cannot rewrite
   `$this->promise`; they still erase through this dedicated map.
@@ -558,10 +756,10 @@ form, and re-anchors the replacement when the source name was root-qualified.
 
 ### Emitted naming helpers
 
-- **`EmittedFqnHelper`**: apply `output.namespacePrefix` only to project-owned object declarations (not `.tyhpdef`, `<embedded>`, `runtime/packages/`, or vendor `tyhp_src` / `tyhpdef`).
+- **`EmittedFqnHelper`**: apply `output.namespacePrefix` only to project-owned object declarations (not `.tyhpdef`, `<embedded>`, in-tree `runtime/packages/`, a `tyhp-runtime-src/packages` checkout or `TYHP_RUNTIME_SRC`, or vendor `tyhp_src` / `tyhpdef`).
 - **`OutputPathResolver`**: PSR-4 path from (possibly prefixed) FQN; functions → `_functions.php`.
 - **`TypeNameFormatter`**: stable segments for `__to{Segment}` convert methods.
-- **Import pruning**: after emit, drop erased types, unused imports, and imports only referenced via leading-`\` static calls (`TrackFullyQualifiedStaticCallImport`).
+- **Import pruning**: after emit, drop erased types (tyhpdef aliases, generic parameters, structs), unused imports, and imports only referenced via leading-`\` static calls (`TrackFullyQualifiedStaticCallImport`). Source file-level type-alias `use App\Types\UserId` is rewritten to `use function App\Types\UserId` when the factory is referenced by short name (`UserId()`, including `typeof` / `is` / `default` lowering); hints-only usage and fully-qualified `\App\Types\UserId()` drop the import. Mixed `use App\Types\{ User, UserId }` is already split into per-member imports (PER-CS); `User` stays class-kind and `UserId` becomes `use function` when the factory is used. Class-level helpers keep `use App\UserService;` as a class import.
 
 ### Operator method names (deterministic)
 
@@ -587,14 +785,15 @@ New Tyhp surface area should land as:
 ### PHP text conventions in emitted code
 
 - Root-anchor runtime calls: `\Tyhp\…`, `\str_contains`, etc. (matches project PHP style).
-- PSR-12: brace next line for named declarations; blank line after trait-use groups; one `use` per import; `declare(strict_types=1)` when configured and not already present.
+- PER-CS 3.0: brace next line for non-empty named declarations; empty classes/methods/constructors compact to `{}` on the previous symbol; blank line after trait-use groups; one `use` per import; `declare(strict_types=1)` when configured and not already present; unspaced unions/intersections; trailing commas on multiline parameter/argument/array lists; no-arg anonymous classes omit `()`.
 - Doc comments attached via `ApplyDocComment` when `IncludeComments` is true.
-- Attributes attached via `AttachAttributes` onto the declaration item **after** the docblock and **before** the signature (PHP/PHPDoc convention: doc → `#[…]` → declaration). Property-hook attributes use `FormatInlineAttributes` on each hook line inside the multiline hook block. Top-level `const` attributes attach only when `IsPhpVersionAtLeast(8, 5)`; otherwise they are stripped with TYHP5017.
+- Attributes attached via `AttachAttributes` onto the declaration item **after** the docblock and **before** the signature (PHP/PHPDoc convention: doc → `#[…]` → declaration). Parameter attributes use `FormatInlineAttributes` as a prefix on each parameter (`#[Attr] Type $name`). Property-hook attributes use `FormatInlineAttributes` on each hook line inside the multiline hook block. Top-level `const` attributes attach only when `IsPhpVersionAtLeast(8, 5)`; otherwise they are stripped with TYHP5017.
 
 ### Diagnostics
 
 - Unimplemented Tyhp constructs: warning `EmitterTyhpConstructNotImplemented` (`ReportTyhpConstructNotImplemented`) rather than crashing.
 - Unsupported AST nodes: error `EmitterUnsupportedAstNode`.
+- A `.tyhp` type position that still names a tyhpdef `extern` placeholder (checker TYHP4307 should have stopped the compile): error `EmitterUnsupportedConstruct` (`ReportInternalErrorIfExternType` / `ReportInternalErrorIfExternCheckedType` from `BuildTypeExpression`, `BuildRuntimeTypeExpression`, and `BuildCheckedTypeExpression`). Do not silently spell the placeholder as a PHP class.
 - Namespace mismatch on merge: `EmitterNamespaceMismatch`.
 - Attributes stripped because the target PHP version cannot represent them on that construct: warning `EmitterAttributeStrippedForPhpVersion` (TYHP5017) — top-level `const` &lt; 8.5; property-hook attributes when hooks are lowered (&lt; 8.4).
 - Overloaded postfix `++`/`--` in an expression that cannot be statement-split (short-circuit operand, ternary arm, `else if` condition, or loop condition — anything conditionally or repeatedly evaluated): error `EmitterPostfixOperatorOverloadRequiresStatementSplit` (TYHP5019).
@@ -630,7 +829,7 @@ Block emission enters/exits disposable scope depth on `EmitContext`. Prefer chec
 | `StrictTypes` | Inject `declare(strict_types=1)` |
 | `IncludeComments` | File banner + doc comments |
 | `NamespacePrefix` | Emitted namespaces and FQNs for project types |
-| `EntryPointAutoloader` / map | `require_once` for entry points; `declare(autoload=…)` override |
+| `EntryPointAutoloader` / map | `require_once` for entry points relative to `output.publishPath`; `declare(autoload=…)` override |
 | `build.structBacking` | `array` vs custom backing class |
 | `build.runtimeGenericChecks` | Extra `\Tyhp\Type::check` |
 | `build.experimentalReadonlyCloneWith` | Readonly `clone with` anonymous-class wrapper |
@@ -643,7 +842,7 @@ These are evidenced by comments and tests in-tree:
 
 1. **Inline emitter, not transformer list** — composition of overlapping rewrites; see Story 11 ADR.
 2. **Merge before BuildEmitTrees** — merged files share one statement list before the emit walk (differs from older ADR prose).
-3. **Mechanism C separates generic init from `__construct`** — type-arg binding must run for every ancestor before any author constructor statement; constructor signature (`: parent(...)` vs `: void`) stays author semantics. Variadic constructors stay valid because generics never share the ctor parameter list.
+3. **Mechanism C separates generic init from `__construct`** — type-arg binding must run for every ancestor before any author constructor statement; constructor signature (`: parent(...)` vs `: void` or omitted — omitted ≡ `: void`) stays author semantics. Variadic constructors stay valid because generics never share the ctor parameter list.
 4. **`self::__initGenerics__…` not `$this->`** — avoid virtual dispatch sending one level’s args to another level’s parameters.
 5. **GenericObject trait only at top of chain** — avoid duplicate private trait state per level.
 6. **Factory name embeds mangled FQN** — short `new_Leaf__tyhpGeneric` would collide across namespaces in one inheritance chain (`Cannot override final method`).
@@ -652,9 +851,10 @@ These are evidenced by comments and tests in-tree:
 9. **Struct typed-var collection before erasure** — property/`with` rewrites need types after hints are gone; maps are function-scoped to avoid cross-function bleed.
 10. **Entry-point autoload after namespace** — PHP requires `namespace` before other statements (except `declare`); `Generate` places `require_once` accordingly.
 11. **`typeof` parenthesized lookup** — `( $this->… ?? Type::mixed() )` so casts/`??` precedence do not tear the expression apart.
-12. **Operator forms collapse to one static method** — runtime `instanceof`/`is_*` dispatch; checker rejects reserved-name conflicts rather than emitting `_N` suffixes.
+12. **Operator forms collapse to one static method** — runtime `instanceof`/`is_*` dispatch; checker rejects reserved-name conflicts rather than emitting `_N` suffixes. For extension operators whose `self` maps to a builtin target (`string`, `array`, `int`, …), `BuildOperandGuard` uses `\is_string` / `\is_array` / … — never illegal PHP `instanceof string` / `instanceof array`. Non-instantiable builtins (`void`, `never`, `null`, `mixed`, `resource`, `true`, `false`) are rejected as extension-operator targets at bind/check (TYHP3025) and do not reach emit.
 13. **`@tyhpEmitterStart` templates removed** — `readme.md` still shows them; Story 11 notes they were removed from design. Do not implement new features that way.
 14. **GeneratedNames lives outside Emitter** — checker must reserve the same identifiers.
+15. **PHP version gates never emit as written** — `declare(php=…)`, `declare(ext=…)` and `#[\Tyhp\Php]` use the Tyhp-only declare filter (`IsTyhpOnlyDeclareKey`) plus binder flags (`FileSymbol.IsPhpVersionGateInactive`, `DeclareBlockSymbol.IsPhpVersionGateInactive` on the declare AST). A surviving gate that holds for only some versions at or above `output.phpVersion` becomes a runtime `if` (§6g, `RuntimeGateEmission`); the emitter reads the binder's stamped `EffectivePhpVersionConstraints` / `EffectiveExtGates`, not the declare AST.
 
 ---
 
@@ -663,6 +863,7 @@ These are evidenced by comments and tests in-tree:
 ### Binder
 
 - Supplies `GlobalScope`, `BoundSymbol` on nodes, FQNs, generic parameter lists, struct/extension flags, operator overload symbols.
+- PHP version gates: `FileSymbol.IsPhpVersionGateInactive` (file-level skip), `DeclareBlockSymbol` on `PhpDeclareAst.BoundSymbol` (block unwrap/skip), omitted `BoundSymbol` on `#[\Tyhp\Php]` declarations the binder dropped.
 - Alias maps are derived from the bound scope tree at `EmitContext.Create` time.
 
 ### Checker → emitter contracts
@@ -709,6 +910,7 @@ Currently a no-op. Design note: if the optimizer later inlines extension/operato
 10. **Expecting struct declarations in output** — declarations are empty; only usages become arrays/backing ops.
 11. **Callable generic call without currying** — Mechanism D sites need `f__tyhpGeneric(types…)(args…)`, not a single flat call (Mechanism A shape is superseded).
 12. **Trusting `readme.md` templates / PLACEHOLDER tables** — many Story 11 items are implemented; verify against the partials listed above.
+13. **Trailing-comma skip slots on array pair lists** — `arrayPairList` produces an `IsSkippedSlot` pair for a bare trailing comma. Value-array emit (`BuildArrayExpression` / `BuildArrayPairList` / `WithKeywordHelper.RenderArray`) trims only the trailing run via `GetAllTrimmingTrailingSkippedSlots` so interior skips (`[, $b] = $o`) still round-trip. Struct `with` merge (`MergeArrayPairs` / `CreateArrayFromWithList`) drops skip slots entirely — keyed field defaults/overrides never use destructuring skips. `GetAllNotNull()` on a pair list is the destructuring view, not the value-array view.
 
 ---
 
@@ -717,7 +919,7 @@ Currently a no-op. Design note: if the optimizer later inlines extension/operato
 Items that remain ambiguous or lightly specified after reading the emitter sources and primary docs:
 
 1. **`PHP8.3/` placeholders** — Still empty. Unclear whether version-specific emit will ever move here or remain feature-gated inside the main partials.
-2. **Story 17 source maps** — `PHPOutputFile.SourceMappings` exists; no active population path was verified in the emitter partials reviewed for this guide.
+2. **Story 17 source maps** — `SourceMapWriter` writes `.map` files and URL comments; `TyhpEmitter.GenerateAll` assigns collectors when `build.generateSourcemap` is true; `SourceMapValidator` round-trips JSON against the generated PHP (unpadded `mappings` and the write-time `sourceMappingURL` line are accounted for). The splice engine sets `IBase2Ast.OriginalAst` on replacement nodes (not serialized) so mappings can point at the original call site. Optimizer `OriginalAst` mapping for `#[Inline]` non-extension members is Story 23.
 3. **Optimizer ↔ emitter contract** — Documented as a future concern; no live optimizer interactions to validate today.
 4. **Custom struct backing edge cases** — `StructEmissionHelper` + `build.structBacking` paths exist; full matrix of rewrite vs error reporting for misconfigured backing is easier to miss than array-backed structs (covered more heavily in tests).
 5. **Optional rename of `RequiresGenericVariant` / related API** — cosmetic only;
@@ -735,15 +937,19 @@ Items that remain ambiguous or lightly specified after reading the emitter sourc
 | New expression sugar | Prefer `AliasConverter` if AST should change; else `TyhpEmitter.Expressions.cs` |
 | New statement form | `TyhpEmitter.Statements.cs` |
 | Class generics / typeof on `T` | Checker mark + `Generics.cs` / `GenericClasses.cs` |
+| Source type-alias Type factories | `TyhpEmitter.TypeAliasFactories.cs` + splitter `AddNamespaceFunction` / `EmitClassMember` |
 | Function/method generics | Checker mark + `GenericVariants.cs` |
 | Property hooks | `PropertyAccessors.cs` + PHP version gate |
 | Pipe / `(void)` / `clone(…)` / `exit`/`die` / attr strip | §6a matrix; `Expressions.cs` + `Helpers.cs` / `WithKeywordHelper` |
+| `#[\Tyhp\PhpType]` emit hint | §6h; `TyhpEmitter.PhpType.cs`; usage/class strip via §6i |
+| `#[\Tyhp\NoEmit]` erasure | §6i; `NoEmitAttributeSupport.cs` + splitter / `EmitNode` |
 | Operators | Declarations → `OperatorOverloads.cs`; call sites → `AliasConverter` + `OperatorOverloadResolver` |
-| PropertyPath / Expression / parsable lambdas | Checker → `PropertyPathSupport` / `ExpressionTreeSupport` + `ValidateArgumentTypes`; emit → `PropertyPathEmissionHelper` / `ExpressionTreeEmissionHelper` + `AliasConverter.RewriteArgumentListConverts` |
-| Structs | `StructEmissionHelper` + AliasConverter collection maps. Property aliases may be quoted strings (`'Reply-To' as $replyTo`) or decimal integers (`0 as $arg1`); erasure emits string vs integer PHP array keys accordingly via `StructArrayKey`. |
-| Object `with` | `WithKeywordHelper` |
+| PropertyPath / Expression / parsable lambdas | Checker → `PropertyPathSupport` / `ExpressionTreeSupport` + `ValidateArgumentTypes` / typed-local `TypeAnnotationRule`; emit → `PropertyPathEmissionHelper` / `ExpressionTreeEmissionHelper` + `AliasConverter.RewriteArgumentListConverts` / `TransformTypedVarExpressionCapture` |
+| Structs | `StructEmissionHelper` + AliasConverter collection maps. Property aliases may be quoted strings (`'Reply-To' as $replyTo`) or decimal integers (`0 as $arg1`); erasure emits string vs integer PHP array keys accordingly via `StructArrayKey`. `with` merge / override lists drop skip-slot pairs (`GetAllExcludingSkippedSlots`); `AliasConverter.TransformWithListValues` iterates `GetAllTrimmingTrailingSkippedSlots` |
+| Object `with` | `WithKeywordHelper` (`RenderArray` / `RenderArrayPairList` trim trailing skip slots; `RenderArrayPair` guards `IsSkippedSlot`) |
 | Imports / paths / FQNs | `PHPOutputFile` prune, `OutputPathResolver`, `EmittedFqnHelper` |
 | Pipeline phases | `TyhpEmitter.Emit` only |
+| Source maps | `SourceMap/VlqEncoder.cs`, `SourceMapping.cs`, `SourceMapCollector.cs`, `SourceMapGenerator.cs`, `SourceMapWriter.cs`, `SourceMapValidator.cs`; tracking emit is `EmitItem.emit(int, SourceMapCollector)`; `PHPOutputFile.SourceMap()` / `Generate()` wiring and `OutputWriterService` I/O (see `SourceMap/technical-guide.md`) |
 
 ---
 

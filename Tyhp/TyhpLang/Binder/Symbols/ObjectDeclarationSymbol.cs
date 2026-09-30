@@ -7,7 +7,8 @@ using Tyhp.TyhpLang.Enum;
 namespace Tyhp.TyhpLang.Binder.Symbols {
     public class ObjectDeclarationSymbol :
         BaseSymbol,
-        INamespaceBlockScopeSymbol
+        INamespaceBlockScopeSymbol,
+        IObjectDeclarationScopeSymbol
     {
         // Lazy initialization via ??= is not thread-safe; the binder is assumed to be single-threaded.
         private List<GenericTypeParameterSymbol>? _genericParameters;
@@ -24,9 +25,28 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
 
         public PhpTypeDeclType ObjectKind { get; internal set; }
 
+        /// <summary>
+        /// When set, this tyhpdef type was declared as <c>class php_name as tyhpName</c>
+        /// (also interface/trait/enum). The symbol is registered under
+        /// <see cref="BaseSymbol.Name"/> (the Tyhp-facing alias); emit erases references to
+        /// <see cref="OriginalPhpName"/> (see <c>EmitContext.TyhpdefAliasMap</c>).
+        /// Matches <see cref="FunctionDeclarationSymbol.OriginalPhpName"/> for free-function aliases.
+        /// The PHP name is not a colliding class symbol, so a standalone <c>extension php_name</c>
+        /// may share that short name (compiled-library backers: <c>class Name as Name__tyhpExtensionBacker</c>).
+        /// </summary>
+        public string? OriginalPhpName { get; internal set; }
+
         public bool IsStruct { get; internal set; }
 
         public bool IsExtension { get; internal set; }
+
+        /// <summary>
+        /// <c>extern \Name;</c> with no class / interface / enum keyword. Kind-unspecified
+        /// placeholders use <see cref="PhpTypeDeclType.Unspecified"/> and upgrade to any of
+        /// class / interface / enum (see <c>TyhpBinder.TryConsumeTyhpdefExternMerge</c>).
+        /// </summary>
+        public bool IsExternKindUnspecified
+            => this.IsExtern && this.ObjectKind == PhpTypeDeclType.Unspecified;
 
         /// <summary>Compiler-generated symbol (e.g. synthetic inline extension class for tyhpdef).</summary>
         public bool IsCompilerGenerated { get; internal set; }
@@ -36,6 +56,31 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
 
         /// <summary>Synthetic extension class holding tyhpdef <c>extension function</c> / inline <c>extension operator</c> members.</summary>
         public ObjectDeclarationSymbol? SyntheticInlineExtension { get; internal set; }
+
+        /// <summary>
+        /// Compiler-generated scope symbol for a nested <c>extends Type { }</c> group.
+        /// Members are published on the enclosing extension; this symbol holds the group's
+        /// target and type parameters.
+        /// </summary>
+        public bool IsExtensionTargetGroup { get; internal set; }
+
+        /// <summary>
+        /// Header <c>extends Type</c> or nested-group target. Pass 2 writes
+        /// <see cref="ExtensionBlockTargetSymbol"/>.
+        /// </summary>
+        public ITypeExpression? PendingExtensionBlockTarget { get; internal set; }
+
+        /// <summary>
+        /// Resolved block target (class-like or built-in). Null when the declaration has
+        /// no target or the target did not resolve.
+        /// </summary>
+        public IBaseSymbol? ExtensionBlockTargetSymbol { get; internal set; }
+
+        /// <summary>
+        /// The block target was diagnosed, so operators in this header or group are not
+        /// added to <see cref="ExtensionContributedOperators"/>.
+        /// </summary>
+        public bool ExtensionBlockTargetRejectContribution { get; internal set; }
 
         /// <summary>
         /// Operator overload symbols contributed by extensions (standalone or synthetic) for this type.
@@ -63,6 +108,12 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         /// <summary>Trait-like <c>as</c> aliases for <c>use extension</c>.</summary>
         public Dictionary<string, (string? ExtName, string OriginalMethod)>? ExtensionUseMethodAliases { get; set; }
 
+        /// <summary>
+        /// Members excluded by postfix <c>hide</c> on <c>use extension</c>. Keys are method names
+        /// or operator spellings (<c>*</c>, <c>*&lt;string&gt;</c>).
+        /// </summary>
+        public HashSet<string>? ExtensionUseHiddenMembers { get; set; }
+
         public List<GenericTypeParameterSymbol> GenericParameters
         {
             get => this._genericParameters ??= new List<GenericTypeParameterSymbol>();
@@ -70,6 +121,13 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         }
 
         public ITypeExpression? ExtendsType { get; internal set; }
+
+        /// <summary>
+        /// Enum backing type (<c>int</c> / <c>string</c>), from <c>enum Name: int</c>. Distinct
+        /// from <see cref="ExtendsType"/> — PHP enums do not use <c>extends</c> for the scalar.
+        /// Null for unbacked enums and for non-enum types.
+        /// </summary>
+        public ITypeExpression? BackingType { get; internal set; }
 
         public List<ITypeExpression> ImplementsTypes
         {
@@ -89,7 +147,8 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         public Dictionary<string, (string? TraitName, string OriginalMethod)>? TraitMethodAliases { get; set; }
 
         /// <summary>
-        /// Fast lookup for methods, properties, and object type aliases.
+        /// Fast lookup for methods, properties, object type aliases, and nested
+        /// named structs (<c>type Name = struct { ... }</c>).
         /// Method names are case-insensitive (PHP); property keys keep their <c>$</c> prefix so they
         /// do not collide with methods. Class constants live in <see cref="Constants"/>.
         /// </summary>
@@ -152,6 +211,34 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
 
             constant = null!;
             return false;
+        }
+
+        /// <summary>
+        /// A class-body tyhpdef <c>extension fn</c> lives on <see cref="SyntheticInlineExtension"/>.
+        /// Lookup does not require an <c>extends T $this</c> parameter.
+        /// </summary>
+        public ObjectMethodSymbol? FindSyntheticInlineMember(string? methodName)
+        {
+            if (this.SyntheticInlineExtension is not { } synth || string.IsNullOrEmpty(methodName))
+            {
+                return null;
+            }
+
+            if (synth.Members.TryGetValue(methodName, out var member)
+                && member is ObjectMethodSymbol byName)
+            {
+                return byName;
+            }
+
+            foreach (var candidate in synth.Members.Values.OfType<ObjectMethodSymbol>())
+            {
+                if (string.Equals(candidate.Name, methodName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
         }
     }
 }

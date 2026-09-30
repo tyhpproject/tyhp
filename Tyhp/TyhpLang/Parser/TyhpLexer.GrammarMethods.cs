@@ -27,6 +27,7 @@ namespace Tyhp.TyhpLang.Parser {
         private int _prepareLessIndex = -1;
         private int _prepareLessLine = -1;
         private int _prepareLessColumn = -1;
+        private readonly HashSet<IToken> _reclassifyCandidates = new();
 
         private List<int> shouldPopList = new List<int>();
 
@@ -59,7 +60,7 @@ namespace Tyhp.TyhpLang.Parser {
 
             if (nextToken == null) {
                 // try for the next 2 tokens and add them to the queue
-                IToken baseToken = base.NextToken();
+                IToken baseToken = this.LexBaseToken();
                 this._pendingTokensQueue.Enqueue(baseToken);
                 // baseToken = base.NextToken();
                 // this._pendingTokensQueue.Enqueue(baseToken);
@@ -86,7 +87,7 @@ namespace Tyhp.TyhpLang.Parser {
             if (nextToken == null) {
                 // the queue is empty, so we need to get the next token from the base lexer
                 // and add it to the queue
-                nextToken = base.NextToken();
+                nextToken = this.LexBaseToken();
                 this._pendingTokensQueue.Enqueue(nextToken);
 
                 // try again
@@ -149,12 +150,30 @@ namespace Tyhp.TyhpLang.Parser {
         public override void Reset()
         {
             base.Reset();
+            // CompilationService reuses this lexer on the same thread. A file that
+            // aborts mid-parse (inline HTML the grammar cannot finish) otherwise
+            // leaves peeked tokens, and the next file is diagnosed with the
+            // previous file's line numbers and skipped as unparseable.
+            this._pendingTokensQueue.Clear();
+            this._encapsTokensQueue.Clear();
+            this._nestingStack.Clear();
+            this._heredocLabel = null;
+            this.shouldPopList.Clear();
+            this._prepareLessMark = -1;
+            this._prepareLessIndex = -1;
+            this._prepareLessLine = -1;
+            this._prepareLessColumn = -1;
             this._languageMode = "";
+            this._reclassifyCandidates.Clear();
             this.ApplyTaglessStartMode();
         }
 
         public override IToken NextToken() {
             IToken? token = this.SingleNextToken();
+            if (token != null && this._reclassifyCandidates.Remove(token) && token is CommonToken keywordToken)
+            {
+                this.ReclassifyContextualKeyword(keywordToken);
+            }
 
             // fix line for ending heredoc
             if (token is CommonToken commonToken && commonToken.Type == TyhpLexer.T_END_HEREDOC) {
@@ -284,6 +303,16 @@ namespace Tyhp.TyhpLang.Parser {
             return label == this._heredocLabel || (
                 label.TrimStart() == this._heredocLabel
             );
+        }
+
+        /// <summary>
+        /// PHP ends a <c>//</c> or <c>#</c> comment at <c>?&gt;</c>. The newline and end-of-file
+        /// comment rules match farther than the close-tag rule, so without this guard they
+        /// swallow the closer and the following template is lexed as PHP.
+        /// </summary>
+        public bool lineCommentExcludesCloseTag()
+        {
+            return this.Text.IndexOf("?>", StringComparison.Ordinal) < 0;
         }
 
         public bool closeTagHandler() {
@@ -614,6 +643,371 @@ namespace Tyhp.TyhpLang.Parser {
 
             char c = (char)la;
             return c is ' ' or '\t' or '\n' or '\r';
+        }
+
+        private IToken LexBaseToken()
+        {
+            IToken token = base.NextToken();
+            // `${expr}` enters scripting on that expression's first token
+            // (`ST_LOOKING_FOR_VARNAME`'s `more` + pushMode), so the mode changes
+            // while the token is lexed. It is still a scripting-mode identifier.
+            if (token.Type == TyhpLexer.T_STRING
+                && this.CurrentMode == TyhpLexer.ST_IN_SCRIPTING)
+            {
+                this._reclassifyCandidates.Add(token);
+            }
+
+            return token;
+        }
+
+        /// <summary>
+        /// Language-mode keywords are lexed as <c>T_STRING</c> so the scripting-mode
+        /// start state stays predicate-free. This restores the previous token type
+        /// from the keyword spelling, <c>_languageMode</c>, and one-token lookahead.
+        /// </summary>
+        private void ReclassifyContextualKeyword(CommonToken token)
+        {
+            string text = token.Text ?? string.Empty;
+            if (text.Length == 0)
+            {
+                return;
+            }
+
+            bool tyhp = this._languageMode == "tyhp";
+            bool tyhpdef = this._languageMode == "tyhpdef";
+            bool tyhpOrDef = tyhp || tyhpdef;
+            if (!tyhpOrDef)
+            {
+                return;
+            }
+
+            if (EqualsKeyword(text, "await"))
+            {
+                token.Type = TyhpLexer.T_TYHP_AWAIT;
+                return;
+            }
+
+            if (EqualsKeyword(text, "parent"))
+            {
+                token.Type = TyhpLexer.T_TYHP_PARENT;
+                return;
+            }
+
+            if (EqualsKeyword(text, "is"))
+            {
+                token.Type = TyhpLexer.T_TYHP_IS;
+                return;
+            }
+
+            if (tyhp && EqualsKeyword(text, "internal"))
+            {
+                token.Type = TyhpLexer.T_TYHP_INTERNAL;
+                return;
+            }
+
+            if (tyhp && EqualsKeyword(text, "with"))
+            {
+                token.Type = TyhpLexer.T_TYHP_WITH;
+                return;
+            }
+
+            if (tyhp && EqualsKeyword(text, "using"))
+            {
+                token.Type = TyhpLexer.T_TYHP_USING;
+                return;
+            }
+
+            if (tyhp && EqualsKeyword(text, "typeof"))
+            {
+                token.Type = TyhpLexer.T_TYHP_TYPEOF;
+                return;
+            }
+
+            if (tyhp && EqualsKeyword(text, "nameof"))
+            {
+                token.Type = TyhpLexer.T_TYHP_NAMEOF;
+                return;
+            }
+
+            if (tyhp && EqualsKeyword(text, "variable_exists"))
+            {
+                token.Type = TyhpLexer.T_TYHP_VARIABLE_EXISTS;
+                return;
+            }
+
+            int start = this.WhitespaceOrCommentsSkip() + 1;
+            if (tyhpOrDef && EqualsKeyword(text, "type"))
+            {
+                bool identifierNext = this.streamLA(1, "[a-zA-Z_\\x80-\\xff]", startIdx: start);
+                bool extendsOrImplements = this.streamLA(8, "extends\\b.", startIdx: start)
+                    || this.streamLA(11, "implements\\b.", startIdx: start);
+                if (identifierNext && !extendsOrImplements)
+                {
+                    token.Type = TyhpLexer.T_TYHP_TYPE_ALIAS;
+                }
+
+                return;
+            }
+
+            if (tyhpOrDef && EqualsKeyword(text, "async"))
+            {
+                if (this.AsyncKeywordAhead(start))
+                {
+                    token.Type = TyhpLexer.T_TYHP_ASYNC;
+                }
+
+                return;
+            }
+
+            if (tyhpOrDef && EqualsKeyword(text, "operator"))
+            {
+                if (this.streamLA(1, "[+/*%~!>.<&^|=-]", startIdx: start)
+                    || this.streamLA(6, "(?i:empty)\\b.", startIdx: start)
+                    || this.streamLA(8, "(?i:convert)\\b.", startIdx: start))
+                {
+                    token.Type = TyhpLexer.T_TYHP_OPERATOR;
+                }
+
+                return;
+            }
+
+            if (tyhpOrDef && EqualsKeyword(text, "void"))
+            {
+                if (!this.streamLA(1, "[(<]", startIdx: start))
+                {
+                    token.Type = TyhpLexer.T_TYHP_VOID;
+                }
+
+                return;
+            }
+
+            if (tyhpOrDef && EqualsKeyword(text, "extension"))
+            {
+                if (this.NameOrQualifiedAhead(start) && !this.ExtendsOrImplementsAhead(start))
+                {
+                    token.Type = TyhpLexer.T_TYHP_EXTENSION;
+                }
+
+                return;
+            }
+
+            if (tyhp && EqualsKeyword(text, "fallback"))
+            {
+                // Declaration modifier only: `fallback function` / `class` / `interface` / `trait`
+                // / `enum` / `const`, or before another declaration modifier. Anywhere else
+                // (`fallback(...)`, `Fallback::class`, `class Fallback`) it stays T_STRING.
+                if (this.FallbackDeclarationAhead(start))
+                {
+                    token.Type = TyhpLexer.T_TYHP_FALLBACK;
+                }
+
+                return;
+            }
+
+            if (!tyhpdef)
+            {
+                return;
+            }
+
+            if (EqualsKeyword(text, "partial"))
+            {
+                if (this.streamLA(6, "(?i:class)\\b.", startIdx: start)
+                    || this.streamLA(6, "(?i:trait)\\b.", startIdx: start)
+                    || this.streamLA(10, "(?i:interface)\\b.", startIdx: start)
+                    || this.streamLA(5, "(?i:enum)\\b.", startIdx: start)
+                    || this.streamLA(9, "(?i:function)\\b.", startIdx: start))
+                {
+                    token.Type = TyhpLexer.T_TYHPDEF_PARTIAL;
+                }
+
+                return;
+            }
+
+            if (EqualsKeyword(text, "extern"))
+            {
+                if (this.NameOrQualifiedAhead(start) && !this.ExtendsOrImplementsAhead(start))
+                {
+                    token.Type = TyhpLexer.T_TYHPDEF_EXTERN;
+                }
+
+                return;
+            }
+
+            if (EqualsKeyword(text, "deprecated")
+                || EqualsKeyword(text, "obsolete")
+                || EqualsKeyword(text, "omit"))
+            {
+                if (this.DeclarationStartAhead(start) && !this.ExtendsOrImplementsAhead(start))
+                {
+                    token.Type = text.Equals("deprecated", StringComparison.OrdinalIgnoreCase)
+                        ? TyhpLexer.T_TYHPDEF_DEPRECATED
+                        : text.Equals("obsolete", StringComparison.OrdinalIgnoreCase)
+                            ? TyhpLexer.T_TYHPDEF_OBSOLETE
+                            : TyhpLexer.T_TYHPDEF_OMIT;
+                }
+
+                return;
+            }
+
+            if (EqualsKeyword(text, "fallback"))
+            {
+                // Only the modifier before `function` / `async function`. A function
+                // named `fallback` stays T_STRING.
+                if (this.streamLA(9, "(?i:function)\\b.", startIdx: start)
+                    || this.streamLA(6, "(?i:async)\\b.", startIdx: start)
+                    || this.streamLA(6, "(?i:const)\\b.", startIdx: start))
+                {
+                    token.Type = TyhpLexer.T_TYHP_FALLBACK;
+                }
+            }
+        }
+
+        private static bool EqualsKeyword(string text, string keyword)
+        {
+            return text.Equals(keyword, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool AsyncKeywordAhead(int start)
+        {
+            return this.streamLA(9, "(?i:function)\\b.", startIdx: start)
+                || this.streamLA(3, "(?i:fn)\\b.", startIdx: start)
+                || this.streamLA(7, "(?i:public)\\b.", startIdx: start)
+                || this.streamLA(8, "(?i:private)\\b.", startIdx: start)
+                || this.streamLA(10, "(?i:protected)\\b.", startIdx: start)
+                || this.streamLA(7, "(?i:static)\\b.", startIdx: start)
+                || this.streamLA(9, "(?i:abstract)\\b.", startIdx: start)
+                || this.streamLA(6, "(?i:final)\\b.", startIdx: start)
+                || this.streamLA(9, "(?i:readonly)\\b.", startIdx: start)
+                || this.streamLA(9, "(?i:internal)\\b.", startIdx: start)
+                || this.streamLA(1, "[{]", startIdx: start);
+        }
+
+        private bool FallbackDeclarationAhead(int start)
+        {
+            return this.streamLA(9, "(?i:function)\\b.", startIdx: start)
+                || this.streamLA(6, "(?i:async)\\b.", startIdx: start)
+                || this.streamLA(6, "(?i:const)\\b.", startIdx: start)
+                || this.streamLA(6, "(?i:class)\\b.", startIdx: start)
+                || this.streamLA(10, "(?i:interface)\\b.", startIdx: start)
+                || this.streamLA(6, "(?i:trait)\\b.", startIdx: start)
+                || this.streamLA(5, "(?i:enum)\\b.", startIdx: start)
+                || this.streamLA(6, "(?i:final)\\b.", startIdx: start)
+                || this.streamLA(9, "(?i:abstract)\\b.", startIdx: start)
+                || this.streamLA(9, "(?i:readonly)\\b.", startIdx: start)
+                || this.streamLA(9, "(?i:internal)\\b.", startIdx: start);
+        }
+
+        private bool ExtendsOrImplementsAhead(int start)
+        {
+            return this.streamLA(8, "extends\\b.", startIdx: start)
+                || this.streamLA(11, "implements\\b.", startIdx: start);
+        }
+
+        private bool NameOrQualifiedAhead(int start)
+        {
+            return this.streamLA(1, "[\\\\a-zA-Z_\\x80-\\xff]", startIdx: start);
+        }
+
+        private bool DeclarationStartAhead(int start)
+        {
+            return this.streamLA(1, "[\\\\?a-zA-Z_\\x80-\\xff]", startIdx: start);
+        }
+
+        /// <summary>
+        /// Character count of the <c>WHITESPACE_OR_COMMENTS</c> the old keyword rules
+        /// consumed before <c>streamLA</c>. The input index is not moved.
+        /// </summary>
+        private int WhitespaceOrCommentsSkip()
+        {
+            int laIndex = 1;
+            int skipped = 0;
+            while (true)
+            {
+                int current = this.InputStream.LA(laIndex);
+                if (current < 0)
+                {
+                    break;
+                }
+
+                char ch = (char)current;
+                if (ch is ' ' or '\t' or '\n' or '\r')
+                {
+                    laIndex++;
+                    skipped++;
+                    continue;
+                }
+
+                int next = this.InputStream.LA(laIndex + 1);
+                if (ch == '/' && next == '*')
+                {
+                    int end = this.FindBlockCommentEnd(laIndex);
+                    if (end < 0)
+                    {
+                        break;
+                    }
+
+                    skipped += end - laIndex;
+                    laIndex = end;
+                    continue;
+                }
+
+                if ((ch == '/' && next == '/') || (ch == '#' && next != '[' && next >= 0))
+                {
+                    int end = this.FindLineEnding(laIndex + (ch == '#' ? 1 : 2));
+                    if (end < 0)
+                    {
+                        break;
+                    }
+
+                    skipped += end - laIndex;
+                    laIndex = end;
+                    continue;
+                }
+
+                break;
+            }
+
+            return skipped;
+        }
+
+        private int FindBlockCommentEnd(int slashLaIndex)
+        {
+            int i = slashLaIndex + 2;
+            while (true)
+            {
+                int current = this.InputStream.LA(i);
+                if (current < 0)
+                {
+                    return -1;
+                }
+
+                if (current == '*' && this.InputStream.LA(i + 1) == '/')
+                {
+                    return i + 2;
+                }
+
+                i++;
+            }
+        }
+
+        private int FindLineEnding(int laIndex)
+        {
+            int i = laIndex;
+            while (true)
+            {
+                int current = this.InputStream.LA(i);
+                if (current < 0)
+                {
+                    return -1;
+                }
+
+                if (current is '\n' or '\r')
+                {
+                    return i + 1;
+                }
+
+                i++;
+            }
         }
     }
 }

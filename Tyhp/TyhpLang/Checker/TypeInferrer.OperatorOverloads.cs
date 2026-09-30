@@ -11,6 +11,28 @@ namespace Tyhp.TyhpLang.Checker
     public sealed partial class TypeInferrer
     {
         /// <summary>
+        /// True when a binary operator form matches <paramref name="left"/> / <paramref name="right"/>
+        /// (same selection as inference / emit). Used by <c>TypeCompatibilityRule</c> to reject
+        /// object operands with no applicable overload (TYHP4029).
+        /// </summary>
+        internal bool HasMatchingBinaryOperatorOverload(
+            OverloadableOperator op,
+            ICheckedType left,
+            ICheckedType right,
+            CheckerState state)
+            => TryInferBinaryOperatorOverloadReturn(op, left, right, state, out _);
+
+        /// <summary>
+        /// True when a unary operator form matches <paramref name="operand"/> (same selection as
+        /// inference / emit).
+        /// </summary>
+        internal bool HasMatchingUnaryOperatorOverload(
+            OverloadableOperator op,
+            ICheckedType operand,
+            CheckerState state)
+            => TryInferUnaryOperatorOverloadReturn(op, operand, state, out _);
+
+        /// <summary>
         /// When a binary operator's operand types match a declared overload (left-first, then right —
         /// same selection as <c>AliasConverter</c>), returns that form's declared return type.
         /// Native PHP promotion is used only when no matching overload exists.
@@ -465,7 +487,23 @@ namespace Tyhp.TyhpLang.Checker
                 // extension declaration symbol while EnclosingObjectType carries the real self-type.
                 resolveState = state.Fork();
                 resolveState.EnclosingObject = declaringExtension;
-                resolveState.EnclosingObjectType = CheckedTypes.FromSymbol(builtinOwner);
+                if (declaringExtension.ContainingScope is { } declaringScope)
+                {
+                    resolveState.NameResolutionScope = declaringScope;
+                }
+
+                // Resolve the block's own declared target expression (alias-aware) instead of
+                // wrapping the unwrapped lookup symbol, so a nullable target (`extends ?string`,
+                // or an alias of it) keeps `self`/`static` nullable here too (same gap as
+                // ResolveMethodReturnType's TryGetBlockTargetDeclaration path).
+                var blockTargetAst = TryGetBlockTargetDeclaration(form)?.PendingExtensionBlockTarget;
+                var blockTargetType = blockTargetAst is not null
+                    ? ResolveTypeExpression(blockTargetAst, resolveState)
+                    : null;
+                resolveState.EnclosingObjectType =
+                    blockTargetType is not null && !TypeComparer.IsUnresolvedType(blockTargetType)
+                        ? blockTargetType
+                        : CheckedTypes.FromSymbol(builtinOwner);
             }
 
             return ResolveTypeExpression(form.ReturnType, resolveState, isReturnTypePosition: true);
@@ -547,11 +585,12 @@ namespace Tyhp.TyhpLang.Checker
                 _ => OverloadableOperator.Invalid,
             };
 
-        private static OverloadableOperator ToOverloadableUnaryOperator(int token) =>
+        private static OverloadableOperator ToOverloadableUnaryOperator(int token, string text) =>
             OverloadableOperatorHelper.FromToken(
                 token,
-                text: "",
-                isAlternateKind: token is TyhpParser.T_SYM_PLUS or TyhpParser.T_SYM_MINUS);
+                text,
+                isAlternateKind: text is "+" or "-"
+                    || token is TyhpParser.T_SYM_PLUS or TyhpParser.T_SYM_MINUS);
 
         private static OverloadableOperator ToOverloadableAssignmentOperator(PhpAssignmentOperator op) =>
             op switch

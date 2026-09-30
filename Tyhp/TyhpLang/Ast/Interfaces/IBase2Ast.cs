@@ -51,6 +51,14 @@ namespace Tyhp.TyhpLang.Ast.Interfaces
         /// </summary>
         SrcFileAst? OwningFile { get; set; }
 
+        /// <summary>
+        /// When this node was synthesized by a rewrite (call-site splice, optimizer), the original
+        /// source node the replacement stands in for. Sourcemaps prefer this over the replacement's
+        /// own span so diagnostics and stack traces point at the Tyhp call site.
+        /// Not serialized — rewrite-only, like <see cref="BoundSymbol"/>.
+        /// </summary>
+        IBase2Ast? OriginalAst { get; set; }
+
         void AddAttributes(PhpAttributeListAst? attributes);
         void AddGrammarAddon(string key, IBase2Ast? addon);
         bool IsValid();

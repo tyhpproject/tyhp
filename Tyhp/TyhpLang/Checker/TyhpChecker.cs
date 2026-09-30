@@ -5,9 +5,11 @@ using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder;
 using Tyhp.TyhpLang.Binder.Scopes;
+using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Checker.Rules;
+using Tyhp.TyhpLang.Emitter.Splice;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Checker
@@ -38,10 +40,15 @@ namespace Tyhp.TyhpLang.Checker
         private readonly HashSet<PhpStatementBlockAst> _requiresDisposableTryFinally = new();
         private readonly Dictionary<PhpLoopAst, AsyncForeachKind> _asyncForeachKinds = new();
         private readonly Dictionary<PhpInlineFunctionAst, InferredClosureSignature> _inferredClosureSignatures = new();
+        private readonly Dictionary<object, ICheckedType> _inferredGeneratorReturns = new();
+        private readonly HashSet<object> _finishedGeneratorBodyInferences = new();
 
         private readonly Dictionary<string, int> _errorsPerFile = new(StringComparer.Ordinal);
         private readonly HashSet<string> _thresholdReported = new(StringComparer.Ordinal);
         private readonly CheckerOptions _options;
+
+        private Dictionary<string, IBaseSymbol> _nativeTypeTests =
+            new(StringComparer.OrdinalIgnoreCase);
 
         public TyhpChecker(
             DiagnosticBag diagnostics,
@@ -69,6 +76,7 @@ namespace Tyhp.TyhpLang.Checker
             new TypeDeclarationValidationRule(),
             new ReferenceTrackingRule(),
             new ClosureRule(),
+            new AsyncBlockRule(),
             new NullSafetyRule(),
             new UnsetTrackingRule(),
             new StructRule(),
@@ -78,15 +86,26 @@ namespace Tyhp.TyhpLang.Checker
             new DisposableRule(),
             new CompileTimeRule(),
             new DeprecationRule(),
+            new ExternTypeUseRule(),
             new RestrictedFeatureRule(),
             new OverloadRule(),
             new AttributeRule(),
             new ImportRule(),
             new CodeQualityRule(),
             new WithKeywordRule(),
+            new PhpVersionRule(),
+            new InlineSpliceRule(),
         ];
 
+        internal CheckerRuleContext RuleContext => _ruleContext;
+
         public IReadOnlyDictionary<IBase2Ast, ICheckedType> ExpressionTypes => _expressionTypes;
+
+        /// <summary>
+        /// <c>T →</c> free function or concrete static method marked <c>#[\Tyhp\NativeTypeTest]</c>
+        /// for <c>$x is T</c> emit.
+        /// </summary>
+        public IReadOnlyDictionary<string, IBaseSymbol> NativeTypeTests => _nativeTypeTests;
 
         public IReadOnlyDictionary<IBase2Ast, ICheckedType> NarrowedTypes => _narrowedTypes;
 
@@ -139,6 +158,35 @@ namespace Tyhp.TyhpLang.Checker
         public ICheckedType ResolveExpressionType(IBase2Ast expr, CheckerState state) =>
             _typeInferrer.InferExpressionType(expr, state);
 
+        /// <summary>
+        /// Value type of an index / destructure read on <paramref name="receiverType"/>
+        /// (same as <c>$obj[$k]</c>).
+        /// </summary>
+        internal ICheckedType InferIndexValueType(
+            ICheckedType receiverType,
+            ICheckedType? indexType,
+            CheckerState state) =>
+            _typeInferrer.InferIndexValue(receiverType, indexType, state);
+
+        /// <summary>
+        /// Whether a declared operator overload form matches the operand types (Story 11 selection).
+        /// </summary>
+        internal bool HasMatchingBinaryOperatorOverload(
+            OverloadableOperator op,
+            ICheckedType left,
+            ICheckedType right,
+            CheckerState state)
+            => _typeInferrer.HasMatchingBinaryOperatorOverload(op, left, right, state);
+
+        /// <summary>
+        /// Whether a declared unary operator overload form matches the operand type.
+        /// </summary>
+        internal bool HasMatchingUnaryOperatorOverload(
+            OverloadableOperator op,
+            ICheckedType operand,
+            CheckerState state)
+            => _typeInferrer.HasMatchingUnaryOperatorOverload(op, operand, state);
+
         internal void RecordGenericCallTargetsIn(IBase2Ast root, CheckerState state) =>
             _typeInferrer.RecordGenericCallTargetsIn(root, state);
 
@@ -182,9 +230,25 @@ namespace Tyhp.TyhpLang.Checker
 
         public void Check(IEnumerable<SrcFileAst> astTrees)
         {
-            // PLACEHOLDER_STORY_07: Unit tests for checker
+            if (_options.PhpVersionWasDefaulted)
+            {
+                _diagnostics.AddWarning(
+                    MessageCode.CheckerPhpVersionDefaulted,
+                    "",
+                    0,
+                    0);
+            }
+
             foreach (var srcFile in astTrees)
             {
+                // Unsatisfied (but valid) file-level declare(php=…) skips bind; skip check
+                // too so bodies without symbols do not raise follow-on errors. Invalid
+                // constraints still walk so 4300 can fire.
+                if (IsSilentlySkippedPhpVersionFile(srcFile))
+                {
+                    continue;
+                }
+
                 var state = CreateInitialState(srcFile);
                 foreach (var child in srcFile.AstChildren)
                 {
@@ -195,10 +259,15 @@ namespace Tyhp.TyhpLang.Checker
                 }
             }
 
+            CheckBoundTyhpdefThinMappings(astTrees);
+
             _rules.RegisteredRules.OfType<ImportRule>().FirstOrDefault()
                 ?.FlushRemainingImports(_diagnostics);
 
             PropagateGenericVariantAcrossHierarchies();
+
+            _nativeTypeTests = NativeTypeTestAttributeSupport.IndexAndValidate(
+                _globalScope, _ruleContext, _diagnostics);
         }
 
         /// <summary>
@@ -335,8 +404,187 @@ namespace Tyhp.TyhpLang.Checker
             {
                 ScopeType = ScopeType.File,
                 CurrentFileName = srcFile.FileName,
+                PhpVersionConstraintStack = [.. GetFilePhpVersionConstraints(srcFile)],
             };
             return state;
+        }
+
+        /// <summary>
+        /// Included tyhpdefs are bound into <see cref="GlobalScope"/> but are not in
+        /// <c>ParsedFiles</c>, so the main walk never sees them. Class-body thin
+        /// mappings get splice-member checks (4174–4176, 4179). A standalone
+        /// <see cref="TyhpdefStandaloneExtensionDeclAst"/> gets
+        /// <see cref="ExtensionRule.Check"/>, the same block-target declaration
+        /// checks a project-source standalone extension gets. That call also runs
+        /// the splice-member checks for those members.
+        /// </summary>
+        private void CheckBoundTyhpdefThinMappings(IEnumerable<SrcFileAst> walkedTrees)
+        {
+            var walkedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var tree in walkedTrees)
+            {
+                if (!string.IsNullOrEmpty(tree.FileName))
+                {
+                    walkedFiles.Add(tree.FileName);
+                }
+            }
+
+            foreach (var obj in EnumerateObjectDeclarations(_globalScope))
+            {
+                if (obj.IsCompilerGenerated)
+                {
+                    continue;
+                }
+
+                var source = obj.SourceFile ?? "";
+                if (!string.IsNullOrEmpty(source) && walkedFiles.Contains(source))
+                {
+                    continue;
+                }
+
+                if (obj.SyntheticInlineExtension is { } synth)
+                {
+                    CheckThinMappingSymbolMembers(obj, synth);
+                }
+
+                if (obj.IsExtension && IsTyhpdefSource(obj))
+                {
+                    if (obj.DeclaringAstNode is TyhpdefStandaloneExtensionDeclAst standalone
+                        && TryCheckIncludedStandaloneTyhpdefExtension(standalone))
+                    {
+                        continue;
+                    }
+
+                    CheckThinMappingSymbolMembers(obj, obj);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Runs <see cref="ExtensionRule.Check"/> on an included standalone tyhpdef
+        /// extension. Returns false when <see cref="ExtensionRule"/> is not registered,
+        /// so the caller can still run splice-member checks.
+        /// </summary>
+        private bool TryCheckIncludedStandaloneTyhpdefExtension(TyhpdefStandaloneExtensionDeclAst extension)
+        {
+            var rule = _rules.RegisteredRules.OfType<ExtensionRule>().FirstOrDefault();
+            if (rule is null)
+            {
+                return false;
+            }
+
+            var state = extension.OwningFile is { } file
+                ? CreateInitialState(file)
+                : new CheckerState
+                {
+                    ScopeType = ScopeType.File,
+                    CurrentFileName = (extension.BoundSymbol as ObjectDeclarationSymbol)?.SourceFile ?? "",
+                };
+            rule.Check(extension, state, _ruleContext, _diagnostics);
+            return true;
+        }
+
+        private void CheckThinMappingSymbolMembers(
+            ObjectDeclarationSymbol receiverOrExtension,
+            ObjectDeclarationSymbol memberOwner)
+        {
+            var state = new CheckerState
+            {
+                ScopeType = ScopeType.ObjectTypeDeclaration,
+                CurrentFileName = receiverOrExtension.SourceFile ?? memberOwner.SourceFile ?? "",
+                EnclosingObject = receiverOrExtension,
+                EnclosingObjectType = CheckedTypes.FromSymbol(receiverOrExtension),
+            };
+
+            foreach (var member in memberOwner.Members.Values.OfType<ObjectMethodSymbol>())
+            {
+                if (member is ObjectOperatorOverloadMethodSymbol)
+                {
+                    continue;
+                }
+
+                var report = SpliceAst.FindInlineExtensionWrapper(
+                        receiverOrExtension.DeclaringAstNode, member.Name)
+                    ?? SpliceAst.FindInlineExtensionWrapper(memberOwner.DeclaringAstNode, member.Name)
+                    ?? member.DeclaringAstNode;
+                if (report is not null)
+                {
+                    InlineSpliceRule.CheckMemberDeclaration(report, state, _ruleContext, _diagnostics);
+                }
+            }
+
+            IEnumerable<ObjectOperatorOverloadMethodSymbol> operators =
+                receiverOrExtension.ExtensionContributedOperators.Count > 0
+                    ? receiverOrExtension.ExtensionContributedOperators
+                    : memberOwner.Members.Values.OfType<ObjectOperatorOverloadMethodSymbol>();
+            foreach (var op in operators)
+            {
+                if (op.DeclaringAstNode is { } opNode)
+                {
+                    InlineSpliceRule.CheckMemberDeclaration(opNode, state, _ruleContext, _diagnostics);
+                }
+            }
+        }
+
+        private static bool IsTyhpdefSource(ObjectDeclarationSymbol obj) =>
+            (obj.SourceFile ?? "").EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(obj.DeclaringAstNode?.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase)
+            || obj.DeclaringAstNode?.OwningFile is TyhpdefSrcFileAst;
+
+        private static IEnumerable<ObjectDeclarationSymbol> EnumerateObjectDeclarations(IBaseScope scope)
+        {
+            foreach (var childScope in scope.GetAllChildScopes())
+            {
+                if (childScope is ObjectDeclarationScope { DeclarationSymbol: ObjectDeclarationSymbol decl })
+                {
+                    yield return decl;
+                }
+
+                foreach (var nested in EnumerateObjectDeclarations(childScope))
+                {
+                    yield return nested;
+                }
+            }
+        }
+
+        private bool IsSilentlySkippedPhpVersionFile(SrcFileAst srcFile)
+        {
+            var fileSymbol = FindFileSymbol(srcFile);
+            return fileSymbol is { IsPhpVersionGateInactive: true, IsPhpVersionConstraintValid: true };
+        }
+
+        private IReadOnlyList<string> GetFilePhpVersionConstraints(SrcFileAst srcFile)
+            => FindFileSymbol(srcFile)?.PhpVersionConstraints ?? [];
+
+        private FileSymbol? FindFileSymbol(SrcFileAst srcFile)
+        {
+            var fileName = srcFile.FileName;
+            if (string.IsNullOrEmpty(fileName))
+            {
+                return null;
+            }
+
+            foreach (var child in ((IBaseScope)_globalScope).GetAllChildScopes())
+            {
+                if (child is FileScope fileScope
+                    && string.Equals(fileScope.FileName, fileName, StringComparison.OrdinalIgnoreCase)
+                    && fileScope.DeclarationSymbol is FileSymbol fileSymbol)
+                {
+                    return fileSymbol;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Class members bypass <see cref="CheckNode"/>; <see cref="DeclarationRule"/> /
+        /// <see cref="ExtensionRule"/> call this so <see cref="PhpVersionRule"/> still sees them.
+        /// </summary>
+        internal void ValidatePhpVersionMember(IBase2Ast node, CheckerState state)
+        {
+            _rules.RegisteredRules.OfType<PhpVersionRule>().FirstOrDefault()
+                ?.Check(node, state, _ruleContext, _diagnostics);
         }
 
         internal void CheckNode(IBase2Ast node, CheckerState state)
@@ -409,6 +657,38 @@ namespace Tyhp.TyhpLang.Checker
 
         internal void SetExpressionType(IBase2Ast expression, ICheckedType type) =>
             _expressionTypes[expression] = type;
+
+        internal void ClearCachedTypesUnder(IBase2Ast? root)
+        {
+            if (root is null)
+            {
+                return;
+            }
+
+            var nodes = new HashSet<IBase2Ast>();
+            CollectAstNodes(root, nodes);
+            foreach (var node in nodes)
+            {
+                _expressionTypes.Remove(node);
+                _narrowedTypes.Remove(node);
+            }
+        }
+
+        private static void CollectAstNodes(IBase2Ast node, HashSet<IBase2Ast> nodes)
+        {
+            if (!nodes.Add(node))
+            {
+                return;
+            }
+
+            foreach (var child in node.AstChildren)
+            {
+                if (child is not null)
+                {
+                    CollectAstNodes(child, nodes);
+                }
+            }
+        }
 
         internal void RecordNarrowedType(IBase2Ast node, ICheckedType narrowedType) =>
             _narrowedTypes[node] = narrowedType;
@@ -499,6 +779,33 @@ namespace Tyhp.TyhpLang.Checker
                 _inferredClosureSignatures[closure] = signature;
             }
         }
+
+        internal void RecordInferredGeneratorReturn(
+            IBaseSymbol? callableSymbol,
+            PhpInlineFunctionAst? closure,
+            ICheckedType inferred)
+        {
+            if (callableSymbol is not null)
+            {
+                _inferredGeneratorReturns[callableSymbol] = inferred;
+            }
+
+            if (closure is not null)
+            {
+                _inferredGeneratorReturns[closure] = inferred;
+            }
+        }
+
+        internal bool TryGetInferredGeneratorReturn(object? key, out ICheckedType inferred)
+        {
+            inferred = CheckedTypes.Unresolved;
+            return key is not null && _inferredGeneratorReturns.TryGetValue(key, out inferred!);
+        }
+
+        /// <returns><see langword="true"/> when this callable should run generator-body finish
+        /// (first visit). Later <c>CheckNode</c>s of the same closure skip so 4087 is not duplicated.</returns>
+        internal bool TryBeginGeneratorBodyInference(object key) =>
+            _finishedGeneratorBodyInferences.Add(key);
 
         /// <returns><see langword="true"/> when <paramref name="block"/> was newly flagged.</returns>
         internal bool MarkRequiresDisposableTryFinally(PhpStatementBlockAst? block)
@@ -599,8 +906,19 @@ namespace Tyhp.TyhpLang.Checker
                 return;
             }
 
+            var reportState = new CheckerState { CurrentFileName = node.OwningFile?.FileName };
+            if (CheckerHelpers.TryReportObjectShapeRequiresGuard(
+                    _diagnostics, reportState, node, source, target)
+                || CheckerHelpers.TryReportCallableShapeRequiresGuard(
+                    _diagnostics, reportState, node, source, target)
+                || CheckerHelpers.TryReportNewConstraintFailure(
+                    _diagnostics, reportState, node, source, target, _symbolTree, _globalScope))
+            {
+                return;
+            }
+
             TryAddError(
-                new CheckerState { CurrentFileName = node.OwningFile?.FileName },
+                reportState,
                 node,
                 MessageCode.CheckerTypeMismatch,
                 [source.DisplayName, target.DisplayName]);
@@ -623,6 +941,16 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             if (TryReportTemplateStringBudgetExceeded(node, state))
+            {
+                return;
+            }
+
+            if (CheckerHelpers.TryReportObjectShapeRequiresGuard(
+                    _diagnostics, state, node, actual, expected)
+                || CheckerHelpers.TryReportCallableShapeRequiresGuard(
+                    _diagnostics, state, node, actual, expected)
+                || CheckerHelpers.TryReportNewConstraintFailure(
+                    _diagnostics, state, node, actual, expected, _symbolTree, _globalScope))
             {
                 return;
             }

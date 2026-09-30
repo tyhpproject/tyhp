@@ -35,6 +35,7 @@ namespace Tyhp.CLI
             {
                 "tyhp-project",
                 "locale",
+                "pid-file",
             };
 
         private static readonly HashSet<string> TyhpdefTriggerCommands =
@@ -44,6 +45,21 @@ namespace Tyhp.CLI
                 "install",
                 "update",
             };
+
+        internal Func<string?>? FindPhp { get; init; }
+
+        internal Func<string, string?>? ResolveComposer { get; init; }
+
+        internal Func<string, IReadOnlyList<string>, string, int>? RunComposerProcess { get; init; }
+
+        /// <summary>Post-action argv. Tests inject this; production reads <see cref="ActionConfigProvider.RemainingArgs"/>.</summary>
+        internal IReadOnlyList<string>? Args { get; init; }
+
+        internal VendorTyhpdefGenerator? VendorGenerator { get; init; }
+
+        internal Func<string, string?>? ReadEnvironment { get; init; }
+
+        internal TyhpdefGenerationResult? LastVendorResult { get; private set; }
 
         private readonly Project _project;
 
@@ -56,7 +72,7 @@ namespace Tyhp.CLI
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var composerArgs = FilterComposerArgs(ActionConfigProvider.RemainingArgs);
+            var composerArgs = FilterComposerArgs(this.Args ?? ActionConfigProvider.RemainingArgs);
             if (composerArgs.Count == 0)
             {
                 // Prefer Tyhp's composer help over forwarding a bare `composer` with no subcommand.
@@ -65,17 +81,19 @@ namespace Tyhp.CLI
                 return null;
             }
 
-            if (!ExternalToolLocator.TryFindExecutable("php", out var phpPath)
-                || !ExternalToolLocator.TryProbeVersion(phpPath))
+            if (IsSyncCommand(composerArgs))
+            {
+                return this.RunExtrasSync(cancellationToken);
+            }
+
+            if (!this.TryFindPhp(out _))
             {
                 Message.Error("CLI_ComposerPhpNotFound");
                 Environment.ExitCode = (int)ExitCode.GenericError;
                 return null;
             }
 
-            if (!ExternalToolLocator.TryResolveComposerExecutable(
-                    this._project.GetProjectPath(),
-                    out var composerExecutable))
+            if (!this.TryResolveComposer(out var composerExecutable))
             {
                 Message.Error("CLI_ComposerActionNotFound");
                 Environment.ExitCode = (int)ExitCode.GenericError;
@@ -84,18 +102,20 @@ namespace Tyhp.CLI
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            var exitCode = RunComposer(composerExecutable, composerArgs, this._project.GetProjectPath());
+            // Composer 2.2+ refuses tyhp/core until allow-plugins is set; the plugin cannot
+            // write that key itself. Patch before any Composer invocation that would load it.
+            InitComposerManifest.TryEnsureAllowPlugins(
+                Path.Combine(this._project.GetProjectPath(), "composer.json"),
+                out _);
+
+            var exitCode = this.InvokeComposer(composerExecutable, composerArgs, this._project.GetProjectPath());
             Environment.ExitCode = exitCode;
 
             if (exitCode == 0
                 && ShouldOfferTyhpdefHook(composerArgs)
                 && !this._project.GetConfigValue("no-tyhpdef").ParseBool())
             {
-                // PLACEHOLDER_STORY_20: auto-generate tyhpdef after composer install/update
-                if (!this._project.BeQuiet)
-                {
-                    Message.Info("CLI_ComposerTyhpdefDeferred");
-                }
+                this.RunVendorTyhpdefHook(cancellationToken);
             }
 
             return null;
@@ -227,6 +247,144 @@ namespace Tyhp.CLI
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// True when the first Composer token is Tyhp's <c>sync</c> subcommand (not proxied).
+        /// </summary>
+        internal static bool IsSyncCommand(IReadOnlyList<string> composerArgs)
+        {
+            foreach (var arg in composerArgs)
+            {
+                if (arg.StartsWith('-'))
+                {
+                    continue;
+                }
+
+                return string.Equals(arg, "sync", StringComparison.OrdinalIgnoreCase);
+            }
+
+            return false;
+        }
+
+        private CompilationResult? RunExtrasSync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            InitComposerManifest.TryEnsureAllowPlugins(
+                Path.Combine(this._project.GetProjectPath(), "composer.json"),
+                out _);
+
+            var result = new CompilationResult(this._project.SuppressedWarnings);
+            var check = new ComposerExtraRequireCheck
+            {
+                RunComposerProcess = this.RunComposerProcess,
+                ResolveComposer = this.ResolveComposer,
+            };
+
+            var ok = check.TryApply(
+                this._project,
+                result.Diagnostics,
+                fix: true,
+                dryRun: false);
+
+            if (result.Diagnostics.All.Count > 0)
+            {
+                result.Diagnostics.DisplayAll(new ConsoleDiagnosticFormatter(this._project.BeQuiet));
+            }
+
+            Environment.ExitCode = (int)result.GetExitCode(this._project.Strict);
+            if (!ok && Environment.ExitCode == (int)ExitCode.Success)
+            {
+                Environment.ExitCode = (int)ExitCode.GenericError;
+            }
+
+            if (ok
+                && Environment.ExitCode == (int)ExitCode.Success
+                && !this._project.GetConfigValue("no-tyhpdef").ParseBool())
+            {
+                this.RunVendorTyhpdefHook(cancellationToken);
+            }
+
+            return null;
+        }
+
+        private bool TryFindPhp(out string phpPath)
+        {
+            if (this.FindPhp is not null)
+            {
+                phpPath = this.FindPhp() ?? "";
+                return !string.IsNullOrWhiteSpace(phpPath);
+            }
+
+            return ExternalToolLocator.TryFindExecutable("php", out phpPath)
+                && ExternalToolLocator.TryProbeVersion(phpPath);
+        }
+
+        private bool TryResolveComposer(out string composerExecutable)
+        {
+            if (this.ResolveComposer is not null)
+            {
+                composerExecutable = this.ResolveComposer(this._project.GetProjectPath()) ?? "";
+                return !string.IsNullOrWhiteSpace(composerExecutable);
+            }
+
+            return ExternalToolLocator.TryResolveComposerExecutable(
+                this._project.GetProjectPath(),
+                out composerExecutable);
+        }
+
+        private int InvokeComposer(
+            string composerExecutable,
+            IReadOnlyList<string> composerArgs,
+            string workingDirectory)
+        {
+            if (this.RunComposerProcess is not null)
+            {
+                return this.RunComposerProcess(composerExecutable, composerArgs, workingDirectory);
+            }
+
+            return RunComposer(composerExecutable, composerArgs, workingDirectory);
+        }
+
+        private void RunVendorTyhpdefHook(CancellationToken cancellationToken)
+        {
+            var env = this.ReadEnvironment ?? Environment.GetEnvironmentVariable;
+            if (VendorTyhpdefLayout.IsEnvironmentFlagSet(
+                    env(VendorTyhpdefLayout.VendorRunningEnvironmentVariable))
+                || VendorTyhpdefLayout.IsEnvironmentFlagSet(
+                    env(VendorTyhpdefLayout.NoVendorEnvironmentVariable)))
+            {
+                return;
+            }
+
+            var generator = this.VendorGenerator ?? new VendorTyhpdefGenerator();
+            var vendorDir = this._project.GetTyhpdefVendorDirectory()
+                ?? Path.GetFullPath(Path.Combine(this._project.GetProjectPath(), "vendor"));
+            var options = new TyhpdefGenerationOptions
+            {
+                Mode = TyhpdefGenerationMode.Vendor,
+                OutputDirectory = VendorTyhpdefLayout.OutputDirectory(this._project.GetProjectPath()),
+                Overwrite = this._project.GetTyhpdefOverwrite(),
+                IncludeDocComments = !this._project.GetTyhpdefNoDocs(),
+                IncludeDeprecated = this._project.GetTyhpdefIncludeDeprecated(),
+                IncludeInternal = this._project.GetTyhpdefIncludeInternal(),
+                IncludeDev = this._project.GetTyhpdefIncludeDev(),
+                PhpExecutablePath = this._project.GetPhpExecutablePath(),
+                PhpRuntimeDir = this._project.GetTyhpdefPhpRuntimeDir(),
+                NoPhpRuntimeUpdate = this._project.GetTyhpdefNoPhpRuntimeUpdate(),
+                PhpVersion = this._project.GetTyhpdefPhpVersion() ?? this._project.PhpVersion,
+                SnapshotDirectory = Path.Combine(this._project.GetProjectPath(), "tyhpdef_gen", "snapshots"),
+                FetchStubCache = true,
+            };
+
+            var result = new TyhpdefGenerationResult();
+            generator.Generate(this._project, vendorDir, options, result, cancellationToken);
+            this.LastVendorResult = result;
+            if (!result.Success)
+            {
+                Environment.ExitCode = (int)ExitCode.GenericError;
+            }
         }
 
         private static bool IsBooleanLiteral(string token)

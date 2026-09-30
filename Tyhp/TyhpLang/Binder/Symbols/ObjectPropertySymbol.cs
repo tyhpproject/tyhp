@@ -13,6 +13,22 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
 
         public bool HasAccessor { get; internal set; }
 
+        /// <summary>
+        /// True when the property hook list includes a hook named <c>get</c>.
+        /// Set for both Tyhp source and tyhpdef; invalid hook names are left to the checker.
+        /// </summary>
+        public bool HasGetHook { get; internal set; }
+
+        /// <summary>
+        /// True when the property hook list includes a hook named <c>set</c>.
+        /// </summary>
+        public bool HasSetHook { get; internal set; }
+
+        /// <summary>
+        /// True when the <c>get</c> hook is declared with <c>&amp;</c> (<c>&amp;get</c>).
+        /// </summary>
+        public bool GetHookReturnsRef { get; internal set; }
+
         public AccessorType? AccessorKind { get; internal set; }
 
         /// <summary>

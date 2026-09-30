@@ -32,7 +32,7 @@ namespace Tyhp.Domain.Services
             {
                 var packages = new HashSet<string>(emitContext.RequiredPackages, StringComparer.Ordinal)
                 {
-                    "tyhp/php",
+                    "tyhpdef/php",
                 };
                 return packages.OrderBy(p => p, StringComparer.Ordinal).ToList();
             }
@@ -100,8 +100,8 @@ namespace Tyhp.Domain.Services
             var pathMap = runtimePackagePathMap ?? ComposerJsonService.GetRuntimePackagePathMap();
             foreach (var packageName in requiredPackages.Distinct(StringComparer.Ordinal))
             {
-                // tyhp/php ships tyhpdefs only — no emitted PHP interop surface to stamp.
-                if (string.Equals(packageName, "tyhp/php", StringComparison.Ordinal))
+                // tyhpdef/php ships tyhpdefs only — no emitted PHP interop surface to stamp.
+                if (string.Equals(packageName, "tyhpdef/php", StringComparison.Ordinal))
                 {
                     continue;
                 }

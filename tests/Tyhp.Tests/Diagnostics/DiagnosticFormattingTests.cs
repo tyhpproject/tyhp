@@ -6,6 +6,7 @@ using Microsoft.Extensions.Localization;
 namespace Tyhp.Tests.Diagnostics;
 
 [Trait("Category", "Diagnostics")]
+[Collection("ProcessGlobalState")]
 public class DiagnosticFormattingTests : IDisposable
 {
     private sealed class FakeLocalizer : IStringLocalizer<TyhpHostedService>

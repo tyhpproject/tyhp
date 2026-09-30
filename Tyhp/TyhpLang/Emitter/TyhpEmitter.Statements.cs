@@ -1,7 +1,6 @@
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Enum;
-using Tyhp.TyhpLang.Parser;
 
 namespace Tyhp.TyhpLang.Emitter
 {
@@ -90,7 +89,7 @@ namespace Tyhp.TyhpLang.Emitter
                 var condition = this.BuildExpression(current.Condition);
                 var keyword = segments.Count == 0 ? "if" : "elseif";
                 var then = current.ThenStatement;
-                segments.Add(($"{keyword} ({condition}) {{", block => this.EmitStatementBody(then, block)));
+                segments.Add((FormatControlStructureOpen(keyword, condition), block => this.EmitStatementBody(then, block)));
 
                 if (current.ElseStatement is PhpIfAst elseif)
                 {
@@ -138,7 +137,7 @@ namespace Tyhp.TyhpLang.Emitter
             var then = ifAst.ThenStatement;
             var segments = new List<(string Open, Action<EmitItem> Body)>
             {
-                ($"if ({condition}) {{", block => this.EmitStatementBody(then, block)),
+                (FormatControlStructureOpen("if", condition), block => this.EmitStatementBody(then, block)),
             };
             var first = this.EmitBraceSegments(ifAst, parent, emitType, segments);
             emitted = this.ApplyDocComment(ifAst, first);
@@ -156,8 +155,7 @@ namespace Tyhp.TyhpLang.Emitter
                     scopeVar);
 
                 var segments = new List<(string Open, Action<EmitItem> Body)>();
-                var keyword = "if";
-                segments.Add(($"{keyword} ({condition}) {{", block => this.EmitStatementBody(ifAst.ThenStatement, block)));
+                segments.Add((FormatControlStructureOpen("if", condition), block => this.EmitStatementBody(ifAst.ThenStatement, block)));
 
                 if (ifAst.ElseStatement is PhpIfAst elseif)
                 {
@@ -166,9 +164,8 @@ namespace Tyhp.TyhpLang.Emitter
                     while (current != null)
                     {
                         var cond = this.BuildExpression(current.Condition);
-                        var kw = "elseif";
                         var then = current.ThenStatement;
-                        segments.Add(($"{kw} ({cond}) {{", block => this.EmitStatementBody(then, block)));
+                        segments.Add((FormatControlStructureOpen("elseif", cond), block => this.EmitStatementBody(then, block)));
 
                         if (current.ElseStatement is PhpIfAst elseif2)
                         {
@@ -250,7 +247,7 @@ namespace Tyhp.TyhpLang.Emitter
         private EmitItem EmitWhileLoop(PhpLoopAst loop, EmitItem parent, EmitType emitType)
         {
             var condition = this.BuildExpression(loop.Condition);
-            var block = EmitItem.Block(loop, emitType, $"while ({condition}) {{", "}", parent);
+            var block = EmitItem.Block(loop, emitType, FormatControlStructureOpen("while", condition), "}", parent);
             this.EmitLoopBody(loop.Body, block);
             return this.ApplyDocComment(loop, block);
         }
@@ -258,7 +255,12 @@ namespace Tyhp.TyhpLang.Emitter
         private EmitItem EmitDoWhileLoop(PhpLoopAst loop, EmitItem parent, EmitType emitType)
         {
             var condition = this.BuildExpression(loop.Condition);
-            var block = EmitItem.Block(loop, emitType, "do {", $"}} while ({condition});", parent);
+            var block = EmitItem.Block(
+                loop,
+                emitType,
+                "do {",
+                FormatControlStructureOpen("} while", condition, ";"),
+                parent);
             this.EmitLoopBody(loop.Body, block);
             return this.ApplyDocComment(loop, block);
         }
@@ -268,7 +270,12 @@ namespace Tyhp.TyhpLang.Emitter
             var init = this.FormatExpressionList(loop.InitExpressions);
             var test = this.FormatExpressionList(loop.TestExpressions);
             var update = this.FormatExpressionList(loop.UpdateExpressions);
-            var block = EmitItem.Block(loop, emitType, $"for ({init}; {test}; {update}) {{", "}", parent);
+            var block = EmitItem.Block(
+                loop,
+                emitType,
+                FormatControlStructureOpen("for", $"{init}; {test}; {update}"),
+                "}",
+                parent);
             this.EmitLoopBody(loop.Body, block);
             return this.ApplyDocComment(loop, block);
         }
@@ -291,7 +298,12 @@ namespace Tyhp.TyhpLang.Emitter
                 foreachClause = this.BuildForeachVariable(loop.ValueVariable);
             }
 
-            var block = EmitItem.Block(loop, emitType, $"foreach ({expr} as {foreachClause}) {{", "}", parent);
+            var block = EmitItem.Block(
+                loop,
+                emitType,
+                FormatControlStructureOpen("foreach", $"{expr} as {foreachClause}"),
+                "}",
+                parent);
             this.EmitLoopBody(loop.Body, block);
             return this.ApplyDocComment(loop, block);
         }
@@ -314,11 +326,11 @@ namespace Tyhp.TyhpLang.Emitter
             foreach (var catchClause in tryCatch.CatchClauses?.GetAllNotNull() ?? [])
             {
                 var clause = catchClause;
-                var types = this.FormatClassNameList(clause.ExceptionTypes, " | ");
+                var types = this.FormatClassNameList(clause.ExceptionTypes, "|");
                 var variable = clause.Variable != null
                     ? " " + this.BuildExpression(clause.Variable)
                     : "";
-                segments.Add(($"catch ({types}{variable}) {{", block => this.EmitStatementBlockInto(clause.Body, block)));
+                segments.Add((FormatControlStructureOpen("catch", $"{types}{variable}"), block => this.EmitStatementBlockInto(clause.Body, block)));
             }
 
             if (tryCatch.FinallyBlock != null)
@@ -462,7 +474,7 @@ namespace Tyhp.TyhpLang.Emitter
                 return this.ApplyDocComment(conditional, EmitItem.Line(conditional, emitType, content, parent));
             }
 
-            // PSR-12 §5.2: switch is a multiline braced structure, not a single compact line.
+            // PER-CS §5.2: switch is a multiline braced structure, not a single compact line.
             return this.ApplyDocComment(
                 conditional,
                 this.EmitSwitchStatement(conditional, parent, emitType));
@@ -471,7 +483,12 @@ namespace Tyhp.TyhpLang.Emitter
         private EmitItem EmitSwitchStatement(PhpConditionalAst conditional, EmitItem parent, EmitType emitType)
         {
             var expr = this.BuildExpression(conditional.Expression);
-            var block = EmitItem.Block(conditional, emitType, $"switch ({expr}) {{", "}", parent);
+            var block = EmitItem.Block(
+                conditional,
+                emitType,
+                FormatControlStructureOpen("switch", expr),
+                "}",
+                parent);
             var arms = conditional.Arms?.GetAllNotNull().ToList() ?? [];
             foreach (var arm in arms)
             {
@@ -803,9 +820,10 @@ namespace Tyhp.TyhpLang.Emitter
                 return false;
             }
 
-            var assignOp = PhpAssignmentOperatorExtensions.FromToken((int)binaryOp.Operator.ValueInt64);
-            if (assignOp is not (PhpAssignmentOperator.Assign or PhpAssignmentOperator.UsingEqual)
-                && binaryOp.Operator.ValueInt64 != TyhpParser.T_TYHP_USING_EQUAL)
+            var assignOp = PhpAssignmentOperatorExtensions.FromToken(
+                binaryOp.Operator.TokenValue,
+                binaryOp.Operator.ValueString);
+            if (assignOp is not (PhpAssignmentOperator.Assign or PhpAssignmentOperator.UsingEqual))
             {
                 return false;
             }

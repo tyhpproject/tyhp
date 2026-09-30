@@ -14,9 +14,6 @@ namespace Tyhp.Tests.Checker;
 public class PropertyHookModifierRuleTests
 {
     [Theory]
-    [InlineData("public")]
-    [InlineData("protected")]
-    [InlineData("private")]
     [InlineData("static")]
     [InlineData("readonly")]
     [InlineData("abstract")]
@@ -39,6 +36,51 @@ public class PropertyHookModifierRuleTests
         diagnostics.Errors.Should().Contain(d =>
             d.Code == MessageCode.CheckerPropertyHookInvalidModifier
             && d.Message.Contains(modifier, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("public")]
+    [InlineData("protected")]
+    [InlineData("private")]
+    public void Check_VisibilityHookModifier_IsAccepted(string modifier)
+    {
+        var diagnostics = CompileAndCheck($$"""
+            <?tyhp
+            final class Widget {
+                private string $_name = 'x';
+                public string $name {
+                    {{modifier}} get {
+                        return $this->_name;
+                    }
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerPropertyHookInvalidModifier);
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerAccessorVisibilityCannotBeMoreVisibleThanProperty);
+    }
+
+    [Fact]
+    public void Check_HookMoreVisibleThanProperty_Reports4004()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            final class Widget {
+                private string $_name = 'x';
+                private string $name {
+                    public get {
+                        return $this->_name;
+                    }
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerAccessorVisibilityCannotBeMoreVisibleThanProperty
+            && d.Message.Contains("public", StringComparison.Ordinal)
+            && d.Message.Contains("private", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -468,7 +510,7 @@ public class PropertyHookModifierRuleTests
                     get {
                         return $this->_name;
                     }
-                    public set(string $value) {
+                    static set(string $value) {
                         $this->_name = $value;
                     }
                 }
@@ -477,7 +519,7 @@ public class PropertyHookModifierRuleTests
 
         diagnostics.Errors.Should().Contain(d =>
             d.Code == MessageCode.CheckerPropertyHookInvalidModifier
-            && d.Message.Contains("public", StringComparison.Ordinal));
+            && d.Message.Contains("static", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -488,7 +530,7 @@ public class PropertyHookModifierRuleTests
             final class Widget {
                 public function __construct(
                     public string $name {
-                        public get {
+                        static get {
                             return $this->name;
                         }
                     }
@@ -759,17 +801,16 @@ public class PropertyHookModifierRuleTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = phpVersion,
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                Checker = new CheckerOptions
+            var options = IsolatedCompilation.CreateOptions(
+                tempDir,
+                phpVersion: phpVersion,
+                configure: o =>
                 {
-                    PhpVersion = phpVersion,
-                },
-            };
+                    o.Checker = new CheckerOptions
+                    {
+                        PhpVersion = phpVersion,
+                    };
+                });
             var result = compilationService.ParseFiles([filePath], options);
             return result.Diagnostics;
         }

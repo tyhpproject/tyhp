@@ -87,6 +87,30 @@ namespace Tyhp.TyhpLang.Checker
                 return false;
             }
 
+            // Intersection / union of callable facets: any-arity targets check every return;
+            // known-arity targets fall through to per-member assignability.
+            if (source is IntersectionCheckedType or UnionCheckedType)
+            {
+                if (TryAsCallableCheckedType(target, out var anyArityTarget)
+                    && anyArityTarget.IsAnyArity)
+                {
+                    var facets = CallableArityFacetBuilder.GetCallableFacets(source);
+                    if (facets.Count > 0)
+                    {
+                        result = facets.All(facet =>
+                            IsAssignableToCore(
+                                facet.ReturnType,
+                                anyArityTarget.ReturnType,
+                                symbolTree,
+                                globalScope,
+                                visited));
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
             // An unverified plain `string`/`array` is rejected here (most strings are not valid PHP
             // callables), but `\__FunctionName` is a narrower, checker-verified brand: the checker only
             // produces it once a value has passed a `\function_exists(...)` guard, at which point it
@@ -106,22 +130,36 @@ namespace Tyhp.TyhpLang.Checker
                 return true;
             }
 
+            // `\Closure<C, TThis, TScope>` is a class; callable-ness is C / `__invoke`.
+            // A typed `callable(...)` target must see C, not only the Closure class name —
+            // otherwise first-class callables (inferred as Closure generics) fail 4010.
+            if (IsClosureType(source, symbolTree, globalScope))
+            {
+                if (source is GenericCheckedType { TypeArguments.Count: > 0 } genericClosure)
+                {
+                    result = IsAssignableToCore(
+                        genericClosure.TypeArguments[0], target, symbolTree, globalScope, visited);
+                    return true;
+                }
+
+                result = true;
+                return true;
+            }
+
             if (TryAsCallableCheckedType(target, out _))
             {
-                if (IsClosureType(source, symbolTree, globalScope) ||
-                    (TryGetObjectDeclaration(source) is { } obj && HasPublicInvokeMethod(obj, symbolTree)))
+                // Typed `callable(...)` (including any-arity) must match `__invoke`'s
+                // parameters and return, not merely the presence of the method.
+                if (TryGetObjectDeclaration(source) is { } obj
+                    && TryBuildInvokeCallableType(
+                        source, obj, symbolTree, globalScope, out var invokeShape))
                 {
-                    result = true;
+                    result = IsAssignableToCore(
+                        invokeShape, target, symbolTree, globalScope, visited);
                     return true;
                 }
 
                 result = false;
-                return true;
-            }
-
-            if (IsClosureType(source, symbolTree, globalScope))
-            {
-                result = true;
                 return true;
             }
 
@@ -264,12 +302,77 @@ namespace Tyhp.TyhpLang.Checker
             return StructTypeHelper.TryGetStructShape(type, state, symbolTree, globalScope, SilentResolve);
         }
 
+        /// <summary>
+        /// True when <paramref name="type"/> inhabits the built-in <c>struct</c> bound
+        /// (<c>T extends struct</c>): anonymous shapes, named struct declarations, and
+        /// the built-in itself. Classes and arrays do not.
+        /// </summary>
+        internal static bool IsStructInhabitant(ICheckedType type)
+        {
+            if (type is StructCheckedType || IsBuiltInName(type, "struct"))
+            {
+                return true;
+            }
+
+            if (TryGetObjectDeclaration(type) is { IsStruct: true })
+            {
+                return true;
+            }
+
+            if (type is SimpleCheckedType
+                {
+                    ResolvedSymbol: GenericTypeParameterSymbol { ResolvedConstraint: { } constraint }
+                })
+            {
+                return IsStructInhabitant(constraint);
+            }
+
+            if (type is IntersectionCheckedType intersection)
+            {
+                return intersection.Members.Any(IsStructInhabitant);
+            }
+
+            return false;
+        }
+
         private static ICheckedType ResolveTypeAstSilently(
             ITypeExpression typeAst,
             CheckerState state,
             SymbolTree symbolTree,
             GlobalScope globalScope)
         {
+            // `extends Parent<T>` and `T 0 as $_1` are ordinary type expressions
+            // (`PhpTypeExpressionAst` around a named type). Generic parameters live on the
+            // declaring symbol, not the file scope, so the wrapper has to be opened before
+            // the in-scope parameter lookup below. Otherwise an inherited field stays the
+            // open parent parameter and `CallableArgs2<string, int>` does not match the
+            // positional bag.
+            if (typeAst is PhpTypeExpressionAst
+                {
+                    TypeKind: not (PhpTypeKind.Union or PhpTypeKind.Intersection),
+                    Types: { } members,
+                } composite)
+            {
+                ITypeExpression? only = null;
+                var count = 0;
+                foreach (var member in members.GetAllNotNull())
+                {
+                    count++;
+                    if (count > 1)
+                    {
+                        break;
+                    }
+
+                    only = member;
+                }
+
+                if (count == 1 && only is not null)
+                {
+                    var inner = ResolveTypeAstSilently(only, state, symbolTree, globalScope);
+                    return composite.IsNullable ? new NullableCheckedType(inner) : inner;
+                }
+            }
+
             var simpleName = typeAst switch
             {
                 PhpNamedTypeAst { Name: { } name } =>
@@ -384,6 +487,105 @@ namespace Tyhp.TyhpLang.Checker
             return true;
         }
 
+        /// <summary>
+        /// <c>callable(__CallableParametersRest&lt;T&gt; ...): __CallableReturnType&lt;T&gt;</c>
+        /// is T's signature reconstructed from packs, so it assigns to the callable type
+        /// parameter T (e.g. <c>memoize</c>).
+        /// </summary>
+        private static bool IsReconstructedCallableAssignableTo(ICheckedType source, ICheckedType target)
+        {
+            if (source is GenericCheckedType sourceGeneric
+                && CallableArityFacetBuilder.IsClosureTypeName(sourceGeneric.BaseType)
+                && sourceGeneric.TypeArguments.Count > 0)
+            {
+                source = sourceGeneric.TypeArguments[0];
+            }
+
+            var targetShape = target;
+            if (target is GenericCheckedType targetGeneric
+                && CallableArityFacetBuilder.IsClosureTypeName(targetGeneric.BaseType)
+                && targetGeneric.TypeArguments.Count > 0)
+            {
+                targetShape = targetGeneric.TypeArguments[0];
+            }
+
+            if (targetShape is not SimpleCheckedType
+                {
+                    ResolvedSymbol: GenericTypeParameterSymbol targetParam
+                })
+            {
+                return false;
+            }
+
+            var facets = CallableArityFacetBuilder.GetCallableFacets(source);
+            if (facets.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var facet in facets)
+            {
+                if (!FacetReconstructsTypeParameter(facet, targetParam))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool FacetReconstructsTypeParameter(
+            CallableCheckedType facet,
+            GenericTypeParameterSymbol param)
+        {
+            if (!IsReturnTypeOfParameter(facet.ReturnType, param))
+            {
+                return false;
+            }
+
+            var spliced = ParameterPack.SpliceParameterList(facet.ParameterTypes, out _);
+            if (spliced.Count != 1)
+            {
+                return false;
+            }
+
+            if (UtilityTypeResolver.TryGetCallableParametersRest(spliced[0], out var restOf)
+                && restOf is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol restParam }
+                && ReferenceEquals(restParam, param))
+            {
+                return true;
+            }
+
+            return spliced[0] is ParameterPackCheckedType pack
+                && pack.SourceCallable is SimpleCheckedType
+                {
+                    ResolvedSymbol: GenericTypeParameterSymbol packParam
+                }
+                && ReferenceEquals(packParam, param);
+        }
+
+        private static bool IsReturnTypeOfParameter(ICheckedType type, GenericTypeParameterSymbol param)
+        {
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            if (type is not GenericCheckedType generic
+                || generic.TypeArguments.Count == 0
+                || !SymbolNameTypeHelper.TryGetUtilitySymbol(generic, out var utility)
+                || utility.Behavior != UtilityBehavior.CallableReturnType)
+            {
+                return false;
+            }
+
+            return generic.TypeArguments[0] is SimpleCheckedType
+                {
+                    ResolvedSymbol: GenericTypeParameterSymbol returnParam
+                }
+                && ReferenceEquals(returnParam, param);
+        }
+
         private static bool AreCallableTypesCompatible(
             CallableCheckedType source,
             CallableCheckedType target,
@@ -391,21 +593,45 @@ namespace Tyhp.TyhpLang.Checker
             GlobalScope globalScope,
             HashSet<(ICheckedType, ICheckedType)> visited)
         {
-            if (target.ParameterTypes.Count == 0)
+            if (target.IsAnyArity)
             {
-                return IsAssignableToCore(source.ReturnType, target.ReturnType, symbolTree, globalScope, visited);
+                return IsAssignableToCore(
+                    source.ReturnType, target.ReturnType, symbolTree, globalScope, visited);
             }
 
-            if (source.ParameterTypes.Count != target.ParameterTypes.Count)
+            if (source.IsAnyArity)
             {
                 return false;
             }
 
-            for (var i = 0; i < target.ParameterTypes.Count; i++)
+            var sourceParams = ParameterPack.SpliceParameterList(
+                source.ParameterTypes, out var sourcePackVariadic);
+            var targetParams = ParameterPack.SpliceParameterList(
+                target.ParameterTypes, out var targetPackVariadic);
+            var sourceVariadic = source.LastParameterIsVariadic || sourcePackVariadic;
+            var targetVariadic = target.LastParameterIsVariadic || targetPackVariadic;
+            var sourceLastIsPack = source.ParameterTypes.Count > 0
+                && ParameterPack.IsPack(source.ParameterTypes[^1]);
+            var targetLastIsPack = target.ParameterTypes.Count > 0
+                && ParameterPack.IsPack(target.ParameterTypes[^1]);
+
+            // Value-position `Rest<T> ...$args` and type-position splice `callable(Rest<T> ...): R`
+            // are the same callable when T is still open; do not demand the PHP-variadic flag.
+            if (targetVariadic && !sourceVariadic && !(sourceLastIsPack && targetLastIsPack))
+            {
+                return false;
+            }
+
+            if (sourceParams.Count != targetParams.Count)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < targetParams.Count; i++)
             {
                 if (!IsAssignableToCore(
-                        target.ParameterTypes[i],
-                        source.ParameterTypes[i],
+                        targetParams[i],
+                        sourceParams[i],
                         symbolTree,
                         globalScope,
                         visited))
@@ -426,8 +652,39 @@ namespace Tyhp.TyhpLang.Checker
             (type is GenericCheckedType generic && IsBuiltInName(generic.BaseType, "iterable"));
 
         private static bool IsCallableType(ICheckedType type) =>
-            IsBuiltInName(type, "callable") ||
-            (type is GenericCheckedType generic && IsBuiltInName(generic.BaseType, "callable"));
+            type is CallableCheckedType
+            || IsBuiltInName(type, "callable");
+
+        /// <summary>
+        /// True when <paramref name="type"/> is a known-arity <c>callable(…): R</c> shape
+        /// (including an optional-arity intersection of facets). Bare <c>callable</c> and
+        /// constraint-only <c>callable(...): R</c> are not shapes.
+        /// </summary>
+        internal static bool IsCallableShapeType(ICheckedType type)
+        {
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            if (type is CallableCheckedType { IsAnyArity: false })
+            {
+                return true;
+            }
+
+            if (type is IntersectionCheckedType intersection)
+            {
+                return intersection.Members.Any(IsCallableShapeType);
+            }
+
+            if (type is GenericCheckedType { TypeArguments.Count: > 0 } generic
+                && CallableArityFacetBuilder.IsClosureTypeName(generic.BaseType))
+            {
+                return IsCallableShapeType(generic.TypeArguments[0]);
+            }
+
+            return false;
+        }
 
         private static bool IsClosureType(ICheckedType type, SymbolTree symbolTree, GlobalScope globalScope)
         {
@@ -446,10 +703,109 @@ namespace Tyhp.TyhpLang.Checker
                    string.Equals(NormalizeFqn(obj), "Closure", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool HasPublicInvokeMethod(ObjectDeclarationSymbol objectDecl, SymbolTree symbolTree)
+        private static bool HasPublicInvokeMethod(ObjectDeclarationSymbol objectDecl, SymbolTree symbolTree) =>
+            TryGetInvokeMethod(objectDecl, symbolTree) is not null;
+
+        private static ObjectMethodSymbol? TryGetInvokeMethod(
+            ObjectDeclarationSymbol objectDecl,
+            SymbolTree symbolTree)
         {
             var member = symbolTree.ResolveMember("__invoke", objectDecl, SilentDiagnostics);
-            return member is ObjectMethodSymbol { IsStatic: false };
+            return member is ObjectMethodSymbol { IsStatic: false } method ? method : null;
+        }
+
+        /// <summary>
+        /// Builds the object's <c>__invoke</c> signature as a <see cref="CallableCheckedType"/>
+        /// (or an intersection of arity siblings when trailing parameters have defaults) so
+        /// typed <c>callable(...)</c> assignability can reuse
+        /// <see cref="AreCallableTypesCompatible"/>.
+        /// </summary>
+        private static bool TryBuildInvokeCallableType(
+            ICheckedType source,
+            ObjectDeclarationSymbol objectDecl,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            out ICheckedType invokeShape)
+        {
+            invokeShape = CheckedTypes.Unresolved;
+            var method = TryGetInvokeMethod(objectDecl, symbolTree);
+            if (method is null)
+            {
+                return false;
+            }
+
+            var declaringClass = FindDeclaringClassForMember(
+                objectDecl, method, symbolTree, globalScope) ?? objectDecl;
+            var state = new CheckerState
+            {
+                EnclosingObject = declaringClass,
+                EnclosingObjectType = CheckedTypes.FromSymbol(declaringClass),
+                NameResolutionScope = declaringClass.ContainingScope,
+                ObjectGenerics = declaringClass.GenericParameters.Count > 0
+                    ? declaringClass.GenericParameters
+                    : [],
+            };
+
+            ICheckedType SilentResolve(
+                ITypeExpression typeAst,
+                CheckerState st,
+                bool _isRet,
+                bool _isUser) =>
+                ResolveTypeAstSilently(typeAst, st, symbolTree, globalScope);
+
+            Dictionary<GenericTypeParameterSymbol, ICheckedType>? bindings = null;
+            if (GenericInheritanceBindings.TryBuild(
+                    source, state, symbolTree, globalScope, SilentResolve, out var built)
+                && built.Count > 0)
+            {
+                bindings = built;
+            }
+
+            ICheckedType Substitute(ICheckedType type) =>
+                bindings is null
+                    ? type
+                    : ResolveGenericTypeBySymbol(type, bindings, symbolTree, globalScope);
+
+            var paramTypes = new List<ICheckedType>(method.Parameters.Count);
+            foreach (var param in method.Parameters)
+            {
+                var resolved = param.DeclaredType is null
+                    ? CheckedTypes.Unresolved
+                    : SilentResolve(param.DeclaredType, state, false, true);
+                paramTypes.Add(Substitute(resolved));
+            }
+
+            ICheckedType returnType = method.ReturnType switch
+            {
+                null => CheckedTypes.Mixed,
+                TyhpReturnTypeGuardAst => CheckedTypes.Bool,
+                var returnAst => Substitute(SilentResolve(returnAst, state, true, true)),
+            };
+
+            invokeShape = CallableArityFacetBuilder.BuildFromParameterInfos(
+                method.Parameters, paramTypes, returnType);
+            return true;
+        }
+
+        private static ObjectDeclarationSymbol? FindDeclaringClassForMember(
+            ObjectDeclarationSymbol start,
+            ObjectMethodSymbol method,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            var visited = new HashSet<ObjectDeclarationSymbol>();
+            ObjectDeclarationSymbol? current = start;
+            while (current is not null && visited.Add(current))
+            {
+                if (current.Members.Values.Any(candidate => ReferenceEquals(candidate, method)))
+                {
+                    return current;
+                }
+
+                current = TryGetParentDeclaration(current, symbolTree, globalScope);
+            }
+
+            return start;
         }
 
         private static ObjectDeclarationSymbol? ResolveTraversable(SymbolTree symbolTree, GlobalScope globalScope) =>
@@ -518,21 +874,6 @@ namespace Tyhp.TyhpLang.Checker
             if (type is CallableCheckedType direct)
             {
                 callable = direct;
-                return true;
-            }
-
-            if (type is GenericCheckedType { TypeArguments.Count: > 0 } generic &&
-                IsBuiltInName(generic.BaseType, "callable"))
-            {
-                var returnType = generic.TypeArguments[^1];
-                var parameterTypes = generic.TypeArguments.Take(generic.TypeArguments.Count - 1).ToList();
-                callable = new CallableCheckedType(parameterTypes, returnType);
-                return true;
-            }
-
-            if (IsBuiltInName(type, "callable"))
-            {
-                callable = new CallableCheckedType([], CheckedTypes.Mixed);
                 return true;
             }
 

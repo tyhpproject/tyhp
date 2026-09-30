@@ -21,7 +21,7 @@ public class AnonymousClassTests
 
         php.Should().NotContain("anonClass@");
         php.Should().NotContain("@");
-        php.Should().Contain("new class() extends Base implements Foo");
+        php.Should().Contain("new class extends Base implements Foo");
         php.Should().Contain("public int $x");
     }
 
@@ -43,7 +43,7 @@ public class AnonymousClassTests
             """);
 
         php.Should().NotContain("anonClass@");
-        php.Should().Contain("new class() extends Base implements Foo");
+        php.Should().Contain("new class extends Base implements Foo");
         php.Should().Contain("public int $x");
     }
 
@@ -74,13 +74,7 @@ public class AnonymousClassTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             result.Diagnostics.Errors.Should().BeEmpty();
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

@@ -5,15 +5,16 @@ using Tyhp.TyhpLang.Binder.Symbols;
 namespace Tyhp.TyhpLang.Checker
 {
     /// <summary>
-    /// Reflects an ordered parameter list and return type from a callable-ish
-    /// <see cref="ICheckedType"/> (arity facets, <c>callable&lt;…&gt;</c> / <c>\Closure&lt;…&gt;</c>,
-    /// or a binder parameter list from a function / method / closure symbol).
+        /// Reflects an ordered parameter list and return type from a callable-ish
+        /// <see cref="ICheckedType"/> (arity facets, <c>callable(…): R</c> shapes,
+        /// <c>\Closure&lt;C, …&gt;</c> via <c>C</c> / <c>__invoke</c>,
+        /// or a binder parameter list from a function / method / closure symbol).
     /// </summary>
     internal static class CallableSignatureReflection
     {
         /// <summary>
-        /// One reflected parameter. <see cref="Name"/> is absent for bare
-        /// <c>callable&lt;…&gt;</c> facets that carry types but not parameter names.
+        /// One reflected parameter. <see cref="Name"/> is absent for unnamed
+        /// <c>callable(…): R</c> shape slots.
         /// </summary>
         public sealed record Parameter(
             string? Name,
@@ -40,9 +41,9 @@ namespace Tyhp.TyhpLang.Checker
 
         /// <summary>
         /// Reflects <paramref name="type"/> when it is (or unwraps to) one or more callable
-        /// arity facets, a generic <c>callable</c>/<c>\Closure</c>, a bare opaque
-        /// <c>callable</c>/<c>\Closure</c>, or a union of same-arity callables. Type parameters
-        /// and non-callable types return false.
+        /// arity facets, a <c>callable(…): R</c> shape, a generic <c>\Closure</c> whose first type
+        /// argument is a callable shape, a bare opaque <c>callable</c>/<c>\Closure</c>, or a
+        /// union of same-arity callables. Type parameters and non-callable types return false.
         /// </summary>
         /// <remarks>
         /// When several arity facets are present the reflected parameter list is the longest
@@ -51,9 +52,8 @@ namespace Tyhp.TyhpLang.Checker
         /// which is how <see cref="CallableArityFacetBuilder.Build"/> produces them from
         /// trailing defaults. The return type is taken from the first facet (arity siblings
         /// share a return; divergent hand-written intersections match
-        /// <c>TryGetCallableReturnType</c>'s no-arity fallback). Facets from
-        /// <c>callable&lt;…&gt;</c> type arguments do not encode names, by-ref, or variadic
-        /// flags. Facets built from binder symbols via
+        /// <c>TryGetCallableReturnType</c>'s no-arity fallback). Unnamed shape slots do not
+        /// encode names. Facets built from binder symbols via
         /// <see cref="CallableArityFacetBuilder.BuildFromParameterInfos"/> carry names so
         /// <c>__CallableParametersStruct</c> can key the named bag.
         /// <c>__CallableParametersTuple</c> uses positional types and does not need names
@@ -122,11 +122,17 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             // Parameter list comes from the longest facet (optional trailing params). Return type
-            // uses the first facet when arity siblings share a return (the usual
-            // <see cref="CallableArityFacetBuilder.Build"/> case) and the same first-facet
-            // fallback as <c>TryGetCallableReturnType</c> when a hand-written intersection
-            // diverges — type-position utilities have no selected call arity.
-            signature = new Signature(parameters, facets[0].ReturnType);
+            // unions every facet so a union of closures (or `Closure<C1|C2>`) is
+            // `int|string`, not the first facet alone. Arity siblings from
+            // <see cref="CallableArityFacetBuilder.Build"/> share a return, so the
+            // union is a no-op there.
+            var returnType = facets[0].ReturnType;
+            for (var i = 1; i < facets.Count; i++)
+            {
+                returnType = CheckedTypes.UnionTypes(returnType, facets[i].ReturnType);
+            }
+
+            signature = new Signature(parameters, returnType);
             return true;
         }
 
@@ -319,7 +325,7 @@ namespace Tyhp.TyhpLang.Checker
         /// <summary>
         /// Builds a positional-parameter struct bag from a callable-ish <paramref name="type"/>.
         /// Non-variadic parameters become <c>T i as $_(i+1)</c> (same shape as hand-written
-        /// <c>CallableArgs*</c>). Names are not required — bare <c>callable&lt;…&gt;</c> facets
+        /// <c>CallableArgs*</c>). Names are not required — bare <c>callable(...)</c> facets
         /// still produce int keys. Defaulted / extra-arity parameters are optional fields so a
         /// shorter list literal can omit trailing keys. Unions merge when every member has the
         /// same keys; mismatched arities degrade to an empty struct. Null union members are
@@ -583,7 +589,8 @@ namespace Tyhp.TyhpLang.Checker
         /// <c>callable&lt;&gt;</c> / <c>\Closure&lt;&gt;</c> still display as "callable" /
         /// "Closure", and those shapes are rejected by
         /// <c>GenericTypeArgumentValidator.SatisfiesCallableConstraint</c> rather than treated
-        /// as opaque callables. Used by rest unpack to skip arity checks when the callable's
+        /// as opaque callables. Generic <c>\Closure&lt;C, …&gt;</c> is not opaque: facets come
+        /// from <c>C</c>. Used by rest unpack to skip arity checks when the callable's
         /// parameter list is not statically known.
         /// </summary>
         internal static bool IsOpaqueCallable(ICheckedType type)

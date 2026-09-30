@@ -10,7 +10,5 @@ namespace App;
 
 class Handle implements \Tyhp\Contracts\IsDisposable
 {
-    public function dispose(): void
-    {
-    }
+    public function dispose(): void {}
 }

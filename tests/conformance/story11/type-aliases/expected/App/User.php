@@ -11,6 +11,10 @@ namespace App;
 class User
 {
     public string $name = "";
+    public static function NameType(): \Tyhp\Type
+    {
+        return \Tyhp\Type::string();
+    }
     public function getId(): int
     {
         return 42;

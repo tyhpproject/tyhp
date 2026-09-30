@@ -2,10 +2,10 @@
 declare(strict_types=1);
 namespace App;
 
-struct Point {
+type Point = struct {
     int $x = 0;
     int $y = 0;
-}
+};
 
 function origin(): Point {
     return new Point();

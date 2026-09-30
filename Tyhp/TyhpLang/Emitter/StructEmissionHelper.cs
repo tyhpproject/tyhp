@@ -3,6 +3,7 @@ using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Enum;
@@ -249,7 +250,10 @@ namespace Tyhp.TyhpLang.Emitter
         /// <summary>
         /// Compile-time merge of struct defaults with a <c>with</c> override list into one
         /// short-array literal. Default key order is preserved; overridden keys keep their
-        /// position; keys present only in overrides are appended.
+        /// position; keys present only in overrides are appended. Skip-slot pairs (trailing-comma
+        /// artifacts) are dropped: keyed struct fields never use destructuring skips, and appending
+        /// an override after a trailing skip would otherwise turn it into an interior empty PHP
+        /// element that <c>BuildArrayExpression</c> cannot distinguish from <c>[, $b]</c>.
         /// </summary>
         public static PhpArrayAst MergeArrayPairs(
             PhpArrayAst defaults,
@@ -259,7 +263,7 @@ namespace Tyhp.TyhpLang.Emitter
             var merged = new List<PhpArrayPairAst>();
             var indexByKey = new Dictionary<string, int>(StringComparer.Ordinal);
 
-            foreach (var pair in defaults.ArrayPairs?.GetAllNotNull() ?? [])
+            foreach (var pair in defaults.ArrayPairs?.GetAllExcludingSkippedSlots() ?? [])
             {
                 var key = pair.KeyExpr is null ? null : GetArrayKeyText(pair.KeyExpr);
                 if (key is not null)
@@ -270,7 +274,7 @@ namespace Tyhp.TyhpLang.Emitter
                 merged.Add(pair);
             }
 
-            foreach (var pair in overrides.ArrayPairs?.GetAllNotNull() ?? [])
+            foreach (var pair in overrides.ArrayPairs?.GetAllExcludingSkippedSlots() ?? [])
             {
                 var key = pair.KeyExpr is null ? null : GetArrayKeyText(pair.KeyExpr);
                 if (key is not null && indexByKey.TryGetValue(key, out var existingIndex))
@@ -295,7 +299,7 @@ namespace Tyhp.TyhpLang.Emitter
             ObjectDeclarationSymbol structDecl,
             Base2Ast context)
         {
-            var pairs = pairList.GetAllNotNull()
+            var pairs = pairList.GetAllExcludingSkippedSlots()
                 .Select(pair => NormalizeArrayPair(pair, structDecl, context))
                 .ToList();
 
@@ -376,23 +380,41 @@ namespace Tyhp.TyhpLang.Emitter
             ObjectDeclarationSymbol structDecl,
             string? memberName)
         {
+            return TryResolveStructProperty(structDecl, memberName, out var property)
+                ? GetStructArrayKey(property!)
+                : null;
+        }
+
+        /// <summary>
+        /// Finds the declared property (walking the inheritance chain) backing <c>$s-&gt;member</c>.
+        /// Only declared properties erase to array keys; methods / extensions / unknown names must
+        /// stay as member access so call rewrite and the checker can see them. Used by the emitter
+        /// both to compute the array key and to resolve a nested struct property's own type (so a
+        /// chained <c>$s-&gt;inner-&gt;x</c> keeps rewriting after the first hop erases to <c>[]</c>).
+        /// </summary>
+        public static bool TryResolveStructProperty(
+            ObjectDeclarationSymbol structDecl,
+            string? memberName,
+            out ObjectPropertySymbol? property)
+        {
+            property = null;
             if (string.IsNullOrWhiteSpace(memberName))
             {
-                return null;
+                return false;
             }
 
             var lookupKey = memberName.StartsWith('$') ? memberName : "$" + memberName;
             foreach (var decl in EnumerateStructHierarchy(structDecl))
             {
                 if (decl.Members.TryGetValue(lookupKey, out var member)
-                    && member is ObjectPropertySymbol property)
+                    && member is ObjectPropertySymbol found)
                 {
-                    return GetStructArrayKey(property);
+                    property = found;
+                    return true;
                 }
             }
 
-            // Fallback: treat the member name itself as the key (already-normalized bare name).
-            return new StructArrayKey(NormalizePropertyKey(memberName), IsInteger: false);
+            return false;
         }
 
         /// <summary>
@@ -439,12 +461,7 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         private static IClassName? GetExtendsName(ObjectDeclarationSymbol structDecl) =>
-            structDecl.DeclaringAstNode switch
-            {
-                TyhpStructDeclAst { Extends: { } className } => className,
-                PhpObjectTypeDeclAst { Extends: { } className } => className,
-                _ => null,
-            };
+            StructExtends.FromDeclaringNode(structDecl.DeclaringAstNode);
 
         private static ObjectDeclarationSymbol? ResolveStructByName(IClassName className, IBaseScope? scope)
         {
@@ -622,7 +639,10 @@ namespace Tyhp.TyhpLang.Emitter
 
         public static ObjectDeclarationSymbol? FindStructSymbol(IBaseScope scope, string name)
         {
-            if (scope.FindChildSymbolByName(name) is ObjectDeclarationSymbol direct && direct.IsStruct)
+            // Nested class-member structs are only `Owner\Name`, not an unqualified `Name`.
+            if (scope.FindChildSymbolByName(name) is ObjectDeclarationSymbol direct
+                && direct.IsStruct
+                && scope is not ObjectDeclarationScope { DeclarationSymbol.IsStruct: false })
             {
                 return direct;
             }

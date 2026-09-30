@@ -155,13 +155,7 @@ public class PHPOutputFileSplitterTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
 
@@ -196,6 +190,27 @@ public class PHPOutputFileSplitterTests
         php.Should().Contain("}\n\nfunction second(): void\n{");
         php.Should().NotContain("$a = 1;    $b");
         php.Should().NotContain("}function second");
+    }
+
+    [Fact]
+    public void Emit_MultilineIfCondition_PutsFirstExpressionOnNextLine()
+    {
+        // PER-CS ControlStructureSpacing.FirstExpressionLine: a multiline `if (` must not keep
+        // the first expression on the same line as the opening parenthesis.
+        var php = CompileAndEmit("""
+            <?tyhp
+            function demo(int $x): void {
+                if (match ($x) {
+                    1 => true,
+                    default => false,
+                }) {
+                    echo 'ok';
+                }
+            }
+            """).Replace("\r\n", "\n");
+
+        php.Should().Contain("if (\n        match ($x) {");
+        php.Should().NotContain("if (match ($x) {");
     }
 
     [Fact]
@@ -261,6 +276,56 @@ public class PHPOutputFileSplitterTests
         files.Should().ContainSingle();
         files.Single().OutputFilePath.Should().Be("build/test.php");
         files.Single().IsPSR4ObjectDeclaration.Should().BeFalse();
+        files.Single().IsEntryPoint.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Split_GlobalUseExtension_IsNotEntryPoint()
+    {
+        var files = SplitContent("""
+            <?tyhp
+            namespace Lib;
+            global use extension \Lib\Ops;
+            extension Ops extends string {
+                fn ident(): string => $this;
+            }
+            """);
+
+        files.Should().NotContain(f => f.IsEntryPoint);
+    }
+
+    [Fact]
+    public void Split_DeclarePhpExtensionBlock_IsNotEntryPoint()
+    {
+        var files = SplitContent("""
+            <?tyhp
+            namespace Lib;
+            global use extension \Lib\Ops;
+            declare(php=">=8.2") {
+                extension Ops extends string {
+                    function ident(): string {
+                        return $this;
+                    }
+                }
+            }
+            """);
+
+        files.Should().NotContain(f => f.IsEntryPoint);
+        files.Should().ContainSingle(f => f.IsPSR4ObjectDeclaration);
+    }
+
+    [Fact]
+    public void Split_DeclarePhpExecutable_IsEntryPoint()
+    {
+        var files = SplitContent("""
+            <?tyhp
+            namespace Lib;
+            declare(php=">=8.2") {
+                $x = 1;
+            }
+            """);
+
+        files.Should().ContainSingle(f => f.IsEntryPoint);
     }
 
     [Fact]
@@ -308,17 +373,57 @@ public class PHPOutputFileSplitterTests
     }
 
     [Fact]
-    public void Split_StructAndTypeAlias_AreSkipped()
+    public void Emit_ArrayLiteralWithTrailingComma_DoesNotEmitEmptyElement()
     {
+        // Regression: `arrayPairList`'s grammar rule produces an empty (skip-slot)
+        // `possibleArrayPair` for a bare trailing comma. That trailing skip slot is never a
+        // real destructuring skip (there is no following element for it to shift), so
+        // BuildArrayExpression/BuildArrayPairList must trim it via
+        // GetAllTrimmingTrailingSkippedSlots() — otherwise a multi-line literal with a
+        // trailing comma emits an invalid `, ,` (PHP fatal: "Cannot use empty array elements
+        // in arrays"), as happened in the compiled runtime/packages/async Promise.php.
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace App;
+            function demo(): void {
+                $x = [
+                    1,
+                    2,
+                ];
+                $y = [
+                    1,
+                    2 + 3
+                        + 4,
+                ];
+            }
+            """).Replace("\r\n", "\n");
+
+        php.Should().NotContain(",,").And.NotMatchRegex(@",\s*,");
+        php.Should().Contain("$x = [1, 2];");
+    }
+
+    [Fact]
+    public void Split_StructAliasAndTypeAliasBothGoToFunctionsFile()
+    {
+        // `type Point = struct { … };` is a TyhpTypeAliasAst like any other alias, so the
+        // splitter buckets it alongside `MyAlias`. Its factory erases to nothing at emit time
+        // (TyhpEmitter.TypeAliasFactories.ShouldEmitSourceTypeAliasFactory skips struct shapes),
+        // but that decision happens per-statement during emission, not during splitting.
         var files = SplitContent("""
             <?tyhp
             type MyAlias = string;
-            struct Point { int $x; int $y; }
+            type Point = struct { int $x; int $y; };
             $value = 1;
             """);
 
-        files.Should().ContainSingle();
-        files.Single().Statements.Should().HaveCount(1);
+        files.Should().HaveCount(2);
+        var functions = files.Should().ContainSingle(f =>
+            (f.OutputFilePath ?? "").Contains("_functions.php", StringComparison.OrdinalIgnoreCase)).Subject;
+        functions.Statements.Should().HaveCount(2)
+            .And.AllBeOfType<TyhpTypeAliasAst>();
+        var entry = files.Should().ContainSingle(f =>
+            !(f.OutputFilePath ?? "").Contains("_functions.php", StringComparison.OrdinalIgnoreCase)).Subject;
+        entry.Statements.Should().ContainSingle();
     }
 
     [Fact]
@@ -449,13 +554,7 @@ public class PHPOutputFileSplitterTests
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
 
@@ -696,7 +795,7 @@ public class PHPOutputFileGenerateTests
             """);
 
         var srcFile = parseResult.Ast.Should().BeAssignableTo<SrcFileAst>().Subject;
-        var config = new EmitConfig("build/", entryPointAutoloader: "vendor/autoload.php");
+        var config = new EmitConfig("build/", entryPointAutoloader: "vendor/autoload.php", publishPath: "build/");
         var context = new EmitContext(new GlobalScope(), new DiagnosticBag(), config);
         var outputFiles = new TyhpEmitter(context).Emit([srcFile]).ToList();
         var file = outputFiles.Should().ContainSingle().Subject;
@@ -721,7 +820,7 @@ public class PHPOutputFileGenerateTests
         file.RootEmitItem.Children.Add(
             EmitItem.Line(provider, Tyhp.TyhpLang.Enum.EmitType.RootStatement, "exit(main());", file.RootEmitItem));
 
-        var config = new EmitConfig("build/", entryPointAutoloader: "vendor/autoload.php");
+        var config = new EmitConfig("build/", entryPointAutoloader: "vendor/autoload.php", publishPath: "build/");
         var context = new EmitContext(new GlobalScope(), new DiagnosticBag(), config);
         var php = file.Generate(context);
 
@@ -733,6 +832,18 @@ public class PHPOutputFileGenerateTests
     [Fact]
     public void ResolveAutoloaderPathFromEntryPoint_ComputesNestedRelativePath()
     {
+        PHPOutputFile.ResolveAutoloaderPathFromEntryPoint(
+                "src/index.php",
+                ".",
+                "vendor/autoload.php")
+            .Should().Be("../vendor/autoload.php");
+
+        PHPOutputFile.ResolveAutoloaderPathFromEntryPoint(
+                "publish/src/index.php",
+                "publish/",
+                "vendor/autoload.php")
+            .Should().Be("../vendor/autoload.php");
+
         PHPOutputFile.ResolveAutoloaderPathFromEntryPoint(
                 "build/src/TestEmitter/test.php",
                 "build/",
@@ -746,10 +857,10 @@ public class PHPOutputFileGenerateTests
             .Should().Be("vendor/autoload.php");
 
         PHPOutputFile.ResolveAutoloaderPathFromEntryPoint(
-                "./build/web/index.php",
-                "./build",
+                "./publish/src/web/index.php",
+                "./publish",
                 "vendor/autoload.php")
-            .Should().Be("../vendor/autoload.php");
+            .Should().Be("../../vendor/autoload.php");
     }
 
     [Theory]
@@ -796,7 +907,7 @@ public class PHPOutputFileGenerateTests
         parseResult.Diagnostics.HasErrors.Should().BeFalse();
         var srcFile = parseResult.Ast.Should().BeAssignableTo<SrcFileAst>().Subject;
 
-        var config = new EmitConfig("build/", entryPointAutoloader: "vendor/autoload.php");
+        var config = new EmitConfig("build/", entryPointAutoloader: "vendor/autoload.php", publishPath: "build/");
         var context = new EmitContext(new GlobalScope(), new DiagnosticBag(), config);
         var php = new TyhpEmitter(context).Emit([srcFile]).Single(f => f.IsEntryPoint).GeneratedContent ?? "";
 
@@ -823,7 +934,7 @@ public class PHPOutputFileGenerateTests
         var context = new EmitContext(new GlobalScope(), new DiagnosticBag(), config);
         var php = new TyhpEmitter(context).Emit([srcFile]).Single(f => f.IsEntryPoint).GeneratedContent ?? "";
 
-        php.Should().Contain("require_once __DIR__ . '/vendor/autoload.php';");
+        php.Should().Contain("require_once __DIR__ . '/../vendor/autoload.php';");
         php.Should().NotContain("declare(autoload");
     }
 
@@ -842,7 +953,7 @@ public class PHPOutputFileGenerateTests
         var context = new EmitContext(new GlobalScope(), new DiagnosticBag(), config);
         var php = new TyhpEmitter(context).Emit([srcFile]).Single(f => f.IsEntryPoint).GeneratedContent ?? "";
 
-        php.Should().Contain("require_once __DIR__ . '/boot/init.php';");
+        php.Should().Contain("require_once __DIR__ . '/../boot/init.php';");
     }
 
     [Fact]
@@ -864,7 +975,7 @@ public class PHPOutputFileGenerateTests
         var context = new EmitContext(new GlobalScope(), new DiagnosticBag(), config);
         var php = new TyhpEmitter(context).Emit([srcFile]).Single(f => f.IsEntryPoint).GeneratedContent ?? "";
 
-        php.Should().Contain("require_once __DIR__ . '/lib/autoload.php';");
+        php.Should().Contain("require_once __DIR__ . '/../lib/autoload.php';");
     }
 
     [Fact]
@@ -874,13 +985,14 @@ public class PHPOutputFileGenerateTests
         var file = new PHPOutputFile
         {
             IsEntryPoint = true,
+            OutputFilePath = "build/app.php",
             FileNameSpace = PhpNamespaceDeclAst.CreateFromContext("App", provider),
             RootEmitItem = EmitItem.Empty(provider, Tyhp.TyhpLang.Enum.EmitType.FileHeader),
         };
         file.RootEmitItem.Children.Add(
             EmitItem.Line(provider, Tyhp.TyhpLang.Enum.EmitType.RootStatement, "$value = 1;", file.RootEmitItem));
 
-        var config = new EmitConfig("build/", entryPointAutoloader: "vendor/autoload.php");
+        var config = new EmitConfig("build/", entryPointAutoloader: "vendor/autoload.php", publishPath: "build/");
         var context = new EmitContext(new GlobalScope(), new DiagnosticBag(), config);
         var php = file.Generate(context);
 
@@ -901,13 +1013,14 @@ public class PHPOutputFileGenerateTests
         var file = new PHPOutputFile
         {
             IsEntryPoint = true,
+            OutputFilePath = "build/app.php",
             FileNameSpace = PhpBlockNamespaceDeclAst.CreateFromContext("App", provider),
             RootEmitItem = EmitItem.Empty(provider, Tyhp.TyhpLang.Enum.EmitType.FileHeader),
         };
         file.RootEmitItem.Children.Add(
             EmitItem.Line(provider, Tyhp.TyhpLang.Enum.EmitType.RootStatement, "$value = 1;", file.RootEmitItem));
 
-        var config = new EmitConfig("build/", entryPointAutoloader: "vendor/autoload.php");
+        var config = new EmitConfig("build/", entryPointAutoloader: "vendor/autoload.php", publishPath: "build/");
         var context = new EmitContext(new GlobalScope(), new DiagnosticBag(), config);
         var php = file.Generate(context);
 

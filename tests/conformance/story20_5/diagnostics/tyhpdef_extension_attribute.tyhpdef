@@ -1,0 +1,5 @@
+<?tyhpdef
+#[\Tyhp\Php(">=8.4")]
+extension UriStringExtensions extends string {
+    fn parse(): string => \parse_url($this, \PHP_URL_PATH) ?? '';
+}

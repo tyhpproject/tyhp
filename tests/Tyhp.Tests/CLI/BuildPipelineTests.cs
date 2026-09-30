@@ -43,6 +43,46 @@ public class BuildOutputCleanerTests
     }
 
     [Fact]
+    public void TryClean_DeletesBuildStateFromCacheDirectoryNotOutput()
+    {
+        var tempDir = CreateTempDirectory();
+        var outputDir = Path.Combine(tempDir, "build");
+        var cacheDir = Path.Combine(tempDir, ".tyhp-cache");
+        Directory.CreateDirectory(outputDir);
+        File.WriteAllText(Path.Combine(outputDir, "App.php"), "<?php");
+        File.WriteAllText(Path.Combine(outputDir, IncrementalBuildService.BuildStateFileName), "stale-output-copy");
+
+        var project = CreateProject(tempDir, outputPath: "build", clean: true, cacheDir: cacheDir);
+        var statePath = IncrementalBuildService.GetBuildStatePath(project);
+        Directory.CreateDirectory(Path.GetDirectoryName(statePath)!);
+        File.WriteAllText(statePath, "{}");
+
+        var diagnostics = new DiagnosticBag();
+        BuildOutputCleaner.TryClean(project, diagnostics).Should().BeTrue();
+
+        File.Exists(statePath).Should().BeFalse();
+        File.Exists(Path.Combine(outputDir, IncrementalBuildService.BuildStateFileName)).Should().BeTrue();
+        Directory.GetFiles(outputDir, "*.php", SearchOption.AllDirectories).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void TryClean_DeletesBuildStateWhenOutputDirectoryIsMissing()
+    {
+        var tempDir = CreateTempDirectory();
+        var cacheDir = Path.Combine(tempDir, ".tyhp-cache");
+        var project = CreateProject(tempDir, outputPath: "build", clean: true, cacheDir: cacheDir);
+        var statePath = IncrementalBuildService.GetBuildStatePath(project);
+        Directory.CreateDirectory(Path.GetDirectoryName(statePath)!);
+        File.WriteAllText(statePath, "{}");
+
+        var diagnostics = new DiagnosticBag();
+        BuildOutputCleaner.TryClean(project, diagnostics).Should().BeTrue();
+
+        Directory.Exists(Path.Combine(tempDir, "build")).Should().BeFalse();
+        File.Exists(statePath).Should().BeFalse();
+    }
+
+    [Fact]
     public void TryClean_RefusesAbsoluteOutputThatOverlapsSourceViaSymlinkSpelling()
     {
         using var layout = SymlinkProjectLayout.TryCreate();
@@ -65,11 +105,39 @@ public class BuildOutputCleanerTests
         File.Exists(layout.RealSourceFile).Should().BeTrue();
     }
 
+    [Fact]
+    public void TryCleanPublish_RefusesProjectRoot()
+    {
+        var tempDir = CreateTempDirectory();
+        var project = CreatePublishProject(tempDir, publishPath: ".", publishClean: true);
+
+        var diagnostics = new DiagnosticBag();
+        BuildOutputCleaner.TryCleanPublish(project, diagnostics).Should().BeFalse();
+        diagnostics.ToList().Should().Contain(d => d.Code == MessageCode.BuildCleanFailed);
+    }
+
+    [Fact]
+    public void TryCleanPublish_DeletesPublishDirectory()
+    {
+        var tempDir = CreateTempDirectory();
+        var publishDir = Path.Combine(tempDir, "publish");
+        Directory.CreateDirectory(publishDir);
+        File.WriteAllText(Path.Combine(publishDir, "stale.txt"), "gone");
+
+        var project = CreatePublishProject(tempDir, publishPath: "publish", publishClean: true);
+        var diagnostics = new DiagnosticBag();
+
+        BuildOutputCleaner.TryCleanPublish(project, diagnostics).Should().BeTrue();
+        Directory.Exists(publishDir).Should().BeTrue();
+        Directory.GetFileSystemEntries(publishDir).Should().BeEmpty();
+    }
+
     private static Project CreateProject(
         string projectPath,
         string outputPath,
         bool clean,
-        string includePath = "**/*.tyhp")
+        string includePath = "**/*.tyhp",
+        string? cacheDir = null)
     {
         var projectFile = Path.Combine(projectPath, "tyhp.json");
         if (!File.Exists(projectFile))
@@ -77,13 +145,43 @@ public class BuildOutputCleanerTests
             File.WriteAllText(projectFile, "{}");
         }
 
+        var values = new Dictionary<string, string?>
+        {
+            ["*project_file_path"] = projectFile,
+            ["output:path"] = outputPath,
+            ["clean"] = clean.ToString().ToLowerInvariant(),
+            ["include:0"] = includePath,
+        };
+        if (cacheDir != null)
+        {
+            values["cache-dir"] = cacheDir;
+        }
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(values)
+            .Build();
+
+        return new Project(configuration);
+    }
+
+    private static Project CreatePublishProject(string projectPath, string publishPath, bool publishClean)
+    {
+        var projectFile = Path.Combine(projectPath, "tyhp.json");
+        if (!File.Exists(projectFile))
+        {
+            File.WriteAllText(projectFile, "{}");
+        }
+
+        Directory.CreateDirectory(Path.Combine(projectPath, "src"));
+
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["*project_file_path"] = projectFile,
-                ["output:path"] = outputPath,
-                ["clean"] = clean.ToString().ToLowerInvariant(),
-                ["include:0"] = includePath,
+                ["output:path"] = "src",
+                ["output:publishPath"] = publishPath,
+                ["output:publishClean"] = publishClean.ToString().ToLowerInvariant(),
+                ["include:0"] = "src/**/*.tyhp",
             })
             .Build();
 
@@ -210,6 +308,51 @@ public class BuildEntryPointValidatorTests
     }
 
     [Fact]
+    public void ValidateLibraryProject_AllowsGlobalUseExtension()
+    {
+        ValidateLibrary("""
+            <?tyhp
+            namespace Lib;
+            global use extension \Lib\Ops;
+            extension Ops extends string {
+                fn ident(): string => $this;
+            }
+            """).HasErrors.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ValidateLibraryProject_AllowsDeclarePhpExtensionBlocks()
+    {
+        ValidateLibrary("""
+            <?tyhp
+            namespace Lib;
+            global use extension \Lib\Ops;
+            declare(php=">=8.2") {
+                extension Ops extends string {
+                    function ident(): string {
+                        return $this;
+                    }
+                }
+            }
+            """).HasErrors.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ValidateLibraryProject_Reports7505_ForExecutableCodeInsideDeclarePhp()
+    {
+        var diagnostics = ValidateLibrary("""
+            <?tyhp
+            namespace Lib;
+            declare(php=">=8.2") {
+                $x = 1;
+            }
+            """);
+
+        diagnostics.HasErrors.Should().BeTrue();
+        diagnostics.ToList().Should().Contain(d => d.Code == MessageCode.TyhpdefLibraryEntrypointDetected);
+    }
+
+    [Fact]
     public void ValidateLibraryProject_SkipsApplicationProjects()
     {
         var parseResult = ParserTestHelper.ParseTyhpContent("""
@@ -224,6 +367,24 @@ public class BuildEntryPointValidatorTests
         BuildEntryPointValidator.ValidateLibraryProject(project, [srcFile], diagnostics);
 
         diagnostics.HasErrors.Should().BeFalse();
+    }
+
+    private static DiagnosticBag ValidateLibrary(string content)
+    {
+        var parseResult = ParserTestHelper.ParseTyhpContent(content);
+        parseResult.Diagnostics.HasErrors.Should().BeFalse(
+            string.Join("; ", parseResult.Diagnostics.Errors.Select(e => e.Message)));
+        var srcFile = parseResult.Ast.Should().BeAssignableTo<Tyhp.TyhpLang.Ast.SrcFileAst>().Subject;
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["type"] = "library",
+            })
+            .Build();
+
+        var diagnostics = new DiagnosticBag();
+        BuildEntryPointValidator.ValidateLibraryProject(new Project(configuration), [srcFile], diagnostics);
+        return diagnostics;
     }
 }
 
@@ -249,6 +410,7 @@ public class EmitConfigProjectTests
         var config = new EmitConfig(project);
 
         config.OutputPath.Should().Be("dist/");
+        config.PublishPath.Should().Be(".");
         config.NamespacePrefix.Should().Be("Vendor");
         config.StrictTypes.Should().BeFalse();
         config.IncludeComments.Should().BeFalse();

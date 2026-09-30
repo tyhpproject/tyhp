@@ -7,6 +7,7 @@ using Tyhp.Domain.Exceptions;
 namespace Tyhp.Tests.Diagnostics;
 
 [Trait("Category", "Diagnostics")]
+[Collection("ProcessGlobalState")]
 public class JsonDiagnosticFormatterTests : IDisposable
 {
     private sealed class FakeLocalizer : IStringLocalizer<TyhpHostedService>

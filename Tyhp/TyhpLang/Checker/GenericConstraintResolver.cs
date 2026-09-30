@@ -52,11 +52,21 @@ namespace Tyhp.TyhpLang.Checker
 
             try
             {
-                // Sibling type parameters in the constraint resolve as themselves (via Function/
-                // ObjectGenerics), not as their bounds — substitution of the bound happens only when
-                // TypeComparer asks whether the parameter is assignable to a target.
-                parameter.ResolvedConstraint = context.ResolveTypeAnnotation(
-                    parameter.Constraint, state);
+                var previous = state.IsGenericConstraintPosition;
+                state.IsGenericConstraintPosition = true;
+                try
+                {
+                    // Sibling type parameters in the constraint resolve as themselves (via Function/
+                    // ObjectGenerics), not as their bounds — substitution of the bound happens only when
+                    // TypeComparer asks whether the parameter is assignable to a target.
+                    parameter.ResolvedConstraint = context.ResolveTypeAnnotation(
+                        parameter.Constraint, state);
+                }
+                finally
+                {
+                    state.IsGenericConstraintPosition = previous;
+                }
+
                 return parameter.ResolvedConstraint;
             }
             finally

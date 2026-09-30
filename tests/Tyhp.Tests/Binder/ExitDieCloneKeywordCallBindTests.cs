@@ -140,28 +140,7 @@ public class ExitDieCloneKeywordCallBindTests
 
     private static (SrcFileAst? Ast, DiagnosticBag Diagnostics) Bind(string content)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var filePath = Path.Combine(tempDir, "test.tyhp");
-        File.WriteAllText(filePath, content);
-
-        try
-        {
-            using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
-            var result = compilationService.ParseFiles([filePath], options);
-            return (result.ParsedFiles?.FirstOrDefault(), result.Diagnostics);
-        }
-        finally
-        {
-            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
-        }
+        var result = IsolatedCompilation.ParseSnippet(content, skipChecking: true);
+        return (result.ParsedFiles?.FirstOrDefault(), result.Diagnostics);
     }
 }

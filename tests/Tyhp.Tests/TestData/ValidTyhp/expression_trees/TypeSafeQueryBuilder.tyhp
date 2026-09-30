@@ -22,18 +22,18 @@ class QueryBuilder<T> {
     private array $conditions = [];
     private ?string $selectColumn = null;
 
-    public function where(Expression<T, bool> $predicate): static {
+    public function where(Expression<callable(T): bool> $predicate): static {
         $this->conditions[] = $predicate;
         return $this;
     }
 
-    public function select<R>(Expression<T, R> $selector): static {
+    public function select<R>(Expression<callable(T): R> $selector): static {
         mixed $visited = (new SqlWhereVisitor())->visit($selector->body);
         $this->selectColumn = $visited is string ? $visited : null;
         return $this;
     }
 
-    public function sortBy(Expression<T, T, int> $comparator): static {
+    public function sortBy(Expression<callable(T, T): int> $comparator): static {
         return $this;
     }
 

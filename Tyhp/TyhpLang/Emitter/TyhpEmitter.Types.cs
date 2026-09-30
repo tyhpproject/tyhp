@@ -7,11 +7,14 @@ namespace Tyhp.TyhpLang.Emitter
     public partial class TyhpEmitter
     {
         private string BuildTypeExpression(ITypeExpression? typeExpression)
-            => TypeSpellingHelper.Spell(
+        {
+            this.ReportInternalErrorIfExternType(typeExpression);
+            return TypeSpellingHelper.Spell(
                 typeExpression,
                 this._context.TypeAliasMap,
                 this._context.GlobalScope,
                 this._context.Config.NamespacePrefix);
+        }
 
         private string BuildExpressionNameWithoutGenerics(IExpression? expr)
         {

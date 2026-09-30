@@ -1,0 +1,7 @@
+<?tyhp
+#[\Tyhp\Php(">=8.4")]
+extension StringOps extends string {
+    function length(): int {
+        return \strlen($this);
+    }
+}

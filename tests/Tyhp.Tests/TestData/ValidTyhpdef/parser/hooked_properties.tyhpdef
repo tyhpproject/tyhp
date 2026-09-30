@@ -1,0 +1,24 @@
+<?tyhpdef
+
+namespace TestData\Tyhpdef;
+
+class Holder
+{
+    public string $label;
+    public int $a, $b;
+    public string $name { get; set; }
+    public array $items { &get; set; }
+    public string $asymmetric { get; private set; }
+    public string $finalGet { final get; set; }
+    public string $attributed { #[Attr] get; set; }
+}
+
+interface HasName
+{
+    public string $name { get; set; }
+}
+
+trait Named
+{
+    public string $title { get; private set; }
+}

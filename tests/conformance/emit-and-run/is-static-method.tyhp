@@ -1,0 +1,19 @@
+<?tyhp
+class PositiveInt {}
+
+class Guards {
+    #[\Tyhp\NativeTypeTest]
+    public static function isPositiveInt(mixed $v): $v is PositiveInt {
+        return $v instanceof PositiveInt;
+    }
+}
+
+function demo(mixed $x): bool {
+    return $x is PositiveInt;
+}
+
+function main(): void {
+    echo demo(new PositiveInt()) ? "yes" : "no";
+}
+
+main();

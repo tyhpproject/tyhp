@@ -27,17 +27,18 @@ public class VoidCastEmitterTests
         {
             var project = CreateProject(phpVersion);
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = phpVersion,
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                Checker = new CheckerOptions
-                {
-                    PhpVersion = phpVersion,
-                },
-            });
+            var result = compilationService.ParseFiles(
+                [filePath],
+                IsolatedCompilation.CreateOptions(
+                    tempDir,
+                    phpVersion: phpVersion,
+                    configure: o =>
+                    {
+                        o.Checker = new CheckerOptions
+                        {
+                            PhpVersion = phpVersion,
+                        };
+                    }));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))

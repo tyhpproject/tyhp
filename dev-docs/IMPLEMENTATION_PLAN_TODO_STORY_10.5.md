@@ -176,8 +176,8 @@ tests/
 
 ## Phase 1: Checker — Type-Guard Validation & Branch Narrowing
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -241,8 +241,8 @@ annotation rules and share the type-guard concept (`$param is Type` return types
 
 ## Phase 2: Checker — Utility-Type Generic Constraints & `Readonly<T>`
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -314,8 +314,8 @@ turn declared-but-dead validation metadata into enforced behavior.
 
 ## Phase 3: Checker — Extension-Method Modifier Policy & Template-String Guard
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -393,8 +393,8 @@ membership guard). Grouped because both are localized checker changes with a set
 
 ## Phase 4: Emitter — Operator-Overload Resolution, Alias Spelling & Wrapped-Conditional Detection
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -479,8 +479,8 @@ currently-no-op heuristic generalization (low priority but cheap with fixtures).
 
 ## Phase 5: Build Pipeline — Incremental Output Verification & Per-Phase Error Counts
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -543,8 +543,8 @@ mislabel of per-phase error counts.
 
 ## Phase 6: Test Infrastructure — Conformance Fixtures & Self-Host Allowlist
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 

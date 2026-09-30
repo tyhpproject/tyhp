@@ -8,9 +8,10 @@ using Tyhp.TyhpLang.Parser;
 namespace Tyhp.CLI.Support
 {
     /// <summary>
-    /// Builds machine-readable JSON for the <c>tokenize</c> and <c>dump-ast</c> debug commands.
-    /// These commands exist so tooling (and AI agents) can inspect lexer/parser behaviour
-    /// without reading C# internals, so the shapes here favour completeness and stability.
+    /// Builds machine-readable JSON for the <c>tokenize</c>, <c>dump-ast</c>, and
+    /// <c>symbol_tree</c> debug commands. These commands exist so tooling (and AI agents)
+    /// can inspect lexer/parser/binder behaviour without reading C# internals, so the
+    /// shapes here favour completeness and stability.
     /// </summary>
     public static class DebugJson
     {
@@ -24,10 +25,15 @@ namespace Tyhp.CLI.Support
         /// comments) into a JSON array. Each entry carries the symbolic token name, numeric type,
         /// channel, source position, and raw text.
         /// </summary>
-        public static JsonArray SerializeTokens(IEnumerable<IToken> tokens)
+        /// <param name="tokens">Tokens from the lexer that produced the stream.</param>
+        /// <param name="vocabulary">
+        /// Vocabulary of that lexer. <c>.tyhpdef</c> streams use <see cref="TyhpdefLexer"/>;
+        /// <c>.tyhp</c> and <c>.php</c> streams use <see cref="TyhpLexer"/>. Symbolic type
+        /// names are not interchangeable across those vocabularies.
+        /// </param>
+        public static JsonArray SerializeTokens(IEnumerable<IToken> tokens, IVocabulary vocabulary)
         {
             var array = new JsonArray();
-            var vocabulary = TyhpLexer.DefaultVocabulary;
 
             foreach (var token in tokens)
             {

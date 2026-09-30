@@ -7,9 +7,6 @@ public static class PhpToolchain
     public static bool IsAvailable()
         => TryFindExecutable("php", out _) && TryFindExecutable("composer", out _);
 
-    public static string GetRuntimeDirectory()
-        => Path.Combine(TestFileManager.GetRepoRoot(), "runtime");
-
     public static ProcessResult RunComposerTest(string workingDirectory, TimeSpan? timeout = null)
     {
         timeout ??= TimeSpan.FromMinutes(5);
@@ -35,6 +32,12 @@ public static class PhpToolchain
     }
 
     /// <summary>
+    /// Locked emit-and-run CLI flags: every diagnostic is reported, and they print
+    /// (to stderr on the CLI SAPI) instead of being swallowed.
+    /// </summary>
+    public const string StrictErrorReportingArguments = "-d error_reporting=-1 -d display_errors=1";
+
+    /// <summary>
     /// Runs a PHP script and returns its output. Lets a test assert on what emitted code actually does
     /// at runtime rather than only on the shape of the generated text.
     /// </summary>
@@ -42,6 +45,20 @@ public static class PhpToolchain
     {
         timeout ??= TimeSpan.FromSeconds(30);
         return RunProcess("php", $"\"{phpFilePath}\"", Path.GetDirectoryName(phpFilePath) ?? ".", timeout.Value);
+    }
+
+    /// <summary>
+    /// Runs a PHP script with <see cref="StrictErrorReportingArguments"/> so a Warning / Notice /
+    /// Deprecated / Fatal / Parse error cannot hide behind default <c>error_reporting</c>.
+    /// </summary>
+    public static ProcessResult RunPhpScriptStrict(string phpFilePath, TimeSpan? timeout = null)
+    {
+        timeout ??= TimeSpan.FromSeconds(30);
+        return RunProcess(
+            "php",
+            $"{StrictErrorReportingArguments} \"{phpFilePath}\"",
+            Path.GetDirectoryName(phpFilePath) ?? ".",
+            timeout.Value);
     }
 
     public static bool IsPhpAvailable() => TryFindExecutable("php", out _);

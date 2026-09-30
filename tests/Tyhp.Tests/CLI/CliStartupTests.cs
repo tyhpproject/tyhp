@@ -4,6 +4,7 @@ using Tyhp.Domain.Enums;
 namespace Tyhp.Tests.CLI;
 
 [Trait("Category", "CLI")]
+[Collection("ProcessGlobalState")]
 public class CliStartupTests
 {
     [Theory]

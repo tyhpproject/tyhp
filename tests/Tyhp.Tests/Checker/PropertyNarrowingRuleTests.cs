@@ -34,6 +34,58 @@ public class PropertyNarrowingRuleTests
         }
         """;
 
+    /// <summary>
+    /// Control case for <see cref="Check_IsAlias_NarrowsToAliasBody_AllowsArithmetic"/> and
+    /// <see cref="Check_IsGenericAlias_Narrows_NoErrors"/>: without a narrowing <c>is</c> check,
+    /// arithmetic on a <c>mixed</c> parameter must still be rejected.
+    /// </summary>
+    [Fact]
+    public void Check_NoIsCheck_MixedArithmetic_ReportsMixedRequiresNarrowing()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            function f(mixed $x): int {
+                return $x + 1;
+            }
+            """);
+
+        errors.Select(e => e.Code).Should().Contain(MessageCode.CheckerMixedRequiresNarrowing);
+    }
+
+    [Fact]
+    public void Check_IsAlias_NarrowsToAliasBody_AllowsArithmetic()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            type UserId = int;
+            function f(mixed $x): int {
+                if ($x is UserId) {
+                    return $x + 1;
+                }
+                return 0;
+            }
+            """);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_IsGenericAlias_Narrows_NoErrors()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            type Optional<T = mixed> = T|null;
+            function f(mixed $x): int {
+                if ($x is Optional<int>) {
+                    return 1;
+                }
+                return 0;
+            }
+            """);
+
+        errors.Should().BeEmpty();
+    }
+
     [Fact]
     public void Check_PropertyNullGuard_EarlyReturn_NarrowsFallThrough()
     {
@@ -424,14 +476,7 @@ public class PropertyNarrowingRuleTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([tyhpdefPath, filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

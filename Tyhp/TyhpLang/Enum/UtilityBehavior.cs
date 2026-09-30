@@ -1,8 +1,9 @@
 namespace Tyhp.TyhpLang.Enum
 {
     /// <summary>
-    /// Describes the checker transformation performed by a built-in utility type in the <c>\Tyhp</c> namespace.
-    /// Values match the utility type name for dispatch in Story 08's <c>UtilityTypeResolver</c>.
+    /// Describes the checker transformation performed by a built-in global <c>__</c> utility type.
+    /// Enum member names may differ from the user-facing spelling (e.g. <c>AsNullable</c> is
+    /// registered as <c>__Nullable</c>); dispatch is by this value, not the symbol name.
     /// </summary>
     public enum UtilityBehavior
     {
@@ -51,10 +52,17 @@ namespace Tyhp.TyhpLang.Enum
         CallableParametersStruct,
         CallableParametersTuple,
         CallableParametersRest,
+        CallableParametersSlice,
         TypeDiff,
         AsNotNullable,
         AsNullable,
         AsReadOnly,
+
+        /// <summary>
+        /// Constructable object-shape constraint (<c>__New&lt;Shape&gt;</c>). Values are
+        /// instances of the shape whose class is <c>new</c>-able as the shape constructor.
+        /// </summary>
+        New,
 
         // Type-name string algebra (Story 08.5 Phase 7).
         BaseTypeName,
@@ -72,5 +80,15 @@ namespace Tyhp.TyhpLang.Enum
         AsNullableTypeName,
         AsTypeName,
         AsType,
+
+        // Closure / indexing utilities (__SuperType, __CurrentScope, __IndexKeys, …).
+        SuperType,
+        SuperTypeName,
+        CurrentScope,
+        CallableThis,
+        CallableScope,
+        IndexKeys,
+        IndexValueType,
+        IndexValueTypes,
     }
 }

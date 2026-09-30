@@ -1,3 +1,6 @@
+using System.Collections.Frozen;
+using Tyhp.Domain.Exceptions;
+
 namespace Tyhp.Domain.Services
 {
     /// <summary>
@@ -61,9 +64,57 @@ namespace Tyhp.Domain.Services
         public IProgress<CompilationProgress>? Progress { get; set; } = null;
 
         /// <summary>
-        /// Target PHP version for selecting PHP extension tyhpdefs (e.g. <c>8.2</c>, <c>8.4</c>).
+        /// Compile-target used when <see cref="PhpVersion"/> is missing/empty (Story 20.5).
         /// </summary>
-        public string PhpVersion { get; set; } = "8.4";
+        public const string DefaultPhpVersionWhenUnset = "8.2";
+
+        private string _phpVersion = DefaultPhpVersionWhenUnset;
+
+        /// <summary>
+        /// Target PHP version for emit, checker gates, and package tyhpdef filtering
+        /// (e.g. <c>8.2</c>, <c>8.4</c>). Package symbols are filtered by the binder
+        /// against this value — not by loading a per-minor <c>tyhpdef/php-8.x</c> package.
+        /// Defaults to <see cref="DefaultPhpVersionWhenUnset"/> so options constructed
+        /// without going through <see cref="FromProject"/> (tooling, language server,
+        /// in-memory parsing) target the same version as an unset project config.
+        /// Setting this also updates <see cref="Checker"/>.<see cref="CheckerOptions.PhpVersion"/>
+        /// so the binder and checker cannot silently disagree on the target version; assign
+        /// <see cref="Checker"/> as a whole afterward if it needs a different value.
+        /// </summary>
+        public string PhpVersion
+        {
+            get => _phpVersion;
+            set
+            {
+                _phpVersion = value;
+                Checker.PhpVersion = value;
+            }
+        }
+
+        /// <summary>
+        /// True when <see cref="PhpVersion"/> was empty and defaulted to
+        /// <see cref="DefaultPhpVersionWhenUnset"/>. Checker emits 4306 once per compilation.
+        /// </summary>
+        public bool PhpVersionWasDefaulted { get; set; }
+
+        /// <summary>
+        /// If <see cref="PhpVersion"/> is missing/whitespace, default to
+        /// <see cref="DefaultPhpVersionWhenUnset"/> and mark <see cref="PhpVersionWasDefaulted"/>.
+        /// Loaded package tyhpdefs then filter against that target via the same binder
+        /// <c>declare(php=…)</c> / <c>#[\Tyhp\Php]</c> evaluator used for user files.
+        /// </summary>
+        public void ApplyMissingPhpVersionDefault()
+        {
+            if (!string.IsNullOrWhiteSpace(PhpVersion))
+            {
+                return;
+            }
+
+            PhpVersion = DefaultPhpVersionWhenUnset;
+            PhpVersionWasDefaulted = true;
+            Checker.PhpVersion = DefaultPhpVersionWhenUnset;
+            Checker.PhpVersionWasDefaulted = true;
+        }
 
         /// <summary>
         /// Glob patterns for additional project tyhpdef/tyhp overlay files to load.
@@ -71,9 +122,31 @@ namespace Tyhp.Domain.Services
         public IReadOnlyList<string> TyhpdefIncludePaths { get; set; } = Array.Empty<string>();
 
         /// <summary>
+        /// Glob patterns for project-owned overlay tyhpdefs loaded after includes (last wins).
+        /// </summary>
+        public IReadOnlyList<string> TyhpdefOverlayPaths { get; set; } = Array.Empty<string>();
+
+        /// <summary>
         /// Glob patterns for tyhpdef/tyhp overlay files to exclude after discovery.
         /// </summary>
         public IReadOnlyList<string> TyhpdefExcludePaths { get; set; } = Array.Empty<string>();
+
+        /// <summary>
+        /// When false, package/project <c>overlay</c> globs are discovered but not bound
+        /// (Layer 1 include baseline only). Used by <c>tyhp overlay stamp</c>.
+        /// </summary>
+        public bool ApplyTyhpdefOverlays { get; set; } = true;
+
+        /// <summary>
+        /// Elevates overlay stamp-mismatch warnings to errors (<c>--strict</c> / <c>build.strictMode</c>).
+        /// </summary>
+        public bool StrictMode { get; set; }
+
+        /// <summary>
+        /// Warning codes to drop during this compilation (from <c>suppressWarnings</c>).
+        /// Errors are never dropped.
+        /// </summary>
+        public IReadOnlySet<MessageCode> SuppressedWarnings { get; set; } = FrozenSet<MessageCode>.Empty;
 
         /// <summary>
         /// Project root directory used to resolve tyhpdef include/exclude globs.
@@ -107,12 +180,16 @@ namespace Tyhp.Domain.Services
             if (project != null)
             {
                 options.PhpVersion = project.PhpVersion;
+                options.PhpVersionWasDefaulted = project.PhpVersionWasDefaulted;
                 options.TyhpdefIncludePaths = project.TyhpdefIncludePaths;
+                options.TyhpdefOverlayPaths = project.TyhpdefOverlayPaths;
                 options.TyhpdefExcludePaths = project.TyhpdefExcludePaths;
                 options.ProjectPath = project.GetProjectPath();
                 options.Tagless = project.Tagless;
                 options.EnableAstCache = !project.NoCache;
                 options.Checker = CheckerOptions.FromProject(project);
+                options.StrictMode = project.Strict;
+                options.SuppressedWarnings = project.SuppressedWarnings;
             }
 
             configure?.Invoke(options);

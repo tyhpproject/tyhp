@@ -78,7 +78,7 @@ tyhp build
 │  10.5. If library: error on any entrypoint (ignore generateTyhpdef)   │
 │  11. If errors → report + exit CompileError                 │
 │  12. If warnings + --strict → exit CompileWarning           │
-│  12.5. Tyhpdef Track C: _tyhpdef/, support/, package.tyhp.json (if generateTyhpdef) │
+│  12.5. Tyhpdef Track C: _tyhpdef/, support/, extra.tyhp.package (if generateTyhpdef) │
 │  12.6. Run optimizer (TyhpOptimizer, Story 23)             │
 │  13. Run emitter (TyhpEmitter.Emit)                         │
 │  14. Split output files (PHPOutputFile.FromAstTree)         │
@@ -95,7 +95,7 @@ tyhp build
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Note on optimizer integration (Story 23) and tyhpdef (Story 20):** The optimizer runs between the error gate and the emitter (step 12.6). Step 12.5 (Tyhpdef Track C: `_tyhpdef/` dot-notation `.tyhpdef` files, `_tyhpdef/support/*.tyhp`, and `package.tyhp.json` in the build output directory with `include` globs) occurs **before** optimization to preserve the stable public API contract. The optimizer receives the fully bound, checked AST and performs transformations such as extension inlining, constant folding, and dead code elimination based on the `build.optimize` level, `build.profile`, and `build.optimizations` configuration. See Story 23 for the full optimizer pipeline and configuration details.
+**Note on optimizer integration (Story 23) and tyhpdef (Story 20):** The optimizer runs between the error gate and the emitter (step 12.6). Step 12.5 (Tyhpdef Track C: `{buildOutputDir}/package.tyhpdef` and, for libraries, `extra.tyhp.package` with `include: ["./package.tyhpdef"]`) occurs **before** optimization to preserve the stable public API contract. The optimizer receives the fully bound, checked AST and performs transformations such as extension inlining, constant folding, and dead code elimination based on the `build.optimize` level, `build.profile`, and `build.optimizations` configuration. See Story 23 for the full optimizer pipeline and configuration details.
 
 > **Note:** The pipeline flow diagram uses conceptual step numbers (1-22) for illustration. The implementation in Phase 2 uses sequential code steps (1-10 with sub-steps). These are not meant to correspond 1:1 — the implementation steps represent the actual method code flow, while the diagram shows the logical phase relationships.
 
@@ -174,8 +174,8 @@ The 7000–7999 range is subdivided into 100-code sub-ranges per CLI action to a
 
 ## Phase 1: Expand Configuration Parsing — Output and Build Options
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -217,13 +217,13 @@ Parse from `tyhp.json` key: `type`
 When `Type` is `library`:
 - `build.generateTyhpdef`: when JSON omits the key, property stays `null` until `Project.ConfigChanged()` applies `this.Build.GenerateTyhpdef ??= (this.Type == ProjectType.Library)` (see `BuildConfig.GenerateTyhpdef` below) — **library ⇒ `true`**, application ⇒ `false`
 - **Entrypoint validation:** Library projects must **error** on entrypoint source files (files containing root-level side-effect statements — executable top-level code). This applies **regardless of** `build.generateTyhpdef` (including when tyhpdef generation is disabled).
-- When tyhpdef generation runs (Story 20, Track C), output includes: `.tyhpdef` files under `_tyhpdef/` using **dot-notation** filenames (e.g. `App.Models.User.tyhpdef`), supporting `.tyhp` files under `_tyhpdef/support/`, and a `package.tyhp.json` manifest in the **build output directory** whose `include` field is an array of **globs** pointing at those artifacts (see Step 6.5).
-- The `package.tyhp.json` is auto-included when the library is installed as a Composer dependency in another Tyhp project
-- **Tagless flag in the generated manifest:** the consuming compiler honors a package's own tagless setting when loading its files (Story 06, Phase 7 — `package.tyhp.json` supports an optional `source.tagless` boolean, default `false`). If the tyhpdef generator (Story 20) emits the `_tyhpdef/**` artifacts **without** open tags, the generated `package.tyhp.json` **must** declare `source.tagless: true` so consumers parse them correctly; if it emits them with classic `<?tyhpdef` / `<?tyhp` tags, the flag is omitted (defaults to `false`). The flag describes how *this* package's published files were authored and is independent of the consuming project's `source.tagless`.
+- When tyhpdef generation runs (Story 20, Track C), output includes: `.tyhpdef` files under `_tyhpdef/` using **dot-notation** filenames (e.g. `App.Models.User.tyhpdef`), supporting `.tyhp` files under `_tyhpdef/support/`, and a `extra.tyhp.package` manifest in the **build output directory** whose `include` field is an array of **globs** pointing at those artifacts (see Step 6.5).
+- The `extra.tyhp.package` is auto-included when the library is installed as a Composer dependency in another Tyhp project
+- **Tagless flag in the generated manifest:** the consuming compiler honors a package's own tagless setting when loading its files (Story 06, Phase 7 — `extra.tyhp.package` supports an optional `source.tagless` boolean, default `false`). If the tyhpdef generator (Story 20) emits the `_tyhpdef/**` artifacts **without** open tags, the generated `extra.tyhp.package` **must** declare `source.tagless: true` so consumers parse them correctly; if it emits them with classic `<?tyhpdef` / `<?tyhp` tags, the flag is omitted (defaults to `false`). The flag describes how *this* package's published files were authored and is independent of the consuming project's `source.tagless`.
 
 When `Type` is `application`:
 - `build.generateTyhpdef`: same `??=` resolution as above — **application ⇒ `false`** when omitted
-- No `package.tyhp.json` or `_tyhpdef/` Track C output unless the project is a library with tyhpdef generation enabled (Story 20)
+- No `extra.tyhp.package` or `_tyhpdef/` Track C output unless the project is a library with tyhpdef generation enabled (Story 20)
 
 **`BuildConfig.cs`**
 
@@ -294,7 +294,7 @@ Add new properties:
 - `CheckerConfig Checker { get; private set; }`
 - `TyhpdefConfig TyhpdefOptions { get; private set; }`
 
-> **Pre-existing config preserved — `source.tagless`:** Story 06 (Phase 7) already added the `source.*` config group, currently just `bool Tagless` parsed from `source:tagless` (default `false`), surfaced on `CompilationOptions.Tagless`. Story 10's configuration expansion must **preserve** this property and its parsing; do not drop it when restructuring `ConfigChanged()`. It governs only the consuming project's **own** source files. Files loaded from packages honor *each package's* `package.tyhp.json` tagless setting instead (Story 06 package loader), so the project-level `source.tagless` must not be applied to package content.
+> **Pre-existing config preserved — `source.tagless`:** Story 06 (Phase 7) already added the `source.*` config group, currently just `bool Tagless` parsed from `source:tagless` (default `false`), surfaced on `CompilationOptions.Tagless`. Story 10's configuration expansion must **preserve** this property and its parsing; do not drop it when restructuring `ConfigChanged()`. It governs only the consuming project's **own** source files. Files loaded from packages honor *each package's* `extra.tyhp.package` tagless setting instead (Story 06 package loader), so the project-level `source.tagless` must not be applied to package content.
 
 In `ConfigChanged()`, parse the new sections. Use the existing `IConfiguration` pattern with section binding:
 
@@ -354,8 +354,8 @@ Add build action error codes in the 7100s range (7000s range is subdivided per C
 
 ## Phase 2: Implement Full BuildAction Pipeline
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -439,13 +439,13 @@ If verbose, log bind results from `CompilationResult` (scope count, symbol count
   - Return `CompilationResult` (skip emit in strict mode with warnings)
 - Otherwise, continue to emission
 
-**Step 6.5: Tyhpdef Track C — `_tyhpdef/`, support `.tyhp`, and `package.tyhp.json` (library + `generateTyhpdef`)**
+**Step 6.5: Tyhpdef Track C — `_tyhpdef/`, support `.tyhp`, and `extra.tyhp.package` (library + `generateTyhpdef`)**
 
 - If `Project.Build.GenerateTyhpdef` resolves to `true` (library default via `??=`):
   - `// PLACEHOLDER_STORY_20: Generate tyhpdef for compiled code (Track C)`
   - Emit **`.tyhpdef`** files under **`_tyhpdef/`** using **dot-notation** filenames mirroring the FQN (e.g. `App.Models.User.tyhpdef`)
   - Emit any **supporting `.tyhp`** files under **`_tyhpdef/support/`** as required by Story 20
-  - Write **`package.tyhp.json`** in the **build output directory** with an **`include`** array of **globs** that cover the generated `_tyhpdef/**` artifacts (and support files as needed) so consumers resolve the manifest consistently. If the generated artifacts are tagless (no open tags), also write **`source.tagless: true`** into the manifest so the consuming compiler's package loader (Story 06, Phase 7) parses them via the tagless entry rules; otherwise omit the flag (defaults to `false`).
+  - Write **`extra.tyhp.package`** in the **build output directory** with an **`include`** array of **globs** that cover the generated `_tyhpdef/**` artifacts (and support files as needed) so consumers resolve the manifest consistently. If the generated artifacts are tagless (no open tags), also write **`source.tagless: true`** into the manifest so the consuming compiler's package loader (Story 06, Phase 7) parses them via the tagless entry rules; otherwise omit the flag (defaults to `false`).
   - This MUST run **before** the optimizer (Step 7) to capture the unoptimized public API
 
 **Step 7: Run optimizer (Story 23)**
@@ -544,8 +544,8 @@ Pass `this.project` to `BuildAction` so it has access to all configuration. `Bui
 
 ## Phase 3: Output Writer Service
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -656,8 +656,8 @@ Path computation logic:
 
 ## Phase 4: Composer JSON Service
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -751,8 +751,8 @@ Create in namespace `Tyhp.Domain.Services`:
 
 ## Phase 5: Incremental Compilation and Build Performance
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -802,7 +802,7 @@ Future enhancement (not in this phase):
   - Compiler version (invalidate state if compiler version changes)
   - Configuration hash (invalidate state if `tyhp.json` changes)
   - Timestamp
-- Store at `{outputDir}/tyhp-build-state.json`
+- Store `tyhp-build-state.json` under the project cache directory (`cache-dir`)
 - If the state file does not exist or is invalid, treat all files as new (full rebuild)
 
 **`CompilationService.cs` Enhancements**
@@ -848,8 +848,8 @@ The `--clean` flag should also delete the build state file (forcing a full rebui
 
 ## Phase 6: Tyhp Runtime Package Distribution Integration
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -923,8 +923,8 @@ The `EmitContext` (Story 11, Phase 1) maintains a `HashSet<string> RequiredPacka
 
 ## Phase 7: End-to-End Validation and Polish
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -1083,7 +1083,7 @@ This story introduces placeholders for future work:
 - `// PLACEHOLDER_STORY_12: Auto-fix mode for lint action` — Story 12 lint `--fix`
 - `// PLACEHOLDER_STORY_11: Advanced emitter features` — Story 11 emitter expansion
 - `// PLACEHOLDER_STORY_17: Sourcemap generation integration` — Story 17 sourcemaps
-- `// PLACEHOLDER_STORY_20: Generate tyhpdef for compiled code (Track C: _tyhpdef/*.tyhpdef dot-notation names, _tyhpdef/support/*.tyhp, package.tyhp.json in the build output directory with include globs)` — Story 20 tyhpdef generation
+- `// PLACEHOLDER_STORY_20: Generate tyhpdef for compiled code (Track C: package.tyhpdef + library extra.tyhp.package in the build output directory)` — Story 20 tyhpdef generation
 - `// PLACEHOLDER_STORY_19: File watcher for --watch mode` — Story 19 language server / file watching
 - `// PLACEHOLDER_STORY_19: Incremental binding based on dependency graph` — Story 19 incremental binding
 

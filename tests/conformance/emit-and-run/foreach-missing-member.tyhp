@@ -1,0 +1,12 @@
+<?tyhp
+type Money = struct {
+    int $cents = 0;
+};
+
+function readMissing(array<Money> $amounts): int {
+    int $total = 0;
+    foreach ($amounts as $m) {
+        $total += $m->doesNotExist;
+    }
+    return $total;
+}

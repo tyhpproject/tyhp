@@ -2,13 +2,18 @@
 
 > **Roadmap position:** Story 20.5 — **Tier 2 — DX & Ecosystem** (additive sub-story, inserted after Story 20, before Story 21)
 > **Direct dependencies (new numbering):** 06, 08, 09, 10, 11, 04 (`tyhp/core` for the attribute class)
-> **New story:** carved out during Story 21 package-design review — language + compiler support for PHP-version-conditional declarations so Story 21 can ship a **single** `tyhp/php` package (and `tyhp/php-ext-*`) instead of per-minor forks.
+> **New story:** carved out during Story 21 package-design review — language + compiler support for PHP-version-conditional declarations so Story 21 can ship a **single** `tyhpdef/php` package (and `tyhpdef/php-ext-*`) instead of per-minor forks.
 > **Conventions:** Diagnostic codes, config keys, and canonical paths are governed by `CONVENTIONS.md` (single source of truth for diagnostic codes = `Tyhp/Domain/Exceptions/MessageCode.cs`); cite it rather than restating ranges. See `ROADMAP.md` for the full tiered sequence.
 
 > **Branch:** TBD
 > **Generated:** 2026-07-23
+> **Last design lock:** 2026-08-20 — Phase 9 user documentation; Track A managed PHP is Story 20 (not this story); `output.phpVersion` is the compiler target, not a generator runtime
 > **Prerequisites:** Stories ≤11 complete or in progress for emitter feature surface; Story 04 runtime `tyhp/core` package; Story 06 package/tyhpdef loading; Story 08 checker; Story 09/11 emitter; Story 10 `output.phpVersion`.
-> **Consumers:** Story 21 (PHP extension Composer packages), Story 20 Phase 8 (multi-target gated tyhpdef generation).
+> **Consumers:** Story 21 (PHP extension Composer packages), Story 20 Phase 8 (multi-target gated tyhpdef generation), Story 20.7 (gating hooked tyhpdef properties).
+>
+> **Story 20.6 note:** Class-body tyhpdef extensions become thin `=>` mappings (erased at emit). This gating story is unchanged; `#[\Tyhp\Php]` remains illegal on `extension` declarations.
+>
+> **Story 20.7 note:** Tyhpdef hooked properties (`{ get; set; }`) are ordinary members for gating. `#[\Tyhp\Php]` / `declare(php=…)` apply to the **property**, not to individual `get`/`set` hooks. Hooked tyhpdef properties participate in member gating (Story 20.7 Phase 7). No new declare key. The property-hook **language** feature in Story 21’s version table stays a language-feature row; tyhpdef can now **describe** hooked PHP APIs and gate them. Track A/B multi-target merge may emit a storage form and a hooked form as version-disjoint members. Track C does not auto-gate Tyhp-authored hooks (`>=8.4`).
 
 ---
 
@@ -27,6 +32,7 @@
 - [Phase 6: Emitter — strip gate constructs](#phase-6-emitter--strip-gate-constructs)
 - [Phase 7: Config default & package-load integration](#phase-7-config-default--package-load-integration)
 - [Phase 8: Tests & conformance fixtures](#phase-8-tests--conformance-fixtures)
+- [Phase 9: User documentation](#phase-9-user-documentation)
 - [Diagnostic Codes](#diagnostic-codes)
 - [Cross-Story References](#cross-story-references)
 - [Golden Fixtures / Tests (Acceptance)](#golden-fixtures--tests-acceptance)
@@ -38,7 +44,7 @@
 This story adds **compile-time PHP version gating** to Tyhp and tyhpdef:
 
 1. **`declare(php="…")`** — file-level or block-level, using **full Composer version-constraint syntax**. Value is a string. The directive key is `php` and must appear **alone** in that `declare`.
-2. **`#[\Tyhp\Php(string $version)]`** — attribute on class / interface / enum / trait and on their members (and other normal attribute targets such as functions). **Not** allowed on `struct` or `extension` declarations (those use `declare` blocks only).
+2. **`#[\Tyhp\Php(string $version)]`** — attribute on class / interface / enum / trait and on their members (and other normal attribute targets such as functions). **Not** allowed on `struct` or `extension` declarations — Tyhp `extension { }` **and** tyhpdef `extension { }` (Story 20). Those use `declare` blocks only.
 3. Evaluation is against **`output.phpVersion`**. If unset, default to **`8.2`** and **warn**.
 4. Bare version numbers like `"8.2"` mean the **whole minor** (`8.2.*`).
 5. Inactive file-level `declare(php=…);` → **skip the file silently**.
@@ -52,11 +58,11 @@ Story 21 depends on this story to maintain one stubs package across PHP 8.2–8.
 
 ## Motivation
 
-Story 21 originally planned `tyhp/php-8.2` … `tyhp/php-8.5` via `cp -r` forks. Almost all Tyhp value (generics, scalar extensions, Pure/Inline) is identical across minors; only a small API surface differs. Per-minor packages force repeated hand-edits and Composer platform juggling.
+Story 21 originally planned `tyhpdef/php-8.2` … `tyhpdef/php-8.5` via `cp -r` forks. Almost all Tyhp value (generics, scalar extensions, Pure/Inline) is identical across minors; only a small API surface differs. Per-minor packages force repeated hand-edits and Composer platform juggling.
 
 With gating:
 
-- One **`tyhp/php`** (+ **`tyhp/php-ext-*`**) package
+- One **`tyhpdef/php`** (+ **`tyhpdef/php-ext-*`**) package
 - Diffs expressed as `declare(php=">=8.3")` / `#[\Tyhp\Php(">=8.4")]`
 - Compiler filters by project `output.phpVersion`
 
@@ -108,13 +114,14 @@ output.phpVersion (Story 10) ──► PhpVersionConstraint.IsSatisfied(target, 
 | Block-level | Wherever `declare` is allowed |
 | Alone | `php` not mixed with other directives in the same `declare` |
 | Attribute | `\Tyhp\Php` in `tyhp/core`, ctor `string $version` |
-| Attribute targets | class, interface, enum, trait, members, functions — **not** struct/extension |
+| Attribute targets | class, interface, enum, trait, members, functions — **not** struct/extension (Tyhp or tyhpdef `extension`) |
 | Struct / extension gating | `declare(php=…) { … }` only |
 | Same-name | Disjoint constraints OK; overlap → error |
 | Nesting | Must satisfy all; unreachable when inactive |
 | Missing `output.phpVersion` | Default `8.2` + warning |
 | Where allowed | Packages and user projects |
 | Story ownership | This story (20.5); packages in 21; multi-gen in 20 Phase 8 |
+| Hooked tyhpdef properties | Ordinary members (Story 20.7 `{ get; set; }`). Same `#[\Tyhp\Php]` / `declare(php=…)` member gating; no new declare key. Story 21’s “Property hooks” version-table row stays a language-feature row; tyhpdef can **describe** hooked PHP APIs and gate them. |
 
 ### Syntax examples
 
@@ -134,8 +141,8 @@ function example(string $v): mixed;
 function example(string $v, bool $strict = false): string;
 
 declare(php=">=8.5") {
-    extension UriStringExtensions extends string {
-        // ...
+    extension UriStringExtensions {
+        function parse(extends string $this): string => \parse_url($this, \PHP_URL_PATH) ?? '';
     }
 }
 ```
@@ -258,6 +265,7 @@ When registering a declaration that carries `#[\Tyhp\Php]`, evaluate `$version` 
 4. **Version-disjoint same-name:** multiple declarations of the same symbol name are allowed when their **effective** constraint sets are pairwise disjoint; binder keeps the variant(s) that match the target version (usually exactly one).
 5. **Overlap:** if two declarations of the same symbol have overlapping constraints (both could match some version, or both match the current target), report duplicate-declaration error (`CheckerPhpVersionDuplicateDeclaration` or existing duplicate path — prefer the reserved 43xx code for clarity).
 6. **Struct / extension:** if `#[\Tyhp\Php]` appears on a struct or extension declaration, error (`CheckerPhpVersionAttributeInvalidTarget`). Authors must wrap with `declare(php=…) { }`.
+7. **Hooked tyhpdef properties** (Story 20.7 `{ get; set; }`) use this same member-gating path: property-level `#[\Tyhp\Php]` and enclosing `declare(php=…)` omit or keep the symbol the same as an unhooked property. Version gates do not live on individual `get`/`set` hooks. No new declare key.
 
 ### Acceptance Criteria
 
@@ -320,8 +328,8 @@ Wire `output.phpVersion` defaulting and ensure package/tyhpdef loading uses the 
 ### Behavior
 
 1. If `output.phpVersion` is missing/null → treat as `"8.2"` and emit **warning** once per compilation (not per file).
-2. Story 06 package discovery / tyhpdef registration must apply file-level and declaration-level gates so Composer-loaded `tyhp/php` stubs filter correctly.
-3. Document that Story 21’s single-package layout depends on this filtering (no mutually exclusive `tyhp/php-8.x` Composer packages).
+2. Story 06 package discovery / tyhpdef registration must apply file-level and declaration-level gates so Composer-loaded `tyhpdef/php` stubs filter correctly.
+3. Document that Story 21’s single-package layout depends on this filtering (no mutually exclusive `tyhpdef/php-8.x` Composer packages).
 
 ### Acceptance Criteria
 
@@ -341,8 +349,45 @@ Wire `output.phpVersion` defaulting and ensure package/tyhpdef loading uses the 
 
 ### Acceptance Criteria
 
-- [ ] Conformance green with new fixtures
-- [ ] `dotnet test` covers new components
+- [x] Conformance green with new fixtures
+- [x] `dotnet test` covers new components
+
+---
+
+## Phase 9: User documentation
+
+> Completeness pass for every user-facing page this story ships. Do **not** fold PHP-version gating into `tyhp_0310_declarationGating.md` — that page is `if (!function_exists)` / `class_exists` declaration gates.
+
+### Phase Overview
+
+Document `declare(php=…)` (file- and block-level), `#[\Tyhp\Php]`, Composer constraint syntax, `"8.2"` = `8.2.*`, default `output.phpVersion` + warning, skip-file vs unreachable, disjoint vs overlapping same-name, emit stripping, and the struct/extension (Tyhp **and** tyhpdef) restriction. Update `toc.json` if a new page is added.
+
+### Pages to update (create a sibling page only if an existing page cannot hold the topic)
+
+| Page | What this story adds |
+|------|----------------------|
+| **New** `docs/content/tyhp_0320_phpVersionGating.md` | Canonical page: `declare(php="…")`, `#[\Tyhp\Php("…")]`, AND nesting, inactive file skip, overlap error, examples. Insert in `toc.json` after `tyhp_0310_declarationGating.md` |
+| `docs/content/project_optionsList.md` | `output.phpVersion` missing → default `8.2` + one warning per compilation. Distinct from Story 20’s Track A managed PHP (generator runtimes). |
+| `docs/content/project_composerPackages.md` / `docs/content/intro_gettingStarted.md` | Single `tyhpdef/php` across 8.2–8.5 depends on these gates (Story 21 consumes) |
+| `docs/content/tyhp_2100_extensions.md` / `docs/content/tyhpdef_extensions.md` | Gate `extension { }` with `declare(php=…) { }`; `#[\Tyhp\Php]` is illegal on Tyhp and tyhpdef extensions |
+| `docs/content/tyhpdef_classes.md` / `docs/content/tyhpdef_functions.md` / `docs/content/tyhpdef_about.md` | Attribute vs declare on tyhpdef symbols |
+| `docs/content/tyhp_2700_compileTimeConstructs.md` | Short pointer: version gates are compile-time only and never emitted (like `declare(output_file=…)`) |
+| `docs/content/quickref.md` / `docs/content/quickref_tyhpdef.md` | Compact syntax |
+| `docs/content/faq_tyhpSyntax.md` / `docs/content/faq_tyhpdefSyntax.md` / `docs/content/faq_project.md` | Why one stubs package; default PHP version |
+| `docs/content/diagnostics_reference.md` | Checker 4300–4399 codes this story registers |
+| `docs/content/toc.json` | New page entry; follow `docs/readme.md` front matter |
+
+### Acceptance Criteria
+
+- [ ] Every gating behavior this story implements is on the pages above
+- [ ] `tyhp_0310_declarationGating.md` is not overloaded with PHP-version gating
+- [ ] Docs state `#[\Tyhp\Php]` is illegal on struct and on Tyhp / tyhpdef `extension`
+- [ ] `docs/content/toc.json` lists any new page; `php generate_docs.php` would succeed for the new files
+
+### Dependencies
+
+- **Requires:** Phases 1–8 (document shipped semantics, not a design sketch)
+- **Provides:** User-facing docs that match shipped behavior
 
 ---
 
@@ -356,7 +401,7 @@ Reserve in `MessageCode.cs` checker **feature band** (update CONVENTIONS note to
 | 4301 | `CheckerPhpVersionDeclareNotAlone` | Error | `php` mixed with other declare directives |
 | 4302 | `CheckerPhpVersionUnreachable` | Error/Warning* | Code under inactive `declare(php=…)` |
 | 4303 | `CheckerPhpVersionDuplicateDeclaration` | Error | Same symbol, overlapping version constraints |
-| 4304 | `CheckerPhpVersionAttributeInvalidTarget` | Error | `#[\Tyhp\Php]` on struct or extension |
+| 4304 | `CheckerPhpVersionAttributeInvalidTarget` | Error | `#[\Tyhp\Php]` on struct or extension (Tyhp or tyhpdef) |
 | 4305 | `CheckerPhpVersionAttributeInvalidArgument` | Error | Missing/non-string `version` |
 | 4306 | `CheckerPhpVersionDefaulted` | Warning | `output.phpVersion` unset; defaulted to `8.2` |
 
@@ -373,8 +418,10 @@ Reserve in `MessageCode.cs` checker **feature band** (update CONVENTIONS note to
 | **08** | Checker rules / unreachable patterns |
 | **09 / 11** | Emitter stripping |
 | **10** | `output.phpVersion` |
-| **20** | Phase 8 multi-target generator **emits** these gates (depends on this story) |
-| **21** | Consumes gates for single `tyhp/php` + `tyhp/php-ext-*` packages |
+| **20** | Phase 8 multi-target generator **emits** these gates (depends on this story). Story 20 also adds tyhpdef `extension { }`; gate those with `declare(php=…) { }`, not `#[\Tyhp\Php]`. Track A **managed PHP** (download per minor) is how Phase 8 obtains 8.2–8.5; that is **not** `output.phpVersion`. This story does not download PHP. |
+| **21** | Consumes gates for single `tyhpdef/php` + `tyhpdef/php-ext-*` packages. Regen uses Story 20 `--php-targets` + managed PHP; contributors do not install a Homebrew PHP matrix. Property hooks in that story’s version table stay a **language-feature** row; after Story 20.7, tyhpdef can **describe** hooked PHP APIs and gate those declarations. |
+| **20.6** | After this story (and after **20.7**). Thin tyhpdef class-body mappings; gating is unchanged. |
+| **20.7** | Tyhpdef hooked properties. Gate the property (or an enclosing `declare`), not the individual hook. Hooked properties participate in member gating; no new declare key. Multi-target storage-vs-hooked shapes use this story’s disjoint-member rules. |
 | **12 / 19** | Lint/LSP automatically benefit once bind/check honor gates |
 
 ---
@@ -383,7 +430,7 @@ Reserve in `MessageCode.cs` checker **feature band** (update CONVENTIONS note to
 
 > Standardized testing-first acceptance criteria (uniform across all stories). See `CONVENTIONS.md` and Story 07.
 
-- [ ] **Golden fixtures:** `.tyhp` / `.tyhpdef` samples covering declare file/block, attribute additions, disjoint same-name, overlap error, struct/extension reject attribute, default version warning, emit stripping
-- [ ] **Unit / integration tests:** constraint library + binder/checker/emitter
-- [ ] **Conformance run green** before story done
+- [x] **Golden fixtures:** `.tyhp` / `.tyhpdef` samples covering declare file/block, attribute additions, disjoint same-name, overlap error, struct/extension reject attribute, default version warning, emit stripping
+- [x] **Unit / integration tests:** constraint library + binder/checker/emitter
+- [x] **Conformance run green** before story done
 - [ ] **Runtime self-host:** if `tyhp/core` sources change, recompile and diff committed PHP

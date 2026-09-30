@@ -1,4 +1,7 @@
+using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Binder;
+using Tyhp.TyhpLang.Binder.Symbols;
 
 namespace Tyhp.TyhpLang.Checker
 {
@@ -16,5 +19,19 @@ namespace Tyhp.TyhpLang.Checker
             CheckerState state,
             bool isReturnTypePosition = false,
             bool isUserTypeDeclaration = true);
+
+        /// <summary>
+        /// Argument-driven generic inference for a call (same rules as named-call checking).
+        /// Used by user-defined <c>$param is Type</c> guards so <c>T</c> can bind from a
+        /// sibling argument (<c>T|__ClassName&lt;T&gt;</c> vs a receiver or <c>Foo::class</c>).
+        /// </summary>
+        bool TryInferGenericBindings(
+            IReadOnlyList<GenericTypeParameterSymbol> genericParameters,
+            IReadOnlyList<ParameterInfo> parameters,
+            PhpCallAst call,
+            CheckerState state,
+            out Dictionary<GenericTypeParameterSymbol, ICheckedType> bindings,
+            ICheckedType? receiverType = null,
+            ObjectMethodSymbol? method = null);
     }
 }

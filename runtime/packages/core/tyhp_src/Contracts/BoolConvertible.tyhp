@@ -1,7 +1,0 @@
-<?tyhp
-
-namespace Tyhp\Contracts;
-
-interface BoolConvertible extends \Tyhp\Contracts\Convertible {
-    public function __toBool(): bool;
-}

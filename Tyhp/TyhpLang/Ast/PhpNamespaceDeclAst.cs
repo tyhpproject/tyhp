@@ -4,7 +4,7 @@ using Tyhp.TyhpLang.Visitor;
 
 namespace Tyhp.TyhpLang.Ast
 {
-    public class PhpNamespaceDeclAst : Base2Ast, ITopStatement
+    public class PhpNamespaceDeclAst : Base2Ast, IStatement
     {
         public PhpTopStatementListAst? TopStatements => Children.ElementAtOrDefault(0) as PhpTopStatementListAst;
 

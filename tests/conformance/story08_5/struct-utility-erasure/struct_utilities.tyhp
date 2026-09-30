@@ -2,24 +2,24 @@
 declare(strict_types=1);
 namespace App;
 
-struct Point {
+type Point = struct {
     int $x = 0;
     string $y = '';
-}
+};
 
 function takeStructKey(__StructKey<Point> $k): string {
     return $k;
 }
 
-function takeProps(__Properties<Point> $p): string {
+function takeProps(__Properties<Point> $p): array {
     return $p;
 }
 
-function takeReturn(\Tyhp\ReturnType<callable<string, int>> $r): int {
+function takeReturn(__CallableReturnType<callable(string): int> $r): int {
     return $r;
 }
 
-function takeParams(\Tyhp\Parameters<callable<string, int>> $p): array {
+function takeParams(__CallableParametersTuple<callable(string): int> $p): array {
     return $p;
 }
 
@@ -29,10 +29,11 @@ function takeStructDef(__StructDef<__StructRecord<Point, '$x'|'$y', int|string>>
 
 function demo(): void {
     __StructKey<Point> $key = '$x';
-    __Properties<Point> $props = '$x';
-    \Tyhp\ReturnType<callable<string, int>> $ret = 1;
+    __Properties<Point> $props = ['x' => 1];
+    __CallableReturnType<callable(string): int> $ret = 1;
     string $plain = $key;
     takeStructKey('$x');
-    takeProps('$x');
+    takeProps(['x' => 1]);
+    takeProps([]);
     takeReturn(1);
 }

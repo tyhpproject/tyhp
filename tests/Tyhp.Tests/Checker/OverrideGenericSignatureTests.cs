@@ -17,28 +17,28 @@ public class OverrideGenericSignatureTests
     [Fact]
     public void Override_ParentClassGenericInSignature_DoesNotReportSymbolNotFound()
     {
-        // Mirrors ExpressionBuilder&lt;T&gt; extends Expression&lt;T, bool&gt; overriding and/or that
-        // mention Expression&lt;TSource, …&gt; / ExpressionBuilder&lt;TSource&gt; on the base.
+        // Mirrors ExpressionBuilder&lt;T&gt; extends Expression&lt;(callable(T): bool)&gt; overriding and/or that
+        // mention Expression&lt;TCallableShape&gt; / ExpressionBuilder&lt;T&gt; on the base.
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
 
-            class Expression<TSource, TReturn> {
-                public function and(?Expression<TSource, mixed> $other = null): ExpressionBuilder<TSource> {
-                    return new ExpressionBuilder<TSource>();
+            class Expression<TCallableShape> {
+                public function and(?Expression<TCallableShape> $other = null): Expression {
+                    return $this;
                 }
             }
 
-            class ExpressionBuilder<T> extends Expression<T, bool> {
-                public function and(?Expression<T, mixed> $other = null): ExpressionBuilder<T> {
-                    return new ExpressionBuilder<T>();
+            class ExpressionBuilder<T> extends Expression<callable(T): bool> {
+                public function and(?Expression<callable(T): bool> $other = null): ExpressionBuilder<T> {
+                    return $this;
                 }
             }
             """);
 
         errors.Should().NotContain(
-            e => NamesUnresolved(e, "TSource"),
-            $"parent TSource must resolve via inheritance bindings: {Describe(errors)}");
+            e => NamesUnresolved(e, "TCallableShape"),
+            $"parent TCallableShape must resolve via inheritance bindings: {Describe(errors)}");
 
         errors.Should().NotContain(
             e => e.Code == MessageCode.CheckerOverloadSignatureIncompatible,
@@ -100,14 +100,7 @@ public class OverrideGenericSignatureTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

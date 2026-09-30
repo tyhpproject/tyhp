@@ -1,7 +1,9 @@
 using Tyhp.Domain.Enums;
+using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Checker;
 
 namespace Tyhp.Domain.Diagnostics
@@ -71,6 +73,12 @@ namespace Tyhp.Domain.Diagnostics
         /// Per-expression types memoized by the checker (Story 16 Phase 2 expression-tree emit).
         /// </summary>
         public IReadOnlyDictionary<IBase2Ast, ICheckedType>? ExpressionTypes { get; set; }
+
+        /// <summary>
+        /// <c>T →</c> free function or concrete static method marked <c>#[\Tyhp\NativeTypeTest]</c>
+        /// so <c>$x is T</c> emits that callable instead of <c>\Tyhp\Type::is</c>.
+        /// </summary>
+        public IReadOnlyDictionary<string, IBaseSymbol>? NativeTypeTests { get; set; }
 
         /// <summary>
         /// Disposable scopes flagged for try/finally fallback due to circular references.
@@ -162,9 +170,13 @@ namespace Tyhp.Domain.Diagnostics
         /// <summary>
         /// Initializes a new instance of the <see cref="CompilationResult"/> class.
         /// </summary>
-        public CompilationResult()
+        /// <param name="suppressedWarnings">
+        /// Warning codes to drop. When omitted, <see cref="DiagnosticBag.DefaultSuppressedWarnings"/> is used.
+        /// Errors are never dropped.
+        /// </param>
+        public CompilationResult(IReadOnlySet<MessageCode>? suppressedWarnings = null)
         {
-            this.Diagnostics = new DiagnosticBag();
+            this.Diagnostics = new DiagnosticBag(suppressedWarnings);
         }
 
         /// <summary>

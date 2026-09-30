@@ -19,6 +19,9 @@ namespace Tyhp.Config
         [Description("Run a composer command on this Tyhp project.")]
         composer,
 
+        [Description("Install toolchain tools such as Composer.")]
+        install,
+
         [Description("Initialize a new Tyhp project.")]
         init,
 
@@ -34,6 +37,9 @@ namespace Tyhp.Config
         [Description("Parse a source file and dump the AST as JSON (parser debugging).")]
         dump_ast,
 
+        [Description("Parse and bind the project, then dump the resolved symbol tree as JSON.")]
+        symbol_tree,
+
         [Description("Start the Tyhp language server.")]
         language_server,
 
@@ -42,6 +48,9 @@ namespace Tyhp.Config
 
         [Description("Generate Tyhpdef file(s) for a composer package or PHP module.")]
         generate_tyhpdef,
+
+        [Description("Create or stamp tyhpdef overlay files.")]
+        overlay,
 
         [Description("Run internal debugging tools (for compiler development).")]
         debug,

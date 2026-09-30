@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Text;
 using Antlr4.Runtime;
+using Antlr4.Runtime.Atn;
+using Antlr4.Runtime.Misc;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.Domain.Services;
@@ -15,7 +17,8 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
     {
         /// <summary>
         /// Loads and parses all tyhpdef sources: embedded definitions, Composer
-        /// <c>vendor/</c> package manifests, explicit <c>package.tyhp.json</c> / tyhpdef
+        /// <c>vendor/</c> package manifests (<c>composer.json</c> with
+        /// <c>extra.tyhp.package</c>), explicit <c>composer.json</c> / tyhpdef
         /// includes from <c>tyhp.json</c>, and user-configured tyhpdef paths.
         /// </summary>
         /// <param name="diagnostics">Diagnostic bag for reporting parse errors and missing files.</param>
@@ -110,13 +113,14 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                // Cache read failed — fall through to a fresh parse.
+                // Corrupt or unreadable cache — warn, drop the file, and parse the source.
                 diagnostics.AddWarning(
                     MessageCode.ParserUnknownError,
                     fileName,
                     0,
                     0,
                     $"Failed to read AST cache for tyhpdef: {ex.Message}");
+                AstCacheService.DeleteCacheFile(fileName);
             }
 
             // Snapshot before lex/parse/visit so recoverable error trees are not cached.
@@ -124,12 +128,6 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
 
             var contentBytes = Encoding.UTF8.GetBytes(content);
             var inputStream = new AntlrInputStream(new System.IO.MemoryStream(contentBytes));
-            var lexer = new TyhpLexer(inputStream);
-            lexer.RemoveErrorListeners();
-
-            using var lexerErrorListener = new TyhpAntlrErrorListener<int>(diagnostics, MessageCode.TyhpdefParseError);
-            lexerErrorListener.SetFileName(fileName);
-            lexer.AddErrorListener(lexerErrorListener);
 
             // Tagless applies only to the tyhpdef/tyhp parse modes (not raw PHP). When a package
             // is published in tagless mode, its files omit the open tag and forbid the closing tag,
@@ -141,35 +139,68 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
                 ParseMode.Tyhp => "tyhp",
                 _ => string.Empty,
             };
-            lexer.ConfigureTagless(taglessEnabled, taglessLanguageMode, diagnostics, fileName);
 
-            var tokenStream = new CommonTokenStream(lexer);
-            var parser = new TyhpParser(tokenStream, TextWriter.Null, TextWriter.Null);
-            parser.RemoveErrorListeners();
-
-            using var parserErrorListener = new TyhpAntlrErrorListener<IToken>(diagnostics, MessageCode.TyhpdefParseError);
-            parserErrorListener.SetFileName(fileName);
-            parser.AddErrorListener(parserErrorListener);
-
-            ParserRuleContext ctx = mode switch
-            {
-                ParseMode.Tyhpdef => taglessEnabled ? parser.tyhpdefTaglessSrcFile() : parser.tyhpdefSrcFile(),
-                ParseMode.Tyhp => taglessEnabled ? parser.tyhpTaglessSrcFile() : parser.tyhpSrcFile(),
-                _ => parser.phpSrcFile(),
-            };
-
-            if (taglessEnabled)
-            {
-                tokenStream.Fill();
-            }
-
-            var visitor = new TyhpParserAstVisitor(tokenStream, fileName, fileHash, diagnostics);
+            object? visitResult;
             SrcFileAst? ast;
             try
             {
+            if (mode == ParseMode.Tyhpdef)
+            {
+                var lexer = new TyhpdefLexer(inputStream);
+                lexer.RemoveErrorListeners();
+                using var lexerErrorListener = new TyhpAntlrErrorListener<int>(diagnostics, MessageCode.TyhpdefParseError);
+                lexerErrorListener.SetFileName(fileName);
+                lexer.AddErrorListener(lexerErrorListener);
+                lexer.ConfigureTagless(taglessEnabled, taglessLanguageMode, diagnostics, fileName);
+
+                var tokenStream = new CommonTokenStream(lexer);
+                var parser = new TyhpdefParser(tokenStream, TextWriter.Null, TextWriter.Null);
+                parser.RemoveErrorListeners();
+                using var parserErrorListener = new TyhpAntlrErrorListener<IToken>(diagnostics, MessageCode.TyhpdefParseError);
+                parserErrorListener.SetFileName(fileName);
+                parser.AddErrorListener(parserErrorListener);
+
+                ParserRuleContext ctx = ParseTyhpdefRule(parser, tokenStream, taglessEnabled);
+                if (taglessEnabled)
+                {
+                    tokenStream.Fill();
+                }
+
+                visitResult = new TyhpdefParserAstVisitor(tokenStream, fileName, fileHash, diagnostics).Visit(ctx);
+            }
+            else
+            {
+                var tyhpLexer = new TyhpLexer(inputStream);
+                tyhpLexer.RemoveErrorListeners();
+                using var tyhpLexerErrorListener = new TyhpAntlrErrorListener<int>(diagnostics, MessageCode.TyhpdefParseError);
+                tyhpLexerErrorListener.SetFileName(fileName);
+                tyhpLexer.AddErrorListener(tyhpLexerErrorListener);
+                tyhpLexer.ConfigureTagless(taglessEnabled, taglessLanguageMode, diagnostics, fileName);
+
+                var tokenStream = new CommonTokenStream(tyhpLexer);
+                var tyhpParser = new TyhpParser(tokenStream, TextWriter.Null, TextWriter.Null);
+                tyhpParser.RemoveErrorListeners();
+                using var tyhpParserErrorListener = new TyhpAntlrErrorListener<IToken>(diagnostics, MessageCode.TyhpdefParseError);
+                tyhpParserErrorListener.SetFileName(fileName);
+                tyhpParser.AddErrorListener(tyhpParserErrorListener);
+
+                ParserRuleContext ctx = mode switch
+                {
+                    ParseMode.Tyhp => taglessEnabled ? tyhpParser.tyhpTaglessSrcFile() : tyhpParser.tyhpSrcFile(),
+                    _ => tyhpParser.phpSrcFile(),
+                };
+
+                if (taglessEnabled)
+                {
+                    tokenStream.Fill();
+                }
+
+                visitResult = new TyhpParserAstVisitor(tokenStream, fileName, fileHash, diagnostics).Visit(ctx);
+            }
+
                 // Malformed input can leave null children after ANTLR recovery; visitors null-guard
                 // those paths, but keep a safety net so callers never see a raw NRE.
-                ast = visitor.Visit(ctx) as SrcFileAst;
+                ast = visitResult as SrcFileAst;
             }
             catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
             {
@@ -188,20 +219,55 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
                 try
                 {
                     AstCacheService.AddOrUpdate(ast);
+                    // One disk write for this file. A failure warns and drops any partial blob;
+                    // the parsed AST is kept and the write is not retried.
+                    AstCacheService.FlushFile(fileName);
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    // Cache write failed — parse result is still valid; continue without caching.
                     diagnostics.AddWarning(
                         MessageCode.ParserUnknownError,
                         fileName,
                         0,
                         0,
                         $"Failed to cache tyhpdef AST: {ex.Message}");
+                    AstCacheService.DeleteCacheFile(fileName);
                 }
             }
 
             return ast;
+        }
+
+        /// <summary>
+        /// SLL first, matching <c>CompilationService.ParseContentCore</c>. A syntax error
+        /// retries the same entry rule in LL so recovery still reports the diagnostic.
+        /// </summary>
+        private static ParserRuleContext ParseTyhpdefRule(
+            TyhpdefParser parser,
+            CommonTokenStream tokenStream,
+            bool taglessEnabled)
+        {
+            parser.Interpreter.PredictionMode = PredictionMode.SLL;
+            parser.ErrorHandler = new BailErrorStrategy();
+            try
+            {
+                return InvokeTyhpdefEntry(parser, taglessEnabled);
+            }
+            catch (ParseCanceledException)
+            {
+                tokenStream.Seek(0);
+                parser.Reset();
+                parser.ErrorHandler = new DefaultErrorStrategy();
+                parser.Interpreter.PredictionMode = PredictionMode.LL;
+                return InvokeTyhpdefEntry(parser, taglessEnabled);
+            }
+        }
+
+        private static ParserRuleContext InvokeTyhpdefEntry(TyhpdefParser parser, bool taglessEnabled)
+        {
+            return taglessEnabled
+                ? parser.tyhpdefTaglessSrcFile()
+                : parser.tyhpdefSrcFile();
         }
     }
 }

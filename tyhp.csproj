@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <LangVersion>13.0</LangVersion>
-    <Version>805.0.0-alpha.1</Version>
+    <Version>805.1.0-beta.1</Version>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -10,8 +10,10 @@
     <IsWindows Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">true</IsWindows>
     <IsOSX Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'">true</IsOSX>
     <IsLinux Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))' == 'true'">true</IsLinux>
-    <!-- Isolated publish artifacts-path lives under dist/; do not compile those generated .cs files. -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);dist/**</DefaultItemExcludes>
+    <!-- Isolated publish artifacts-path lives under dist/; do not compile those generated .cs files.
+         runtime/** is thousands of Composer trees — default `**/*.cs` / `**/*.resx` globs
+         fail to expand (CS2021 / MSB3552) if they walk it. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);dist/**;runtime/**</DefaultItemExcludes>
   </PropertyGroup>
   <PropertyGroup Condition="'$(IsWindows)'=='true'">
     <DefineConstants>Windows</DefineConstants>
@@ -32,7 +34,12 @@
     <EmbeddedResource Remove="dist/**" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Tyhp/Domain/Services/PhpRuntimeManifest.json" />
+    <EmbeddedResource Include="Tyhp/Domain/Services/PhpReflectionDump.php" />
+  </ItemGroup>
+  <ItemGroup>
     <CSFile Include="Tyhp/**/*.cs" />
+    <PackageReference Include="HtmlAgilityPack" Version="1.11.72" />
     <PackageReference Include="Antlr4.Runtime.Standard" Version="4.13.1" />
     <PackageReference Include="Goblinfactory.Konsole" Version="6.2.2" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.5.0" />
@@ -41,6 +48,11 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Localization" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
+    <PackageReference Include="Microsoft.VisualStudio.LanguageServer.Protocol" Version="17.2.8" />
+    <PackageReference Include="StreamJsonRpc" Version="2.24.84">
+      <!-- Analyzer targets a newer Roslyn than this SDK ships; exclude to avoid CS9057. -->
+      <ExcludeAssets>analyzers</ExcludeAssets>
+    </PackageReference>
     <!-- <PackageReference Include="My.Extensions.Localization.Json" Version="3.1.0" /> -->
   </ItemGroup>
     <!-- <ItemGroup>

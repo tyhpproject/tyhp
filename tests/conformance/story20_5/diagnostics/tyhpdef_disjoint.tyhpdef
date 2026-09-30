@@ -1,0 +1,5 @@
+<?tyhpdef
+#[\Tyhp\Php(">=8.2 <8.4")]
+function example(string $v): mixed;
+#[\Tyhp\Php(">=8.4")]
+function example(string $v, bool $strict = false): string;

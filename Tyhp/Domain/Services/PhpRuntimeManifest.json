@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "minors": ["8.2", "8.3", "8.4", "8.5"],
+  "providers": {
+    "staticphp": {
+      "id": "staticphp",
+      "aliases": ["static-php-cli", "spc", "StaticPHP"],
+      "listingUrls": [
+        "https://dl.static-php.dev/static-php-cli/bulk/",
+        "https://dl.static-php.dev/static-php-cli/common/"
+      ],
+      "urlTemplates": [
+        "https://dl.static-php.dev/static-php-cli/bulk/php-{patch}-cli-{os}-{arch}.tar.gz",
+        "https://dl.static-php.dev/static-php-cli/common/php-{patch}-cli-{os}-{arch}.tar.gz"
+      ]
+    },
+    "windows-php-net": {
+      "id": "windows-php-net",
+      "releasesIndex": "https://windows.php.net/downloads/releases/releases.json",
+      "archiveReleasesIndex": "https://windows.php.net/downloads/releases/archives/releases.json",
+      "sha256Url": "https://windows.php.net/downloads/releases/sha256sum.txt",
+      "downloadBase": "https://windows.php.net/downloads/releases/",
+      "archiveDownloadBase": "https://windows.php.net/downloads/releases/archives/"
+    },
+    "homebrew-bottle": {
+      "id": "homebrew-bottle",
+      "formulaUrlTemplate": "https://formulae.brew.sh/api/formula/php@{minor}.json",
+      "tokenUrl": "https://ghcr.io/token?service=ghcr.io&scope=repository:homebrew/core/{repo}:pull"
+    }
+  }
+}

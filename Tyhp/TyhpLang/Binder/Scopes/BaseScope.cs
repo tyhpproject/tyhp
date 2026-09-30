@@ -146,7 +146,13 @@ namespace Tyhp.TyhpLang.Binder.Scopes {
         }
 
         public virtual bool AddChildSymbol(TChildSymbols child)
+            => this.TryAddChildSymbol(child, out _);
+
+        /// <inheritdoc />
+        public virtual bool TryAddChildSymbol(TChildSymbols child, out TChildSymbols? existing)
         {
+            existing = default;
+
             // Operator overloads intentionally share a single declared name (the operator token,
             // e.g. "+", "convert") across multiple symbols that differ by parameter signature or
             // return type. They are discovered by enumeration (GetAllChildSymbols) and disambiguated
@@ -160,6 +166,7 @@ namespace Tyhp.TyhpLang.Binder.Scopes {
                 var nameIndex = this.GetNameIndexFor(baseSymbol.SymbolType);
                 if (nameIndex != null && nameIndex.TryGetValue(baseSymbol.Name, out var existingSymbol))
                 {
+                    existing = existingSymbol;
                     var computedFqn = BaseScope<TParent, TDeclarationSymbol, TChildScopes, TChildSymbols, TSelf>
                         .GetFullyQualifiedNameFor(this, baseSymbol.Name);
                     this.OnDuplicateChildSymbol(existingSymbol, child, computedFqn);
@@ -193,8 +200,9 @@ namespace Tyhp.TyhpLang.Binder.Scopes {
                         var list = this.ChildSymbolList;
                         for (var i = 0; i < list.Count; i++)
                         {
-                            if (list[i] is BaseSymbol existing && existing.SymbolType == childSymbol.SymbolType)
+                            if (list[i] is BaseSymbol existingKind && existingKind.SymbolType == childSymbol.SymbolType)
                             {
+                                existing = list[i];
                                 var computedFqn = BaseScope<TParent, TDeclarationSymbol, TChildScopes, TChildSymbols, TSelf>
                                     .GetFullyQualifiedNameFor(this, childSymbol.Name);
                                 this.OnDuplicateChildSymbol(list[i], child, computedFqn);
@@ -221,6 +229,124 @@ namespace Tyhp.TyhpLang.Binder.Scopes {
             }
 
             this.ChildSymbolList.Add(child);
+            return true;
+        }
+
+        /// <inheritdoc />
+        public bool TryAddChildSymbolAlias(IBaseSymbol symbol, string aliasName)
+        {
+            if (symbol is not BaseSymbol named
+                || !named.HasDeclaredName
+                || string.IsNullOrEmpty(aliasName)
+                || this._childSymbols == null
+                || !this._childSymbols.Exists(child => ReferenceEquals(child, symbol)))
+            {
+                return false;
+            }
+
+            if (string.Equals(aliasName, named.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var index = this.GetOrCreateNameIndexFor(named.SymbolType);
+            if (index.TryGetValue(aliasName, out var existing))
+            {
+                return ReferenceEquals(existing, symbol);
+            }
+
+            index[aliasName] = (TChildSymbols)symbol;
+            return true;
+        }
+
+        /// <inheritdoc />
+        public virtual bool TryOccupyFunctionNamespace(IBaseSymbol symbol)
+        {
+            if (symbol is not BaseSymbol named
+                || !named.HasDeclaredName
+                || symbol is not TChildSymbols typed)
+            {
+                return false;
+            }
+
+            var index = this.FunctionSymbolIndex;
+            if (index.TryGetValue(named.Name, out var existing)
+                && !ReferenceEquals(existing, symbol))
+            {
+                return false;
+            }
+
+            index[named.Name] = typed;
+            return true;
+        }
+
+        /// <inheritdoc />
+        public bool TryRemoveChildSymbolName(IBaseSymbol symbol, string name)
+        {
+            if (symbol is not BaseSymbol named || string.IsNullOrEmpty(name))
+            {
+                return false;
+            }
+
+            var index = this.GetNameIndexFor(named.SymbolType);
+            if (index == null
+                || !index.TryGetValue(name, out var indexed)
+                || !ReferenceEquals(indexed, symbol))
+            {
+                return false;
+            }
+
+            index.Remove(name);
+            return true;
+        }
+
+        /// <inheritdoc />
+        public bool TryRemoveChildSymbol(IBaseSymbol symbol)
+        {
+            if (symbol == null || this._childSymbols == null || this._childSymbols.Count == 0)
+            {
+                return false;
+            }
+
+            var removed = false;
+            for (var i = this._childSymbols.Count - 1; i >= 0; i--)
+            {
+                var child = this._childSymbols[i];
+                if (!ReferenceEquals(child, symbol))
+                {
+                    continue;
+                }
+
+                this._childSymbols.RemoveAt(i);
+                if (child is BaseSymbol named && named.HasDeclaredName)
+                {
+                    var index = this.GetNameIndexFor(named.SymbolType);
+                    if (index != null
+                        && index.TryGetValue(named.Name, out var indexed)
+                        && ReferenceEquals(indexed, child))
+                    {
+                        index.Remove(named.Name);
+                    }
+                }
+
+                removed = true;
+            }
+
+            if (!removed)
+            {
+                return false;
+            }
+
+            if (this._childScopes != null)
+            {
+                this._childScopes.RemoveAll(scope => ReferenceEquals(scope.DeclarationSymbol, symbol));
+            }
+
+            if (this._additionalChildScopes != null)
+            {
+                this._additionalChildScopes.RemoveAll(scope => ReferenceEquals(scope.DeclarationSymbol, symbol));
+            }
+
             return true;
         }
 

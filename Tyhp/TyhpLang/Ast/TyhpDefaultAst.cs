@@ -13,6 +13,7 @@ namespace Tyhp.TyhpLang.Ast
     ///   default(bool)     => false
     ///   default(array)    => []
     ///   default(?string)  => null
+    ///   default(UserId)   => UserId()->defaultValue()  (source alias factory)
     /// </summary>
     public class TyhpDefaultAst : Base2Ast, IExpression
     {

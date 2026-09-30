@@ -156,8 +156,8 @@ The 7000–7999 range is subdivided per CLI action (7200–7299 for lint). See S
 
 ## Phase 1: Lint Configuration and CLI Argument Parsing
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -253,8 +253,8 @@ Add entries:
 
 ## Phase 2: Core LintAction Implementation
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -437,8 +437,8 @@ public int? ResultExitCode { get; protected set; }
 
 ## Phase 3: JSON Diagnostic Formatter
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -561,8 +561,8 @@ The `FormatSummary()` method on `IDiagnosticFormatter` only receives a `Diagnost
 
 ## Phase 4: SARIF Diagnostic Formatter
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 
@@ -690,8 +690,8 @@ For the `rules` array, generate a short description for each unique `MessageCode
 
 ## Phase 5: Help Text and Single-File Enhancements
 
-> **[Phase Runner] Runtime/Model:** `claude/haiku` | `cursor/haiku`
-> **[Phase Runner] Review Level:** `Low`
+
+
 
 ### Phase Overview
 
@@ -802,8 +802,8 @@ When `--file` is used, adjust the summary output:
 
 ## Phase 6: Auto-Fix Infrastructure (Stub)
 
-> **[Phase Runner] Runtime/Model:** `claude/sonnet` | `cursor/sonnet`
-> **[Phase Runner] Review Level:** `Medium`
+
+
 
 ### Phase Overview
 

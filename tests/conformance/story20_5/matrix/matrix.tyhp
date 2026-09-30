@@ -1,0 +1,38 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+function always_present(): void {}
+
+#[\Tyhp\Php(">=8.3")]
+function from_83(): void {}
+
+#[\Tyhp\Php(">=8.4")]
+function from_84(): void {}
+
+#[\Tyhp\Php(">=8.5")]
+function from_85(): void {}
+
+declare(php=">=8.4") {
+    function block_84(): void {}
+}
+
+#[\Tyhp\Php(">=8.2 <8.4")]
+function example(string $v): mixed
+{
+    return $v;
+}
+
+#[\Tyhp\Php(">=8.4")]
+function example(string $v, bool $strict = false): string
+{
+    return $v;
+}
+
+class Widget
+{
+    public function always(): void {}
+
+    #[\Tyhp\Php(">=8.5")]
+    public function only_85(): void {}
+}

@@ -1,41 +1,29 @@
 using System.Net;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
-using Tyhp.Tests.TestHelpers;
 
 namespace Tyhp.Tests.Diagnostics;
 
 [Trait("Category", "Diagnostics")]
 public class DiagnosticsReferenceGeneratorTests
 {
-    private static string ReferencePath
-        => Path.Combine(TestFileManager.GetRepoRoot(), "docs", "content", "diagnostics_reference.md");
-
     /// <summary>
-    /// The committed page is checked out with the host's line endings, so compare the text with
-    /// CRLF folded away rather than failing the drift check on Windows.
+    /// When <c>TYHP_DIAGNOSTICS_REFERENCE_OUT</c> is set (see
+    /// <c>scripts/sync-diagnostics-reference.sh</c>), write the generated page there.
+    /// Ordinary test runs leave the filesystem alone; the page lives in tyhp-docs-src.
     /// </summary>
-    private static string NormalizeNewlines(string text)
-        => text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
-
-    [Fact]
-    public void DiagnosticsReferenceMarkdown_MatchesGeneratedIndex()
+    private static void WriteMarkdownIfRequested(string markdown)
     {
-        var generated = DiagnosticsReferenceGenerator.GenerateMarkdown();
+        var path = Environment.GetEnvironmentVariable("TYHP_DIAGNOSTICS_REFERENCE_OUT");
+        if (string.IsNullOrWhiteSpace(path))
+            return;
 
-        if (Environment.GetEnvironmentVariable("TYHP_UPDATE_DIAGNOSTICS_REFERENCE") == "1")
-        {
-            File.WriteAllText(ReferencePath, generated);
-        }
+        var fullPath = Path.GetFullPath(path);
+        var directory = Path.GetDirectoryName(fullPath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
 
-        File.Exists(ReferencePath).Should().BeTrue(
-            "docs/content/diagnostics_reference.md should exist");
-
-        var onDisk = File.ReadAllText(ReferencePath);
-        NormalizeNewlines(onDisk).Should().Be(
-            NormalizeNewlines(generated),
-            "diagnostics_reference.md drifted from MessageCode/.resx. Regenerate with: "
-            + "TYHP_UPDATE_DIAGNOSTICS_REFERENCE=1 dotnet test --filter DiagnosticsReferenceGeneratorTests");
+        File.WriteAllText(fullPath, markdown);
     }
 
     [Fact]
@@ -141,6 +129,8 @@ public class DiagnosticsReferenceGeneratorTests
         // Spot-check that the old drifted wording is gone.
         markdown.Should().NotContain("Symbol '{0}' not found");
         markdown.Should().NotContain("Multiple visibility modifiers specified");
+
+        WriteMarkdownIfRequested(markdown);
     }
 
     [Fact]

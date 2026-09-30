@@ -1,8 +1,11 @@
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.Domain.Services;
+using Tyhp.TyhpLang.Ast;
+using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder;
 using Tyhp.TyhpLang.Checker;
+using Tyhp.TyhpLang.Enum;
 using Tyhp.Tests.TestHelpers;
 
 namespace Tyhp.Tests.Checker;
@@ -167,13 +170,13 @@ public class Phase6RuleTests
         // Inherited members are not flattened into Members; the rule must walk the base chain.
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            struct SerializedExpression {
+            type SerializedExpression = struct {
                 string $nodeType = '';
-            }
+            };
 
-            struct SerializedParameterExpression extends SerializedExpression {
+            type SerializedParameterExpression = struct extends SerializedExpression  {
                 string $name = '';
-            }
+            };
 
             function demo(): SerializedParameterExpression {
                 return new SerializedParameterExpression() with [
@@ -191,10 +194,10 @@ public class Phase6RuleTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x;
                 int $y = 0;
-            }
+            };
 
             function demo(): Point {
                 return new Point() with [y => 1];
@@ -209,10 +212,10 @@ public class Phase6RuleTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x;
                 int $y = 0;
-            }
+            };
 
             function demo(): Point {
                 return new Point() with [x => 1];
@@ -227,9 +230,9 @@ public class Phase6RuleTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            struct Point {
+            type Point = struct {
                 int $x;
-            }
+            };
 
             function demo(): Point {
                 return new Point();
@@ -259,9 +262,9 @@ public class Phase6RuleTests
 
                 use Lib\Node;
 
-                struct Holder {
+                type Holder = struct {
                     Node $body;
-                }
+                };
                 """),
             ("Consumer.tyhp", """
                 <?tyhp
@@ -291,9 +294,9 @@ public class Phase6RuleTests
         // Property names colliding with Tyhp keywords / builtin type names are written quoted.
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            struct Node {
+            type Node = struct {
                 string $type = '';
-            }
+            };
 
             function demo(): Node {
                 return new Node() with ['type' => 'binary'];
@@ -308,9 +311,9 @@ public class Phase6RuleTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            struct Node {
+            type Node = struct {
                 string $type = '';
-            }
+            };
 
             function demo(): Node {
                 return new Node() with ['missing' => 'x'];
@@ -445,6 +448,538 @@ public class Phase6RuleTests
             function demo(): void {
                 Plain $p = new Plain();
                 $p->missing = 5;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_ExactStdClass_DoesNotReport()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(): void {
+                \stdClass $o = new \stdClass();
+                $o->x = 1;
+                new \stdClass()->nope = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_StdClassSubclass_ReportsProhibited()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Bag extends \stdClass {
+            }
+
+            function demo(): void {
+                Bag $b = new Bag();
+                $b->x = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_AllowDynamicPropertiesStamp_IsNotAnOptIn()
+    {
+        // Layer 3 omits \AllowDynamicProperties, so the stamp is TYHP4126 (not an
+        // attribute class). The named write gate must not treat the leftover name as
+        // an opt-in the way the old parent-walk did.
+        var diagnostics = CompileAndCheckAllowBindWarnings("""
+            <?tyhp
+            #[\AllowDynamicProperties]
+            class Opt {
+            }
+
+            function demo(): void {
+                Opt $o = new Opt();
+                $o->x = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNotAnAttributeClass);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_IncompleteClassHarvestStamp_ReportsProhibited()
+    {
+        var diagnostics = CompileAndCheckFiles(
+            ("harvest.tyhpdef", """
+                <?tyhpdef
+                #[\AllowDynamicProperties]
+                final class __PHP_Incomplete_Class {
+                }
+                """),
+            ("test.tyhp", """
+                <?tyhp
+                function demo(): void {
+                    \__PHP_Incomplete_Class $o = new \__PHP_Incomplete_Class();
+                    $o->x = 1;
+                }
+                """));
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_NamespacedStdClassLookalike_ReportsProhibited()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            namespace App;
+
+            class stdClass {
+            }
+
+            function demo(): void {
+                \App\stdClass $o = new \App\stdClass();
+                $o->x = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_UserClassWithoutSet_ReportsProhibited()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Plain {
+            }
+
+            function demo(): void {
+                Plain $p = new Plain();
+                $p->nope = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_StdClassUndeclaredRead_StaysUnresolved()
+    {
+        // Undeclared reads are unchanged: no property and no __get → Unresolved.
+        // D.1 does not add a stdClass property map.
+        var (diagnostics, checker, file) = CompileAndInspect("""
+            <?tyhp
+            function demo(): mixed {
+                \stdClass $o = new \stdClass();
+                $o->x = 1;
+                return $o->x;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+
+        var returned = FindAllAst<PhpJumpStatementAst>(file)
+            .Where(j => j.JumpType == PhpJumpType.Return)
+            .Select(j => j.Expression)
+            .OfType<PhpDereferenceableAst>()
+            .SingleOrDefault(d =>
+                d.Suffix is PhpInstanceMemberAccessAst member
+                && string.Equals(GetMemberName(member.MemberName), "x", StringComparison.Ordinal));
+
+        returned.Should().NotBeNull("expected `return $o->x`");
+        checker.ExpressionTypes.TryGetValue(returned!, out var type).Should().BeTrue();
+        type.Should().Be(CheckedTypes.Unresolved);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_ObjectCast_DoesNotReport()
+    {
+        // D.2: (object) infers exact \stdClass, so D.1 allows undeclared writes on that value.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(): void {
+                $o = (object)[];
+                $o->x = 1;
+                ((object)['a' => 1])->nope = 2;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_ObjectCastOfTypedValue_DoesNotReport()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(mixed $x): void {
+                $o = (object)$x;
+                $o->y = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_ObjectCastDoesNotLicenseOtherTypes()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Plain {
+            }
+
+            function demo(): void {
+                (object)[];
+                Plain $p = new Plain();
+                $p->nope = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_ObjectCastOfNonStdClassInstance_ReportsProhibited()
+    {
+        // PHP performs no conversion when the operand of `(object)` is already an object: the
+        // result is the same instance, of the same class — `(object)$p` here is still a `Plain`,
+        // never a new \stdClass. An explicit `(object)` cast must not be a loophole around the
+        // named write gate for a type that isn't \stdClass.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Plain {
+            }
+
+            function demo(): void {
+                Plain $p = new Plain();
+                $o = (object)$p;
+                $o->nope = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_GenericExtendsStdClass_ReportsProhibited()
+    {
+        // FOUND_BUGS #38: T extends \stdClass is not the named gate (T includes subclasses).
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Bag extends \stdClass {
+            }
+
+            function f<T extends \stdClass>(T $x): void {
+                $x->y = 1;
+            }
+
+            function demo(): void {
+                f(new Bag());
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_GenericExtendsClassWithProperty_DoesNotReport()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Named {
+                public string $name = '';
+            }
+
+            function f<T extends Named>(T $x): void {
+                $x->name = 'ok';
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_GenericExtendsClassMissingProperty_ReportsProhibited()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Plain {
+            }
+
+            function f<T extends Plain>(T $x): void {
+                $x->missing = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_ClassGenericExtendsStdClass_ReportsProhibited()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Box<T extends \stdClass> {
+                public function put(T $x): void {
+                    $x->y = 1;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_UnconstrainedGeneric_DoesNotReport()
+    {
+        var diagnostics = CompileAndCheckAllowBindWarnings("""
+            <?tyhp
+            function f<T>(T $x): void {
+                $x->y = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_UnionMissingProperty_ReportsProhibited()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Foo {
+            }
+
+            class Bar {
+            }
+
+            function demo(Foo|Bar $x): void {
+                $x->missing = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_UnionSharedProperty_DoesNotReport()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Foo {
+                public int $n = 0;
+            }
+
+            class Bar {
+                public int $n = 0;
+            }
+
+            function demo(Foo|Bar $x): void {
+                $x->n = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_UnionOneArmMissingProperty_ReportsProhibited()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Foo {
+                public int $n = 0;
+            }
+
+            class Bar {
+            }
+
+            function demo(Foo|Bar $x): void {
+                $x->n = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_UnionWithStdClass_ReportsProhibited()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Foo {
+            }
+
+            function demo(Foo|\stdClass $x): void {
+                $x->y = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_IntersectionMissingProperty_ReportsProhibited()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            interface A {
+            }
+
+            interface B {
+            }
+
+            function demo(A&B $x): void {
+                $x->missing = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_IntersectionPropertyOnOneArm_DoesNotReport()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            interface Named {
+                public string $name;
+            }
+
+            interface Other {
+            }
+
+            function demo(Named&Other $x): void {
+                $x->name = 'ok';
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_NullableObjectMissingProperty_ReportsProhibited()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Plain {
+            }
+
+            function demo(?Plain $x): void {
+                $x->missing = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_NullableStdClass_DoesNotReport()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(?\stdClass $x): void {
+                $x->y = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_GenericExtendsUnionOneArmMissingProperty_ReportsProhibited()
+    {
+        // FOUND_BUGS #38: a union bound reports when any object arm would reject the write,
+        // even when the union is reached through a generic-parameter constraint.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Foo {
+                public int $n = 0;
+            }
+
+            class Bar {
+            }
+
+            function f<T extends Foo|Bar>(T $x): void {
+                $x->n = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_GenericExtendsIntersectionWithNamedArm_DoesNotReport()
+    {
+        // FOUND_BUGS #38: an intersection bound allows the write when any arm declares the
+        // property, even when the intersection is reached through a generic-parameter constraint.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Named {
+                public string $name = '';
+            }
+
+            interface Other {
+            }
+
+            function f<T extends Named&Other>(T $x): void {
+                $x->name = 'ok';
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_GenericExtendsIntersectionWithStdClassArm_ReportsProhibited()
+    {
+        // FOUND_BUGS #38: T extends \stdClass&Other reaches the \stdClass arm through a
+        // generic-parameter constraint, so the named gate must not fire for it either.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            interface Other {
+            }
+
+            function f<T extends \stdClass&Other>(T $x): void {
+                $x->y = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_TransitiveGenericConstraintToStdClass_ReportsProhibited()
+    {
+        // FOUND_BUGS #38: T extends U, U extends \stdClass — the named gate must not leak
+        // through a second layer of generic-parameter indirection.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function f<T extends U, U extends \stdClass>(T $x): void {
+                $x->y = 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerDynamicPropertyProhibited);
+    }
+
+    [Fact]
+    public void Check_DynamicPropertyAssignment_UnionOfUnconstrainedGenericAndConcreteMissingProperty_ReportsProhibited()
+    {
+        // A union of an unconstrained (unchecked) generic parameter with a concrete arm that
+        // lacks the property must still report: unknown siblings do not mask a checkable
+        // arm that would reject the write.
+        var diagnostics = CompileAndCheckAllowBindWarnings("""
+            <?tyhp
+            class Bar {
+            }
+
+            function f<T>(T|Bar $x): void {
+                $x->n = 1;
             }
             """);
 
@@ -693,12 +1228,158 @@ public class Phase6RuleTests
                 <?tyhp
                 namespace App;
                 use Lib\Widget;
-                struct Holder {
+                type Holder = struct {
                     Widget $widget;
+                };
+                """));
+
+        diagnostics.Warnings.Should().NotContain(d => d.Code == MessageCode.CheckerUnusedImport);
+    }
+
+    [Fact]
+    public void Check_ImportUsedOnlyInImplements_NotUnused()
+    {
+        var diagnostics = CompileAndCheckFiles(
+            ("Widget.tyhp", """
+                <?tyhp
+                namespace Lib;
+                interface Widget {}
+                """),
+            ("Uses.tyhp", """
+                <?tyhp
+                namespace App;
+                use Lib\Widget;
+                class Demo implements Widget {}
+                """));
+
+        diagnostics.Warnings.Should().NotContain(d => d.Code == MessageCode.CheckerUnusedImport);
+    }
+
+    [Fact]
+    public void Check_ImportUsedOnlyInExtends_NotUnused()
+    {
+        var diagnostics = CompileAndCheckFiles(
+            ("Base.tyhp", """
+                <?tyhp
+                namespace Lib;
+                class Base {}
+                """),
+            ("Uses.tyhp", """
+                <?tyhp
+                namespace App;
+                use Lib\Base;
+                class Demo extends Base {}
+                """));
+
+        diagnostics.Warnings.Should().NotContain(d => d.Code == MessageCode.CheckerUnusedImport);
+    }
+
+    [Fact]
+    public void Check_ImportUsedOnlyInInterfaceExtends_NotUnused()
+    {
+        var diagnostics = CompileAndCheckFiles(
+            ("Widget.tyhp", """
+                <?tyhp
+                namespace Lib;
+                interface Widget {}
+                """),
+            ("Uses.tyhp", """
+                <?tyhp
+                namespace App;
+                use Lib\Widget;
+                interface Demo extends Widget {}
+                """));
+
+        diagnostics.Warnings.Should().NotContain(d => d.Code == MessageCode.CheckerUnusedImport);
+    }
+
+    [Fact]
+    public void Check_ImportUsedOnlyAsExtendsGenericTypeArgument_NotUnused()
+    {
+        var diagnostics = CompileAndCheckFiles(
+            ("Types.tyhp", """
+                <?tyhp
+                namespace Lib;
+                class Box {}
+                class Container<T> {}
+                """),
+            ("Uses.tyhp", """
+                <?tyhp
+                namespace App;
+                use Lib\Box;
+                use Lib\Container;
+                class Demo extends Container<Box> {}
+                """));
+
+        diagnostics.Warnings.Should().NotContain(d => d.Code == MessageCode.CheckerUnusedImport);
+    }
+
+    [Fact]
+    public void Check_GroupUseImportUsedOnlyInImplements_NotUnused()
+    {
+        var diagnostics = CompileAndCheckFiles(
+            ("Types.tyhp", """
+                <?tyhp
+                namespace Lib;
+                interface Widget {}
+                interface Gadget {}
+                """),
+            ("Uses.tyhp", """
+                <?tyhp
+                namespace App;
+                use Lib\{Widget, Gadget};
+                class Demo implements Widget, Gadget {}
+                """));
+
+        diagnostics.Warnings.Should().NotContain(d => d.Code == MessageCode.CheckerUnusedImport);
+    }
+
+    [Fact]
+    public void Check_ImportUsedOnlyInEnumImplements_NotUnused()
+    {
+        var diagnostics = CompileAndCheckFiles(
+            ("Widget.tyhp", """
+                <?tyhp
+                namespace Lib;
+                interface Widget {}
+                """),
+            ("Uses.tyhp", """
+                <?tyhp
+                namespace App;
+                use Lib\Widget;
+                enum Demo implements Widget {
+                    case A;
                 }
                 """));
 
         diagnostics.Warnings.Should().NotContain(d => d.Code == MessageCode.CheckerUnusedImport);
+    }
+
+    [Fact]
+    public void Check_GenuinelyUnusedImport_StillReports4130AlongsideHeritageUse()
+    {
+        var diagnostics = CompileAndCheckFiles(
+            ("Types.tyhp", """
+                <?tyhp
+                namespace Lib;
+                interface Widget {}
+                class Unrelated {}
+                """),
+            ("Uses.tyhp", """
+                <?tyhp
+                namespace App;
+                use Lib\Widget;
+                use Lib\Unrelated;
+                class Demo implements Widget {}
+                """));
+
+        diagnostics.Warnings.Count(d => d.Code == MessageCode.CheckerUnusedImport).Should().Be(1);
+        diagnostics.Warnings.Should().Contain(d =>
+            d.Code == MessageCode.CheckerUnusedImport
+            && d.Message.Contains("Unrelated", StringComparison.Ordinal));
+        diagnostics.Warnings.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerUnusedImport
+            && d.Message.Contains("Widget", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -892,19 +1573,18 @@ public class Phase6RuleTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = phpVersion,
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-                Checker = new CheckerOptions
+            var options = IsolatedCompilation.CreateOptions(
+                tempDir,
+                phpVersion: phpVersion,
+                skipChecking: true,
+                configure: o =>
                 {
-                    PhpVersion = phpVersion,
-                    ExperimentalReadonlyCloneWith = experimentalReadonlyCloneWith,
-                },
-            };
+                    o.Checker = new CheckerOptions
+                    {
+                        PhpVersion = phpVersion,
+                        ExperimentalReadonlyCloneWith = experimentalReadonlyCloneWith,
+                    };
+                });
             var result = compilationService.ParseFiles(filePaths, options);
             if (requireNoBindErrors)
             {
@@ -928,6 +1608,65 @@ public class Phase6RuleTests
         finally
         {
             try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    private static (DiagnosticBag Diagnostics, TyhpChecker Checker, SrcFileAst File) CompileAndInspect(string content)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var filePath = Path.Combine(tempDir, "test.tyhp");
+        File.WriteAllText(filePath, content);
+
+        try
+        {
+            using var compilationService = new CompilationService();
+            var options = IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.2", skipChecking: true);
+            var result = compilationService.ParseFiles([filePath], options);
+            var bindErrors = result.Diagnostics.Errors.Where(e => (int)e.Code < 4000).ToList();
+            bindErrors.Should().BeEmpty(
+                $"parse/bind errors: {string.Join(", ", bindErrors.Select(e => e.Message))}");
+            result.GlobalScope.Should().NotBeNull("bind should succeed");
+            result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
+
+            var symbolTree = new SymbolTree(result.GlobalScope!);
+            var checker = new TyhpChecker(result.Diagnostics, symbolTree, result.GlobalScope!, options.Checker);
+            checker.Check(result.ParsedFiles!);
+            return (result.Diagnostics, checker, result.ParsedFiles![0]);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    private static string? GetMemberName(IExpression? memberName) =>
+        memberName switch
+        {
+            PhpNameAst name => name.ValueString,
+            TokenValueAst token => token.ValueString,
+            IExpression expr => expr.Identifier,
+            _ => null,
+        };
+
+    private static IEnumerable<T> FindAllAst<T>(IBase2Ast root) where T : class, IBase2Ast
+    {
+        if (root is T match)
+        {
+            yield return match;
+        }
+
+        foreach (var child in root.AstChildren)
+        {
+            if (child is null)
+            {
+                continue;
+            }
+
+            foreach (var found in FindAllAst<T>(child))
+            {
+                yield return found;
+            }
         }
     }
 

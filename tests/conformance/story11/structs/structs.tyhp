@@ -2,15 +2,15 @@
 declare(strict_types=1);
 namespace App;
 
-struct Point {
+type Point = struct {
     int $x = 0;
     int $y = 0;
-}
+};
 
-struct NamedItem {
+type NamedItem = struct {
     string 'Display Name' as $displayName = "";
     int $id = 0;
-}
+};
 
 function main(): void {
     $p = new Point();

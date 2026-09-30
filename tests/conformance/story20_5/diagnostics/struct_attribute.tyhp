@@ -1,0 +1,3 @@
+<?tyhp
+#[\Tyhp\Php(">=8.4")]
+type Point = struct { int $x = 0; };

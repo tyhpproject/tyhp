@@ -282,7 +282,7 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             if (op.ValueInt64 is long tokenType
-                && PhpBinaryOperatorExtensions.FromToken((int)tokenType) == PhpBinaryOperator.Concat)
+                && PhpBinaryOperatorExtensions.FromToken((int)tokenType, op.ValueString) == PhpBinaryOperator.Concat)
             {
                 return true;
             }
@@ -453,6 +453,9 @@ namespace Tyhp.TyhpLang.Emitter
             var sep = trimmed.LastIndexOf('\\');
             return sep >= 0 ? trimmed[(sep + 1)..] : trimmed;
         }
+
+        internal static bool TryReadStringLiteral(IExpression expression, out string value)
+            => TryGetStringLiteral(expression, out value);
 
         private static bool TryGetStringLiteral(IExpression expression, out string value)
         {

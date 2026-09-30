@@ -10,7 +10,8 @@ namespace Tyhp.Domain.Services
     public static class BuildOutputCleaner
     {
         /// <summary>
-        /// Deletes generated <c>.php</c> and <c>.php.map</c> files under the configured output path
+        /// Deletes generated <c>.php</c> and <c>.php.map</c> files under the configured output path,
+        /// and the incremental build state file under the project cache directory,
         /// when <see cref="BuildConfig.CleanBeforeBuild"/> is enabled.
         /// </summary>
         public static bool TryClean(Project project, DiagnosticBag diagnostics)
@@ -23,7 +24,7 @@ namespace Tyhp.Domain.Services
             var projectPath = PathCanonicalizer.GetCanonicalFullPath(project.GetProjectPath());
             var outputPath = ResolveOutputDirectory(projectPath, project.Output.Path);
 
-            if (!IsSafeToClean(outputPath, projectPath, project, out string? reason))
+            if (!IsSafeToClean(outputPath, projectPath, project, "output path", out string? reason))
             {
                 diagnostics.AddError(
                     MessageCode.BuildCleanFailed,
@@ -35,25 +36,23 @@ namespace Tyhp.Domain.Services
                 return false;
             }
 
-            if (!Directory.Exists(outputPath))
-            {
-                return true;
-            }
-
             try
             {
-                foreach (var phpFile in Directory.EnumerateFiles(outputPath, "*.php", SearchOption.AllDirectories))
+                if (Directory.Exists(outputPath))
                 {
-                    File.Delete(phpFile);
-                }
+                    foreach (var phpFile in Directory.EnumerateFiles(outputPath, "*.php", SearchOption.AllDirectories))
+                    {
+                        File.Delete(phpFile);
+                    }
 
-                foreach (var mapFile in Directory.EnumerateFiles(outputPath, "*.php.map", SearchOption.AllDirectories))
-                {
-                    File.Delete(mapFile);
+                    foreach (var mapFile in Directory.EnumerateFiles(outputPath, "*.php.map", SearchOption.AllDirectories))
+                    {
+                        File.Delete(mapFile);
+                    }
                 }
 
                 IncrementalBuildService.DeleteBuildState(
-                    Path.Combine(outputPath, IncrementalBuildService.BuildStateFileName));
+                    IncrementalBuildService.GetBuildStatePath(project));
 
                 return true;
             }
@@ -80,10 +79,82 @@ namespace Tyhp.Domain.Services
             return PathCanonicalizer.GetCanonicalFullPath(Path.Combine(projectPath, configuredOutputPath));
         }
 
+        /// <summary>
+        /// Resolves the published package root. Omitted or blank
+        /// <see cref="OutputConfig.PublishPath"/> is the project root.
+        /// </summary>
+        internal static string ResolvePublishDirectory(string projectPath, string? configuredPublishPath)
+        {
+            var path = string.IsNullOrWhiteSpace(configuredPublishPath)
+                ? "."
+                : configuredPublishPath.Trim();
+            return ResolveOutputDirectory(projectPath, path);
+        }
+
+        /// <summary>
+        /// Deletes <see cref="OutputConfig.PublishPath"/> entirely when
+        /// <see cref="OutputConfig.PublishClean"/> is enabled. Refuses the project root,
+        /// system directories, and paths that overlap source includes.
+        /// </summary>
+        public static bool TryCleanPublish(Project project, DiagnosticBag diagnostics)
+        {
+            if (!project.Output.PublishClean)
+            {
+                return true;
+            }
+
+            var projectPath = PathCanonicalizer.GetCanonicalFullPath(project.GetProjectPath());
+            var publishPath = ResolvePublishDirectory(projectPath, project.Output.PublishPath);
+
+            if (!IsSafeToClean(publishPath, projectPath, project, "publish path", out string? reason))
+            {
+                diagnostics.AddError(
+                    MessageCode.BuildCleanFailed,
+                    "",
+                    0,
+                    0,
+                    publishPath,
+                    reason ?? "refusing to clean an unsafe publish path");
+                return false;
+            }
+
+            if (!Directory.Exists(publishPath) && !File.Exists(publishPath))
+            {
+                return true;
+            }
+
+            try
+            {
+                if (File.Exists(publishPath))
+                {
+                    File.Delete(publishPath);
+                }
+                else
+                {
+                    Directory.Delete(publishPath, recursive: true);
+                }
+
+                Directory.CreateDirectory(publishPath);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                diagnostics.AddError(
+                    MessageCode.BuildCleanFailed,
+                    "",
+                    0,
+                    0,
+                    publishPath,
+                    ex.Message);
+                return false;
+            }
+        }
+
         private static bool IsSafeToClean(
             string outputPath,
             string projectPath,
             Project project,
+            string pathKind,
             out string? reason)
         {
             reason = null;
@@ -96,13 +167,13 @@ namespace Tyhp.Domain.Services
 
             if (String.Equals(normalizedOutput, normalizedProject, StringComparison.OrdinalIgnoreCase))
             {
-                reason = "output path is the project root";
+                reason = $"{pathKind} is the project root";
                 return false;
             }
 
             if (IsSystemDirectory(outputPath))
             {
-                reason = "output path is a system directory";
+                reason = $"{pathKind} is a system directory";
                 return false;
             }
 
@@ -120,7 +191,7 @@ namespace Tyhp.Domain.Services
                 if (normalizedOutput.StartsWith(normalizedSource, StringComparison.OrdinalIgnoreCase)
                     || normalizedSource.StartsWith(normalizedOutput, StringComparison.OrdinalIgnoreCase))
                 {
-                    reason = $"output path overlaps source include path '{includePath}'";
+                    reason = $"{pathKind} overlaps source include path '{includePath}'";
                     return false;
                 }
             }

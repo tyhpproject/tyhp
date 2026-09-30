@@ -103,122 +103,105 @@ namespace Tyhp.TyhpLang.Checker.Rules
             return Matches(state.FunctionGenerics) || Matches(state.ObjectGenerics);
         }
 
-        private static bool IsObjectGenericParameter(PhpNameAst name, CheckerState state)
-        {
-            var simpleName = name.ValueString?.TrimStart('\\');
-            if (string.IsNullOrEmpty(simpleName))
-            {
-                return false;
-            }
-
-            return state.ObjectGenerics.Any(gp => string.Equals(gp.Name, simpleName, StringComparison.Ordinal));
-        }
-
-        /// <summary>
-        /// True when the name denotes a generic parameter declared by the enclosing function or
-        /// method itself, as opposed to one inherited from the enclosing class.
-        /// </summary>
-        private static bool IsCallableGenericParameter(PhpNameAst name, CheckerState state)
-        {
-            var simpleName = name.ValueString?.TrimStart('\\');
-            if (string.IsNullOrEmpty(simpleName))
-            {
-                return false;
-            }
-
-            return state.FunctionGenerics.Any(gp => string.Equals(gp.Name, simpleName, StringComparison.Ordinal));
-        }
-
         private static void CheckTypeof(
             TyhpTypeofAst typeofExpr,
             CheckerState state,
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
-            if (typeofExpr.Expression is null)
+            if (typeofExpr.TypeExpression is null)
             {
                 CheckerHelpers.ReportError(
                     diagnostics, state, typeofExpr, MessageCode.CheckerNonConstantExpression);
                 return;
             }
 
-            if (typeofExpr.Expression is ITypeExpression typeExpr)
+            var resolved = context.ResolveTypeAnnotation(typeofExpr.TypeExpression, state);
+            ReportUnresolvedTypeofTarget(typeofExpr.TypeExpression, resolved, state, context, diagnostics);
+
+            // typeof of a named alias is `\Tyhp\Type` (TypeInferrer), not mixed: the annotation
+            // resolve above binds the alias so emit can call the factory (or inline a tyhpdef body).
+
+            // A generic the callable declares itself is served by the Mechanism D binder, and
+            // shadows a class generic of the same name; flagging that binder happens in
+            // DeclarationRule.FlagGenericVariantIfNeeded, which sees every body position.
+            if (CheckerHelpers.NamesGenericParameterIn(typeofExpr.TypeExpression, state.FunctionGenerics)
+                || !CheckerHelpers.NamesGenericParameterIn(typeofExpr.TypeExpression, state.ObjectGenerics))
             {
-                context.ResolveTypeAnnotation(typeExpr, state);
                 return;
             }
 
-            if (typeofExpr.Expression is PhpNameAst name)
-            {
-                // `typeof(TValue)` / `typeof(User)` parse the type reference as a bareword name
-                // expression (not an `ITypeExpression`), which the binder does not bind. Accept the
-                // name when it denotes an in-scope generic type parameter or resolves to a declared
-                // type (class/interface/enum/trait or type alias) before reporting it as unresolved.
-                if (name.BoundSymbol is null
-                    && !IsInScopeGenericParameter(name, state)
-                    && !ResolvesToDeclaredType(name, state, context))
-                {
-                    var unknown = name.ValueString ?? string.Empty;
-                    var fromScope = state.EnclosingFunction?.ContainingScope
-                        ?? state.EnclosingObject?.ContainingScope
-                        ?? (IBaseScope)context.GlobalScope;
-                    CheckerHelpers.ReportErrorWithDidYouMean(
-                        diagnostics,
-                        state,
-                        name,
-                        MessageCode.BinderSymbolNotFound,
-                        unknown,
-                        InScopeNameCandidates.CollectTypeNames(fromScope),
-                        unknown);
-                }
-
-                // A generic parameter the callable declares itself shadows a class generic of the same
-                // name and has no instance to read from, so it is served by the Mechanism D binder
-                // rather than by instance tracking. Flagging that binder happens in
-                // DeclarationRule.FlagGenericVariantIfNeeded, which sees every body position.
-                if (!IsCallableGenericParameter(name, state) && IsObjectGenericParameter(name, state))
-                {
-                    // The argument bound to a class generic parameter is recorded on the instance, so
-                    // a static member has nothing to read it from — `static::` cannot substitute.
-                    // Reject rather than folding to `mixed`, which would hide the authoring mistake.
-                    if (CheckerHelpers.IsInStaticContext(state))
-                    {
-                        CheckerHelpers.ReportError(
-                            diagnostics,
-                            state,
-                            name,
-                            MessageCode.CheckerGenericTypeofInStaticContext,
-                            name.ValueString?.TrimStart('\\') ?? string.Empty);
-                        return;
-                    }
-
-                    context.MarkRequiresRuntimeGenericTracking(state.EnclosingObject);
-                }
-
-                return;
-            }
-
-            var resolved = context.ResolveExpressionType(typeofExpr.Expression, state);
-            if (resolved is UnresolvedCheckedType)
+            // The argument bound to a class generic is recorded on the instance, so a static member
+            // has nothing to read it from. Reject rather than folding to mixed.
+            if (CheckerHelpers.IsInStaticContext(state))
             {
                 CheckerHelpers.ReportError(
-                    diagnostics, state, typeofExpr.Expression, MessageCode.CheckerNonConstantExpression);
+                    diagnostics,
+                    state,
+                    typeofExpr.TypeExpression,
+                    MessageCode.CheckerGenericTypeofInStaticContext,
+                    CheckerHelpers.SoleTypeName(typeofExpr.TypeExpression) ?? string.Empty);
+                return;
             }
+
+            context.MarkRequiresRuntimeGenericTracking(state.EnclosingObject);
         }
 
         /// <summary>
-        /// True when a bareword name inside <c>typeof(...)</c> resolves to a declared type: a
-        /// class/interface/enum/trait (<see cref="ObjectDeclarationSymbol"/>) or a type alias. The
-        /// binder deliberately leaves <c>typeof</c> arguments unbound (to support generic type
-        /// parameters written as barewords), so real types must be resolved here the same way
-        /// <c>nameof</c> resolves its target.
+        /// <c>typeof(Unknown)</c> is a type-name position. Relative keywords already report
+        /// TYHP4064/4065 from type resolution; remaining unresolved names get TYHP3003.
         /// </summary>
-        private static bool ResolvesToDeclaredType(
-            PhpNameAst name,
+        private static void ReportUnresolvedTypeofTarget(
+            ITypeExpression typeAst,
+            ICheckedType resolved,
             CheckerState state,
-            CheckerRuleContext context)
-            => ResolveNameofSymbol(name.ValueString ?? string.Empty, state, context)
-                is ObjectDeclarationSymbol or TypeAliasSymbol or ObjectTypeAliasSymbol;
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (!TypeComparer.IsUnresolvedType(resolved))
+            {
+                return;
+            }
+
+            var display = TypeofTargetDisplayName(typeAst);
+            if (string.IsNullOrEmpty(display) || IsRelativeTypeKeyword(display))
+            {
+                return;
+            }
+
+            var fromScope = GetResolutionScope(state, context.GlobalScope);
+            CheckerHelpers.ReportErrorWithDidYouMean(
+                diagnostics,
+                state,
+                typeAst,
+                MessageCode.BinderSymbolNotFound,
+                display,
+                InScopeNameCandidates.CollectTypeNames(fromScope),
+                display);
+        }
+
+        private static string? TypeofTargetDisplayName(ITypeExpression typeAst)
+        {
+            if (CheckerHelpers.SoleTypeName(typeAst) is { } simple)
+            {
+                return simple;
+            }
+
+            var written = typeAst switch
+            {
+                PhpNamedTypeAst { Name: PhpNameAst named } => named.ValueString ?? named.Identifier,
+                PhpNameAst bare => bare.ValueString ?? bare.Identifier,
+                PhpBuiltinTypeAst builtin => builtin.Identifier,
+                _ => typeAst.ValueString,
+            };
+            var display = written?.TrimStart('\\');
+            return string.IsNullOrEmpty(display) ? null : display;
+        }
+
+        private static bool IsRelativeTypeKeyword(string name) =>
+            string.Equals(name, "self", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "static", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "parent", StringComparison.OrdinalIgnoreCase);
 
         private static void CheckDefault(
             TyhpDefaultAst defaultExpr,
@@ -427,9 +410,12 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
         private static IBaseScope GetResolutionScope(CheckerState state, GlobalScope globalScope)
         {
-            if (state.EnclosingFunction?.ContainingScope is IBaseScope functionScope)
+            // See TypeInferrer.GetResolutionScope: EnclosingCallable (not EnclosingFunction) is set
+            // for methods, and its ContainingScope is the enclosing class's own scope, so `self`/
+            // `parent`-qualified nameof() targets inside a method body resolve correctly.
+            if (state.EnclosingCallable?.ContainingScope is IBaseScope callableScope)
             {
-                return functionScope;
+                return callableScope;
             }
 
             if (state.EnclosingObject?.ContainingScope is IBaseScope objectScope)

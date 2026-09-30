@@ -1,0 +1,28 @@
+<?tyhp
+type Named = object {
+    public function __construct(string $name): void;
+    public function ping(): string;
+};
+
+class Greeter {
+    public function __construct(string $name): void {
+        $this->name = $name;
+    }
+
+    private string $name;
+
+    public function ping(): string {
+        return $this->name;
+    }
+}
+
+function make<T extends __New<Named>>(string $name): T {
+    return new T($name);
+}
+
+function main(): void {
+    echo make<Greeter>("hi")->ping();
+    echo "\n";
+}
+
+main();

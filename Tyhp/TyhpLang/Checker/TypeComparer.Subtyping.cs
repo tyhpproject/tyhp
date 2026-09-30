@@ -79,6 +79,26 @@ namespace Tyhp.TyhpLang.Checker
                 return true;
             }
 
+            if (IsBuiltInName(parent, "object") && TryAsObjectShape(child) is not null)
+            {
+                return true;
+            }
+
+            if (IsBuiltInName(parent, "object") && IsNewUtilityType(child))
+            {
+                return true;
+            }
+
+            if (IsBuiltInName(parent, "object") && MagicUtilityTypeResolver.IsSuperTypeUtility(child))
+            {
+                return true;
+            }
+
+            if (IsBuiltInName(parent, "struct") && IsStructInhabitant(child))
+            {
+                return true;
+            }
+
             // `object&StructShape` (and similar intersections) are subtypes of `object`.
             if (IsBuiltInName(parent, "object") && child is IntersectionCheckedType objectIntersection)
             {
@@ -98,6 +118,34 @@ namespace Tyhp.TyhpLang.Checker
                 {
                     return true;
                 }
+            }
+
+            // Same generic class with different type arguments is not a subtype merely because
+            // the declarations match (`Closure<callable(): int>` ↛ `Closure<callable(): string>`).
+            // Checking this before the nominal `ImplementsOrExtends` walk keeps
+            // `UnionTypes` from subsuming every Closure instantiation into `never`.
+            if (child is GenericCheckedType childGeneric
+                && parent is GenericCheckedType parentGeneric
+                && AreGenericBasesEqual(childGeneric, parentGeneric))
+            {
+                if (AreGenericArgumentsCompatible(
+                        childGeneric,
+                        parentGeneric,
+                        symbolTree,
+                        globalScope,
+                        visited,
+                        forAssignability: false))
+                {
+                    return true;
+                }
+
+                if (TryGetNewUtility(parent, out var parentNewSameBase))
+                {
+                    return SourceSatisfiesNewConstraint(
+                        child, parentNewSameBase, symbolTree, globalScope, visited);
+                }
+
+                return false;
             }
 
             if (TryGetObjectDeclaration(child) is { } childDecl &&
@@ -149,6 +197,23 @@ namespace Tyhp.TyhpLang.Checker
                 }
             }
 
+            if (TryGetNewUtility(parent, out var parentNew))
+            {
+                return SourceSatisfiesNewConstraint(
+                    child, parentNew, symbolTree, globalScope, visited);
+            }
+
+            if (TryGetNewUtility(child, out var childNew))
+            {
+                return IsSubtypeOfCore(
+                    childNew.TypeArguments[0], parent, symbolTree, globalScope, visited);
+            }
+
+            if (TryAsObjectShape(parent) is { } parentShape)
+            {
+                return SourceSatisfiesObjectShape(child, parentShape, symbolTree, globalScope, visited);
+            }
+
             return false;
         }
 
@@ -170,6 +235,24 @@ namespace Tyhp.TyhpLang.Checker
                 return true;
             }
 
+            // PHP auto-implements \Stringable on any class or interface that declares
+            // instance __toString (including a convert(self): string operator, which emit
+            // lowers to __toString). Written `implements \Stringable` still wins via the
+            // walk below.
+            if (IsEngineStringableInterface(parent)
+                && HasInstanceToString(child, symbolTree, globalScope))
+            {
+                return true;
+            }
+
+            // PHP auto-implements \UnitEnum on every enumeration and \BackedEnum
+            // (extends \UnitEnum) on backed enumerations. No written `implements`
+            // is required; listing those interfaces is a later diagnostic.
+            if (IsEngineEnumAutoImplemented(child, parent))
+            {
+                return true;
+            }
+
             if (TryResolveParentClass(child, symbolTree, globalScope) is { } resolvedParent &&
                 ImplementsOrExtends(resolvedParent, parent, symbolTree, globalScope, visited, depth + 1))
             {
@@ -184,6 +267,109 @@ namespace Tyhp.TyhpLang.Checker
                 }
 
                 if (ImplementsOrExtends(implemented, parent, symbolTree, globalScope, visited, depth + 1))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// PHP's engine <c>\Stringable</c> (global interface), not a namespaced lookalike.
+        /// </summary>
+        private static bool IsEngineStringableInterface(ObjectDeclarationSymbol symbol) =>
+            IsGlobalEngineInterface(symbol, "Stringable");
+
+        /// <summary>
+        /// PHP's engine <c>\UnitEnum</c> / <c>\BackedEnum</c> (global interfaces), not
+        /// namespaced lookalikes. Every enum is <c>\UnitEnum</c>; a backed enum is also
+        /// <c>\BackedEnum</c>.
+        /// </summary>
+        private static bool IsEngineEnumAutoImplemented(
+            ObjectDeclarationSymbol child,
+            ObjectDeclarationSymbol parent)
+        {
+            if (child.ObjectKind != PhpTypeDeclType.Enum)
+            {
+                return false;
+            }
+
+            if (IsGlobalEngineInterface(parent, "UnitEnum"))
+            {
+                return true;
+            }
+
+            return child.BackingType is not null
+                && IsGlobalEngineInterface(parent, "BackedEnum");
+        }
+
+        private static bool IsGlobalEngineInterface(ObjectDeclarationSymbol symbol, string name)
+        {
+            if (symbol.ObjectKind != PhpTypeDeclType.Interface)
+            {
+                return false;
+            }
+
+            var fqn = string.IsNullOrEmpty(symbol.FullyQualifiedName)
+                ? symbol.Name
+                : symbol.FullyQualifiedName;
+            return string.Equals(fqn.TrimStart('\\'), name, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// True when <paramref name="objectDecl"/> (or a parent, interface, or used trait)
+        /// declares instance <c>__toString</c>, or a convert-to-string operator that emit
+        /// lowers to that method.
+        /// </summary>
+        private static bool HasInstanceToString(
+            ObjectDeclarationSymbol objectDecl,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            var member = symbolTree.ResolveMember("__toString", objectDecl, SilentDiagnostics);
+            if (member is ObjectMethodSymbol { IsStatic: false })
+            {
+                return true;
+            }
+
+            return HasGeneratedToStringInHierarchy(
+                objectDecl, symbolTree, globalScope, new HashSet<ObjectDeclarationSymbol>());
+        }
+
+        private static bool HasGeneratedToStringInHierarchy(
+            ObjectDeclarationSymbol current,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            HashSet<ObjectDeclarationSymbol> visited)
+        {
+            if (!visited.Add(current))
+            {
+                return false;
+            }
+
+            if (ClassHasConvertToOverload(current, FormatCheckedTypeKey("string"), globalScope))
+            {
+                return true;
+            }
+
+            if (TryGetParentDeclaration(current, symbolTree, globalScope) is { } parent
+                && HasGeneratedToStringInHierarchy(parent, symbolTree, globalScope, visited))
+            {
+                return true;
+            }
+
+            foreach (var implemented in ResolveImplementedInterfaces(current, symbolTree, globalScope))
+            {
+                if (HasGeneratedToStringInHierarchy(implemented, symbolTree, globalScope, visited))
+                {
+                    return true;
+                }
+            }
+
+            foreach (var trait in ResolveUsedTraits(current, symbolTree, globalScope, out _))
+            {
+                if (HasGeneratedToStringInHierarchy(trait, symbolTree, globalScope, visited))
                 {
                     return true;
                 }
@@ -229,7 +415,7 @@ namespace Tyhp.TyhpLang.Checker
         // The `implements` clause (and an interface's `extends` clause, which lists base interfaces)
         // is parsed as raw <see cref="IClassName"/> nodes. Both regular (.tyhp) and imported (.tyhpdef)
         // declarations expose these on their declaring AST node.
-        private static IEnumerable<IClassName> GetAstImplementsClassNames(ObjectDeclarationSymbol child)
+        internal static IEnumerable<IClassName> GetAstImplementsClassNames(ObjectDeclarationSymbol child)
         {
             switch (child.DeclaringAstNode)
             {
@@ -331,7 +517,7 @@ namespace Tyhp.TyhpLang.Checker
             }
         }
 
-        private static ObjectDeclarationSymbol? ResolveClassNameSymbol(
+        internal static ObjectDeclarationSymbol? ResolveClassNameSymbol(
             IClassName className,
             IBaseScope scope,
             SymbolTree symbolTree)
@@ -437,13 +623,7 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         private static IClassName? GetAstExtendsClassName(ObjectDeclarationSymbol child) =>
-            child.DeclaringAstNode switch
-            {
-                PhpObjectTypeDeclAst { Extends: { } className } => className,
-                TyhpStructDeclAst { Extends: { } className } => className,
-                TyhpdefImportObjectDeclAst { Extends: IClassName className } => className,
-                _ => null,
-            };
+            StructExtends.FromDeclaringNode(child.DeclaringAstNode);
 
         internal static string? GetClassNameText(IClassName className) =>
             className switch
@@ -465,6 +645,14 @@ namespace Tyhp.TyhpLang.Checker
             HashSet<(ICheckedType, ICheckedType)> visited,
             bool forAssignability)
         {
+            if (forAssignability
+                && CallableArityFacetBuilder.IsClosureTypeName(source.BaseType)
+                && CallableArityFacetBuilder.IsClosureTypeName(target.BaseType))
+            {
+                return AreClosureTypeArgumentsCompatible(
+                    source, target, symbolTree, globalScope, visited);
+            }
+
             if (source.TypeArguments.Count != target.TypeArguments.Count)
             {
                 return false;
@@ -508,6 +696,140 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             return true;
+        }
+
+        private static bool AreClosureTypeArgumentsCompatible(
+            GenericCheckedType source,
+            GenericCheckedType target,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            HashSet<(ICheckedType, ICheckedType)> visited)
+        {
+            var sourceShape = source.TypeArguments.Count > 0 ? source.TypeArguments[0] : null;
+            var targetShape = target.TypeArguments.Count > 0 ? target.TypeArguments[0] : null;
+            if (sourceShape is not null
+                && targetShape is not null
+                && !IsAssignableToCore(sourceShape, targetShape, symbolTree, globalScope, visited))
+            {
+                return false;
+            }
+
+            if (!AreClosureSlotCompatible(
+                    source.TypeArguments.Count > 1 ? source.TypeArguments[1] : null,
+                    target.TypeArguments.Count > 1 ? target.TypeArguments[1] : null,
+                    thisSlot: true,
+                    symbolTree,
+                    globalScope,
+                    visited))
+            {
+                return false;
+            }
+
+            return AreClosureSlotCompatible(
+                source.TypeArguments.Count > 2 ? source.TypeArguments[2] : null,
+                target.TypeArguments.Count > 2 ? target.TypeArguments[2] : null,
+                thisSlot: false,
+                symbolTree,
+                globalScope,
+                visited);
+        }
+
+        /// <summary>
+        /// <c>TThis</c> / <c>TScope</c> are invariant when both sides spell a specific class.
+        /// Omitted slots and the overlay defaults (<c>object|null</c> / <c>__ClosureScope</c>
+        /// unions that include <c>null</c>) stay gradual so
+        /// <c>\Closure&lt;callable(int $i): string&gt;</c> accepts inferred instance closures.
+        /// </summary>
+        private static bool AreClosureSlotCompatible(
+            ICheckedType? sourceSlot,
+            ICheckedType? targetSlot,
+            bool thisSlot,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            HashSet<(ICheckedType, ICheckedType)> visited)
+        {
+            if (sourceSlot is null || targetSlot is null)
+            {
+                return true;
+            }
+
+            if (AreTypesEqualCore(sourceSlot, targetSlot, new HashSet<(ICheckedType, ICheckedType)>()))
+            {
+                return true;
+            }
+
+            // Overlay defaults (`__ClosureThis` / `__ClosureScope<…>` / object|null) are
+            // omitted-slot gradual: any inferred TThis/TScope assigns.
+            if (IsWideClosureSlot(targetSlot, thisSlot))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsWideClosureSlot(ICheckedType type, bool thisSlot)
+        {
+            if (IsClosureSlotAlias(type, thisSlot))
+            {
+                return true;
+            }
+
+            if (thisSlot)
+            {
+                // `object|null` displays as `?object`. Either encoding is the overlay default.
+                if (type is NullableCheckedType nullable
+                    && (IsBuiltInName(nullable.InnerType, "object")
+                        || IsClosureSlotAlias(nullable.InnerType, thisSlot: true)))
+                {
+                    return true;
+                }
+
+                if (type is UnionCheckedType union)
+                {
+                    return union.Members.Count > 0
+                        && union.Members.All(m => IsNullLiteral(m) || IsBuiltInName(m, "null") || IsBuiltInName(m, "object"));
+                }
+
+                return false;
+            }
+
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            if (IsClosureSlotAlias(type, thisSlot: false))
+            {
+                return true;
+            }
+
+            // Expanded `__ClosureScope<object|null>` can collapse to bare `null`.
+            if (IsNullLiteral(type) || IsBuiltInName(type, "null"))
+            {
+                return true;
+            }
+
+            return type is UnionCheckedType scopeUnion
+                && scopeUnion.Members.Any(m => IsNullLiteral(m) || IsBuiltInName(m, "null"));
+        }
+
+        private static bool IsClosureSlotAlias(ICheckedType type, bool thisSlot)
+        {
+            if (TryGetNominalSymbol(type) is not TypeAliasSymbol alias)
+            {
+                return false;
+            }
+
+            var name = alias.Name.TrimStart('\\');
+            if (thisSlot)
+            {
+                return name.Equals("__ClosureThis", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("ClosureThis", StringComparison.OrdinalIgnoreCase);
+            }
+
+            return name.Equals("__ClosureScope", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("ClosureScope", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

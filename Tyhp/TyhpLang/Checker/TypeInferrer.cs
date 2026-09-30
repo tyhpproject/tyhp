@@ -1,9 +1,12 @@
 using Tyhp.Domain.Diagnostics;
+using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder;
 using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
+using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Checker.Rules;
 
 namespace Tyhp.TyhpLang.Checker
 {
@@ -38,6 +41,20 @@ namespace Tyhp.TyhpLang.Checker
 
             if (_checker.TryGetExpressionType(expression, out var cached) && cached is not null)
             {
+                if (expression is PhpNewAst cachedNew
+                    && state.ExpectedExpressionType is not null
+                    && !ContextualNewInference.HasExplicitTypeArguments(cachedNew)
+                    && ContextualNewInference.ShouldRespecialize(
+                        cached,
+                        state.ExpectedExpressionType,
+                        ContextualNewInference.TryGetConstructedSymbol(cachedNew)
+                            ?? TypeComparer.TryGetNominalSymbol(cached)))
+                {
+                    var respecialized = InferNew(cachedNew, state);
+                    _checker.SetExpressionType(expression, respecialized);
+                    return respecialized;
+                }
+
                 return cached;
             }
 
@@ -72,12 +89,52 @@ namespace Tyhp.TyhpLang.Checker
 
             var resolved = ResolveTypeExpressionCore(
                 typeAst, resolveState, isReturnTypePosition, isUserTypeDeclaration);
-            return TypeComparer.ExpandTypeAliases(
+            resolved = TypeComparer.ExpandTypeAliases(
                 resolved,
                 _symbolTree,
                 _globalScope,
-                ast => ResolveTypeExpressionCore(
-                    ast, resolveState, isReturnTypePosition, isUserTypeDeclaration));
+                (ast, alias) => ResolveTypeExpressionCore(
+                    ast,
+                    CheckerHelpers.WithAliasBodyContext(resolveState, alias),
+                    isReturnTypePosition,
+                    isUserTypeDeclaration));
+            ReportIfAnyArityUsedAsValueType(resolved, typeAst, resolveState, isReturnTypePosition);
+            return resolved;
+        }
+
+        /// <summary>
+        /// <c>callable(...): TReturn</c> is a generic bound, not a value type. Direct
+        /// parameter / property / return annotations must use
+        /// <c>T extends callable(...): TReturn</c> instead.
+        /// </summary>
+        private void ReportIfAnyArityUsedAsValueType(
+            ICheckedType resolved,
+            IBase2Ast reportNode,
+            CheckerState state,
+            bool isReturnTypePosition)
+        {
+            if (state.IsGenericConstraintPosition)
+            {
+                return;
+            }
+
+            if (!state.IsParameterTypePosition
+                && !state.IsPropertyTypePosition
+                && !isReturnTypePosition)
+            {
+                return;
+            }
+
+            if (!CallableArityFacetBuilder.TryGetAnyArityFacet(resolved, out var facet) || facet is null)
+            {
+                return;
+            }
+
+            _diagnostics.AddErrorFromAst(
+                MessageCode.CheckerCallableAnyArityNotAValueType,
+                reportNode,
+                CheckerHelpers.ResolveDiagnosticFileName(state, reportNode),
+                facet.ReturnType.DisplayName);
         }
 
         ICheckedType INarrowingResolution.ResolveExpressionType(IBase2Ast expression, CheckerState state) =>
@@ -90,6 +147,17 @@ namespace Tyhp.TyhpLang.Checker
             bool isUserTypeDeclaration) =>
             ResolveTypeExpression(typeAst, state, isReturnTypePosition, isUserTypeDeclaration);
 
+        bool INarrowingResolution.TryInferGenericBindings(
+            IReadOnlyList<GenericTypeParameterSymbol> genericParameters,
+            IReadOnlyList<ParameterInfo> parameters,
+            PhpCallAst call,
+            CheckerState state,
+            out Dictionary<GenericTypeParameterSymbol, ICheckedType> bindings,
+            ICheckedType? receiverType,
+            ObjectMethodSymbol? method) =>
+            TryInferGenericBindings(
+                genericParameters, parameters, call, state, out bindings, receiverType, method);
+
         internal IBaseScope GetResolutionScope(CheckerState state)
         {
             if (state.NameResolutionScope is { } overrideScope)
@@ -97,9 +165,19 @@ namespace Tyhp.TyhpLang.Checker
                 return overrideScope;
             }
 
-            if (state.EnclosingFunction?.ContainingScope is IBaseScope functionScope)
+            // `EnclosingCallable` (unlike `EnclosingFunction`) is set for both free functions and
+            // methods. For a method, `ContainingScope` is the enclosing class's own
+            // `ObjectDeclarationScope` (members point back to the scope that declares them), so
+            // `self\Alias` / `parent\Alias` type expressions used inside a method body resolve
+            // against the class scope instead of skipping past it to the class's *own* declaring
+            // scope (one level further out, where the class itself lives). Using
+            // `EnclosingFunction` here for methods would return that outer scope, and a scope-walk
+            // for `self` from there can never find the class again (it is a descendant, not an
+            // ancestor). Free-function behavior is unchanged: `EnclosingCallable` and
+            // `EnclosingFunction` are the same symbol there.
+            if (state.EnclosingCallable?.ContainingScope is IBaseScope callableScope)
             {
-                return functionScope;
+                return callableScope;
             }
 
             if (state.EnclosingObject?.ContainingScope is IBaseScope objectScope)

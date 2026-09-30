@@ -13,7 +13,7 @@ namespace Tyhp.Tests.Emitter;
 [Trait("Category", "Emitter")]
 public class ExtensionMethodEmitterTests
 {
-    private static string CompileAndEmit(string tyhp)
+    private static string CompileAndEmit(string tyhp, string optimize = "none")
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
@@ -22,15 +22,9 @@ public class ExtensionMethodEmitterTests
 
         try
         {
-            var project = CreateProject();
+            var project = CreateProject(optimize);
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-            });
+            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
 
             var unexpectedErrors = result.Diagnostics.Errors
                 .Where(d => !(d.FileName ?? "").EndsWith(".tyhpdef", StringComparison.Ordinal))
@@ -42,7 +36,11 @@ public class ExtensionMethodEmitterTests
 
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
 
-            var context = EmitContext.Create(result.GlobalScope, result.Diagnostics, project);
+            var context = EmitContext.Create(
+                result.GlobalScope,
+                result.Diagnostics,
+                project,
+                expressionTypes: result.ExpressionTypes);
             var outputFiles = new TyhpEmitter(context).Emit(result.ParsedFiles!);
             return string.Join('\n', outputFiles.Select(f => f.GeneratedContent ?? string.Empty));
         }
@@ -52,12 +50,13 @@ public class ExtensionMethodEmitterTests
         }
     }
 
-    private static Project CreateProject()
+    private static Project CreateProject(string optimize = "none")
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["output:phpVersion"] = "8.4",
+                ["build:optimize"] = optimize,
             })
             .Build();
         return new Project(configuration);
@@ -71,8 +70,8 @@ public class ExtensionMethodEmitterTests
             class Money {
                 public int $amount = 0;
             }
-            extension MoneyFormatting {
-                function format(extends Money $this, string $currency): string {
+            extension MoneyFormatting extends Money {
+                function format(string $currency): string {
                     return $currency . ' ' . $this->amount;
                 }
             }
@@ -81,8 +80,61 @@ public class ExtensionMethodEmitterTests
             }
             """);
 
-        php.Should().Contain(@"\MoneyFormatting::format($m, 'USD')");
+        php.Should().Contain("return (('USD' . ' ') . $m->amount);");
+        php.Should().Contain("class MoneyFormatting");
+        php.Should().Contain("function format(");
         php.Should().NotContain("$m->format(");
+        php.Should().NotContain(@"\MoneyFormatting::format($m");
+    }
+
+    [Fact]
+    public void Emit_StructReceiver_ExtensionCall_NotArrayKeyCall()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            type Money = struct {
+                int $cents = 0;
+            };
+            extension MoneyFormatting extends Money {
+                function format(): string {
+                    return (string)$this->cents;
+                }
+            }
+            function show(Money $m): string {
+                return $m->format();
+            }
+            """);
+
+        php.Should().NotContain("$m['format']");
+        php.Should().NotContain("$m->format(");
+        php.Should().Contain("$m['cents']");
+    }
+
+    [Fact]
+    public void Emit_ForeachArrayOfStruct_ExtensionCall_NotArrayKeyCall()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            type Money = struct {
+                int $cents = 0;
+            };
+            extension MoneyFormatting extends Money {
+                function format(): string {
+                    return (string)$this->cents;
+                }
+            }
+            function showAll(array<Money> $amounts): string {
+                string $out = '';
+                foreach ($amounts as $m) {
+                    $out .= $m->format();
+                }
+                return $out;
+            }
+            """);
+
+        php.Should().NotContain("$m['format']");
+        php.Should().NotContain("$m->format(");
+        php.Should().Contain("$m['cents']");
     }
 
     [Fact]
@@ -99,15 +151,18 @@ public class ExtensionMethodEmitterTests
                     return $this->format('USD');
                 }
             }
-            extension MoneyFormatting {
-                function format(extends Money $this, string $currency): string {
+            extension MoneyFormatting extends Money {
+                function format(string $currency): string {
                     return $currency . ' ' . $this->amount;
                 }
             }
             """);
 
-        php.Should().Contain(@"\MoneyFormatting::format($this, 'USD')");
+        php.Should().Contain("return (('USD' . ' ') . $this->amount);");
+        php.Should().Contain("class MoneyFormatting");
+        php.Should().Contain("function format(");
         php.Should().NotContain("$this->format(");
+        php.Should().NotContain(@"\MoneyFormatting::format($this");
     }
 
     [Fact]
@@ -115,8 +170,8 @@ public class ExtensionMethodEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            extension StringExtensions {
-                function toCamelCase(extends string $this): string {
+            extension StringExtensions extends string {
+                function toCamelCase(): string {
                     return $this;
                 }
             }
@@ -125,8 +180,11 @@ public class ExtensionMethodEmitterTests
             }
             """);
 
-        php.Should().Contain(@"\StringExtensions::toCamelCase($text)");
+        php.Should().Contain("return $text;");
+        php.Should().Contain("class StringExtensions");
+        php.Should().Contain("function toCamelCase(");
         php.Should().NotContain("$text->toCamelCase(");
+        php.Should().NotContain(@"\StringExtensions::toCamelCase(");
     }
 
     [Fact]
@@ -138,9 +196,9 @@ public class ExtensionMethodEmitterTests
             <?tyhp
             namespace TestEmitter;
 
-            extension StringUtils {
-                function toCamelCase(extends string $str): string {
-                    return $str;
+            extension StringUtils extends string {
+                function toCamelCase(): string {
+                    return $this;
                 }
             }
 
@@ -149,12 +207,11 @@ public class ExtensionMethodEmitterTests
             }
             """);
 
-        php.Should().Match(s =>
-            s.Contains(@"\TestEmitter\StringUtils::toCamelCase(""hello world"")")
-            || s.Contains(@"\TestEmitter\StringUtils::toCamelCase('hello world')")
-            || s.Contains(@"\StringUtils::toCamelCase(""hello world"")")
-            || s.Contains(@"\StringUtils::toCamelCase('hello world')"));
+        // The string literal receiver is spliced into the body (`return $this;` → `return "hello world";`).
+        php.Should().Contain("$result = \"hello world\";");
         php.Should().NotContain("->toCamelCase(");
+        php.Should().NotContain(@"\StringUtils::toCamelCase(");
+        php.Should().NotContain(@"\TestEmitter\StringUtils::toCamelCase(");
     }
 
     [Fact]
@@ -162,8 +219,8 @@ public class ExtensionMethodEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            extension IntExtensions {
-                function twice(extends int $this): int {
+            extension IntExtensions extends int {
+                function twice(): int {
                     return $this * 2;
                 }
             }
@@ -172,8 +229,11 @@ public class ExtensionMethodEmitterTests
             }
             """);
 
-        php.Should().Contain(@"\IntExtensions::twice($n)");
+        php.Should().Contain("return ($n * 2);");
+        php.Should().Contain("class IntExtensions");
+        php.Should().Contain("function twice(");
         php.Should().NotContain("$n->twice(");
+        php.Should().NotContain(@"\IntExtensions::twice(");
     }
 
     [Fact]
@@ -181,8 +241,8 @@ public class ExtensionMethodEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            extension StringExtensions {
-                function shout(extends string $this): string {
+            extension StringExtensions extends string {
+                function shout(): string {
                     return $this;
                 }
             }
@@ -191,8 +251,11 @@ public class ExtensionMethodEmitterTests
             }
             """);
 
-        php.Should().Contain(@"\StringExtensions::shout($text)");
+        php.Should().Contain("return $text;");
+        php.Should().Contain("class StringExtensions");
+        php.Should().Contain("function shout(");
         php.Should().NotContain("$text->shout(");
+        php.Should().NotContain(@"\StringExtensions::shout(");
     }
 
     [Fact]
@@ -200,11 +263,11 @@ public class ExtensionMethodEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            extension StringExtensions {
-                function toSnakeCase(extends string $this): string {
+            extension StringExtensions extends string {
+                function toSnakeCase(): string {
                     return $this;
                 }
-                function truncate(extends string $this, int $maxLength): string {
+                function truncate(int $maxLength): string {
                     return $this;
                 }
             }
@@ -213,9 +276,15 @@ public class ExtensionMethodEmitterTests
             }
             """);
 
-        php.Should().Contain(@"\StringExtensions::truncate(\StringExtensions::toSnakeCase($input), 50)");
+        // Both extension bodies are `return $this;`, so the chain splices to just the receiver.
+        php.Should().Contain("return $input;");
+        php.Should().Contain("class StringExtensions");
+        php.Should().Contain("function toSnakeCase(");
+        php.Should().Contain("function truncate(");
         php.Should().NotContain("->toSnakeCase(");
         php.Should().NotContain("->truncate(");
+        php.Should().NotContain(@"\StringExtensions::toSnakeCase(");
+        php.Should().NotContain(@"\StringExtensions::truncate(");
     }
 
     [Fact]
@@ -223,14 +292,14 @@ public class ExtensionMethodEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            extension StringExtensions {
-                function trimExt(extends string $this): string {
+            extension StringExtensions extends string {
+                function trimExt(): string {
                     return $this;
                 }
-                function toSnakeCase(extends string $this): string {
+                function toSnakeCase(): string {
                     return $this;
                 }
-                function truncate(extends string $this, int $maxLength): string {
+                function truncate(int $maxLength): string {
                     return $this;
                 }
             }
@@ -239,8 +308,14 @@ public class ExtensionMethodEmitterTests
             }
             """);
 
-        php.Should().Contain(
-            @"\StringExtensions::truncate(\StringExtensions::toSnakeCase(\StringExtensions::trimExt($input)), 50)");
+        // All three extension bodies are `return $this;`, so the chain splices to just the receiver.
+        php.Should().Contain("return $input;");
+        php.Should().NotContain("->trimExt(");
+        php.Should().NotContain("->toSnakeCase(");
+        php.Should().NotContain("->truncate(");
+        php.Should().NotContain(@"\StringExtensions::trimExt(");
+        php.Should().NotContain(@"\StringExtensions::toSnakeCase(");
+        php.Should().NotContain(@"\StringExtensions::truncate(");
     }
 
     [Fact]
@@ -251,8 +326,8 @@ public class ExtensionMethodEmitterTests
             class Money {
                 public int $amount = 0;
             }
-            extension MoneyFormatting {
-                function format(extends Money $this, string $currency): string {
+            extension MoneyFormatting extends Money {
+                function format(string $currency): string {
                     return $currency . ' ' . $this->amount;
                 }
             }
@@ -283,8 +358,8 @@ public class ExtensionMethodEmitterTests
                     return null;
                 }
             }
-            extension MoneyFormatting {
-                function format(extends Money $this): string {
+            extension MoneyFormatting extends Money {
+                function format(): string {
                     return (string)$this->amount;
                 }
             }
@@ -304,11 +379,11 @@ public class ExtensionMethodEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            extension StringExtensions {
-                function toSnakeCase(extends string $this): string {
+            extension StringExtensions extends string {
+                function toSnakeCase(): string {
                     return $this;
                 }
-                function truncate(extends string $this, int $maxLength): string {
+                function truncate(int $maxLength): string {
                     return $this;
                 }
             }
@@ -342,8 +417,8 @@ public class ExtensionMethodEmitterTests
                     return (string)$this->amount;
                 }
             }
-            extension MoneyFactory {
-                function asMoney(extends string $this): Money {
+            extension MoneyFactory extends string {
+                function asMoney(): Money {
                     return new Money();
                 }
             }
@@ -366,11 +441,11 @@ public class ExtensionMethodEmitterTests
         // would otherwise blow up with a TypeError under strict_types).
         var php = CompileAndEmit("""
             <?tyhp
-            extension StringExtensions {
-                function toSnakeCase(extends string $this): string {
+            extension StringExtensions extends string {
+                function toSnakeCase(): string {
                     return $this;
                 }
-                function truncate(extends string $this, int $maxLength): string {
+                function truncate(int $maxLength): string {
                     return $this;
                 }
             }
@@ -414,14 +489,19 @@ public class ExtensionMethodEmitterTests
                 public int $amount = 0;
             }
             extension MoneyFormatting {
-                function format(extends Money $this, string $currency): string {
-                    return $currency . ' ' . $this->amount;
+                extends Money {
+                    function format(string $currency): string {
+                        return $currency . ' ' . $this->amount;
+                    }
                 }
-                function shout(extends string $this): string {
-                    $fn = function () use ($this): string {
-                        return $this;
-                    };
-                    return $fn();
+
+                extends string {
+                    function shout(): string {
+                        $fn = function () use ($this): string {
+                            return $this;
+                        };
+                        return $fn();
+                    }
                 }
             }
             """);
@@ -450,8 +530,8 @@ public class ExtensionMethodEmitterTests
             class Money {
                 public int $amount = 0;
             }
-            extension MoneyFormatting {
-                function format(extends Money $this, string $this_): string {
+            extension MoneyFormatting extends Money {
+                function format(string $this_): string {
                     return $this_ . ' ' . $this->amount;
                 }
             }
@@ -461,5 +541,355 @@ public class ExtensionMethodEmitterTests
         php.Should().Contain("$this__->amount");
         php.Should().Contain("$this_ . ' '");
         php.Should().NotMatch("*function format(\\Money $this_, string $this_)*");
+    }
+
+    [Fact]
+    public void Emit_ShortSyntaxMember_OmitsPhpBackerMethodAndSplicesCallSite()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension StringHelpers extends string {
+                fn shortProcess(): string => ' ' . $this;
+            }
+            function show(string $s): string {
+                return $s->shortProcess();
+            }
+            """);
+
+        php.Should().Contain("return (' ' . $s);");
+        php.Should().NotContain("$s->shortProcess(");
+        php.Should().NotContain("function shortProcess(");
+        php.Should().NotContain(@"\StringHelpers::shortProcess(");
+        php.Should().NotContain("class StringHelpers");
+    }
+
+    [Fact]
+    public void Emit_SingleReturnBrace_EmitsBackerAndSplicesCallSite()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension StringHelpers extends string {
+                function simpleProcess(): string {
+                    return $this . ' ';
+                }
+            }
+            function show(string $s): string {
+                return $s->simpleProcess();
+            }
+            """);
+
+        php.Should().Contain("return ($s . ' ');");
+        php.Should().NotContain("$s->simpleProcess(");
+        php.Should().NotContain(@"\StringHelpers::simpleProcess($s");
+        php.Should().Contain("class StringHelpers");
+        php.Should().Contain("function simpleProcess(string $this_): string");
+        php.Should().Contain("return $this_ . ' ';");
+    }
+
+    [Fact]
+    public void Emit_MultiStatement_EmitsBackerAndCallsIt()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension StringHelpers extends string {
+                function complexStringProcess(): string {
+                    string $finalString = \trim($this);
+                    return $finalString;
+                }
+            }
+            function show(string $s): string {
+                return $s->complexStringProcess();
+            }
+            """);
+
+        php.Should().Contain(@"\StringHelpers::complexStringProcess($s)");
+        php.Should().NotContain("$s->complexStringProcess(");
+        php.Should().Contain("class StringHelpers");
+        php.Should().Contain("function complexStringProcess(string $this_): string");
+        php.Should().Contain(@"\trim($this_)");
+    }
+
+    [Fact]
+    public void Emit_AllShortSyntax_OmitsBackerClass()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension OnlyShort extends int {
+                fn doubled(): int => $this + $this;
+                fn label(): string => (string)$this;
+            }
+            function show(int $n): string {
+                return $n->doubled()->label();
+            }
+            """);
+
+        php.Should().NotContain("class OnlyShort");
+        php.Should().NotContain("function doubled(");
+        php.Should().NotContain("function label(");
+        php.Should().NotContain(@"\OnlyShort::");
+        php.Should().NotContain("->doubled(");
+        php.Should().NotContain("->label(");
+        php.Should().Contain("$n");
+        php.Should().Contain("+");
+    }
+
+    [Fact]
+    public void Emit_MixedMembers_BackerClassContainsOnlyBraceBodies()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension StringHelpers extends string {
+                function complexStringProcess(): string {
+                    string $finalString = \trim($this);
+                    return $finalString;
+                }
+                fn shortProcess(): string => ' ' . $this;
+                function simpleProcess(): string {
+                    return $this . ' ';
+                }
+            }
+            function demo(string $s): string {
+                return $s->complexStringProcess() . $s->shortProcess() . $s->simpleProcess();
+            }
+            """);
+
+        php.Should().Contain("class StringHelpers");
+        php.Should().Contain("function complexStringProcess(string $this_): string");
+        php.Should().Contain("function simpleProcess(string $this_): string");
+        php.Should().NotContain("function shortProcess(");
+        php.Should().Contain(@"\StringHelpers::complexStringProcess($s)");
+        php.Should().Contain("(' ' . $s)");
+        php.Should().Contain("($s . ' ')");
+        php.Should().NotContain(@"\StringHelpers::shortProcess(");
+        php.Should().NotContain(@"\StringHelpers::simpleProcess($s");
+    }
+
+    [Fact]
+    public void Emit_ShortSyntax_SplicesAtOptimizeNone()
+    {
+        var php = CompileAndEmit(
+            """
+            <?tyhp
+            extension MathHelpers extends int {
+                fn doubled(): int => $this + $this;
+            }
+            function f(int $n): int {
+                return $n->doubled();
+            }
+            """,
+            optimize: "none");
+
+        php.Should().Contain("return ($n + $n);");
+        php.Should().NotContain("$n->doubled(");
+        php.Should().NotContain(@"\MathHelpers::doubled(");
+        php.Should().NotContain("class MathHelpers");
+        php.Should().NotContain("function doubled(");
+    }
+
+    [Fact]
+    public void Emit_SingleReturnBrace_SplicesAtOptimizeNone()
+    {
+        var php = CompileAndEmit(
+            """
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+            }
+            extension MoneyFormatting extends Money {
+                function format(string $currency): string {
+                    return $currency . ' ' . $this->amount;
+                }
+            }
+            function show(Money $m): string {
+                return $m->format('USD');
+            }
+            """,
+            optimize: "none");
+
+        php.Should().Contain("return (('USD' . ' ') . $m->amount);");
+        php.Should().NotContain("$m->format(");
+        php.Should().NotContain(@"\MoneyFormatting::format($m");
+        php.Should().Contain("class MoneyFormatting");
+        php.Should().Contain("function format(");
+    }
+
+    [Fact]
+    public void Emit_ShortExtensionOperator_OmitsPhpBackerAndSplicesCallSite()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+                public function plus(Money $other): Money {
+                    return $this;
+                }
+            }
+            extension MoneyOps extends Money {
+                operator + (self $left, self $right): Money => $left->plus($right);
+            }
+            function sum(Money $a, Money $b): Money {
+                return $a + $b;
+            }
+            """);
+
+        php.Should().Contain("$a->plus($b)");
+        php.Should().NotContain("return $a;");
+        php.Should().NotContain("$a + $b");
+        php.Should().NotContain("function __add");
+        php.Should().NotContain("class MoneyOps");
+        php.Should().NotContain(@"\MoneyOps::__add");
+    }
+
+    [Fact]
+    public void Emit_BraceExtensionOperator_EmitsBackerAndSplicesCallSite()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+                public function plus(Money $other): Money {
+                    return $this;
+                }
+            }
+            extension MoneyOps extends Money {
+                operator + (self $left, self $right): Money {
+                    return $left->plus($right);
+                }
+            }
+            function sum(Money $a, Money $b): Money {
+                return $a + $b;
+            }
+            """);
+
+        php.Should().Contain("$a->plus($b)");
+        php.Should().NotContain("return $a;");
+        php.Should().NotContain("$a + $b");
+        php.Should().NotContain(@"\MoneyOps::__add($a, $b)");
+        php.Should().Contain("class MoneyOps");
+        php.Should().Contain("function __add");
+    }
+
+    [Fact]
+    public void Emit_ExtensionOperator_DoesNotInlineOrdinaryMethodIgnoringOtherArg()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+                public function plus(Money $other): Money {
+                    return $other;
+                }
+            }
+            extension MoneyOps extends Money {
+                operator + (self $left, self $right): Money => $left->plus($right);
+            }
+            function sum(Money $a, Money $b): Money {
+                return $a + $b;
+            }
+            """);
+
+        php.Should().Contain("$a->plus($b)");
+        php.Should().NotContain("return $b;");
+        php.Should().NotContain("$a + $b");
+        php.Should().NotContain("function __add");
+    }
+
+    [Fact]
+    public void Emit_ClassOwnedShortOperator_StillEmitsPhpMethod()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+                operator +(self $left, int $right): self => $left;
+            }
+            function add(Money $a): Money {
+                return $a + 1;
+            }
+            """);
+
+        php.Should().Contain("class Money");
+        php.Should().Contain("function __add");
+        php.Should().Contain(@"\Money::__add($a, 1)");
+        php.Should().NotContain("return $a + 1");
+    }
+
+    [Fact]
+    public void Emit_FileLocalHide_BuiltinString_DoesNotSpliceHiddenToLower_StillSplicesLength()
+    {
+        // `string`'s declaring scope is global, so file-local `hide` must use the call-site
+        // FileScope — not the receiver type's ContainingScope.
+        var php = CompileAndEmit("""
+            <?tyhp
+            use extension \Tyhp\StringExtensions {
+                StringExtensions::toLower hide;
+            }
+            function visibleLength(string $s): int {
+                return $s->length();
+            }
+            """);
+
+        php.Should().Contain(@"\mb_strlen($s)");
+        php.Should().NotContain(@"\mb_strtolower");
+        php.Should().NotContain("$s->length(");
+    }
+
+    [Fact]
+    public void Emit_CallSiteSelectsBodylessOverload_SplicesRealImplementationBody()
+    {
+        // The call site's best-scoring overload (`1 $format`) has no body of its own — only
+        // the catch-all implementation does. Splicing must still route to that real body
+        // (bound with the call's own arguments), not skip inlining or use another stub.
+        var php = CompileAndEmit("""
+            <?tyhp
+            extension WordOps extends string {
+                function wordCount(0 $format = 0, ?string $characters = null): int;
+                function wordCount(1 $format, ?string $characters = null): array<int, string>;
+                function wordCount(2 $format, ?string $characters = null): array<int, string>;
+                fn wordCount(int $format = 0, ?string $characters = null): array<int, string>|int => [$format];
+            }
+
+            use extension WordOps;
+
+            function asList(string $s): array<int, string> {
+                return $s->wordCount(1);
+            }
+            """);
+
+        php.Should().Contain("return [1];");
+        php.Should().NotContain("->wordCount(");
+    }
+
+    [Fact]
+    public void Emit_FileLocalHide_UserClass_StillRewritesVisibleMember()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+            }
+            extension MoneyFormatting extends Money {
+                function format(): string {
+                    return 'ok';
+                }
+                function extra(): string {
+                    return 'hidden';
+                }
+            }
+            use extension MoneyFormatting {
+                MoneyFormatting::extra hide;
+            }
+            function show(Money $m): string {
+                return $m->format();
+            }
+            function hidden(Money $m): string {
+                return $m->extra();
+            }
+            """);
+
+        php.Should().Contain("return 'ok';");
+        php.Should().NotContain("$m->format(");
+        php.Should().Contain("$m->extra(");
+        php.Should().NotContain(@"\MoneyFormatting::extra(");
     }
 }

@@ -1,0 +1,9 @@
+{
+    "name": "acme/widget",
+    "autoload": {
+        "psr-4": {
+            "Acme\\Widget\\": "src/"
+        },
+        "files": ["src/helpers.php"]
+    }
+}

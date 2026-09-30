@@ -72,18 +72,41 @@ namespace Tyhp.CLI
             this.LogProgress("CLI_StartingLint");
 
             // Step 1: Validate lint-specific configuration (--format / --file)
-            var configDiagnostics = new DiagnosticBag();
+            var configDiagnostics = new DiagnosticBag(this._project.SuppressedWarnings);
+            if (this._project.HasPendingConfigErrors)
+            {
+                this._project.TransferPendingConfigWarningsTo(configDiagnostics);
+                var interpolationResult = new CompilationResult(this._project.SuppressedWarnings);
+                interpolationResult.Diagnostics.AddRange(configDiagnostics);
+                this.DisplayDiagnostics(interpolationResult);
+                return interpolationResult;
+            }
+
             if (!this._project.ValidateLintConfig(configDiagnostics))
             {
-                var invalidConfigResult = new CompilationResult();
+                var invalidConfigResult = new CompilationResult(this._project.SuppressedWarnings);
                 invalidConfigResult.Diagnostics.AddRange(configDiagnostics);
                 this.DisplayDiagnostics(invalidConfigResult);
                 return invalidConfigResult;
             }
 
+            var extrasDiagnostics = new DiagnosticBag(this._project.SuppressedWarnings);
+            if (!new ComposerExtraRequireCheck().TryApply(
+                    this._project,
+                    extrasDiagnostics,
+                    fix: false,
+                    dryRun: false))
+            {
+                var extrasResult = new CompilationResult(this._project.SuppressedWarnings);
+                extrasResult.Diagnostics.AddRange(extrasDiagnostics);
+                this.DisplayDiagnostics(extrasResult);
+                return extrasResult;
+            }
+
             // Step 2: Discover source files from --file, explicit paths, or project configuration
             List<string> sourceFiles;
-            var discoveryDiagnostics = new DiagnosticBag();
+            var discoveryDiagnostics = new DiagnosticBag(this._project.SuppressedWarnings);
+            discoveryDiagnostics.AddRange(extrasDiagnostics);
             try
             {
                 if (!String.IsNullOrWhiteSpace(this._project.LintFile))
@@ -106,7 +129,7 @@ namespace Tyhp.CLI
             }
             catch (UnauthorizedAccessException ex)
             {
-                var errorResult = new CompilationResult();
+                var errorResult = new CompilationResult(this._project.SuppressedWarnings);
                 errorResult.Diagnostics.AddError(
                     MessageCode.LintAccessDenied,
                     "",
@@ -119,7 +142,7 @@ namespace Tyhp.CLI
             }
             catch (IOException ex)
             {
-                var errorResult = new CompilationResult();
+                var errorResult = new CompilationResult(this._project.SuppressedWarnings);
                 errorResult.Diagnostics.AddError(
                     MessageCode.LintIoError,
                     "",
@@ -132,7 +155,7 @@ namespace Tyhp.CLI
             }
             catch (Exception ex)
             {
-                var errorResult = new CompilationResult();
+                var errorResult = new CompilationResult(this._project.SuppressedWarnings);
                 errorResult.Diagnostics.AddError(
                     MessageCode.LintUnexpectedError,
                     "",
@@ -147,7 +170,7 @@ namespace Tyhp.CLI
 
             if (sourceFiles.Count == 0)
             {
-                var emptyResult = new CompilationResult();
+                var emptyResult = new CompilationResult(this._project.SuppressedWarnings);
                 emptyResult.Diagnostics.AddRange(discoveryDiagnostics);
 
                 if (this._project.ExplicitPaths.Count > 0)
@@ -219,7 +242,7 @@ namespace Tyhp.CLI
             }
             catch (OperationCanceledException)
             {
-                result = new CompilationResult
+                result = new CompilationResult(this._project.SuppressedWarnings)
                 {
                     SourceFileCount = sourceFiles.Count,
                     LintTargetFile = String.IsNullOrWhiteSpace(this._project.LintFile)
@@ -232,7 +255,7 @@ namespace Tyhp.CLI
             catch (UnauthorizedAccessException ex)
             {
                 this.LogProgressError("CLI_AccessDeniedDuringParsing", ex.Message);
-                result = new CompilationResult
+                result = new CompilationResult(this._project.SuppressedWarnings)
                 {
                     SourceFileCount = sourceFiles.Count,
                 };
@@ -248,7 +271,7 @@ namespace Tyhp.CLI
             catch (IOException ex)
             {
                 this.LogProgressError("CLI_IoErrorDuringParsing", ex.Message);
-                result = new CompilationResult
+                result = new CompilationResult(this._project.SuppressedWarnings)
                 {
                     SourceFileCount = sourceFiles.Count,
                 };
@@ -264,7 +287,7 @@ namespace Tyhp.CLI
             catch (Exception ex)
             {
                 this.LogProgressError("CLI_UnexpectedErrorDuringParsing", ex.Message);
-                result = new CompilationResult
+                result = new CompilationResult(this._project.SuppressedWarnings)
                 {
                     SourceFileCount = sourceFiles.Count,
                 };
@@ -373,7 +396,7 @@ namespace Tyhp.CLI
         {
             var engine = LintFixEngine.CreateDefault();
             var previouslyApplied = new HashSet<LintFixLocationKey>();
-            var fixDiagnostics = new DiagnosticBag();
+            var fixDiagnostics = new DiagnosticBag(this._project.SuppressedWarnings);
             var maxIterations = Math.Max(1, this._project.Checker.MaxFixIterations);
             var totalApplied = 0;
             var totalFailed = 0;

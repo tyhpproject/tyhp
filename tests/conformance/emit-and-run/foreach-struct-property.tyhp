@@ -1,0 +1,21 @@
+<?tyhp
+type Money = struct {
+    int $cents = 0;
+};
+
+function sumCents(array<Money> $amounts): int {
+    int $total = 0;
+    foreach ($amounts as $m) {
+        $total += $m->cents;
+    }
+    return $total;
+}
+
+function main(): void {
+    $first = new Money() with [cents => 10];
+    $second = new Money() with [cents => 40];
+    array<Money> $amounts = [$first, $second];
+    echo (string)sumCents($amounts);
+}
+
+main();

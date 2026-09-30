@@ -108,6 +108,7 @@ public class Phase10_5BuildTests
                     ["*project_file_path"] = projectFile,
                     ["clean"] = "true",
                     ["build:dryRun"] = "false",
+                    ["cache-dir"] = Path.Combine(tempDir, ".tyhp-cache"),
                 })
                 .Build();
 
@@ -125,6 +126,7 @@ public class Phase10_5BuildTests
                     ["*project_file_path"] = projectFile,
                     ["clean"] = "false",
                     ["build:dryRun"] = "false",
+                    ["cache-dir"] = Path.Combine(tempDir, ".tyhp-cache"),
                 })
                 .Build();
 

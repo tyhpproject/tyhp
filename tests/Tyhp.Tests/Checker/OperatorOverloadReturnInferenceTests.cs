@@ -58,6 +58,32 @@ public class OperatorOverloadReturnInferenceTests
     }
 
     [Fact]
+    public void Check_BinaryAdd_TypeAliasOperand_MatchesUnionMembers()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type MoneyValue = Money|int;
+            class Money {
+                public int $amount = 0;
+                operator +(self $left, MoneyValue $right): self {
+                    return $left;
+                }
+            }
+            function add(Money $a, Money $b): Money {
+                return $a + $b;
+            }
+            function addInt(Money $a): Money {
+                return $a + 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerInvalidOperatorForType);
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerIncompatibleReturnType);
+    }
+
+    [Fact]
     public void Check_BinaryAdd_OverloadReturn_RejectedWhenWrong()
     {
         var diagnostics = CompileAndCheck("""
@@ -152,8 +178,8 @@ public class OperatorOverloadReturnInferenceTests
         // function), not report TYHP4064 / infer Unresolved.
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            extension StringOperators {
-                operator *<string>(self $left, int $right): self {
+            extension StringOperators extends string {
+                operator * (self $left, int $right): self {
                     return \str_repeat($left, $right);
                 }
             }
@@ -176,8 +202,8 @@ public class OperatorOverloadReturnInferenceTests
         // silent mis-inference (not just a spurious diagnostic).
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            extension StringOperators {
-                operator *<string>(self $left, int $right): self {
+            extension StringOperators extends string {
+                operator * (self $left, int $right): self {
                     return \str_repeat($left, $right);
                 }
             }
@@ -217,6 +243,60 @@ public class OperatorOverloadReturnInferenceTests
 
         diagnostics.Errors.Should().NotContain(d =>
             d.Code == MessageCode.CheckerIncompatibleReturnType);
+    }
+
+    [Fact]
+    public void Check_NativeSpaceship_AssignableToLiteralUnion()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function f(string $a, string $b): -1|0|1 {
+                return $a <=> $b;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerIncompatibleReturnType);
+    }
+
+    [Fact]
+    public void Check_NativeSpaceship_AssignableToInt()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function f(string $a, string $b): int {
+                return $a <=> $b;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerIncompatibleReturnType);
+    }
+
+    [Fact]
+    public void Check_SpaceshipOverload_DeclaredIntReturn_Unchanged()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Money {
+                public int $amount = 0;
+                operator <=>(self $left, self $right): int {
+                    return $left->amount <=> $right->amount;
+                }
+            }
+            function cmp(Money $a, Money $b): int {
+                return $a <=> $b;
+            }
+            function cmpPrecise(Money $a, Money $b): -1|0|1 {
+                return $a <=> $b;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerIncompatibleReturnType);
+        diagnostics.Errors.Should().HaveCount(1,
+            "only `cmpPrecise` (`: -1|0|1`) should fail; overload declared `: int` must still satisfy `: int`: "
+            + string.Join(", ", diagnostics.Errors.Select(e => $"{e.Code}: {e.Message}")));
     }
 
     [Fact]
@@ -414,14 +494,7 @@ public class OperatorOverloadReturnInferenceTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.4",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4", skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
             result.GlobalScope.Should().NotBeNull("bind should succeed");
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();

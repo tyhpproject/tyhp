@@ -62,6 +62,17 @@ namespace Tyhp.TyhpLang.Binder {
             IndexExtensionsInScope(GlobalScope);
         }
 
+        private void AddExtensionMethod(ObjectMethodSymbol method)
+        {
+            if (!_extensionMethodIndex!.TryGetValue(method.Name, out var list))
+            {
+                list = new List<ObjectMethodSymbol>();
+                _extensionMethodIndex[method.Name] = list;
+            }
+
+            list.Add(method);
+        }
+
         private void IndexExtensionsInScope(IBaseScope scope, int depth = 0)
         {
             if (depth > 500) return;
@@ -72,14 +83,16 @@ namespace Tyhp.TyhpLang.Binder {
                 {
                     foreach (var member in objSymbol.Members.Values)
                     {
-                        if (member is ObjectMethodSymbol method)
+                        if (member is ObjectMethodSymbol method and not ObjectOperatorOverloadMethodSymbol)
                         {
-                            if (!_extensionMethodIndex!.TryGetValue(method.Name, out var list))
+                            AddExtensionMethod(method);
+                            foreach (var overload in method.Overloads)
                             {
-                                list = new List<ObjectMethodSymbol>();
-                                _extensionMethodIndex[method.Name] = list;
+                                if (overload is not ObjectOperatorOverloadMethodSymbol)
+                                {
+                                    AddExtensionMethod(overload);
+                                }
                             }
-                            list.Add(method);
                         }
                     }
                 }

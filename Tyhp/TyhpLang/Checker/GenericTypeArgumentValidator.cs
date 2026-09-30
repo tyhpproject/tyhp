@@ -6,6 +6,7 @@ using Tyhp.TyhpLang.Binder;
 using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
+using Tyhp.TyhpLang.Checker.Rules;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Checker
@@ -15,6 +16,12 @@ namespace Tyhp.TyhpLang.Checker
     /// </summary>
     internal static class GenericTypeArgumentValidator
     {
+        // Recursion guard for the lazy `ResolvedConstraint` fill in `ValidateUserConstraint`
+        // (thread-static: checking can run on multiple threads across independent compilations,
+        // e.g. parallel test collections, and must not share this state across them).
+        [ThreadStatic]
+        private static HashSet<GenericTypeParameterSymbol>? _resolvingConstraints;
+
         public static ICheckedType ValidateInstantiation(
             ICheckedType baseType,
             IReadOnlyList<ICheckedType> typeArguments,
@@ -25,6 +32,20 @@ namespace Tyhp.TyhpLang.Checker
             DiagnosticBag diagnostics,
             Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType)
         {
+            if (!IsBuiltInCallable(baseType)
+                && typeArguments.Any(static arg => arg is CallableArityWildcardCheckedType))
+            {
+                Report(reportNode, state, diagnostics, MessageCode.CheckerCallableEllipsisNotAllowed);
+                return CheckedTypes.Unresolved;
+            }
+
+            if (!IsBuiltInCallable(baseType)
+                && typeArguments.Any(static arg => arg is HomogeneousVariadicCheckedType))
+            {
+                Report(reportNode, state, diagnostics, MessageCode.CheckerCallablePostfixEllipsisNotAllowed);
+                return CheckedTypes.Unresolved;
+            }
+
             if (baseType is SimpleCheckedType { ResolvedSymbol: BuiltInUtilityTypeSymbol utility })
             {
                 return UtilityTypeResolver.Resolve(
@@ -33,7 +54,19 @@ namespace Tyhp.TyhpLang.Checker
 
             if (IsBuiltInCallable(baseType))
             {
-                return ValidateCallableArguments(typeArguments, reportNode, state, symbolTree, globalScope, diagnostics, resolveType);
+                if (typeArguments.Count > 0)
+                {
+                    Report(
+                        reportNode,
+                        state,
+                        diagnostics,
+                        MessageCode.CheckerGenericArgumentCountMismatch,
+                        "callable",
+                        "0",
+                        typeArguments.Count.ToString());
+                }
+
+                return baseType;
             }
 
             if (baseType is SimpleCheckedType { ResolvedSymbol: BuiltInTypeSymbol builtIn }
@@ -59,7 +92,69 @@ namespace Tyhp.TyhpLang.Checker
                 return resolved.Count == 0 ? baseType : new GenericCheckedType(baseType, resolved);
             }
 
+            if (baseType is SimpleCheckedType { ResolvedSymbol: ObjectTypeAliasSymbol objectAlias })
+            {
+                var resolved = ResolveAndValidateUserTypeArguments(
+                    objectAlias, objectAlias.GenericParameters, typeArguments, reportNode, state, symbolTree, globalScope,
+                    diagnostics, resolveType);
+                return resolved.Count == 0 ? baseType : new GenericCheckedType(baseType, resolved);
+            }
+
             return typeArguments.Count == 0 ? baseType : new GenericCheckedType(baseType, typeArguments);
+        }
+
+        /// <summary>
+        /// After argument-driven inference, check each inferred type argument against its
+        /// <c>extends</c> bound — the same <see cref="ValidateUserConstraint"/> path explicit
+        /// <c>foo&lt;Bad&gt;()</c> already uses.
+        /// </summary>
+        internal static void ValidateInferredBindings(
+            IReadOnlyDictionary<GenericTypeParameterSymbol, ICheckedType> bindings,
+            IReadOnlyList<GenericTypeParameterSymbol> genericParameters,
+            IBase2Ast reportNode,
+            CheckerState state,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            DiagnosticBag diagnostics,
+            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType,
+            IReadOnlyList<ParameterInfo>? calleeParameters = null)
+        {
+            if (bindings.Count == 0 || genericParameters.Count == 0)
+            {
+                return;
+            }
+
+            var constraintState = state.Fork();
+            constraintState.ObjectGenerics = genericParameters;
+            constraintState.FunctionGenerics = state.FunctionGenerics.Count == 0
+                ? genericParameters
+                : [.. genericParameters, .. state.FunctionGenerics];
+
+            var substitutions = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
+            foreach (var param in genericParameters)
+            {
+                if (bindings.TryGetValue(param, out var bound))
+                {
+                    substitutions[param.Name] = bound;
+                }
+            }
+
+            foreach (var param in genericParameters)
+            {
+                if (!bindings.TryGetValue(param, out var arg))
+                {
+                    continue;
+                }
+
+                if (IsPhpCallableEncoding(arg) && ConstraintAstIsBareCallable(param.Constraint))
+                {
+                    continue;
+                }
+
+                ValidateUserConstraint(
+                    arg, param, reportNode, constraintState, symbolTree, globalScope, diagnostics, resolveType,
+                    substitutions, calleeParameters);
+            }
         }
 
         /// <summary>
@@ -85,40 +180,13 @@ namespace Tyhp.TyhpLang.Checker
             {
                 var arg = normalizedArgs[i];
                 var isReturnPosition = requirements.UsesReturnLastConvention && i == normalizedArgs.Count - 1;
-                ValidateRestrictedType(arg, isReturnPosition, reportNode, state, diagnostics);
+                ValidateRestrictedType(arg, isReturnPosition, reportNode, state, diagnostics, allowNever: true);
 
                 if (requirements.Parameters is { } specs && i < specs.Count)
                 {
                     ValidateBuiltInConstraint(arg, specs[i].Constraint, reportNode, state, symbolTree, globalScope, diagnostics);
                 }
             }
-        }
-
-        private static ICheckedType ValidateCallableArguments(
-            IReadOnlyList<ICheckedType> typeArguments,
-            IBase2Ast reportNode,
-            CheckerState state,
-            SymbolTree symbolTree,
-            GlobalScope globalScope,
-            DiagnosticBag diagnostics,
-            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType)
-        {
-            var requirements = GenericParameterRequirements.Callable();
-            if (!ValidateArity(typeArguments, requirements, reportNode, state, diagnostics, "callable"))
-            {
-                return new CallableCheckedType([], CheckedTypes.Mixed);
-            }
-
-            for (var i = 0; i < typeArguments.Count; i++)
-            {
-                var arg = typeArguments[i];
-                var isReturnPosition = i == typeArguments.Count - 1;
-                ValidateRestrictedType(arg, isReturnPosition, reportNode, state, diagnostics);
-            }
-
-            var returnType = typeArguments[^1];
-            var parameterTypes = typeArguments.Take(typeArguments.Count - 1).ToList();
-            return new CallableCheckedType(parameterTypes, returnType);
         }
 
         private static ICheckedType ValidateBuiltInArguments(
@@ -142,7 +210,7 @@ namespace Tyhp.TyhpLang.Checker
             {
                 var arg = normalizedArgs[i];
                 var isReturnPosition = requirements.UsesReturnLastConvention && i == normalizedArgs.Count - 1;
-                ValidateRestrictedType(arg, isReturnPosition, reportNode, state, diagnostics);
+                ValidateRestrictedType(arg, isReturnPosition, reportNode, state, diagnostics, allowNever: true);
 
                 if (requirements.Parameters is { } specs && i < specs.Count)
                 {
@@ -180,20 +248,15 @@ namespace Tyhp.TyhpLang.Checker
                 return [];
             }
 
-            // `\Tyhp\Expression` follows the callable return-last convention
-            // (`Expression<R>`, `Expression<T, R>`, `Expression<T1, T2, R>`, …) even though
-            // the runtime class is declared with two type parameters.
-            if (PropertyPathSupport.IsTyhpExpressionDeclaration(declaringSymbol))
+            // `\Closure`'s `TCallableShape` has no default (Story 21.6 Decision 3), but a fully
+            // bare `\Closure` (no type arguments at all) must still stay open/gradual rather than
+            // reporting a missing-required-argument error. This is a carve-out for that one
+            // built-in, not a general "required-before-defaults" policy — see
+            // `Check_MissingRequiredBeforeDefault_StillReportsArity` for the general case, which
+            // still reports arity errors for ordinary user generics shaped the same way.
+            if (typeArguments.Count == 0 && CallableArityFacetBuilder.IsClosureDeclaration(declaringSymbol))
             {
-                return ResolveExpressionCallableArityArguments(
-                    genericParams,
-                    typeArguments,
-                    reportNode,
-                    state,
-                    symbolTree,
-                    globalScope,
-                    diagnostics,
-                    resolveType);
+                return [];
             }
 
             var requiredCount = genericParams.Count(p => !p.HasDefault);
@@ -212,6 +275,26 @@ namespace Tyhp.TyhpLang.Checker
 
             var resolved = new List<ICheckedType>(genericParams.Count);
             var substitutions = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
+
+            // Constraints resolve in the declaring generic scope, same as defaults just below —
+            // a sibling reference like Story 21.6's `TScope extends __ClosureScope<TThis>` needs
+            // `TThis` visible as an in-scope generic parameter, not the call site's own
+            // class/function generics (which usually do not share that name at all).
+            var constraintState = state.Fork();
+            constraintState.ObjectGenerics = genericParams;
+            // A type *argument* can itself be a foreign generic parameter from a completely
+            // different scope — e.g. `Closure::bindTo`'s own `TNewScope extends
+            // __ClosureScope<TNewThis>` when its return type instantiates `\Closure<TCallableShape,
+            // TNewThis, TNewScope>`. `genericParams` here is only the *declaring* symbol's list
+            // (`\Closure`'s `[TCallableShape, TThis, TScope]`), which does not contain `TNewThis`.
+            // `ValidateUserConstraint`'s lazy `ResolvedConstraint` fill below resolves that
+            // argument's own constraint using this state, so append the caller's incoming
+            // `FunctionGenerics` (already in scope when these type arguments were resolved,
+            // e.g. `bindTo`'s method generics) as a fallback rather than discarding them —
+            // `genericParams` still wins on a name clash since it is checked first.
+            constraintState.FunctionGenerics = state.FunctionGenerics.Count == 0
+                ? genericParams
+                : [.. genericParams, .. state.FunctionGenerics];
 
             for (var i = 0; i < genericParams.Count; i++)
             {
@@ -232,60 +315,40 @@ namespace Tyhp.TyhpLang.Checker
 
                 // `void`/`never` are normally banned in non-return generic positions, but a parameter
                 // whose constraint explicitly admits them (e.g. `TReturn extends void|mixed`) opts in.
-                if (!ConstraintPermitsRestrictedType(arg, param, state, resolveType))
+                if (!ConstraintPermitsRestrictedType(
+                        arg, param, constraintState, resolveType, substitutions, symbolTree, globalScope))
                 {
-                    ValidateRestrictedType(arg, isReturnPosition: false, reportNode, state, diagnostics);
+                    ValidateRestrictedType(arg, isReturnPosition: false, reportNode, state, diagnostics, allowNever: true);
                 }
 
                 ValidateUserConstraint(
-                    arg, param, reportNode, state, symbolTree, globalScope, diagnostics, resolveType);
+                    arg, param, reportNode, constraintState, symbolTree, globalScope, diagnostics, resolveType,
+                    substitutions);
+            }
+
+            if (IsPhpArrayAccess(declaringSymbol) && resolved.Count > 0
+                && GenericInheritanceBindings.IsIllegalArrayAccessKeyType(resolved[0]))
+            {
+                Report(
+                    reportNode,
+                    state,
+                    diagnostics,
+                    MessageCode.CheckerArrayAccessKeyNotOffset,
+                    resolved[0].DisplayName);
+            }
+
+            if (CallableArityFacetBuilder.IsClosureDeclaration(declaringSymbol)
+                && resolved.Count >= 3
+                && ClosureBindSupport.IsStaticScopeSentinel(resolved[2]))
+            {
+                Report(
+                    reportNode,
+                    state,
+                    diagnostics,
+                    MessageCode.CheckerClosureStaticScopeStored);
             }
 
             return resolved;
-        }
-
-        /// <summary>
-        /// <c>Expression&lt;TArgs…, TReturn&gt;</c> uses callable arity: one or more type
-        /// arguments, last is the return type, earlier arguments are parameter types.
-        /// Zero arguments keep the open/raw <c>Expression</c> form.
-        /// </summary>
-        private static IReadOnlyList<ICheckedType> ResolveExpressionCallableArityArguments(
-            IReadOnlyList<GenericTypeParameterSymbol> genericParams,
-            IReadOnlyList<ICheckedType> typeArguments,
-            IBase2Ast reportNode,
-            CheckerState state,
-            SymbolTree symbolTree,
-            GlobalScope globalScope,
-            DiagnosticBag diagnostics,
-            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType)
-        {
-            if (typeArguments.Count == 0)
-            {
-                return [];
-            }
-
-            var tSource = genericParams.Count > 0 ? genericParams[0] : null;
-            var tReturn = genericParams.Count > 1 ? genericParams[^1] : tSource;
-
-            for (var i = 0; i < typeArguments.Count; i++)
-            {
-                var arg = typeArguments[i];
-                var isReturnPosition = i == typeArguments.Count - 1;
-                ValidateRestrictedType(arg, isReturnPosition, reportNode, state, diagnostics);
-
-                if (isReturnPosition && tReturn is not null)
-                {
-                    ValidateUserConstraint(
-                        arg, tReturn, reportNode, state, symbolTree, globalScope, diagnostics, resolveType);
-                }
-                else if (i == 0 && typeArguments.Count >= 2 && tSource is not null)
-                {
-                    ValidateUserConstraint(
-                        arg, tSource, reportNode, state, symbolTree, globalScope, diagnostics, resolveType);
-                }
-            }
-
-            return typeArguments.ToList();
         }
 
         private static ICheckedType ResolveDefaultTypeArgument(
@@ -458,7 +521,10 @@ namespace Tyhp.TyhpLang.Checker
             ICheckedType arg,
             GenericTypeParameterSymbol param,
             CheckerState state,
-            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType)
+            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType,
+            IReadOnlyDictionary<string, ICheckedType>? substitutions,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
         {
             if (param.Constraint is null)
             {
@@ -466,7 +532,26 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             var constraintType = resolveType(param.Constraint, state, false, true);
-            return ConstraintAllowsVoidOrNever(constraintType, arg);
+
+            // Inspect the declared bound *before* sibling substitution. `ResolveGenericType`
+            // rebuilds unions through `UnionTypesCore`, which collapses `void|mixed` /
+            // `never|mixed` to `mixed` and would drop the void/never member that
+            // `ConstraintAllowsVoidOrNever` looks for (`Promise<void>` with
+            // `TReturn extends void|mixed`).
+            if (ConstraintAllowsVoidOrNever(constraintType, arg))
+            {
+                return true;
+            }
+
+            if (substitutions is { Count: > 0 } knownArgs)
+            {
+                constraintType = TypeComparer.ResolveGenericType(
+                    constraintType, new Dictionary<string, ICheckedType>(knownArgs, StringComparer.Ordinal),
+                    symbolTree, globalScope);
+                return ConstraintAllowsVoidOrNever(constraintType, arg);
+            }
+
+            return false;
         }
 
         private static bool ValidateArity(
@@ -503,12 +588,22 @@ namespace Tyhp.TyhpLang.Checker
             return [CheckedTypes.UnionTypes(CheckedTypes.Int, CheckedTypes.String), typeArguments[0]];
         }
 
-        private static void ValidateRestrictedType(
+        /// <summary>
+        /// <c>void</c> outside a return position, and <c>never</c> on a callable-shape
+        /// parameter. Generic type arguments accept <c>never</c> (the bottom type:
+        /// <c>PromiseInterface&lt;never&gt;</c>, <c>array&lt;never&gt;</c>).
+        /// <c>callable(…): R</c> shape parameters
+        /// (<see cref="Tyhp.TyhpLang.Checker.TypeInferrer.ResolveCallableShape"/>) keep both
+        /// bans so a shape parameter is exactly as restricted as the old
+        /// <c>callable(void): R</c> generic-argument spelling was.
+        /// </summary>
+        internal static void ValidateRestrictedType(
             ICheckedType arg,
             bool isReturnPosition,
             IBase2Ast reportNode,
             CheckerState state,
-            DiagnosticBag diagnostics)
+            DiagnosticBag diagnostics,
+            bool allowNever = false)
         {
             if (isReturnPosition)
             {
@@ -519,7 +614,7 @@ namespace Tyhp.TyhpLang.Checker
             {
                 Report(reportNode, state, diagnostics, MessageCode.CheckerVoidInNonReturnPosition);
             }
-            else if (IsNeverType(arg))
+            else if (!allowNever && IsNeverType(arg))
             {
                 Report(reportNode, state, diagnostics, MessageCode.CheckerNeverInNonReturnPosition);
             }
@@ -564,11 +659,20 @@ namespace Tyhp.TyhpLang.Checker
                     Rules.CheckerHelpers.TryGetObjectDeclaration(arg) is { ObjectKind: PhpTypeDeclType.Enum },
                 BuiltInGenericParameterConstraint.Object =>
                     IsObjectConstraint(arg, symbolTree, globalScope),
+                BuiltInGenericParameterConstraint.NonNegativeIntLiteral =>
+                    ParameterPack.TryReadNonNegativeInt(arg, out _),
                 _ => true,
             };
 
             if (!satisfied)
             {
+                if (constraint == BuiltInGenericParameterConstraint.NonNegativeIntLiteral)
+                {
+                    Report(reportNode, state, diagnostics, MessageCode.CheckerCallableSliceIndexNotIntLiteral,
+                        arg.DisplayName);
+                    return;
+                }
+
                 Report(reportNode, state, diagnostics, MessageCode.CheckerGenericConstraintNotSatisfied,
                     arg.DisplayName, constraint.ToString());
             }
@@ -582,7 +686,9 @@ namespace Tyhp.TyhpLang.Checker
             SymbolTree symbolTree,
             GlobalScope globalScope,
             DiagnosticBag diagnostics,
-            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType)
+            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType,
+            IReadOnlyDictionary<string, ICheckedType>? substitutions = null,
+            IReadOnlyList<ParameterInfo>? calleeParameters = null)
         {
             if (param.Constraint is null)
             {
@@ -596,18 +702,286 @@ namespace Tyhp.TyhpLang.Checker
                 return;
             }
 
+            // Overlay `fromCallable` returns
+            // `\Closure<C, __CallableThis<C>, __CallableScope<C>>`. Those utilities inhabit
+            // TThis / TScope by definition (Story 21.6 Decision 7) and stay deferred while C
+            // is still an open method generic. Checking them against `__ClosureThis` /
+            // `__ClosureScope<TThis>` here would 4035 every fromCallable call site.
+            if (IsCallableThisOrScopeUtility(arg))
+            {
+                return;
+            }
+
+            // The argument can be `param` itself — e.g. `bindTo`'s "keep old scope" overload
+            // returns `\Closure<TCallableShape, TNewThis, TScope>`, passing Closure's own
+            // `TScope` back as its own third type argument. A type parameter trivially
+            // satisfies its own declared constraint by definition, so short-circuit before the
+            // checks below: `constraintType` few lines down is `param.Constraint` with
+            // `substitutions` applied (e.g. `TThis` → `TNewThis` for this same instantiation),
+            // but the fallback fill just below resolves `typeParam.Constraint` **without** that
+            // substitution — comparing `TScope`'s unsubstituted bound (`__ClosureScope<TThis>`)
+            // against the substituted `__ClosureScope<TNewThis>` would spuriously fail since
+            // `TThis` and `TNewThis` are unrelated symbols to the type comparer.
+            if (arg is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol sameParam }
+                && ReferenceEquals(sameParam, param))
+            {
+                return;
+            }
+
+            // Tyhpdef / not-yet-visited declarations never run DeclarationRule, so
+            // `ResolvedConstraint` stays null. Fill it from the constraint AST before asking
+            // whether `TIn extends object` satisfies `WeakReference<T extends object>`. Do not
+            // cache an `Unresolved` result: `ResolvedConstraint` is read elsewhere (TypeComparer
+            // subtyping/assignability, CallableSignatureReflection, ControlFlowRule) as ground
+            // truth for this symbol for the rest of the compilation, and `Unresolved` acts as a
+            // wildcard there — permanently caching it would make the type parameter look like a
+            // subtype of anything and could hide a real constraint failure on a later call site
+            // that shares the same symbol. The `_resolvingConstraints` guard mirrors
+            // `GenericConstraintResolver.EnsureResolved`'s cycle protection: a self-referential
+            // bound (e.g. a future `create<TIn extends Box<TIn>>`) would otherwise recurse back
+            // into this same fill for the same symbol before the outer call returns.
+            if (arg is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol typeParam }
+                && typeParam.ResolvedConstraint is null
+                && typeParam.Constraint is not null)
+            {
+                var visiting = _resolvingConstraints ??= [];
+                if (!visiting.Add(typeParam))
+                {
+                    // Cyclic constraint (e.g. a hypothetical `TIn extends Box<TIn>`): treat the
+                    // bound as not-yet-known here rather than recursing again, same policy as an
+                    // unresolved constraint below.
+                    return;
+                }
+
+                try
+                {
+                    var resolvedTypeParamConstraint = resolveType(typeParam.Constraint, state, false, true);
+                    if (TypeComparer.IsUnresolvedType(resolvedTypeParamConstraint))
+                    {
+                        return;
+                    }
+
+                    typeParam.ResolvedConstraint = resolvedTypeParamConstraint;
+                }
+                finally
+                {
+                    visiting.Remove(typeParam);
+                }
+            }
+
             var constraintType = resolveType(param.Constraint, state, false, true);
+
+            // A constraint mentioning an earlier sibling parameter (e.g. Story 21.6's
+            // `TScope extends __ClosureScope<TThis>`) resolves that sibling as its own open
+            // `GenericTypeParameterSymbol` (see the `constraintState` fork above `param.Constraint`
+            // is resolved with), not the concrete argument this instantiation already chose for it
+            // (explicit or defaulted). Substitute those already-resolved siblings in before
+            // comparing, the same way `ResolveDefaultTypeArgument` substitutes them into the
+            // default it produces — otherwise a defaulted `TScope` (which is itself substituted)
+            // never satisfies its own still-open-`TThis` constraint.
+            if (substitutions is { Count: > 0 } knownArgs)
+            {
+                constraintType = TypeComparer.ResolveGenericType(
+                    constraintType, new Dictionary<string, ICheckedType>(knownArgs, StringComparer.Ordinal),
+                    symbolTree, globalScope);
+            }
+
+            // `resolveType` here is `ResolveTypeExpressionCore`, which does not expand aliases.
+            // Bounds like `__ClosureThis` (`object|null`) and `__ClosureScope<TThis>` must be
+            // expanded after sibling substitution so `\Closure<C, Host>` can satisfy them.
+            // Expand the argument as well: a defaulted TScope is still `__ClosureScope<Host>`
+            // until expansion, which would otherwise fail against the expanded union.
+            constraintType = TypeComparer.ExpandTypeAliases(
+                constraintType,
+                symbolTree,
+                globalScope,
+                (ast, alias) => resolveType(ast, CheckerHelpers.WithAliasBodyContext(state, alias), false, true));
+            arg = TypeComparer.ExpandTypeAliases(
+                arg,
+                symbolTree,
+                globalScope,
+                (ast, alias) => resolveType(ast, CheckerHelpers.WithAliasBodyContext(state, alias), false, true));
+
             if (ConstraintAllowsVoidOrNever(constraintType, arg))
             {
                 return;
             }
 
-            if (!TypeComparer.IsAssignableTo(arg, constraintType, symbolTree, globalScope)
-                && !TypeComparer.IsSubtypeOf(arg, constraintType, symbolTree, globalScope))
+            // PHP callable encodings (`['Class', 'method']`, `'Class::method'`, function-name
+            // strings) are not assignable to bare `callable` (most arrays/strings are not
+            // callables), but `fromCallable` and other `T extends callable` parameters accept
+            // them so inference can recover a Closure. Typed facets (`callable(...): bool`)
+            // still reject encodings that have no known return.
+            if (IsBareCallableName(constraintType) && IsPhpCallableEncoding(arg))
             {
+                return;
+            }
+
+            if (!TypeComparer.IsAssignableTo(arg, constraintType, symbolTree, globalScope)
+                && !TypeComparer.IsSubtypeOf(arg, constraintType, symbolTree, globalScope)
+                && !SatisfiesHomogeneousVariadicExtends(
+                    arg, constraintType, param, calleeParameters, symbolTree, globalScope))
+            {
+                if (CheckerHelpers.TryReportNewConstraintFailure(
+                        diagnostics,
+                        state,
+                        reportNode,
+                        arg,
+                        constraintType,
+                        symbolTree,
+                        globalScope))
+                {
+                    return;
+                }
+
                 Report(reportNode, state, diagnostics, MessageCode.CheckerGenericConstraintNotSatisfied,
                     arg.DisplayName, constraintType.DisplayName);
             }
+        }
+
+        /// <summary>
+        /// Homogeneous <c>T...</c> in an <c>extends</c> bound: without Rest/Slice feeding
+        /// arguments, the argument must be a PHP variadic after the prefix. With Rest/Slice,
+        /// every source parameter after the prefix must accept the element type (invocability).
+        /// </summary>
+        private static bool SatisfiesHomogeneousVariadicExtends(
+            ICheckedType arg,
+            ICheckedType constraintType,
+            GenericTypeParameterSymbol param,
+            IReadOnlyList<ParameterInfo>? calleeParameters,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            if (!TryAsHomogeneousVariadicBound(constraintType, out var bound)
+                || bound is null)
+            {
+                return false;
+            }
+
+            var restOrSliceFeeds = ParameterPack.TypeParamHasRestOrSliceFeed(param, calleeParameters);
+            var facets = CallableArityFacetBuilder.GetCallableFacets(arg);
+            if (facets.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var facet in facets)
+            {
+                if (facet.IsAnyArity)
+                {
+                    continue;
+                }
+
+                if (restOrSliceFeeds)
+                {
+                    if (FacetInvocableWithHomogeneousBound(facet, bound, symbolTree, globalScope))
+                    {
+                        return true;
+                    }
+                }
+                else if (FacetIsPhpVariadicMatchingBound(facet, bound, symbolTree, globalScope))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Exposed to <see cref="TypeInferrer"/> so argument-driven inference can bind a sibling
+        /// generic parameter that appears only as the return slot of another parameter's
+        /// homogeneous <c>T...</c> <c>extends</c> bound (e.g. <c>int_map</c>'s bare <c>TReturn</c>
+        /// in <c>TCallableShape extends callable(int ...): TReturn</c>), once that sibling is
+        /// itself bound to a concrete callable.
+        /// </summary>
+        internal static bool TryAsHomogeneousVariadicBound(
+            ICheckedType constraintType,
+            out CallableCheckedType? bound)
+        {
+            bound = null;
+            while (constraintType is NullableCheckedType nullable)
+            {
+                constraintType = nullable.InnerType;
+            }
+
+            if (constraintType is CallableCheckedType { LastParameterIsVariadic: true, IsAnyArity: false } direct)
+            {
+                bound = direct;
+                return true;
+            }
+
+            var facets = CallableArityFacetBuilder.GetCallableFacets(constraintType);
+            foreach (var facet in facets)
+            {
+                if (facet is { LastParameterIsVariadic: true, IsAnyArity: false })
+                {
+                    bound = facet;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool FacetIsPhpVariadicMatchingBound(
+            CallableCheckedType source,
+            CallableCheckedType bound,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            if (!source.LastParameterIsVariadic
+                || source.ParameterTypes.Count != bound.ParameterTypes.Count)
+            {
+                return false;
+            }
+
+            return TypeComparer.IsAssignableTo(source, bound, symbolTree, globalScope)
+                || TypeComparer.IsSubtypeOf(source, bound, symbolTree, globalScope);
+        }
+
+        private static bool FacetInvocableWithHomogeneousBound(
+            CallableCheckedType source,
+            CallableCheckedType bound,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            if (!TypeComparer.IsAssignableTo(source.ReturnType, bound.ReturnType, symbolTree, globalScope)
+                && !TypeComparer.IsSubtypeOf(source.ReturnType, bound.ReturnType, symbolTree, globalScope))
+            {
+                return false;
+            }
+
+            var prefixCount = bound.ParameterTypes.Count - 1;
+            if (prefixCount < 0)
+            {
+                return false;
+            }
+
+            if (source.ParameterTypes.Count < prefixCount)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < prefixCount; i++)
+            {
+                if (!TypeComparer.IsAssignableTo(
+                        bound.ParameterTypes[i], source.ParameterTypes[i], symbolTree, globalScope))
+                {
+                    return false;
+                }
+            }
+
+            var element = bound.ParameterTypes[^1];
+            for (var i = prefixCount; i < source.ParameterTypes.Count; i++)
+            {
+                if (!TypeComparer.IsAssignableTo(element, source.ParameterTypes[i], symbolTree, globalScope))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static bool ConstraintAllowsVoidOrNever(ICheckedType constraint, ICheckedType arg)
@@ -621,31 +995,136 @@ namespace Tyhp.TyhpLang.Checker
                 return false;
             }
 
+            return ConstraintBoundMentionsRestricted(constraint, argVoid, argNever);
+        }
+
+        /// <summary>
+        /// True when <paramref name="constraint"/> is void/never (or a union/nullable wrapping
+        /// one). Does not treat <c>mixed</c> as opt-in — <c>T extends mixed</c> still rejects
+        /// <c>Foo&lt;void&gt;</c>. Nested unions are walked so a bound that has not been
+        /// flattened still counts.
+        /// </summary>
+        private static bool ConstraintBoundMentionsRestricted(
+            ICheckedType constraint,
+            bool wantVoid,
+            bool wantNever)
+        {
+            while (constraint is NullableCheckedType nullable)
+            {
+                constraint = nullable.InnerType;
+            }
+
+            if (wantVoid && IsVoidType(constraint))
+            {
+                return true;
+            }
+
+            if (wantNever && IsNeverType(constraint))
+            {
+                return true;
+            }
+
             if (constraint is UnionCheckedType union)
             {
                 return union.Members.Any(member =>
-                    (argVoid && IsVoidType(member)) || (argNever && IsNeverType(member)));
+                    ConstraintBoundMentionsRestricted(member, wantVoid, wantNever));
             }
 
-            return (argVoid && IsVoidType(constraint)) || (argNever && IsNeverType(constraint));
+            return false;
         }
 
-        // `\Closure<...>` is the nominal generic form of a callable (e.g. `\Closure<TValue, void>`),
-        // so it shares the callable arity/return-last convention rather than being a 0-generic class.
+        // Bare `callable` never takes `<>` arguments; signatures are `callable(…): R` shapes.
+        // `\Closure` is a class; its type arguments go through `ObjectDeclarationSymbol`
+        // generics (`TCallableShape`, …).
         private static bool IsBuiltInCallable(ICheckedType type) =>
-            type is SimpleCheckedType { ResolvedSymbol.Name: "callable" or "Closure" };
+            type is SimpleCheckedType { ResolvedSymbol.Name: "callable" };
+
+        private static bool IsCallableThisOrScopeUtility(ICheckedType arg) =>
+            SymbolNameTypeHelper.TryGetUtilitySymbol(arg, out var utility)
+            && utility.Behavior is UtilityBehavior.CallableThis or UtilityBehavior.CallableScope;
 
         /// <summary>
-        /// Shared <c>Callable</c> constraint used by utility types (<c>\Tyhp\ReturnType</c> /
-        /// <c>\Tyhp\Parameters</c>, <c>__CallableReturnType</c>,
+        /// Array / string values PHP accepts as callables at runtime. Not assignable to
+        /// <c>callable</c> in general (most arrays and strings are not callables).
+        /// </summary>
+        private static bool IsPhpCallableEncoding(ICheckedType arg)
+        {
+            while (arg is NullableCheckedType nullable)
+            {
+                arg = nullable.InnerType;
+            }
+
+            if (arg is LiteralCheckedType { Value: string })
+            {
+                return true;
+            }
+
+            if (SymbolNameTypeHelper.TryGetUtilitySymbol(arg, out var utility)
+                && utility.Behavior == UtilityBehavior.FunctionName)
+            {
+                return true;
+            }
+
+            var display = arg.DisplayName;
+            if (display.StartsWith("array", StringComparison.OrdinalIgnoreCase)
+                || display.StartsWith("string", StringComparison.OrdinalIgnoreCase)
+                || display.StartsWith('\'')
+                || display.StartsWith('"'))
+            {
+                return true;
+            }
+
+            var unwrapped = arg is GenericCheckedType generic ? generic.BaseType : arg;
+            return Rules.CheckerHelpers.IsBuiltInName(unwrapped, "array")
+                || Rules.CheckerHelpers.IsBuiltInName(unwrapped, "string");
+        }
+
+        private static bool ConstraintAstIsBareCallable(ITypeExpression? constraint)
+        {
+            if (constraint is null)
+            {
+                return false;
+            }
+
+            if (TyhpCallableShapeAst.Find(constraint) is not null)
+            {
+                return false;
+            }
+
+            if (constraint is PhpBuiltinTypeAst builtin
+                && string.Equals(builtin.Identifier, "callable", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (constraint is PhpNamedTypeAst named)
+            {
+                if (named.Name is TyhpGenericIdentifierAst)
+                {
+                    return false;
+                }
+
+                var spelling = named.Name?.ValueString ?? named.Name?.Identifier ?? named.Identifier;
+                spelling = spelling.TrimStart('\\');
+                return string.Equals(spelling, "callable", StringComparison.OrdinalIgnoreCase);
+            }
+
+            var text = (constraint.ValueString ?? constraint.Identifier).TrimStart('\\');
+            return string.Equals(text, "callable", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Shared <c>Callable</c> constraint used by utility types (<c>__CallableReturnType</c>,
         /// <c>__CallableParametersRest</c>, and peers) and other built-ins.
-        /// Accepts structural callables, bare <c>callable</c>/<c>\Closure</c>, generic forms with
-        /// at least one type argument (return-last), nullable wrappers of those, unions of
+        /// Accepts structural callables, bare <c>callable</c>/<c>\Closure</c> (Closure via
+        /// <c>__invoke</c>), <c>callable(…): R</c> facets, generic <c>\Closure&lt;C, …&gt;</c>
+        /// when <c>C</c> itself satisfies Callable, nullable wrappers of those, unions of
         /// callables, intersections that include a callable, unresolved recovery types, and
         /// in-scope generic type parameters (their <c>extends callable</c> bound is checked at
-        /// declaration). Rejects empty <c>callable&lt;&gt;</c> /
-        /// <c>\Closure&lt;&gt;</c> so those shapes are not silently accepted after utility
-        /// resolvers stop emitting ad-hoc <c>CheckerUtilityTypeInvalidArgument</c>.
+        /// declaration). Rejects empty <c>\Closure&lt;&gt;</c> so those shapes are not silently
+        /// accepted after utility resolvers stop emitting ad-hoc
+        /// <c>CheckerUtilityTypeInvalidArgument</c>. Does not treat
+        /// <c>\Closure&lt;int, string&gt;</c> as a signature.
         /// </summary>
         internal static bool SatisfiesCallableConstraint(ICheckedType arg)
         {
@@ -670,8 +1149,17 @@ namespace Tyhp.TyhpLang.Checker
             // display as "callable" / "Closure", which would otherwise look like a bare type.
             if (arg is GenericCheckedType generic)
             {
-                return IsBareCallableOrClosureName(generic.BaseType)
-                    && generic.TypeArguments.Count > 0;
+                if (IsBareCallableName(generic.BaseType))
+                {
+                    return false;
+                }
+
+                // `\Closure<C, …>` is callable when C (TCallableShape) is — not when the remaining
+                // args look like return-last params. Bare Closure (no type args) is handled below
+                // via the class name / `__invoke`.
+                return CallableArityFacetBuilder.IsClosureTypeName(generic.BaseType)
+                    && generic.TypeArguments.Count > 0
+                    && SatisfiesCallableConstraint(generic.TypeArguments[0]);
             }
 
             if (arg is UnionCheckedType union)
@@ -700,13 +1188,13 @@ namespace Tyhp.TyhpLang.Checker
                 return intersection.Members.Any(SatisfiesCallableConstraint);
             }
 
-            return IsBareCallableOrClosureName(arg);
+            return IsBareCallableName(arg)
+                || CallableArityFacetBuilder.IsClosureTypeName(arg);
         }
 
-        private static bool IsBareCallableOrClosureName(ICheckedType type) =>
+        private static bool IsBareCallableName(ICheckedType type) =>
             Rules.CheckerHelpers.IsBuiltInName(type, "callable")
-            || Rules.CheckerHelpers.IsBuiltInName(type, "Closure")
-            || type is SimpleCheckedType { ResolvedSymbol.Name: "callable" or "Closure" };
+            || type is SimpleCheckedType { ResolvedSymbol.Name: "callable" };
 
         private static bool IsIntOrStringKeyType(ICheckedType type) =>
             // Unresolved is the error-recovery / unbound-inference marker (Story 11 audit #5):
@@ -725,7 +1213,13 @@ namespace Tyhp.TyhpLang.Checker
                     || Rules.CheckerHelpers.IsBuiltInName(m, "string")));
 
         private static bool IsClassInterfaceOrStruct(ICheckedType type, SymbolTree symbolTree, GlobalScope globalScope) =>
-            IsClassOrStruct(type, symbolTree, globalScope)
+            // In-scope / unbound type parameters are allowed here the same way
+            // <see cref="IsObjectConstraint"/> allows them: `__PropertyName<T>` in a generic
+            // signature is valid; T's own bound is checked at the declaration. Unresolved is
+            // the inference placeholder and must not cascade TYHP4035.
+            type is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol }
+            || type.Kind == CheckedTypeKind.Unresolved
+            || IsClassOrStruct(type, symbolTree, globalScope)
             || Rules.CheckerHelpers.TryGetObjectDeclaration(type) is { ObjectKind: PhpTypeDeclType.Interface };
 
         private static bool IsClassOrStruct(ICheckedType type, SymbolTree symbolTree, GlobalScope globalScope)
@@ -736,12 +1230,17 @@ namespace Tyhp.TyhpLang.Checker
 
         /// <summary>
         /// <c>T extends object</c>: built-in <c>object</c>, classes, interfaces, enums, structs,
-        /// and in-scope generic type parameters (their own bounds are checked at declaration).
+        /// object-shape aliases, <c>__New&lt;Shape&gt;</c>, in-scope generic type parameters
+        /// (their own bounds are checked at declaration), and deferred <c>__SuperType&lt;T&gt;</c>
+        /// (always an object type; see <see cref="MagicUtilityTypeResolver.IsSuperTypeUtility"/>).
         /// </summary>
         private static bool IsObjectConstraint(ICheckedType type, SymbolTree symbolTree, GlobalScope globalScope) =>
             type is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol }
             || type.Kind == CheckedTypeKind.Unresolved
             || Rules.CheckerHelpers.IsBuiltInName(type, "object")
+            || MagicUtilityTypeResolver.IsSuperTypeUtility(type)
+            || TypeComparer.IsNewUtilityType(type)
+            || TypeComparer.IsObjectShapeTypeArgument(type)
             || IsClassInterfaceOrStruct(type, symbolTree, globalScope)
             || Rules.CheckerHelpers.TryGetObjectDeclaration(type) is
             {
@@ -753,6 +1252,12 @@ namespace Tyhp.TyhpLang.Checker
                 && Rules.CheckerHelpers.IsBuiltInName(underlying, "string")
             || type is UnionCheckedType union && union.Members.All(IsStringLiteralUnion);
 
+        private static bool IsPhpArrayAccess(IBaseSymbol declaringSymbol)
+        {
+            var fqn = declaringSymbol.FullyQualifiedName.TrimStart('\\');
+            return string.Equals(fqn, "ArrayAccess", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static void Report(
             IBase2Ast node,
             CheckerState state,
@@ -763,7 +1268,7 @@ namespace Tyhp.TyhpLang.Checker
             diagnostics.AddErrorFromAst(
                 code,
                 node,
-                state.CurrentFileName ?? node.OwningFile?.FileName ?? string.Empty,
+                CheckerHelpers.ResolveDiagnosticFileName(state, node),
                 args);
         }
     }

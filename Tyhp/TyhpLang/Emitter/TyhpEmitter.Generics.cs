@@ -2,6 +2,7 @@ using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
+using Tyhp.TyhpLang.Checker;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Emitter
@@ -69,7 +70,7 @@ namespace Tyhp.TyhpLang.Emitter
 
                 foreach (var traitName in traitUse.TraitNames?.GetAllNotNull() ?? [])
                 {
-                    var text = traitName.Identifier ?? (traitName as PhpNameAst)?.ValueString ?? "";
+                    var text = NameText(traitName);
                     var normalized = text.TrimStart('\\');
                     if (string.Equals(normalized, "Tyhp\\Concerns\\HasGenerics", StringComparison.OrdinalIgnoreCase)
                         || string.Equals(normalized, "Concerns\\HasGenerics", StringComparison.OrdinalIgnoreCase)
@@ -151,7 +152,8 @@ namespace Tyhp.TyhpLang.Emitter
             {
                 if (member is PhpPropertyDeclAst propertyDecl && propertyDecl.Type is { } propType)
                 {
-                    if (!this.TypeAstInvolvesGenerics(propType))
+                    if (this.IsEraseGenericOptedOut(propertyDecl)
+                        || !this.TypeAstInvolvesGenerics(propType))
                     {
                         continue;
                     }
@@ -176,7 +178,8 @@ namespace Tyhp.TyhpLang.Emitter
                             continue;
                         }
 
-                        if (!this.TypeAstInvolvesGenerics(param.Type))
+                        if (this.IsEraseGenericOptedOut(param)
+                            || !this.TypeAstInvolvesGenerics(param.Type))
                         {
                             continue;
                         }
@@ -190,6 +193,10 @@ namespace Tyhp.TyhpLang.Emitter
                 }
             }
         }
+
+        private bool IsEraseGenericOptedOut(IBase2Ast host)
+            => EraseGenericAttributeSupport.HasEraseGeneric(host)
+                || EraseGenericAttributeSupport.HasEraseGeneric(this._currentObjectDecl);
 
         private bool TypeAstInvolvesGenerics(ITypeExpression typeExpr)
         {
@@ -263,6 +270,26 @@ namespace Tyhp.TyhpLang.Emitter
                 if (args.Count > 0)
                 {
                     return args;
+                }
+            }
+
+            // typeExpr `Optional<int>` stores args on TyhpGenericIdentifierAst.GenericArguments.
+            if (node is TyhpGenericIdentifierAst { GenericArguments: PhpTypeExpressionListAst genericList })
+            {
+                var fromGeneric = FlattenTypeArgumentList(genericList);
+                if (fromGeneric.Count > 0)
+                {
+                    return fromGeneric;
+                }
+            }
+
+            if (node is PhpNamedTypeAst { Name: TyhpGenericIdentifierAst namedGeneric }
+                && namedGeneric.GenericArguments is PhpTypeExpressionListAst namedList)
+            {
+                var fromNamed = FlattenTypeArgumentList(namedList);
+                if (fromNamed.Count > 0)
+                {
+                    return fromNamed;
                 }
             }
 
@@ -352,6 +379,7 @@ namespace Tyhp.TyhpLang.Emitter
         /// </summary>
         private string BuildRuntimeTypeExpression(ITypeExpression? typeExpr, bool preferCtorLocals)
         {
+            this.ReportInternalErrorIfExternType(typeExpr);
             if (typeExpr is null)
             {
                 return $"{RuntimeTypeClassFq}::mixed()";
@@ -369,8 +397,185 @@ namespace Tyhp.TyhpLang.Emitter
             return inner;
         }
 
+        /// <summary>
+        /// Spells an inferred <see cref="ICheckedType"/> as a <c>\Tyhp\Type::…</c> value so a
+        /// bare <c>new Generic()</c> whose type arguments came from context still stamps the
+        /// Mechanism C factory.
+        /// </summary>
+        private string BuildRuntimeTypeExpressionFromChecked(ICheckedType type, bool preferCtorLocals)
+        {
+            this.ReportInternalErrorIfExternCheckedType(type);
+            return this.BuildRuntimeTypeExpressionFromCheckedCore(type, preferCtorLocals);
+        }
+
+        private string BuildRuntimeTypeExpressionFromCheckedCore(ICheckedType type, bool preferCtorLocals)
+        {
+            switch (type)
+            {
+                case NullableCheckedType nullable:
+                {
+                    var inner = this.BuildRuntimeTypeExpressionFromCheckedCore(
+                        nullable.InnerType, preferCtorLocals);
+                    if (inner.StartsWith($"{RuntimeTypeClassFq}::nullable(", StringComparison.Ordinal)
+                        || inner.StartsWith($"{RuntimeTypeClassFq}::null(", StringComparison.Ordinal)
+                        || inner.StartsWith($"{RuntimeTypeClassFq}::mixed(", StringComparison.Ordinal))
+                    {
+                        return inner;
+                    }
+
+                    return $"{RuntimeTypeClassFq}::nullable({inner})";
+                }
+
+                case LiteralCheckedType { Value: null }:
+                    return $"{RuntimeTypeClassFq}::null()";
+                case LiteralCheckedType { Value: true }:
+                    return $"{RuntimeTypeClassFq}::true()";
+                case LiteralCheckedType { Value: false }:
+                    return $"{RuntimeTypeClassFq}::false()";
+
+                case SpecialCheckedType special when special.IsMixed:
+                    return $"{RuntimeTypeClassFq}::mixed()";
+                case SpecialCheckedType special when special.IsVoid:
+                    return $"{RuntimeTypeClassFq}::void()";
+                case SpecialCheckedType special when special.IsNever:
+                    return $"{RuntimeTypeClassFq}::never()";
+
+                case UnionCheckedType union:
+                {
+                    var parts = union.Members
+                        .Select(m => this.BuildRuntimeTypeExpressionFromCheckedCore(m, preferCtorLocals))
+                        .ToList();
+                    if (parts.Count == 0)
+                    {
+                        return $"{RuntimeTypeClassFq}::mixed()";
+                    }
+
+                    if (parts.Count == 1)
+                    {
+                        return parts[0];
+                    }
+
+                    return $"{RuntimeTypeClassFq}::union({string.Join(", ", parts)})";
+                }
+
+                case IntersectionCheckedType intersection:
+                {
+                    var parts = intersection.Members
+                        .Select(m => this.BuildRuntimeTypeExpressionFromCheckedCore(m, preferCtorLocals))
+                        .ToList();
+                    if (parts.Count == 0)
+                    {
+                        return $"{RuntimeTypeClassFq}::mixed()";
+                    }
+
+                    if (parts.Count == 1)
+                    {
+                        return parts[0];
+                    }
+
+                    return $"{RuntimeTypeClassFq}::intersection({string.Join(", ", parts)})";
+                }
+
+                case GenericCheckedType generic:
+                    return this.BuildRuntimeGenericFromChecked(generic, preferCtorLocals);
+
+                case StructCheckedType:
+                    return $"{RuntimeTypeClassFq}::array()";
+
+                case SimpleCheckedType simple:
+                    return this.BuildRuntimeSimpleFromChecked(simple, preferCtorLocals);
+
+                default:
+                    if (type.IsMixed)
+                    {
+                        return $"{RuntimeTypeClassFq}::mixed()";
+                    }
+
+                    return $"{RuntimeTypeClassFq}::mixed()";
+            }
+        }
+
+        private string BuildRuntimeGenericFromChecked(GenericCheckedType generic, bool preferCtorLocals)
+        {
+            var origin = TypeComparer.TryGetNominalSymbol(generic.BaseType);
+            var className = origin switch
+            {
+                ObjectDeclarationSymbol obj => obj.FullyQualifiedName,
+                BuiltInTypeSymbol builtIn => builtIn.Name,
+                _ => origin?.FullyQualifiedName ?? origin?.Name,
+            };
+
+            if (string.IsNullOrEmpty(className))
+            {
+                return $"{RuntimeTypeClassFq}::mixed()";
+            }
+
+            var args = generic.TypeArguments
+                .Select(arg => this.BuildRuntimeTypeExpressionFromCheckedCore(arg, preferCtorLocals))
+                .ToList();
+            if (args.Count == 0)
+            {
+                return BuildRuntimeSimpleNameFromChecked(className);
+            }
+
+            var isArrayFamily = string.Equals(className, "array", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(className, "iterable", StringComparison.OrdinalIgnoreCase);
+            if (isArrayFamily)
+            {
+                var typeName = className.Equals("iterable", StringComparison.OrdinalIgnoreCase)
+                    ? "iterable"
+                    : "array";
+                return $"{RuntimeTypeClassFq}::generic('{typeName}', {string.Join(", ", args)})";
+            }
+
+            var classExpr = QuoteClassNameForType(className) + "::class";
+            return $"{RuntimeTypeClassFq}::generic({classExpr}, {string.Join(", ", args)})";
+        }
+
+        private string BuildRuntimeSimpleFromChecked(SimpleCheckedType simple, bool preferCtorLocals)
+        {
+            if (simple.ResolvedSymbol is GenericTypeParameterSymbol param)
+            {
+                return this.BuildRuntimeGenericParameterType(param.Name, preferCtorLocals);
+            }
+
+            if (simple.ResolvedSymbol is BuiltInTypeSymbol builtIn)
+            {
+                return BuildRuntimeSimpleNameFromChecked(builtIn.Name);
+            }
+
+            if (simple.ResolvedSymbol is ObjectDeclarationSymbol { IsStruct: true })
+            {
+                return $"{RuntimeTypeClassFq}::array()";
+            }
+
+            if (simple.ResolvedSymbol is ObjectDeclarationSymbol obj)
+            {
+                return $"{RuntimeTypeClassFq}::fromClassName({QuoteClassNameForType(obj.FullyQualifiedName)}::class)";
+            }
+
+            var name = simple.ResolvedSymbol.FullyQualifiedName ?? simple.ResolvedSymbol.Name;
+            return BuildRuntimeSimpleNameFromChecked(name);
+        }
+
+        private static string BuildRuntimeSimpleNameFromChecked(string name)
+        {
+            var simple = name.TrimStart('\\');
+            if (ScalarTypeFactoryNames.Contains(simple))
+            {
+                return $"{RuntimeTypeClassFq}::{simple}()";
+            }
+
+            return $"{RuntimeTypeClassFq}::fromClassName({QuoteClassNameForType(simple)}::class)";
+        }
+
         private string BuildRuntimeTypeExpressionCore(ITypeExpression typeExpr, bool preferCtorLocals)
         {
+            if (this.TryBuildAliasFactoryRuntimeType(typeExpr, preferCtorLocals) is { } aliasFactory)
+            {
+                return aliasFactory;
+            }
+
             if (typeExpr is PhpNamedTypeAst named)
             {
                 // A free type parameter is not a PHP class — never emit `Type::fromClassName(T::class)`.
@@ -415,6 +620,14 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (typeExpr is PhpBuiltinTypeAst builtin)
             {
+                var builtinArgs = GetGenericTypeArgumentAddon(builtin);
+                if (builtinArgs is { Count: > 0 })
+                {
+                    var builtinName = builtin.Identifier ?? "mixed";
+                    return this.BuildRuntimeGenericFromClassAndArgs(
+                        builtinName, builtinArgs, preferCtorLocals);
+                }
+
                 var id = builtin.Identifier ?? "mixed";
                 return ScalarTypeFactoryNames.Contains(id)
                     ? $"{RuntimeTypeClassFq}::{id}()"
@@ -440,6 +653,31 @@ namespace Tyhp.TyhpLang.Emitter
                 return this.BuildRuntimeNameType(name, preferCtorLocals);
             }
 
+            if (typeExpr is TyhpObjectShapeAst shape)
+            {
+                return this.BuildRuntimeObjectShapeType(shape);
+            }
+
+            if (typeExpr is TyhpCallableShapeAst)
+            {
+                return this.BuildRuntimeCallableShapeType();
+            }
+
+            if (typeExpr is TyhpStructShapeAst structShape)
+            {
+                if (structShape.BoundSymbol is ObjectDeclarationSymbol { IsStruct: true } namedStruct)
+                {
+                    return this.BuildRuntimeStructType(namedStruct, typeArgs: null, preferCtorLocals);
+                }
+
+                if (typeExpr.BoundSymbol is ObjectDeclarationSymbol { IsStruct: true } aliasStruct)
+                {
+                    return this.BuildRuntimeStructType(aliasStruct, typeArgs: null, preferCtorLocals);
+                }
+
+                return $"{RuntimeTypeClassFq}::array()";
+            }
+
             if (typeExpr is PhpTypeExpressionAst composite && composite.Types is { } members)
             {
                 var parts = members.GetAllNotNull()
@@ -456,6 +694,22 @@ namespace Tyhp.TyhpLang.Emitter
                     return composite.IsNullable
                         ? $"{RuntimeTypeClassFq}::nullable({single})"
                         : single;
+                }
+
+                if (this._emittingAliasFactorySymbol is not null
+                    && composite.TypeKind != PhpTypeKind.Intersection
+                    && members.GetAllNotNull().ToList() is { Count: 2 } unionMembers
+                    && parts.Count == 2)
+                {
+                    if (IsNullTypeExpression(unionMembers[0]))
+                    {
+                        return $"{RuntimeTypeClassFq}::nullable({parts[1]})";
+                    }
+
+                    if (IsNullTypeExpression(unionMembers[1]))
+                    {
+                        return $"{RuntimeTypeClassFq}::nullable({parts[0]})";
+                    }
                 }
 
                 var kind = composite.TypeKind switch
@@ -499,6 +753,11 @@ namespace Tyhp.TyhpLang.Emitter
                 return $"{RuntimeTypeClassFq}::{simple}()";
             }
 
+            if (this.TryResolveStructDeclaration(name.BoundSymbol, simple) is { } structDecl)
+            {
+                return this.BuildRuntimeStructType(structDecl, typeArgs: null, preferCtorLocals);
+            }
+
             var className = ResolveRuntimeClassName(name.BoundSymbol, name, written: name.ValueString);
             return $"{RuntimeTypeClassFq}::fromClassName({QuoteClassNameForType(className)}::class)";
         }
@@ -515,7 +774,8 @@ namespace Tyhp.TyhpLang.Emitter
                 && !simple.Contains('\\')
                 && (this.IsVariantGenericParamName(simple)
                     || this._currentObjectGenericParamNames.Contains(simple)
-                    || this._currentCallableGenericParamNames.Contains(simple));
+                    || this._currentCallableGenericParamNames.Contains(simple)
+                    || this._aliasFactoryGenericParamExprs.ContainsKey(simple));
         }
 
         /// <summary>
@@ -524,6 +784,11 @@ namespace Tyhp.TyhpLang.Emitter
         /// </summary>
         private string BuildRuntimeGenericParameterType(string paramName, bool preferCtorLocals)
         {
+            if (this._aliasFactoryGenericParamExprs.TryGetValue(paramName, out var factoryExpr))
+            {
+                return factoryExpr;
+            }
+
             if (this.IsVariantGenericParamName(paramName))
             {
                 return this.BuildVariantTypeofLookup(paramName);
@@ -531,6 +796,11 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (this._currentObjectGenericParamNames.Contains(paramName))
             {
+                if (this._emittingAliasFactorySymbol is not null && this._currentMemberIsStatic)
+                {
+                    return $"{RuntimeTypeClassFq}::mixed()";
+                }
+
                 return this.BuildRuntimeGenericParamTypeLookup(paramName, preferCtorLocals);
             }
 
@@ -765,18 +1035,45 @@ namespace Tyhp.TyhpLang.Emitter
             IReadOnlyList<ITypeExpression> typeArgs,
             bool preferCtorLocals)
         {
-            var classExpr = QuoteClassNameForType(className) + "::class";
+            if (this.TryResolveStructDeclaration(bound: null, className) is { } structDecl)
+            {
+                return this.BuildRuntimeStructType(structDecl, typeArgs, preferCtorLocals);
+            }
+
+            var isArrayFamily = string.Equals(className, "array", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(className, "iterable", StringComparison.OrdinalIgnoreCase)
+                || className.Equals("\\array", StringComparison.OrdinalIgnoreCase)
+                || className.Equals("\\iterable", StringComparison.OrdinalIgnoreCase);
+            var typeName = isArrayFamily
+                ? (className.TrimStart('\\').Equals("iterable", StringComparison.OrdinalIgnoreCase)
+                    ? "iterable"
+                    : "array")
+                : null;
+
             if (typeArgs.Count == 0)
             {
-                return $"{RuntimeTypeClassFq}::fromClassName({classExpr})";
+                return isArrayFamily
+                    ? $"{RuntimeTypeClassFq}::{typeName}()"
+                    : $"{RuntimeTypeClassFq}::fromClassName({QuoteClassNameForType(className)}::class)";
             }
 
             var namedArgs = new List<string>();
             for (var i = 0; i < typeArgs.Count; i++)
             {
-                namedArgs.Add(this.BuildRuntimeNamedTypeArg(typeArgs[i], className, i, preferCtorLocals));
+                namedArgs.Add(this.BuildRuntimeNamedTypeArg(
+                    typeArgs[i],
+                    isArrayFamily ? typeName! : className,
+                    i,
+                    typeArgs.Count,
+                    preferCtorLocals));
             }
 
+            if (isArrayFamily)
+            {
+                return $"{RuntimeTypeClassFq}::generic('{typeName}', {string.Join(", ", namedArgs)})";
+            }
+
+            var classExpr = QuoteClassNameForType(className) + "::class";
             return $"{RuntimeTypeClassFq}::generic({classExpr}, {string.Join(", ", namedArgs)})";
         }
 
@@ -784,9 +1081,10 @@ namespace Tyhp.TyhpLang.Emitter
             ITypeExpression typeArg,
             string parentClassName,
             int index,
+            int arity,
             bool preferCtorLocals)
         {
-            var paramHint = GuessGenericParamName(parentClassName, index);
+            var paramHint = GuessGenericParamName(parentClassName, index, arity);
 
             string? typeParamName = typeArg switch
             {
@@ -816,15 +1114,311 @@ namespace Tyhp.TyhpLang.Emitter
             return $"new {RuntimeNamedTypeFq}('{paramHint}', {underlying})";
         }
 
-        private static string GuessGenericParamName(string className, int index)
+        private static string GuessGenericParamName(string className, int index, int arity)
         {
             var shortName = className.TrimStart('\\').Split('\\')[^1];
+            if (string.Equals(shortName, "array", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(shortName, "iterable", StringComparison.OrdinalIgnoreCase))
+            {
+                // PHP `array<T>` / `iterable<T>` is a value-type shorthand; the sole argument is TValue.
+                // Two-argument form is array<TKey, TValue> / iterable<TKey, TValue>.
+                if (arity == 1)
+                {
+                    return "TValue";
+                }
+
+                return index == 0 ? "TKey" : "TValue";
+            }
+
             if (string.Equals(shortName, "Closure", StringComparison.OrdinalIgnoreCase))
             {
-                return index == 0 ? "TReturn" : $"T{index}";
+                return index switch
+                {
+                    0 => "TCallableShape",
+                    1 => "TThis",
+                    2 => "TScope",
+                    _ => $"T{index}",
+                };
             }
 
             return index == 0 ? "TValue" : $"T{index}";
+        }
+
+        private ObjectDeclarationSymbol? TryResolveStructDeclaration(IBaseSymbol? bound, string? writtenName)
+        {
+            if (bound is ObjectDeclarationSymbol { IsStruct: true } boundStruct)
+            {
+                return boundStruct;
+            }
+
+            return this.TryResolveObjectByName(writtenName) is { IsStruct: true } resolved
+                ? resolved
+                : null;
+        }
+
+        /// <summary>
+        /// Materializes a struct declaration as <c>\Tyhp\Type::struct(name, fields, requiredKeys)</c>
+        /// so <c>Type::is</c> / <c>Json::decode&lt;T&gt;</c> can check associative-array shapes.
+        /// Recursive fields of the same struct emit <c>Type::array()</c> to break the cycle.
+        /// </summary>
+        private string BuildRuntimeStructType(
+            ObjectDeclarationSymbol structDecl,
+            IReadOnlyList<ITypeExpression>? typeArgs,
+            bool preferCtorLocals)
+        {
+            var fqn = (structDecl.FullyQualifiedName ?? structDecl.Name).TrimStart('\\');
+            if (string.IsNullOrEmpty(fqn))
+            {
+                fqn = structDecl.Name;
+            }
+
+            if (!this._structTypeEmitStack.Add(fqn))
+            {
+                return $"{RuntimeTypeClassFq}::array()";
+            }
+
+            try
+            {
+                Dictionary<string, string>? substitutions = null;
+                if (structDecl.GenericParameters.Count > 0)
+                {
+                    substitutions = new Dictionary<string, string>(StringComparer.Ordinal);
+                    for (var i = 0; i < structDecl.GenericParameters.Count; i++)
+                    {
+                        var gp = structDecl.GenericParameters[i];
+                        string expr;
+                        if (typeArgs is not null && i < typeArgs.Count)
+                        {
+                            expr = this.BuildRuntimeTypeExpression(typeArgs[i], preferCtorLocals);
+                        }
+                        else if (gp.DefaultType is not null)
+                        {
+                            expr = this.BuildRuntimeTypeExpression(gp.DefaultType, preferCtorLocals);
+                        }
+                        else
+                        {
+                            expr = $"{RuntimeTypeClassFq}::mixed()";
+                        }
+
+                        substitutions[gp.Name] = expr;
+                    }
+                }
+
+                // Base-first so a derived property of the same PHP key replaces the inherited one.
+                var fields = new Dictionary<string, (StructArrayKey Key, string TypeExpr, bool Required)>(
+                    StringComparer.Ordinal);
+                foreach (var level in StructEmissionHelper.EnumerateStructHierarchy(structDecl))
+                {
+                    foreach (var member in level.Members.Values)
+                    {
+                        if (member is not ObjectPropertySymbol property || property.DeclaredType is null)
+                        {
+                            continue;
+                        }
+
+                        var key = StructEmissionHelper.GetStructArrayKey(property);
+                        var typeExpr = this.BuildRuntimeTypeExpressionSubstituting(
+                            property.DeclaredType,
+                            substitutions,
+                            preferCtorLocals);
+                        var required = !TypeExpressionAllowsNull(property.DeclaredType)
+                            && property.DefaultValue is null;
+                        fields[(key.IsInteger ? "#" : "") + key.Text] = (key, typeExpr, required);
+                    }
+                }
+
+                var fieldParts = new List<string>(fields.Count);
+                var requiredParts = new List<string>();
+                foreach (var entry in fields.Values)
+                {
+                    fieldParts.Add($"{FormatPhpArrayKey(entry.Key)} => {entry.TypeExpr}");
+                    if (entry.Required)
+                    {
+                        requiredParts.Add(FormatPhpArrayKey(entry.Key));
+                    }
+                }
+
+                var fieldsLiteral = fieldParts.Count == 0
+                    ? "[]"
+                    : "[" + string.Join(", ", fieldParts) + "]";
+                var requiredLiteral = requiredParts.Count == 0
+                    ? "[]"
+                    : "[" + string.Join(", ", requiredParts) + "]";
+                var nameLiteral = FormatPhpArrayKey(new StructArrayKey(fqn, IsInteger: false));
+                return $"{RuntimeTypeClassFq}::struct({nameLiteral}, {fieldsLiteral}, {requiredLiteral})";
+            }
+            finally
+            {
+                this._structTypeEmitStack.Remove(fqn);
+            }
+        }
+
+        /// <summary>
+        /// Materializes an object-shape alias body as
+        /// <c>\Tyhp\Type::objectShape(name, methods, properties)</c> for v1 existence matching.
+        /// <c>__construct</c> is omitted (constructability only). Member types are not reified.
+        /// </summary>
+        private string BuildRuntimeObjectShapeType(TyhpObjectShapeAst shape)
+        {
+            var aliasName = this._objectShapeDescriptorName
+                ?? this._emittingAliasFactorySymbol?.Name
+                ?? "object";
+            var methods = new List<string>();
+            var properties = new List<string>();
+            var seenMethods = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenProperties = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var member in shape.Members?.GetAllNotNull() ?? [])
+            {
+                switch (member)
+                {
+                    case PhpMethodDeclAst method:
+                    {
+                        var name = method.Identifier ?? string.Empty;
+                        if (string.IsNullOrEmpty(name)
+                            || string.Equals(name, "__construct", StringComparison.OrdinalIgnoreCase)
+                            || HasModifier(method.Modifiers, PhpModifier.Static)
+                            || !seenMethods.Add(name))
+                        {
+                            break;
+                        }
+
+                        methods.Add(name);
+                        break;
+                    }
+                    case PhpPropertyDeclAst property:
+                    {
+                        if (HasModifier(property.Modifiers, PhpModifier.Static))
+                        {
+                            break;
+                        }
+
+                        foreach (var item in property.Properties?.GetAllNotNull() ?? [])
+                        {
+                            var name = item.Identifier ?? string.Empty;
+                            if (name.StartsWith('$'))
+                            {
+                                name = name[1..];
+                            }
+
+                            if (string.IsNullOrEmpty(name) || !seenProperties.Add(name))
+                            {
+                                continue;
+                            }
+
+                            properties.Add(name);
+                        }
+
+                        break;
+                    }
+                }
+            }
+
+            var nameLiteral = FormatPhpArrayKey(new StructArrayKey(aliasName, IsInteger: false));
+            var methodsLiteral = FormatPhpStringList(methods);
+            var propertiesLiteral = FormatPhpStringList(properties);
+            return $"{RuntimeTypeClassFq}::objectShape({nameLiteral}, {methodsLiteral}, {propertiesLiteral})";
+        }
+
+        /// <summary>
+        /// Materializes a callable-shape alias body as
+        /// <c>\Tyhp\Type::callableShape(name)</c> for v1 existence matching
+        /// (<c>\is_callable</c>). Parameter and return types are not reified.
+        /// </summary>
+        private string BuildRuntimeCallableShapeType()
+        {
+            var aliasName = this._objectShapeDescriptorName
+                ?? this._emittingAliasFactorySymbol?.Name
+                ?? "callable";
+            var nameLiteral = FormatPhpArrayKey(new StructArrayKey(aliasName, IsInteger: false));
+            return $"{RuntimeTypeClassFq}::callableShape({nameLiteral})";
+        }
+
+        private static string FormatPhpStringList(IReadOnlyList<string> values)
+        {
+            if (values.Count == 0)
+            {
+                return "[]";
+            }
+
+            return "["
+                + string.Join(
+                    ", ",
+                    values.Select(value => FormatPhpArrayKey(new StructArrayKey(value, IsInteger: false))))
+                + "]";
+        }
+
+        private static bool HasModifier(PhpModifierListAst? modifiers, PhpModifier wanted)
+        {
+            if (modifiers is null)
+            {
+                return false;
+            }
+
+            foreach (var modifier in modifiers.Modifiers)
+            {
+                if (modifier == wanted)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private string BuildRuntimeTypeExpressionSubstituting(
+            ITypeExpression typeExpr,
+            Dictionary<string, string>? substitutions,
+            bool preferCtorLocals)
+        {
+            if (substitutions is { Count: > 0 }
+                && TryGetBareTypeName(typeExpr) is { } bare
+                && substitutions.TryGetValue(bare, out var substituted))
+            {
+                return TypeExpressionAllowsNull(typeExpr)
+                    ? $"{RuntimeTypeClassFq}::nullable({substituted})"
+                    : substituted;
+            }
+
+            return this.BuildRuntimeTypeExpression(typeExpr, preferCtorLocals);
+        }
+
+        private static string? TryGetBareTypeName(ITypeExpression typeExpr)
+        {
+            if (typeExpr is PhpTypeExpressionAst composite && composite.Types is { } members)
+            {
+                var list = members.GetAllNotNull().OfType<ITypeExpression>().ToList();
+                if (list.Count == 1)
+                {
+                    return TryGetBareTypeName(list[0]);
+                }
+
+                return null;
+            }
+
+            return typeExpr switch
+            {
+                PhpNamedTypeAst { Name: PhpNameAst n } => n.ValueString?.TrimStart('\\'),
+                PhpNameAst name => name.ValueString?.TrimStart('\\'),
+                PhpBuiltinTypeAst builtin => builtin.Identifier,
+                _ => null,
+            };
+        }
+
+        private static bool TypeExpressionAllowsNull(ITypeExpression? typeExpr) =>
+            typeExpr is PhpTypeExpressionAst { IsNullable: true };
+
+        private static string FormatPhpArrayKey(StructArrayKey key)
+        {
+            if (key.IsInteger)
+            {
+                return key.Text;
+            }
+
+            return "'"
+                + key.Text.Replace("\\", "\\\\", StringComparison.Ordinal)
+                    .Replace("'", "\\'", StringComparison.Ordinal)
+                + "'";
         }
 
         private static string ToGenericLocalVarName(string genericParamName)
@@ -855,11 +1449,6 @@ namespace Tyhp.TyhpLang.Emitter
 
         private string? TryBuildNewGenericTypeParameterExpression(PhpNewAst newExpr, string args)
         {
-            if (!this._currentObjectRecordsOwnGenerics)
-            {
-                return null;
-            }
-
             var simpleName = newExpr.ClassName switch
             {
                 TyhpGenericIdentifierAst g => g.ValueString?.TrimStart('\\'),
@@ -867,8 +1456,19 @@ namespace Tyhp.TyhpLang.Emitter
                 _ => null,
             };
 
-            if (string.IsNullOrEmpty(simpleName)
-                || simpleName.Contains('\\')
+            if (string.IsNullOrEmpty(simpleName) || simpleName.Contains('\\'))
+            {
+                return null;
+            }
+
+            if (this.IsVariantGenericParamName(simpleName))
+            {
+                this._context.RequirePackage("tyhp/core");
+                // Mechanism D binder captures `\Tyhp\Type`; Type::getName() is the class FQCN.
+                return $"new ({GenericVariantParamName(simpleName)}->getName()){args}";
+            }
+
+            if (!this._currentObjectRecordsOwnGenerics
                 || !this._currentObjectGenericParamNames.Contains(simpleName))
             {
                 return null;
@@ -925,36 +1525,74 @@ namespace Tyhp.TyhpLang.Emitter
 
             // A class only has a factory when it records generic parameters of its own; anything else
             // stays a plain `new`, whose constructor gate reaches the same init chain.
-            if (targetSymbol is null
-                || targetSymbol.GenericParameters.Count == 0
-                || !this.SymbolIsInGenericChain(targetSymbol))
+            if (targetSymbol is null || targetSymbol.GenericParameters.Count == 0)
+            {
+                return null;
+            }
+
+            if (!this.GenericRuntimeLayoutIsSupported(targetSymbol, newExpr))
+            {
+                return null;
+            }
+
+            var typeArgExpressions = new List<string>();
+            IReadOnlyList<ICheckedType>? inferredArgs = null;
+            if ((explicitTypeArgs is null || explicitTypeArgs.Count < targetSymbol.GenericParameters.Count)
+                && this._context.ExpressionTypes.TryGetValue(newExpr, out var inferredNewType)
+                && inferredNewType is GenericCheckedType inferredGeneric
+                && inferredGeneric.TypeArguments.Count == targetSymbol.GenericParameters.Count
+                && TypeComparer.SymbolsMatch(
+                    TypeComparer.TryGetNominalSymbol(inferredGeneric.BaseType), targetSymbol))
+            {
+                inferredArgs = inferredGeneric.TypeArguments;
+            }
+
+            for (var i = 0; i < targetSymbol.GenericParameters.Count; i++)
+            {
+                if (explicitTypeArgs is not null && i < explicitTypeArgs.Count)
+                {
+                    typeArgExpressions.Add(
+                        this.BuildRuntimeTypeExpression(explicitTypeArgs[i], preferCtorLocals: false));
+                    continue;
+                }
+
+                if (inferredArgs is not null && i < inferredArgs.Count)
+                {
+                    typeArgExpressions.Add(
+                        this.BuildRuntimeTypeExpressionFromChecked(inferredArgs[i], preferCtorLocals: false));
+                    continue;
+                }
+
+                // Not spelled at the call site and not inferred from context: let the factory's
+                // own hook resolve it against the declared default or the broadest type the
+                // constraint allows.
+                typeArgExpressions.Add("null");
+            }
+
+            var ctorArgs = this.FormatArgumentItems(newExpr.Arguments);
+            var ctorArgsList = JoinPhpCommaList(ctorArgs);
+
+            if (this._context.HasForeignGenericRuntime(targetSymbol))
+            {
+                this._context.RequirePackage("tyhp/core");
+                var classExpr = "\\" + targetSymbol.FullyQualifiedName.TrimStart('\\') + "::class";
+                var bindArgs = typeArgExpressions.Count == 0
+                    ? classExpr
+                    : classExpr + ", " + string.Join(", ", typeArgExpressions);
+                return $"\\Tyhp\\Generic::bind({bindArgs})({ctorArgsList})";
+            }
+
+            if (!this.SymbolIsInGenericChain(targetSymbol))
             {
                 return null;
             }
 
             this._context.RequirePackage("tyhp/core");
 
-            var typeArgExpressions = new List<string>();
-            for (var i = 0; i < targetSymbol.GenericParameters.Count; i++)
-            {
-                var typeArg = explicitTypeArgs is not null && i < explicitTypeArgs.Count
-                    ? explicitTypeArgs[i]
-                    : null;
-
-                // Not spelled at the call site: let the factory's own hook resolve it against the
-                // declared default or the broadest type the constraint allows.
-                typeArgExpressions.Add(typeArg is null
-                    ? "null"
-                    : this.BuildRuntimeTypeExpression(typeArg, preferCtorLocals: false));
-            }
-
-            var allArgs = string.IsNullOrWhiteSpace(formattedArgs)
-                ? string.Join(", ", typeArgExpressions)
-                : string.Join(", ", typeArgExpressions.Append(formattedArgs));
-
+            var allArgs = typeArgExpressions.Concat(ctorArgs).ToList();
             var fqn = targetSymbol.FullyQualifiedName;
             var factory = GeneratedNames.GenericFactory(fqn);
-            return $"\\{fqn.TrimStart('\\')}::{factory}({allArgs})";
+            return $"\\{fqn.TrimStart('\\')}::{factory}({JoinPhpCommaList(allArgs)})";
         }
 
         /// <summary>

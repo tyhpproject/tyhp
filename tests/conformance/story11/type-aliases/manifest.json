@@ -1,6 +1,6 @@
 {
   "suite": "story11/type-aliases",
-  "description": "Story 11 — type alias erasure to underlying PHP types",
+  "description": "Story 11 / 21.9 — type-alias factories plus hint expansion to underlying PHP types",
   "defaults": {
     "action": "build"
   },
@@ -11,6 +11,14 @@
       "expect": {
         "errorCount": 0,
         "php": "expected/App/User.php"
+      }
+    },
+    {
+      "id": "type_alias_user_id_factory",
+      "file": "type_aliases.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
       }
     }
   ]

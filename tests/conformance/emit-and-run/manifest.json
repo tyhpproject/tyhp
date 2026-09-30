@@ -1,0 +1,239 @@
+{
+  "suite": "emit-and-run",
+  "description": "Beaten-path emit-and-run: type-check, emit, execute PHP, fail on warnings/fatals. Not golden-PHP dumps.",
+  "defaults": {
+    "action": "emit-and-run"
+  },
+  "cases": [
+    {
+      "id": "foreach_struct_property",
+      "file": "foreach-struct-property.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "50\n",
+        "emittedContains": ["['cents']"],
+        "emittedNotContains": ["->cents"]
+      }
+    },
+    {
+      "id": "foreach_missing_member",
+      "file": "foreach-missing-member.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4101]
+      }
+    },
+    {
+      "id": "struct_extension_call",
+      "file": "struct-extension-call.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "7\n",
+        "emittedNotContains": ["['format']()"]
+      }
+    },
+    {
+      "id": "generic_mismatch",
+      "file": "generic-mismatch.tyhp",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4008]
+      }
+    },
+    {
+      "id": "generic_box_ok",
+      "file": "generic-box-ok.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "ok\n"
+      }
+    },
+    {
+      "id": "namespaced_toplevel_call",
+      "file": "namespaced-toplevel-call.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "42\n"
+      }
+    },
+    {
+      "id": "is_string_native",
+      "file": "is-string.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "yes\n",
+        "emittedContains": ["\\is_string($x)"],
+        "emittedNotContains": ["\\Tyhp\\Type::is($x"]
+      }
+    },
+    {
+      "id": "is_transparent_alias",
+      "file": "is-transparent-alias.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "yes\n",
+        "emittedContains": ["\\is_string($x)"],
+        "emittedNotContains": ["\\Tyhp\\Type::is($x, Foo())"]
+      }
+    },
+    {
+      "id": "is_unmarked_class",
+      "file": "is-unmarked-class.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "yes\n",
+        "emittedContains": ["instanceof User"],
+        "emittedNotContains": ["\\Tyhp\\Type::is($x"]
+      }
+    },
+    {
+      "id": "is_struct",
+      "file": "is-struct.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "yes\n",
+        "emittedContains": [
+          "\\Tyhp\\Type::is($x, \\Tyhp\\Type::struct('Money', ['cents' => \\Tyhp\\Type::int()], []))"
+        ],
+        "emittedNotContains": ["instanceof Money"]
+      }
+    },
+    {
+      "id": "is_object_shape",
+      "file": "is-object-shape.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "yes\nno\n1\n",
+        "emittedContains": [
+          "\\Tyhp\\Type::is($withNow, ClockShape())",
+          "\\Tyhp\\Type::objectShape('ClockShape', ['now'], [])"
+        ],
+        "emittedNotContains": [
+          "instanceof ClockShape",
+          "class ClockShape"
+        ]
+      }
+    },
+    {
+      "id": "new_t_factory",
+      "file": "new-t-factory.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "hi\n",
+        "emittedContains": [
+          "new ($__generic_T->getName())"
+        ],
+        "emittedNotContains": [
+          "new<",
+          "class Named",
+          "__New"
+        ]
+      }
+    },
+    {
+      "id": "clock_shape_duck",
+      "file": "clock-shape-duck.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "1\n",
+        "emittedContains": [
+          "function formatNow(object $c)"
+        ],
+        "emittedNotContains": [
+          "class ClockShape",
+          "ClockShape $c",
+          "new<"
+        ]
+      }
+    },
+    {
+      "id": "classname_new_shape",
+      "file": "classname-new-shape.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "hi\nok\n",
+        "emittedNotContains": [
+          "new<",
+          "class Named",
+          "__New"
+        ]
+      }
+    },
+    {
+      "id": "intersection_shape_erase",
+      "file": "intersection-shape-erase.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "1\n",
+        "emittedContains": [
+          "function take(\\App\\Logger $logger)"
+        ],
+        "emittedNotContains": [
+          "class TimestampedLogger",
+          "TimestampedLogger $logger",
+          "function take(object"
+        ]
+      }
+    },
+    {
+      "id": "is_union",
+      "file": "is-union.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "yes\n",
+        "emittedContains": [
+          "\\Tyhp\\Type::union(\\Tyhp\\Type::int(), \\Tyhp\\Type::string())",
+          "\\Tyhp\\Type::is($x, IntOrString())"
+        ],
+        "emittedNotContains": ["\\is_string($x)"]
+      }
+    },
+    {
+      "id": "is_nullable",
+      "file": "is-nullable.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "yes\n",
+        "emittedContains": ["\\Tyhp\\Type::is($x, \\Tyhp\\Type::nullable(\\Tyhp\\Type::string()))"],
+        "emittedNotContains": ["\\is_string($x)"]
+      }
+    },
+    {
+      "id": "is_static_method",
+      "file": "is-static-method.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "yes\n",
+        "emittedContains": ["\\Guards::isPositiveInt($x)"],
+        "emittedNotContains": ["\\Tyhp\\Type::is($x"]
+      }
+    },
+    {
+      "id": "is_generic_param",
+      "file": "is-generic-param.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "stdout": "yes\n",
+        "emittedContains": ["\\Tyhp\\Type::is"],
+        "emittedNotContains": ["instanceof T"]
+      }
+    },
+    {
+      "id": "parse_isolation_sibling_still_checked",
+      "file": "parse-isolation/typed.tyhp",
+      "extraFiles": ["parse-isolation/broken.tyhp"],
+      "expect": {
+        "errorCount": { "min": 2 },
+        "codes": [1002, 4009]
+      }
+    },
+    {
+      "id": "planted_arr_prop_fails_harness",
+      "file": "planted/arr_prop.php",
+      "action": "run-php",
+      "expect": {
+        "harnessFail": true
+      }
+    }
+  ]
+}

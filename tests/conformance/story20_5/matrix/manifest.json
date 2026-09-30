@@ -1,0 +1,108 @@
+{
+  "suite": "story20_5/matrix",
+  "description": "Story 20.5 — same gated sources at PHP 8.2/8.3/8.4/8.5; emit stripping of declare(php=) and #[\\Tyhp\\Php]",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "php82_functions",
+      "file": "matrix.tyhp",
+      "config": { "output:phpVersion": "8.2" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/php82/App/_functions.php"
+      }
+    },
+    {
+      "id": "php82_widget",
+      "file": "matrix.tyhp",
+      "config": { "output:phpVersion": "8.2" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/php82/App/Widget.php"
+      }
+    },
+    {
+      "id": "php83_functions",
+      "file": "matrix.tyhp",
+      "config": { "output:phpVersion": "8.3" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/php83/App/_functions.php"
+      }
+    },
+    {
+      "id": "php83_widget",
+      "file": "matrix.tyhp",
+      "config": { "output:phpVersion": "8.3" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/php83/App/Widget.php"
+      }
+    },
+    {
+      "id": "php84_functions",
+      "file": "matrix.tyhp",
+      "config": { "output:phpVersion": "8.4" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/php84/App/_functions.php"
+      }
+    },
+    {
+      "id": "php84_widget",
+      "file": "matrix.tyhp",
+      "config": { "output:phpVersion": "8.4" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/php84/App/Widget.php"
+      }
+    },
+    {
+      "id": "php84_extension",
+      "file": "file_gated_extension.tyhp",
+      "config": { "output:phpVersion": "8.4" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/php84/App/GatedStringOps.php"
+      }
+    },
+    {
+      "id": "php85_functions",
+      "file": "matrix.tyhp",
+      "config": { "output:phpVersion": "8.5" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/php85/App/_functions.php"
+      }
+    },
+    {
+      "id": "php85_widget",
+      "file": "matrix.tyhp",
+      "config": { "output:phpVersion": "8.5" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/php85/App/Widget.php"
+      }
+    },
+    {
+      "id": "php85_extension",
+      "file": "file_gated_extension.tyhp",
+      "config": { "output:phpVersion": "8.5" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/php85/App/GatedStringOps.php"
+      }
+    },
+    {
+      "id": "php85_file_gated",
+      "file": "file_gated.tyhp",
+      "config": { "output:phpVersion": "8.5" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/php85/App/Gated/_functions.php"
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+<?php
+
+/**
+ * @return object
+ */
+function json_decode(string $json): mixed {}

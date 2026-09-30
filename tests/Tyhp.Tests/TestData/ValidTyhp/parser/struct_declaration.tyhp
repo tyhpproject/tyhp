@@ -2,12 +2,11 @@
 
 namespace TestData\Parser;
 
-struct Point
-{
+type Point = struct {
     int $x = 0;
     int $y = 0;
     ?string $label;
-}
+};
 
 Point $origin = new Point() with [
     x => 0,

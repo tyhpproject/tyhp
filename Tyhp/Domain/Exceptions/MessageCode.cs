@@ -67,7 +67,7 @@ namespace Tyhp.Domain.Exceptions
     ///   <term>Range</term>
     ///   <description>CLI Action</description>
     /// </listheader>
-    /// <item><term>7000–7099</term><description>Shared CLI / generic errors</description></item>
+    /// <item><term>7000–7099</term><description>Shared CLI / generic errors; install action</description></item>
     /// <item><term>7100–7199</term><description>build action</description></item>
     /// <item><term>7200–7299</term><description>lint action</description></item>
     /// <item><term>7300–7399</term><description>language_server action</description></item>
@@ -76,7 +76,7 @@ namespace Tyhp.Domain.Exceptions
     /// <item><term>7600–7699</term><description>init action</description></item>
     /// <item><term>7700–7799</term><description>composer action</description></item>
     /// <item><term>7800–7899</term><description>debug / integrity_check actions</description></item>
-    /// <item><term>7900–7999</term><description>Reserved for future CLI actions</description></item>
+    /// <item><term>7900–7999</term><description>overlay action</description></item>
     /// </list>
     /// <para><b>Reserved Ranges:</b></para>
     /// <para>
@@ -166,6 +166,42 @@ namespace Tyhp.Domain.Exceptions
             /// (e.g. a class implementing another class).
             /// </summary>
             BinderInvalidImplementsTypeKind = 3024,
+
+            /// <summary>
+            /// The <c>&lt;Type&gt;</c> target of an extension operator resolved to a
+            /// non-instantiable builtin (<c>void</c>, <c>never</c>, <c>null</c>, <c>mixed</c>,
+            /// <c>resource</c>, <c>true</c>, <c>false</c>).
+            /// </summary>
+            ExtensionOperatorTargetNotInstantiable = 3025,
+
+            /// <summary>
+            /// An <c>extends</c> target resolved to an <c>extern</c> placeholder
+            /// (tyhpdef or <c>.tyhp</c>). Pair with <see cref="BinderExternImplementsType"/>.
+            /// </summary>
+            BinderExternExtendsType = 3026,
+
+            /// <summary>
+            /// An <c>implements</c> target resolved to an <c>extern</c> placeholder
+            /// (tyhpdef or <c>.tyhp</c>). Pair with <see cref="BinderExternExtendsType"/>.
+            /// </summary>
+            BinderExternImplementsType = 3027,
+
+            /// <summary>
+            /// A file-level type alias occupies the function namespace, so it cannot share a
+            /// name with a function in the same namespace (<c>type Foo</c> + <c>function Foo()</c>).
+            /// </summary>
+            BinderTypeAliasConflictsWithFunction = 3028,
+
+            /// <summary>
+            /// Type aliases form a cycle (<c>type A = B; type B = A</c>).
+            /// </summary>
+            BinderCircularTypeAlias = 3029,
+
+            /// <summary>
+            /// A file-level type alias uses a name that cannot be a PHP function
+            /// (<c>echo</c>, <c>list</c>, <c>empty</c>, <c>int</c>, …).
+            /// </summary>
+            BinderTypeAliasReservedFunctionName = 3030,
 
             #endregion Binder
 
@@ -349,6 +385,11 @@ namespace Tyhp.Domain.Exceptions
 
             // finally / catch quality errors
             CheckerEmptyCatch = 4121,
+            /// <summary>
+            /// A <c>return</c> belongs to a <c>finally</c> block. A <c>return</c> inside a closure,
+            /// arrow function, or <c>async</c> block written in that <c>finally</c> is the nested
+            /// callable's return and is not this error.
+            /// </summary>
             CheckerReturnInFinally = 4122,
             CheckerBreakInFinally = 4123,
             CheckerDuplicateCatch = 4124,
@@ -358,6 +399,12 @@ namespace Tyhp.Domain.Exceptions
             CheckerNotAnAttributeClass = 4126,
             CheckerAttributeTargetMismatch = 4127,
             CheckerAttributeNotRepeatable = 4128,
+            /// <summary>
+            /// <c>#[Override]</c> on a method or property that does not override a non-private
+            /// ancestor or interface member. Properties are only legal as a target when
+            /// <c>output.phpVersion</c> is ≥ 8.5; below that, target mismatch (TYHP4127) fires
+            /// instead. Constructors use <see cref="CheckerOverrideOnConstructor"/>, not this code.
+            /// </summary>
             CheckerOverrideNotOverriding = 4129,
 
             // Import errors
@@ -389,7 +436,10 @@ namespace Tyhp.Domain.Exceptions
             CheckerTemplateStringInvalidQuantifierRange = 4145,
             CheckerTemplateStringMaxStatesExceeded = 4146,
 
-            // Extension declaration errors
+            /// <summary>
+            /// An extension declares members but has neither a header <c>extends Type</c>
+            /// nor nested <c>extends</c> groups.
+            /// </summary>
             CheckerExtensionMissingExtends = 4147,
 
             // Runtime generic tracking errors
@@ -512,7 +562,8 @@ namespace Tyhp.Domain.Exceptions
             /// <summary>
             /// PHP 8.5 <c>#[\NoDiscard]</c>: the return value of a marked function/method was
             /// discarded (expression statement / discarded for-list item). Suppress with
-            /// <c>(void)</c>. Warning (matches PHP <c>E_WARNING</c> / <c>E_USER_WARNING</c>).
+            /// <c>(void)</c>. Interface and abstract callees do not warn. A string-literal
+            /// <c>$message</c> is <c>{1}</c>. Warning (matches PHP <c>E_WARNING</c> / <c>E_USER_WARNING</c>).
             /// </summary>
             CheckerNoDiscardReturnUnused = 4165,
 
@@ -536,6 +587,174 @@ namespace Tyhp.Domain.Exceptions
             /// <c>parent&lt;…&gt;</c>, or an explicit class name instead.
             /// </summary>
             CheckerParameterizedStaticForbidden = 4168,
+
+            /// <summary>
+            /// A non-<c>global</c> <c>use</c> / <c>use function</c> / <c>use const</c> /
+            /// <c>use extension</c> re-imports a symbol already in scope via <c>global use</c>
+            /// without an alias or adaptations. The local import is not needed.
+            /// </summary>
+            CheckerRedundantGlobalImport = 4169,
+
+            /// <summary>
+            /// <c>use extension</c> adaptation tried to rename an operator with <c>as</c>.
+            /// Operators cannot be renamed; use <c>hide</c> or <c>insteadof</c>.
+            /// </summary>
+            CheckerExtensionOperatorRenameForbidden = 4170,
+
+            /// <summary>
+            /// A user type's Tyhp name is or ends with the suffix reserved for standalone
+            /// extension backer aliases (<c>__tyhpExtensionBacker</c>).
+            /// </summary>
+            CheckerReservedExtensionBackerSuffix = 4171,
+
+            /// <summary>
+            /// A standalone <c>extension Name { }</c> (Tyhp or tyhpdef) has no members.
+            /// </summary>
+            CheckerEmptyExtension = 4172,
+
+            /// <summary>
+            /// <c>use extension { Name hide; }</c> names a member that extension does not declare.
+            /// </summary>
+            CheckerExtensionHideUnknownMember = 4173,
+
+            /// <summary>
+            /// A spliced member's expression writes a parameter not declared <c>&amp;</c>, declares
+            /// <c>&amp;</c> on a parameter it does not write, or mutates <c>$this</c>.
+            /// </summary>
+            CheckerInlineParameterMutation = 4174,
+
+            /// <summary>
+            /// A spliced member reduces to itself directly or transitively.
+            /// </summary>
+            CheckerInlineCycle = 4175,
+
+            /// <summary>
+            /// <c>#[\Tyhp\Optimize\Inline]</c> on an extension member (tyhpdef thin member or Tyhp
+            /// <c>extension { }</c> member). Extension splicing is decided by form, not the attribute.
+            /// </summary>
+            CheckerInlineAttributeOnExtensionMember = 4176,
+
+            /// <summary>
+            /// User code declares a variable colliding with the generated inline temp prefix
+            /// (<c>__tyhpInlineTemp</c>).
+            /// </summary>
+            CheckerReservedInlineTempPrefix = 4177,
+
+            /// <summary>
+            /// A spliced body references a member less accessible than the spliced member itself.
+            /// Allocated by Story 23; enforced by the Story 20.6 splice engine.
+            /// </summary>
+            CheckerInlineInaccessibleMember = 4179,
+
+            /// <summary>
+            /// A call passes a non-referenceable expression to a by-reference parameter. General
+            /// call-site rule (not inline-only), at every optimization level. Allocated by Story 23;
+            /// enforced here. Reads <c>HasAccessor</c> / <c>GetHookReturnsRef</c>.
+            /// </summary>
+            CheckerNonReferenceableByRefArgument = 4180,
+
+            /// <summary>
+            /// An erased member's call site cannot be spliced faithfully, and has no PHP method to
+            /// fall back to.
+            /// </summary>
+            CheckerErasedMemberUnsafeSplice = 4181,
+
+            /// <summary>
+            /// A free-function / namespaced-function call does not resolve to any declared function,
+            /// tyhpdef stub, import, or compile-time builtin. Inactive PHP-version gates omit the
+            /// symbol, so a call outside the gate is the same error.
+            /// </summary>
+            CheckerUndefinedFunction = 4182,
+
+            /// <summary>
+            /// Bare <c>...</c> as a generic type argument. Unknown-arity callables are
+            /// <c>callable(...): TReturn</c> shapes, not type-argument wildcards.
+            /// </summary>
+            CheckerCallableEllipsisNotAllowed = 4183,
+
+            /// <summary>
+            /// Direct use of <c>callable(...): TReturn</c> as a parameter, property, or
+            /// return type. The any-arity facet is a generic bound only.
+            /// </summary>
+            CheckerCallableAnyArityNotAValueType = 4184,
+
+            /// <summary>
+            /// Invoking a value whose type is the any-arity facet <c>callable(...): TReturn</c>
+            /// (arity is unknown).
+            /// </summary>
+            CheckerCallableAnyArityNotInvokable = 4185,
+
+            /// <summary>
+            /// A type-alias factory is invoked with generic type arguments
+            /// (<c>Optional&lt;int&gt;()</c>). The factory is not a generic function; write
+            /// <c>typeof(Optional&lt;int&gt;)</c> or <c>Optional(typeof(int))</c>.
+            /// </summary>
+            CheckerTypeAliasFactoryTypeArguments = 4186,
+
+            /// <summary>
+            /// Postfix <c>...</c> on a pack used as a generic type argument. Packs splice as
+            /// ordinary <c>callable(Rest&lt;T&gt; ...): R</c> shape parameters.
+            /// </summary>
+            CheckerCallablePackEllipsisNotAllowed = 4187,
+
+            /// <summary>
+            /// Postfix <c>T...</c> as a generic type argument, or glued to a value-parameter
+            /// type (<c>int... $x</c>). Homogeneous variadic callables are
+            /// <c>callable(T ...$args): R</c>.
+            /// </summary>
+            CheckerCallablePostfixEllipsisNotAllowed = 4188,
+
+            /// <summary>
+            /// Two <c>__CallableParametersSlice</c> uses of the same <c>TCallable</c> overlap.
+            /// </summary>
+            CheckerCallableSliceOverlap = 4189,
+
+            /// <summary>
+            /// Same-function slices of one <c>TCallable</c> leave a hole in required parameters.
+            /// </summary>
+            CheckerCallableSliceHole = 4190,
+
+            /// <summary>
+            /// <c>TMin</c> written on a non-variadic <c>__CallableParametersSlice</c> parameter.
+            /// </summary>
+            CheckerCallableSliceMinOnFixed = 4191,
+
+            /// <summary>
+            /// <c>TStart</c> / <c>TMin</c> of <c>__CallableParametersSlice</c> is not a
+            /// non-negative int literal type.
+            /// </summary>
+            CheckerCallableSliceIndexNotIntLiteral = 4192,
+
+            /// <summary>
+            /// File-level <c>const int X = …</c> in Tyhp source. PHP allows typed constants only on
+            /// classes, interfaces, traits, and enums.
+            /// </summary>
+            CheckerFileLevelTypedConstNotAllowed = 4193,
+
+            /// <summary>
+            /// A class/interface/trait/enum constant has no type and no typed ancestor to infer from.
+            /// </summary>
+            CheckerClassConstTypeRequired = 4194,
+
+            /// <summary>
+            /// A child class constant redeclares a parent, interface, or trait constant with a
+            /// different type.
+            /// </summary>
+            CheckerClassConstTypeMismatch = 4195,
+
+            /// <summary>
+            /// A foreach key or value annotation is not a supertype of the iterated key/value type.
+            /// The annotation does not narrow; the loop variable has the declared type.
+            /// </summary>
+            CheckerForeachBindingTypeMismatch = 4196,
+
+            /// <summary>
+            /// Member access, method call, extension lookup, or indexing on a receiver whose type
+            /// could not be resolved. Suppressed when the receiver subtree already has an error
+            /// (one report per failure). Unresolved assignability is unchanged. Mixed receivers
+            /// use <see cref="CheckerMixedRequiresNarrowing"/> (TYHP4160).
+            /// </summary>
+            CheckerUnresolvedReceiver = 4197,
 
             // Code-quality warnings (4200+ range)
             CheckerUnusedVariable = 4200,
@@ -563,7 +782,7 @@ namespace Tyhp.Domain.Exceptions
             /// </summary>
             CheckerExistenceGateInvalidName = 4213,
 
-            // Feature-story checker diagnostics (4300–4399) — Stories 16, 20.5, 25, 26, 27, 28
+            // Feature-story checker diagnostics (4300–4399) — Stories 16, 20.5, 21.1, 25, 26, 27, 28
             // Story 20.5 — PHP version gating (`declare(php=…)` / `#[\Tyhp\Php]`)
             CheckerPhpVersionInvalidConstraint = 4300,
             CheckerPhpVersionDeclareNotAlone = 4301,
@@ -572,7 +791,15 @@ namespace Tyhp.Domain.Exceptions
             CheckerPhpVersionAttributeInvalidTarget = 4304,
             CheckerPhpVersionAttributeInvalidArgument = 4305,
             CheckerPhpVersionDefaulted = 4306,
-            // 4307–4309 reserved for Story 20.5 follow-ups
+
+            /// <summary>
+            /// A <c>.tyhp</c> file used an <c>extern</c> name (type, function, or const:
+            /// annotation, <c>new</c>, <c>instanceof</c>, <c>catch</c>, import, call,
+            /// const fetch, inferred expression type, or union/intersection arm).
+            /// </summary>
+            CheckerExternTypeUsed = 4307,
+
+            // 4308–4309 reserved for Story 20.5 follow-ups
 
             // Story 28 — generic type parameter defaults
             /// <summary>
@@ -596,25 +823,25 @@ namespace Tyhp.Domain.Exceptions
 
             // Story 16 — parsable lambdas / PropertyPath (Phase 1)
             /// <summary>
-            /// A <c>PropertyPath&lt;T, R&gt;</c> parameter was given something other than an inline
+            /// A <c>PropertyPath&lt;(callable(T): R)&gt;</c> parameter was given something other than an inline
             /// <c>fn</c> arrow expression.
             /// </summary>
             CheckerPropertyPathRequiresInlineFn = 4320,
 
             /// <summary>
-            /// An inline <c>fn</c> passed to <c>PropertyPath&lt;T, R&gt;</c> is not a simple property
+            /// An inline <c>fn</c> passed to <c>PropertyPath&lt;(callable(T): R)&gt;</c> is not a simple property
             /// access chain from the lambda parameter (e.g. method call, binary op, nested call).
             /// </summary>
             CheckerPropertyPathInvalidBody = 4321,
 
             /// <summary>
-            /// An inline <c>fn</c> passed to <c>Expression&lt;T, R&gt;</c> contains a node kind
+            /// An inline <c>fn</c> passed to <c>Expression&lt;(callable(T): R)&gt;</c> contains a node kind
             /// that expression trees cannot represent (assignment, await, nested fn, etc.).
             /// </summary>
             CheckerExpressionUnsupportedNode = 4322,
 
             /// <summary>
-            /// An <c>Expression&lt;T, R&gt;</c> parameter was given something other than an inline
+            /// An <c>Expression&lt;(callable(T): R)&gt;</c> parameter was given something other than an inline
             /// <c>fn</c> arrow expression.
             /// </summary>
             CheckerExpressionRequiresInlineFn = 4323,
@@ -633,7 +860,298 @@ namespace Tyhp.Domain.Exceptions
             /// </summary>
             CheckerStructRequiredKeyMissing = 4325,
 
-            // 4326–4399 reserved for Stories 25, 26, 27 (allocate when those stories land)
+            /// <summary>
+            /// A user class, enum, interface, or trait listed <c>\Traversable</c> in
+            /// <c>extends</c> or <c>implements</c>. Only <c>\Iterator</c> and
+            /// <c>\IteratorAggregate</c> may extend Traversable; other types implement or
+            /// extend those instead. Harvested <c>.tyhpdef</c> shells are a different AST and
+            /// are not diagnosed.
+            /// </summary>
+            CheckerTraversableCannotBeListed = 4326,
+
+            /// <summary>
+            /// <c>#[\Tyhp\PhpType]</c> was placed on a declaration that is not a PHP type-hint
+            /// site (class / interface / trait / enum, enum case, catch, local, or property hook).
+            /// </summary>
+            CheckerPhpTypeInvalidTarget = 4327,
+
+            /// <summary>
+            /// Typed <c>yield</c> expression sites in a generator constrain <c>TSend</c> to the
+            /// intersection of those targets; the intersection is empty (e.g. <c>int</c> vs
+            /// <c>string</c>).
+            /// </summary>
+            CheckerGeneratorSendIntersectionEmpty = 4328,
+
+            /// <summary>
+            /// <c>#[\Tyhp\PhpType]</c> constructor argument is missing, not a string, or not a
+            /// legal PHP type-hint spelling.
+            /// </summary>
+            CheckerPhpTypeInvalidSpelling = 4329,
+
+            /// <summary>
+            /// Homogeneous <c>ArrayAccess&lt;TKey, TValue&gt;</c> was instantiated with a
+            /// <c>TKey</c> that is a struct or <c>array</c>. PHP offsets cannot be arrays;
+            /// structs erase to arrays.
+            /// </summary>
+            CheckerArrayAccessKeyNotOffset = 4330,
+
+            /// <summary>
+            /// An <c>ArrayAccessShape</c> index used a wide <c>string</c>/<c>int</c>/<c>mixed</c>
+            /// key instead of a struct-key literal (narrow or <c>as</c>).
+            /// </summary>
+            CheckerArrayAccessShapeWideKey = 4331,
+
+            /// <summary>
+            /// <c>$obj[] =</c> (append) on an <c>ArrayAccessShape</c>. Shapes have a closed key
+            /// set; append is only legal on homogeneous <c>ArrayAccess</c>.
+            /// </summary>
+            CheckerArrayAccessShapeAppend = 4332,
+
+            /// <summary>
+            /// An <c>offsetGet</c>/<c>offsetSet</c> body does not cover a finite struct key.
+            /// <c>throw</c> / <c>never</c> does not cover a key.
+            /// </summary>
+            CheckerArrayAccessShapeUnhandledKey = 4333,
+
+            /// <summary>
+            /// <c>bind</c> / <c>bindTo</c> / <c>call</c>: <c>$newThis</c> is not compatible with
+            /// leftover <c>TScope</c> (or current <c>TThis</c>), object/name <c>$newScope</c> is
+            /// not a legal scope for <c>TNewThis</c>, or <c>call</c> was given a non-object.
+            /// </summary>
+            CheckerClosureBindIncompatible = 4334,
+
+            /// <summary>
+            /// The bind sentinel <c>'static'</c> was written as a stored Closure <c>TScope</c>
+            /// type argument. It is only a <c>bind</c> / <c>bindTo</c> argument meaning "keep the
+            /// old scope".
+            /// </summary>
+            CheckerClosureStaticScopeStored = 4335,
+
+            /// <summary>
+            /// The closure cannot be rebound: arrow function, first-class callable /
+            /// <c>fromCallable</c> of a non-Closure, or an internal-class <c>$newThis</c> /
+            /// <c>$newScope</c>.
+            /// </summary>
+            CheckerClosureNonRebindable = 4336,
+
+            /// <summary>
+            /// A user class, enum, interface, or trait listed <c>\UnitEnum</c> or
+            /// <c>\BackedEnum</c> in <c>extends</c> or <c>implements</c>. Only the engine
+            /// <c>\BackedEnum</c> tyhpdef may extend <c>\UnitEnum</c>. Harvested
+            /// <c>.tyhpdef</c> shells are a different AST and are not diagnosed.
+            /// </summary>
+            CheckerEngineEnumCannotBeListed = 4337,
+
+            /// <summary>
+            /// A user <c>.tyhp</c> enum redeclared <c>cases</c>, <c>from</c>, or
+            /// <c>tryFrom</c>. The engine supplies those methods. Harvested
+            /// <c>.tyhpdef</c> shells may keep the signatures and are not diagnosed.
+            /// </summary>
+            CheckerEnumEngineMethodRedeclared = 4338,
+
+            /// <summary>
+            /// <c>#[Override]</c> on <c>__construct</c>. PHP constructors are exempt from override
+            /// semantics, so the attribute is invalid even when a parent constructor exists.
+            /// Distinct from <see cref="CheckerOverrideNotOverriding"/> (missing parent member).
+            /// </summary>
+            CheckerOverrideOnConstructor = 4339,
+
+            /// <summary>
+            /// <c>#[\Tyhp\NativeTypeTest]</c> on a declaration that is not a free function
+            /// or concrete static method (instance method, abstract/interface method,
+            /// closure, class, …).
+            /// </summary>
+            CheckerNativeTypeTestInvalidTarget = 4340,
+
+            /// <summary>
+            /// <c>#[\Tyhp\NativeTypeTest]</c> on a function that does not declare
+            /// <c>$firstParam is T</c> on its first parameter.
+            /// </summary>
+            CheckerNativeTypeTestRequiresTypeGuard = 4341,
+
+            /// <summary>
+            /// <c>#[\Tyhp\NativeTypeTest]</c> guard type is a union, intersection, nullable,
+            /// generic application, or other non-single type.
+            /// </summary>
+            CheckerNativeTypeTestTypeNotSingle = 4342,
+
+            /// <summary>
+            /// <c>#[\Tyhp\NativeTypeTest]</c> function has a required parameter after the
+            /// guarded first parameter, so emit cannot be <c>fqn($x)</c>.
+            /// </summary>
+            CheckerNativeTypeTestExtraParamsNeedDefaults = 4343,
+
+            /// <summary>
+            /// Two callables marked <c>#[\Tyhp\NativeTypeTest]</c> whose guarded types
+            /// overlap (equal, subtype, or shared union members).
+            /// </summary>
+            CheckerNativeTypeTestDuplicate = 4344,
+
+            /// <summary>
+            /// <c>#[\Tyhp\EraseGeneric]</c> on a declaration that is not a class, property, or
+            /// promoted constructor parameter (method, function, …).
+            /// </summary>
+            CheckerEraseGenericInvalidTarget = 4345,
+
+            /// <summary>
+            /// Author-written <c>#[\Tyhp\GenericRuntime]</c> on Tyhp source. The compiler
+            /// restamps the attribute; authors do not write it.
+            /// </summary>
+            CheckerGenericRuntimeAuthorWritten = 4346,
+
+            // Story 27 — object shapes and __New<T>
+            /// <summary>
+            /// An object-shape alias was used as a class: <c>new</c>, <c>::</c>,
+            /// <c>extends</c>, <c>implements</c>, or <c>::class</c>.
+            /// </summary>
+            CheckerObjectShapeUsedAsClass = 4347,
+
+            /// <summary>
+            /// An <c>object { }</c> shape appeared somewhere other than the right-hand
+            /// side of a <c>type</c> alias.
+            /// </summary>
+            CheckerObjectShapeNotTypeAlias = 4348,
+
+            /// <summary>
+            /// A <c>type</c> alias used an empty <c>object { }</c> body. The unshaped
+            /// spelling is <c>object</c>.
+            /// </summary>
+            CheckerObjectShapeEmpty = 4349,
+
+            /// <summary>
+            /// An object-shape member was declared <c>protected</c> or <c>private</c>.
+            /// Shape members are public only.
+            /// </summary>
+            CheckerObjectShapeNonPublicMember = 4350,
+
+            /// <summary>
+            /// The type argument of <c>__New&lt;T&gt;</c> is not an object-shape alias.
+            /// </summary>
+            CheckerNewTypeArgumentNotObjectShape = 4351,
+
+            /// <summary>
+            /// A type does not satisfy <c>__New&lt;Shape&gt;</c> because it is abstract,
+            /// an interface, an enum, or a trait.
+            /// </summary>
+            CheckerNewConstraintNotConstructable = 4352,
+
+            /// <summary>
+            /// A type does not satisfy <c>__New&lt;Shape&gt;</c> because its constructor
+            /// is not public.
+            /// </summary>
+            CheckerNewConstraintNonPublicConstructor = 4353,
+
+            /// <summary>
+            /// A type does not satisfy <c>__New&lt;Shape&gt;</c> because its constructor
+            /// is not compatible with the shape (arity or parameter types).
+            /// </summary>
+            CheckerNewConstraintConstructorMismatch = 4354,
+
+            /// <summary>
+            /// <c>new T()</c> where <c>T</c> is not a <c>__New&lt;…&gt;</c> type parameter.
+            /// </summary>
+            CheckerNewTypeParameterRequiresNew = 4355,
+
+            /// <summary>
+            /// <c>new $cls()</c> where <c>$cls</c> is <c>__ClassName&lt;Shape&gt;</c>
+            /// without <c>__New</c>.
+            /// </summary>
+            CheckerNewClassNameRequiresNew = 4356,
+
+            /// <summary>
+            /// Arguments of <c>new T(...)</c> / <c>new $cls(...)</c> do not match the
+            /// object shape's constructor.
+            /// </summary>
+            CheckerObjectShapeConstructorArgumentMismatch = 4357,
+
+            /// <summary>
+            /// <c>object</c> or <c>mixed</c> assigned to an object shape without a
+            /// shape guard.
+            /// </summary>
+            CheckerObjectShapeRequiresGuard = 4358,
+
+            /// <summary>
+            /// <c>$x-&gt;__construct()</c> on a value typed as an object shape.
+            /// <c>__construct</c> on a shape is a constructability signature, not an
+            /// instance method.
+            /// </summary>
+            CheckerObjectShapeConstructNotCallable = 4359,
+
+            /// <summary>
+            /// Bare <c>callable</c> or <c>mixed</c> assigned to a callable shape
+            /// without a shape guard.
+            /// </summary>
+            CheckerCallableShapeRequiresGuard = 4360,
+
+            /// <summary>
+            /// An extension member still names its target with <c>extends Type $this</c>
+            /// or <c>operator op&lt;Type&gt;</c>. The target belongs on the block
+            /// (<c>extension Name extends Type</c> or a nested <c>extends Type { }</c> group).
+            /// </summary>
+            ParserExtensionLegacyMemberTarget = 4361,
+
+            /// <summary>
+            /// A header <c>extends Type</c> and a nested <c>extends</c> group are both present.
+            /// </summary>
+            CheckerExtensionHeaderAndNestedTargets = 4362,
+
+            /// <summary>
+            /// A nested <c>extends</c> group shares the extension body with a member that is not in a group.
+            /// </summary>
+            CheckerExtensionLooseMemberBesideGroup = 4363,
+
+            /// <summary>
+            /// An extension target is not one named class, interface, enum, alias, builtin, or generic application.
+            /// </summary>
+            CheckerExtensionTargetNotSingleType = 4364,
+
+            /// <summary>
+            /// A type parameter on <c>extension Name&lt;T&gt;</c> or <c>extends&lt;T&gt;</c> is never referenced.
+            /// </summary>
+            CheckerExtensionUnusedTypeParameter = 4365,
+
+            /// <summary>
+            /// A method type parameter uses the name of a type parameter already in scope on the extension or group.
+            /// </summary>
+            CheckerExtensionTypeParameterShadowed = 4366,
+
+            /// <summary>
+            /// Two groups in one extension can apply to the same receiver and declare the same method or operator.
+            /// </summary>
+            CheckerExtensionOverlappingMember = 4367,
+
+            /// <summary>
+            /// <c>static::</c> or <c>parent::</c> appears in an extension member.
+            /// </summary>
+            CheckerExtensionRelativeType = 4368,
+
+            /// <summary>
+            /// The member writes <c>$this</c> and does not declare the <c>&amp;$this</c> receiver annotation.
+            /// </summary>
+            CheckerExtensionByRefReceiverRequired = 4369,
+
+            /// <summary>
+            /// The member declares <c>&amp;$this</c> and never writes <c>$this</c>.
+            /// </summary>
+            CheckerExtensionByRefReceiverUnused = 4370,
+
+            /// <summary>
+            /// <c>#[\Tyhp\Php]</c> on a property, class constant, enum case, or interface method in
+            /// Tyhp source. PHP cannot declare those conditionally, so the whole type has to be
+            /// declared once per PHP version instead.
+            /// </summary>
+            CheckerPhpVersionAttributeInvalidMember = 4371,
+
+            /// <summary>
+            /// A Tyhp-facing name is one PHP 8.6 reserves: <c>let</c> or <c>is</c> as a class,
+            /// interface, trait, enum, function, or constant; <c>namespace</c> as a constant;
+            /// <c>readonly</c> as a function; or <c>_</c> as a constant or compile-time alias.
+            /// The PHP original may keep that spelling when a tyhpdef <c>as</c> alias is the name
+            /// Tyhp code uses. Methods and properties are not reserved.
+            /// </summary>
+            CheckerReservedPhp86Name = 4372,
+
+            // 4373–4399 reserved for Stories 25, 26, 27 follow-ups
 
             // Deprecation warnings (4500+ range)
             CheckerDeprecatedUsage = 4500,
@@ -701,6 +1219,21 @@ namespace Tyhp.Domain.Exceptions
             /// </summary>
             EmitterPostfixOperatorOverloadRequiresStatementSplit = 5019,
 
+            /// <summary>Source map JSON could not be generated for an output file.</summary>
+            EmitterSourceMapGenerationFailed = 5020,
+
+            /// <summary>A <c>.map</c> file could not be written to disk.</summary>
+            EmitterSourceMapWriteFailed = 5021,
+
+            /// <summary>A mapping references an invalid original source position.</summary>
+            EmitterSourceMapInvalidMapping = 5022,
+
+            /// <summary>
+            /// <c>#[\Tyhp\GenericRuntime]</c> <c>layouts</c> have no intersection with the
+            /// layouts this compiler implements (currently <c>[1]</c>).
+            /// </summary>
+            EmitterGenericRuntimeLayoutUnsupported = 5023,
+
             #endregion Emitter
 
             #region Configuration (6000–6999)
@@ -729,13 +1262,35 @@ namespace Tyhp.Domain.Exceptions
             /// <summary>The <c>type</c> field has an unrecognized value.</summary>
             ConfigInvalidProjectType = 6008,
 
+            /// <summary>A <c>{name}</c>-style placeholder in <c>tyhp.json</c> could not be expanded.</summary>
+            ConfigInterpolationFailed = 6009,
+
             #endregion Configuration (6000–6999)
 
-            #region CLI — Shared / Generic (7000–7099)
+            #region CLI — Shared / Generic / install action (7000–7099)
 
-            // Shared CLI error codes used across multiple actions.
+            /// <summary>Unknown <c>tyhp install</c> target.</summary>
+            InstallUnknownTarget = 7000,
 
-            #endregion CLI — Shared / Generic (7000–7099)
+            /// <summary>PHP is not on PATH; the Composer installer is a PHAR.</summary>
+            InstallPhpNotFound = 7001,
+
+            /// <summary><c>--local</c> and <c>--global</c> were both given.</summary>
+            InstallConflictingLocationFlags = 7002,
+
+            /// <summary>Composer installer download failed.</summary>
+            InstallComposerDownloadFailed = 7003,
+
+            /// <summary>Composer installer SHA-384 does not match the published signature.</summary>
+            InstallComposerChecksumMismatch = 7004,
+
+            /// <summary>Running <c>php composer-setup.php</c> failed.</summary>
+            InstallComposerSetupFailed = 7005,
+
+            /// <summary>Composer is not found at the destination after a successful-looking install.</summary>
+            InstallComposerNotFoundAfterInstall = 7006,
+
+            #endregion CLI — Shared / Generic / install action (7000–7099)
 
             #region CLI — build action (7100–7199)
 
@@ -756,6 +1311,12 @@ namespace Tyhp.Domain.Exceptions
 
             /// <summary>Tyhp runtime Composer package not available for installation.</summary>
             BuildRuntimePackageNotAvailable = 7105,
+
+            /// <summary>Copying <c>output.publishContent</c> into the publish directory failed.</summary>
+            BuildPublishContentFailed = 7106,
+
+            /// <summary>An <c>output.publishContent</c> src pattern matched no files.</summary>
+            BuildPublishContentUnmatched = 7107,
 
             #endregion CLI — build action (7100–7199)
 
@@ -801,32 +1362,165 @@ namespace Tyhp.Domain.Exceptions
 
             #region CLI — language_server action (7300–7399)
 
-            // Language server error codes are added by the language-server story.
+            /// <summary>Generic language server error.</summary>
+            LspUnknownError = 7300,
+
+            /// <summary>Failed to start the LSP server.</summary>
+            LspServerStartupFailed = 7301,
+
+            /// <summary>Error during document analysis.</summary>
+            LspAnalysisError = 7302,
+
+            /// <summary>Error loading a sourcemap for workspace analysis.</summary>
+            LspSourceMapLoadError = 7303,
 
             #endregion CLI — language_server action (7300–7399)
 
             #region CLI — xdebug_proxy action (7400–7499)
 
-            // XDebug proxy error codes are added by Story 14.
+            /// <summary>Generic XDebug proxy error.</summary>
+            ProxyUnknownError = 7400,
+
+            /// <summary>No sourcemap file found for a given PHP file (or none in the map directory).</summary>
+            ProxySourceMapNotFound = 7401,
+
+            /// <summary>Sourcemap JSON is invalid or malformed.</summary>
+            ProxySourceMapParseError = 7402,
+
+            /// <summary>TCP connection error.</summary>
+            ProxyConnectionFailed = 7403,
+
+            /// <summary>IDE or XDebug side did not connect within the pairing timeout.</summary>
+            ProxySessionPairingTimeout = 7404,
+
+            /// <summary>Error translating a DBGp message (non-fatal).</summary>
+            ProxyTranslationError = 7405,
+
+            /// <summary>Received a malformed DBGp message.</summary>
+            ProxyInvalidDbgpMessage = 7406,
+
+            /// <summary>Configured port is already bound by another process.</summary>
+            ProxyPortInUse = 7407,
 
             #endregion CLI — xdebug_proxy action (7400–7499)
 
             #region CLI — generate_tyhpdef action (7500–7599)
 
+            /// <summary>Error during tyhpdef generation.</summary>
+            TyhpdefGenerationError = 7500,
+
+            /// <summary>PHP runtime not found for <c>--ext-name</c>.</summary>
+            TyhpdefPhpNotFound = 7501,
+
+            /// <summary>PHP source file failed to parse during tyhpdef generation.</summary>
+            TyhpdefSourceParseError = 7502,
+
+            /// <summary>Failed to write tyhpdef output file.</summary>
+            TyhpdefOutputWriteError = 7503,
+
+            /// <summary>Failed to parse PHPDoc comment block.</summary>
+            TyhpdefPhpDocParseError = 7504,
+
             /// <summary>Library project contains entrypoint file(s) with root-level side-effect statements.</summary>
             TyhpdefLibraryEntrypointDetected = 7505,
+
+            /// <summary><c>--verify</c> found an existing tyhpdef that is not compatible with the generated golden PHP signature.</summary>
+            TyhpdefVerifyIncompatible = 7506,
+
+            /// <summary><c>--source</c> / <c>--package-path</c> collected a non-<c>.php</c> file (including <c>.tyhp</c> / <c>.tyhpdef</c>).</summary>
+            TyhpdefSourceNotPhp = 7507,
+
+            /// <summary>Managed PHP download failed (network, unsupported RID, empty cache offline).</summary>
+            TyhpdefPhpRuntimeDownloadFailed = 7508,
+
+            /// <summary>Managed PHP artifact failed checksum.</summary>
+            TyhpdefPhpRuntimeChecksumMismatch = 7509,
+
+            /// <summary><c>--php</c> combined with <c>--php-targets</c>.</summary>
+            TyhpdefPhpUserBinaryWithTargets = 7510,
+
+            /// <summary>Managed PHP cannot load <c>--ext-name</c> (use <c>--php</c> or a hand tyhpdef).</summary>
+            TyhpdefPhpExtensionNotProvisioned = 7511,
+
+            /// <summary>Patch auto-update failed; last-known-good still used (warning).</summary>
+            TyhpdefPhpRuntimeUpdateFailed = 7512,
+
+            /// <summary>Layer 2 stub cache is missing; harvest skipped (warning unless <c>--require-stubs</c>).</summary>
+            TyhpdefStubCacheMissing = 7513,
+
+            /// <summary>Layer 2 stub cache is required (<c>--require-stubs</c>) but was not found.</summary>
+            TyhpdefStubCacheRequired = 7514,
+
+            /// <summary>Psalm and PHPStan disagree on a stub type; Layer 1 is kept (warning).</summary>
+            TyhpdefStubCorpusDisagreement = 7515,
+
+            /// <summary>
+            /// Layer 2 stub harvest used a conventional template name that is not declared
+            /// on the enclosing type or function (overlay not written).
+            /// </summary>
+            TyhpdefStubUndeclaredTemplate = 7521,
+
+            /// <summary>
+            /// One PHP source file failed to parse during harvest; remaining files continue.
+            /// </summary>
+            TyhpdefSourceFileSkipped = 7522,
+
+            /// <summary>
+            /// An installed PHP package already has <c>extra.tyhp.package</c>, and
+            /// <c>tyhpdef/&lt;vendor&gt;-&lt;name&gt;-impl</c> is also installed. Bind the PHP package.
+            /// </summary>
+            TyhpdefBundledPackagePreferred = 7523,
+
+            /// <summary><c>vendor/composer/installed.json</c> is missing (<c>--vendor</c>).</summary>
+            TyhpdefVendorInstalledJsonMissing = 7516,
+
+            /// <summary><c>installed.json</c> is not valid Composer 2 JSON.</summary>
+            TyhpdefVendorInstalledJsonInvalid = 7517,
+
+            /// <summary>One package or extension failed during <c>--vendor</c> (warning; others continue).</summary>
+            TyhpdefVendorCandidateFailed = 7518,
+
+            /// <summary>Batched Composer require of companions / runtime packages failed (warning).</summary>
+            TyhpdefVendorComposerRequireFailed = 7519,
+
+            /// <summary>Every <c>--vendor</c> candidate failed.</summary>
+            TyhpdefVendorAllCandidatesFailed = 7520,
 
             #endregion CLI — generate_tyhpdef action (7500–7599)
 
             #region CLI — init action (7600–7699)
 
-            // Init action error codes are added by Story 13.
+            /// <summary>Existing root <c>composer.json</c> is not valid JSON.</summary>
+            InitComposerJsonInvalid = 7600,
+
+            /// <summary>Existing <c>require.php</c> cannot satisfy the chosen PHP version.</summary>
+            InitPhpConstraintUnsatisfied = 7601,
+
+            /// <summary>Existing root <c>composer.json</c> is JSON but not an object.</summary>
+            InitComposerJsonNotObject = 7602,
 
             #endregion CLI — init action (7600–7699)
 
             #region CLI — composer action (7700–7799)
 
-            // Composer action error codes are added by Story 13.
+            /// <summary>Disjoint <c>extra.tyhp.require</c> constraint versus an existing root pin.</summary>
+            ComposerDisjointExtraRequire = 7700,
+
+            /// <summary>
+            /// Stale extras: a named package from an installed <c>extra.tyhp.require</c> (or a
+            /// root <c>tyhp/*</c> pin) is missing from root require-dev / is not installed.
+            /// </summary>
+            ComposerStaleExtraRequire = 7701,
+
+            /// <summary>
+            /// <c>tyhp/compiler</c> is missing from root require-dev (or not installed) while
+            /// <c>tyhp/core</c> is in the graph. Warning on the native CLI; error under
+            /// <c>--strict</c> / <c>build.strictMode</c>.
+            /// </summary>
+            ComposerMissingCompilerPin = 7702,
+
+            /// <summary>Plugin or sync could not parse or write root <c>composer.json</c>.</summary>
+            ComposerRootJsonWriteFailed = 7703,
 
             #endregion CLI — composer action (7700–7799)
 
@@ -845,6 +1539,35 @@ namespace Tyhp.Domain.Exceptions
             IntegrityCheckEnvironmentError = 7803,
 
             #endregion CLI — debug / integrity_check actions (7800–7899)
+
+            #region CLI — overlay action (7900–7999)
+
+            /// <summary>Invalid <c>tyhp overlay</c> subcommand or missing required argument.</summary>
+            OverlayInvalidArguments = 7900,
+
+            /// <summary><c>tyhp overlay create</c> / <c>stamp</c> could not find the requested FQN.</summary>
+            OverlayTargetNotFound = 7901,
+
+            /// <summary>Failed to update <c>composer.json</c> <c>extra.tyhp.package</c> or <c>tyhp.json</c> overlay globs.</summary>
+            OverlayManifestUpdateFailed = 7902,
+
+            /// <summary>Failed to write an overlay <c>.tyhpdef</c> file.</summary>
+            OverlayWriteFailed = 7903,
+
+            /// <summary>
+            /// <c>tyhp overlay create</c> targeted an <c>extern</c> type. Create copies a
+            /// real declaration; it must not write a hollow <c>class { }</c> overlay.
+            /// </summary>
+            OverlayCreateOnExtern = 7904,
+
+            /// <summary>
+            /// <c>tyhp overlay stamp</c> could not obtain the managed PHP runtime for one
+            /// supported version. That version's pass is skipped; its declarations are not
+            /// stamped from a different PHP version.
+            /// </summary>
+            OverlayPhpRuntimeUnavailable = 7905,
+
+            #endregion CLI — overlay action (7900–7999)
 
             #region Tyhpdef
 
@@ -873,11 +1596,61 @@ namespace Tyhp.Domain.Exceptions
             TyhpdefInlineExtensionInvalidMember = 8012,
 
             /// <summary>
-            /// A tyhpdef <c>extension operator</c> was declared without a body. Bodyless
-            /// <c>operator …;</c> (no <c>extension</c>) means native PHP passthrough; mapped
-            /// overloads must use <c>extension operator</c> with a brace or <c>=&gt;</c> body.
+            /// A tyhpdef <c>extension operator</c> was declared without a thin <c>=&gt;</c>
+            /// expression. Bodyless <c>operator …;</c> (no <c>extension</c>) means native PHP
+            /// passthrough; mapped overloads require <c>extension operator … =&gt; expr;</c>.
             /// </summary>
             TyhpdefExtensionOperatorRequiresBody = 8013,
+
+            /// <summary>
+            /// Base / include <c>partial</c> names a type that is not already in this
+            /// compilation's include set.
+            /// </summary>
+            TyhpdefPartialTargetNotFound = 8014,
+
+            /// <summary>
+            /// A tyhpdef property hook still has a body after parse (visitor regression;
+            /// the grammar only admits bodyless <c>get;</c> / <c>set;</c>).
+            /// </summary>
+            TyhpdefPropertyHookBodyNotAllowed = 8015,
+
+            /// <summary>
+            /// <c>#[\Tyhp\Php]</c> was placed on an individual tyhpdef property hook
+            /// (<c>get</c> / <c>set</c>). Version gates belong on the property or an
+            /// enclosing <c>declare(php=…)</c>.
+            /// </summary>
+            TyhpdefPhpVersionGateOnPropertyHook = 8016,
+
+            /// <summary><c>omit</c> was used in a non-overlay tyhpdef (include / baseline).</summary>
+            TyhpdefOmitOutsideOverlay = 8017,
+
+            /// <summary>
+            /// <c>partial</c>, <c>omit</c>, <c>deprecated</c>, <c>obsolete</c>, and
+            /// <c>extern</c> cannot be combined on the same declaration.
+            /// <c>fallback</c> cannot be combined with <c>partial</c>, <c>omit</c>, or <c>extern</c>.
+            /// </summary>
+            TyhpdefIllegalKeywordCombination = 8018,
+
+            /// <summary>
+            /// Overlay <c>partial</c> names a type that is not already in the environment.
+            /// Warning; the partial is skipped.
+            /// </summary>
+            TyhpdefOverlayPartialTargetNotFound = 8019,
+
+            /// <summary>Overlay <c>omit</c> names a symbol that is not in the environment.</summary>
+            TyhpdefOmitMissingSymbol = 8020,
+
+            /// <summary>
+            /// <c>// @overlay-against:</c> does not match the current Layer 1 baseline signature.
+            /// Warning by default; error under <c>--strict</c> / <c>build.strictMode</c>.
+            /// </summary>
+            TyhpdefOverlayStampMismatch = 8021,
+
+            /// <summary>
+            /// An overlay replaces an existing symbol without a stamp and is not a
+            /// compile-time-compatible rewrite of the Layer 1 baseline.
+            /// </summary>
+            TyhpdefOverlayIncompatibleReplace = 8022,
 
             /// <summary>The same fully-qualified type name is defined in more than one Composer package.</summary>
             TyhpdefDuplicateFqnAcrossPackages = 8025,
@@ -887,6 +1660,88 @@ namespace Tyhp.Domain.Exceptions
 
             /// <summary>A Tyhp runtime Composer package was not found.</summary>
             TyhpdefRuntimePackageNotFound = 8027,
+
+            /// <summary>
+            /// An <c>extern</c> declaration is not name-only (body, members, generics,
+            /// <c>extends</c> / <c>implements</c> on the placeholder, <c>as</c> alias,
+            /// <c>extern trait</c>, or a signature/body on <c>extern function</c> / <c>const</c>).
+            /// </summary>
+            TyhpdefExternIllegalDeclaration = 8028,
+
+            /// <summary>
+            /// An <c>extern</c> type placeholder conflicts in kind with a real declaration
+            /// or another <c>extern</c> of the same name (e.g. <c>extern class</c> vs
+            /// <c>interface</c>). Functions, constants, and types occupy separate PHP name
+            /// spaces, so <c>extern function</c> / <c>extern const</c> never conflict in kind —
+            /// they only merge (real-wins) or coexist with a type of the same FQCN.
+            /// </summary>
+            TyhpdefExternKindMismatch = 8029,
+
+            /// <summary>
+            /// Overlay or include <c>partial</c> targeted an <c>extern</c> name.
+            /// </summary>
+            TyhpdefPartialOnExtern = 8030,
+
+            /// <summary>
+            /// Overlay <c>partial function</c> names a function or method that is not
+            /// already in the environment. Warning; the partial is skipped.
+            /// </summary>
+            TyhpdefPartialFunctionTargetNotFound = 8031,
+
+            /// <summary>
+            /// <c>partial function</c> was used in a non-overlay tyhpdef (include / baseline).
+            /// </summary>
+            TyhpdefPartialFunctionOutsideOverlay = 8032,
+
+            /// <summary>
+            /// <c>partial function</c> as a member was used outside an overlay <c>partial</c> type.
+            /// </summary>
+            TyhpdefPartialFunctionMemberOutsidePartialType = 8033,
+
+            /// <summary>
+            /// Header-only <c>partial class Name;</c> (semicolon form) was used in a
+            /// non-overlay tyhpdef (include / baseline).
+            /// </summary>
+            TyhpdefPartialTypeHeaderOutsideOverlay = 8034,
+
+            /// <summary>
+            /// Overlay <c>partial class Foo;</c> has no generics, inheritance, <c>as</c>,
+            /// attributes, or matching keep-for-alias in the same overlay file.
+            /// </summary>
+            TyhpdefPartialTypeHeaderNoEffect = 8035,
+
+            /// <summary>
+            /// Two or more packages <c>fallback</c>-declare the same function and
+            /// Composer <c>autoload.files</c> order cannot choose a winner.
+            /// </summary>
+            TyhpdefFallbackOrderUnknown = 8036,
+
+            /// <summary>
+            /// A losing <c>fallback function</c> signature differs from the one Composer
+            /// file order keeps. Warning; the later declaration is ignored.
+            /// </summary>
+            TyhpdefFallbackSignatureMismatch = 8037,
+
+            /// <summary>
+            /// An ordinary function is loaded after a <c>fallback function</c> of the
+            /// same name, which is a fatal redeclaration in PHP.
+            /// </summary>
+            TyhpdefFallbackRedeclare = 8038,
+
+            /// <summary><c>declare(ext=…)</c> was combined with another directive.</summary>
+            TyhpdefExtDeclareNotAlone = 8039,
+
+            /// <summary><c>declare(ext=…)</c> is not <c>name</c> or <c>!name</c>.</summary>
+            TyhpdefExtDeclareInvalid = 8040,
+
+            /// <summary>Two packages <c>fallback const</c> the same name and autoload order cannot choose.</summary>
+            TyhpdefFallbackConstOrderUnknown = 8041,
+
+            /// <summary>A losing <c>fallback const</c> differs from the one Composer file order keeps.</summary>
+            TyhpdefFallbackConstMismatch = 8042,
+
+            /// <summary>An ordinary const is loaded after a <c>fallback const</c> of the same name.</summary>
+            TyhpdefFallbackConstRedeclare = 8043,
 
             #endregion Tyhpdef
         }

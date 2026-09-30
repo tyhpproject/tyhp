@@ -36,13 +36,17 @@ namespace Tyhp.TyhpLang.Checker
             return behavior switch
             {
                 UtilityBehavior.ClassName => VerifyObjectBrandLiteral(
-                    literalValue, typeArgs, fromScope, resolver, PhpTypeDeclType.Class),
+                    literalValue, typeArgs, fromScope, resolver, PhpTypeDeclType.Class,
+                    symbolTree, globalScope),
                 UtilityBehavior.EnumName => VerifyObjectBrandLiteral(
-                    literalValue, typeArgs, fromScope, resolver, PhpTypeDeclType.Enum),
+                    literalValue, typeArgs, fromScope, resolver, PhpTypeDeclType.Enum,
+                    symbolTree, globalScope),
                 UtilityBehavior.InterfaceName => VerifyObjectBrandLiteral(
-                    literalValue, typeArgs, fromScope, resolver, PhpTypeDeclType.Interface),
+                    literalValue, typeArgs, fromScope, resolver, PhpTypeDeclType.Interface,
+                    symbolTree, globalScope),
                 UtilityBehavior.TraitName => VerifyObjectBrandLiteral(
-                    literalValue, typeArgs, fromScope, resolver, PhpTypeDeclType.Trait),
+                    literalValue, typeArgs, fromScope, resolver, PhpTypeDeclType.Trait,
+                    symbolTree, globalScope),
                 UtilityBehavior.StructName => IsStructName(literalValue, fromScope, resolver),
                 UtilityBehavior.FunctionName => IsFunction(literalValue, fromScope, resolver),
                 UtilityBehavior.ConstName => IsConstant(literalValue, fromScope, resolver),
@@ -58,6 +62,8 @@ namespace Tyhp.TyhpLang.Checker
                     IsEnumCase(literalValue, typeArgs[0]),
                 UtilityBehavior.CompatibleTypeName when typeArgs.Count > 0 =>
                     IsCompatibleTypeName(literalValue, typeArgs[0], fromScope, resolver, symbolTree, globalScope),
+                UtilityBehavior.SuperTypeName when typeArgs.Count > 0 =>
+                    IsSuperTypeName(literalValue, typeArgs[0], fromScope, resolver, symbolTree, globalScope),
                 UtilityBehavior.UsedTraitName when typeArgs.Count > 0 =>
                     IsUsedTrait(literalValue, typeArgs[0], fromScope, resolver, symbolTree, globalScope),
                 _ => false,
@@ -74,7 +80,9 @@ namespace Tyhp.TyhpLang.Checker
             IReadOnlyList<ICheckedType> typeArgs,
             IBaseScope fromScope,
             NameResolver resolver,
-            PhpTypeDeclType expectedKind)
+            PhpTypeDeclType expectedKind,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
         {
             if (!IsObjectKind(literalValue, fromScope, resolver, expectedKind))
             {
@@ -97,6 +105,12 @@ namespace Tyhp.TyhpLang.Checker
             var expectedDecl = CheckerHelpers.TryGetObjectDeclaration(typeArg);
             if (expectedDecl is null)
             {
+                if (TypeComparer.IsStructuralClassNameBrandArgument(typeArg))
+                {
+                    return LiteralSatisfiesStructuralClassNameBrand(
+                        literalValue, typeArg, fromScope, resolver, symbolTree, globalScope);
+                }
+
                 // Generic type parameter or unresolved arg: kind existence only.
                 return true;
             }
@@ -107,6 +121,29 @@ namespace Tyhp.TyhpLang.Checker
                     named.FullyQualifiedName,
                     expectedDecl.FullyQualifiedName,
                     StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// <c>'Vendor\\Concrete'</c> assigns to <c>__ClassName&lt;Shape&gt;</c> when the named
+        /// class's instances match the shape, and to <c>__ClassName&lt;__New&lt;Shape&gt;&gt;</c>
+        /// when it also satisfies <c>__New</c>.
+        /// </summary>
+        private static bool LiteralSatisfiesStructuralClassNameBrand(
+            string literalValue,
+            ICheckedType typeArg,
+            IBaseScope fromScope,
+            NameResolver resolver,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            if (ResolveName(literalValue, fromScope, resolver) is not ObjectDeclarationSymbol named
+                || named.ObjectKind != PhpTypeDeclType.Class)
+            {
+                return false;
+            }
+
+            var sourceType = CheckedTypes.FromSymbol(named);
+            return TypeComparer.IsAssignableTo(sourceType, typeArg, symbolTree, globalScope);
         }
 
         private static IBaseScope GetResolutionScope(CheckerState state, GlobalScope globalScope)
@@ -271,6 +308,64 @@ namespace Tyhp.TyhpLang.Checker
 
             var candidateType = CheckedTypes.FromSymbol(candidate);
             return TypeComparer.IsSubtypeOf(candidateType, compatibleWith, symbolTree, globalScope);
+        }
+
+        /// <summary>
+        /// Inverse of <see cref="IsCompatibleTypeName"/>: the literal must name <paramref name="ofType"/>
+        /// or a parent class (not a descendant).
+        /// </summary>
+        private static bool IsSuperTypeName(
+            string literalValue,
+            ICheckedType ofType,
+            IBaseScope fromScope,
+            NameResolver resolver,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            var symbol = ResolveName(literalValue, fromScope, resolver);
+            if (symbol is not ObjectDeclarationSymbol candidate)
+            {
+                return false;
+            }
+
+            if (ofType is UnionCheckedType union)
+            {
+                return union.Members.Any(member =>
+                    IsSuperTypeName(literalValue, member, fromScope, resolver, symbolTree, globalScope));
+            }
+
+            if (ofType is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol }
+                || ofType.Kind == CheckedTypeKind.Unresolved)
+            {
+                return true;
+            }
+
+            var targetDecl = CheckerHelpers.TryGetObjectDeclaration(ofType);
+            if (targetDecl is null)
+            {
+                return false;
+            }
+
+            var current = targetDecl;
+            var visited = new HashSet<ObjectDeclarationSymbol> { current };
+            while (true)
+            {
+                if (string.Equals(
+                    candidate.FullyQualifiedName,
+                    current.FullyQualifiedName,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                if (TypeComparer.TryGetParentDeclaration(current, symbolTree, globalScope) is not { } parent
+                    || !visited.Add(parent))
+                {
+                    return false;
+                }
+
+                current = parent;
+            }
         }
 
         private static bool IsUsedTrait(

@@ -8,6 +8,4 @@ declare(strict_types=1);
 
 namespace App;
 
-class Dog extends Animal
-{
-}
+class Dog extends Animal {}

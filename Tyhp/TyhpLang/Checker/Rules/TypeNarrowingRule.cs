@@ -11,41 +11,12 @@ using Tyhp.TyhpLang.Parser;
 namespace Tyhp.TyhpLang.Checker
 {
     /// <summary>
-    /// Control-flow type narrowing (smart casts) for instanceof, null checks, and type guards.
+    /// Control-flow type narrowing (smart casts) for instanceof, null/true/false identity
+    /// checks, and type guards. Subjects include locals, `$this->prop`, enclosing-class
+    /// `self::$prop`, `$var->prop`, and constant/simple-variable index access.
     /// </summary>
     internal static class TypeNarrowingRule
     {
-        private readonly record struct SymbolNameGuardSpec(
-            UtilityBehavior Behavior,
-            int NarrowedArgIndex,
-            bool CaptureReceiverType);
-
-        private static readonly Dictionary<string, string> BuiltInTypeGuards = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["is_string"] = "string",
-            ["is_int"] = "int",
-            ["is_float"] = "float",
-            ["is_bool"] = "bool",
-            ["is_array"] = "array",
-            ["is_null"] = "null",
-            ["is_object"] = "object",
-            ["is_callable"] = "callable",
-            ["is_numeric"] = "int|float|string",
-        };
-
-        private static readonly Dictionary<string, SymbolNameGuardSpec> SymbolNameGuards = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["function_exists"] = new(UtilityBehavior.FunctionName, 0, false),
-            ["class_exists"] = new(UtilityBehavior.ClassName, 0, false),
-            ["interface_exists"] = new(UtilityBehavior.InterfaceName, 0, false),
-            ["trait_exists"] = new(UtilityBehavior.TraitName, 0, false),
-            ["enum_exists"] = new(UtilityBehavior.EnumName, 0, false),
-            ["property_exists"] = new(UtilityBehavior.PropertyName, 1, true),
-            ["method_exists"] = new(UtilityBehavior.MethodName, 1, true),
-            ["is_a"] = new(UtilityBehavior.CompatibleTypeName, 1, true),
-            ["is_subclass_of"] = new(UtilityBehavior.CompatibleTypeName, 1, true),
-        };
-
         public static void ApplyConditionNarrowing(
             IExpression? condition,
             CheckerState branchState,
@@ -82,11 +53,14 @@ namespace Tyhp.TyhpLang.Checker
                 break;
             }
 
-            // Compound boolean conditions narrow component-wise. In the positive (then) branch of
-            // `a && b` both operands hold, so narrow each. By De Morgan, in the negative (else)
-            // branch of `a || b` neither operand held, so narrow each negatively. The other two
-            // combinations (`a || b` positive, `a && b` negative) cannot soundly narrow a single
-            // variable because either operand alone may be responsible.
+            // Compound boolean conditions narrow component-wise *for a branch body*. In the
+            // positive (then) branch of `a && b` both operands hold, so narrow each. By De Morgan,
+            // in the negative (else) branch of `a || b` neither operand held, so narrow each
+            // negatively. The other two combinations (`a || b` positive, `a && b` negative) cannot
+            // soundly narrow a single variable in the branch because either operand alone may be
+            // responsible. Short-circuit checking of later *operands* (right of `&&` after a
+            // proven left, right of `||` after a disproven left) is a separate walk in
+            // `TypeCompatibilityRule.CheckBinaryOp` / `CheckerHelpers.CheckCompileTimeConstructsInTree`.
             if (condition is PhpBinaryOpAst { Operator.ValueString: { } logicalOp } logical
                 && logical.Left is not null && logical.Right is not null)
             {
@@ -110,7 +84,8 @@ namespace Tyhp.TyhpLang.Checker
                 return;
             }
 
-            if (TryApplyNullNarrowing(condition, branchState, context, symbolTree, positive))
+            if (TryApplyIdentityLiteralNarrowing(
+                    condition, branchState, context, symbolTree, globalScope, positive))
             {
                 return;
             }
@@ -189,7 +164,7 @@ namespace Tyhp.TyhpLang.Checker
                 return true;
             }
 
-            if (TryGetThisPropertyKey(binary.Left, out var propertyKey)
+            if (TryGetTrackedPropertyKey(binary.Left, branchState, out var propertyKey)
                 && TryGetPropertyEffectiveType(branchState, propertyKey!, context, symbolTree, out var propEffective))
             {
                 if (positive)
@@ -231,11 +206,12 @@ namespace Tyhp.TyhpLang.Checker
             return false;
         }
 
-        private static bool TryApplyNullNarrowing(
+        private static bool TryApplyIdentityLiteralNarrowing(
             IExpression condition,
             CheckerState branchState,
             INarrowingResolution context,
             SymbolTree symbolTree,
+            GlobalScope globalScope,
             bool positive)
         {
             if (condition is not PhpBinaryOpAst binary)
@@ -244,32 +220,84 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             var op = binary.Operator?.ValueString;
-            var leftIsNull = IsNullLiteral(binary.Left);
-            var rightIsNull = IsNullLiteral(binary.Right);
+            var isStrictNot = string.Equals(op, "!==", StringComparison.Ordinal);
+            var isStrict = string.Equals(op, "===", StringComparison.Ordinal);
+            if (!isStrictNot && !isStrict)
+            {
+                return false;
+            }
 
-            IExpression? subject = null;
-            if (rightIsNull && binary.Left is not null)
+            IExpression? subject;
+            ICheckedType? sentinelType;
+            if (TryGetIdentitySentinelType(binary.Right, out sentinelType) && binary.Left is not null)
             {
                 subject = binary.Left;
             }
-            else if (leftIsNull && binary.Right is not null)
+            else if (TryGetIdentitySentinelType(binary.Left, out sentinelType) && binary.Right is not null)
             {
                 subject = binary.Right;
             }
-
-            if (subject is null)
+            else
             {
                 return false;
             }
 
-            var isStrictNotNull = string.Equals(op, "!==", StringComparison.Ordinal);
-            var isStrictNull = string.Equals(op, "===", StringComparison.Ordinal);
-            if (!isStrictNotNull && !isStrictNull)
+            var expectSentinel = (isStrict && positive) || (isStrictNot && !positive);
+            var narrowed = expectSentinel
+                ? TypeComparer.NarrowType(
+                    ResolveSubjectType(subject, branchState, context, symbolTree),
+                    sentinelType!,
+                    symbolTree,
+                    globalScope)
+                : ExcludeIdentitySentinel(
+                    ResolveSubjectType(subject, branchState, context, symbolTree),
+                    sentinelType!,
+                    symbolTree,
+                    globalScope);
+
+            return TryNarrowSubject(subject, narrowed, branchState, context, symbolTree, sentinelType!);
+        }
+
+        private static ICheckedType ResolveSubjectType(
+            IExpression subject,
+            CheckerState branchState,
+            INarrowingResolution context,
+            SymbolTree symbolTree)
+        {
+            if (subject is PhpVariableAst variable)
             {
-                return false;
+                var name = CheckerHelpers.GetVariableName(variable);
+                if (name is not null && branchState.LookupVariable(name) is { } varState)
+                {
+                    return varState.EffectiveType;
+                }
             }
 
-            var expectNonNull = (isStrictNotNull && positive) || (isStrictNull && !positive);
+            if (TryGetTrackedPropertyKey(subject, branchState, out var propertyKey)
+                && TryGetPropertyEffectiveType(branchState, propertyKey!, context, symbolTree, out var propEffective))
+            {
+                return propEffective;
+            }
+
+            if (TryGetMemberAccessKey(subject, out var memberKey))
+            {
+                return branchState.LookupMemberAccess(memberKey!)
+                    ?? context.ResolveExpressionType(subject, branchState);
+            }
+
+            return context.ResolveExpressionType(subject, branchState);
+        }
+
+        private static bool TryNarrowSubject(
+            IExpression subject,
+            ICheckedType narrowed,
+            CheckerState branchState,
+            INarrowingResolution context,
+            SymbolTree symbolTree,
+            ICheckedType sentinelType)
+        {
+            var excludingNull = TypeComparer.IsNullLiteral(sentinelType)
+                || TypeComparer.IsBuiltInName(sentinelType, "null");
 
             if (subject is PhpVariableAst variable)
             {
@@ -279,56 +307,102 @@ namespace Tyhp.TyhpLang.Checker
                     return false;
                 }
 
-                if (expectNonNull)
+                branchState.NarrowVariable(name, narrowed);
+                if (excludingNull)
                 {
-                    // Control-flow merges (try/catch, loops) often leave EffectiveType as a union that
-                    // still contains `?T` / `null` members (MergeVariable clears NarrowedType and unions
-                    // EffectiveTypes). Unwrap those so `!== null` yields a throwable / non-null payload.
-                    var narrowed = RemoveNullability(varState.EffectiveType);
-                    branchState.NarrowVariable(name, narrowed);
-                    varState.IsPossiblyNull = false;
-                }
-                else
-                {
-                    branchState.NarrowVariable(name, CheckedTypes.Null);
-                    varState.IsPossiblyNull = true;
+                    varState.IsPossiblyNull = TypeComparer.IsNullLiteral(narrowed)
+                        || TypeComparer.IsBuiltInName(narrowed, "null");
                 }
 
                 return true;
             }
 
-            if (TryGetThisPropertyKey(subject, out var propertyKey)
-                && TryGetPropertyEffectiveType(branchState, propertyKey!, context, symbolTree, out var propEffective))
+            if (TryGetTrackedPropertyKey(subject, branchState, out var propertyKey)
+                && TryGetPropertyEffectiveType(branchState, propertyKey!, context, symbolTree, out _))
             {
-                if (expectNonNull)
-                {
-                    branchState.NarrowProperty(propertyKey!, RemoveNullability(propEffective));
-                }
-                else
-                {
-                    branchState.NarrowProperty(propertyKey!, CheckedTypes.Null);
-                }
-
+                branchState.NarrowProperty(propertyKey!, narrowed);
                 return true;
             }
 
             if (TryGetMemberAccessKey(subject, out var memberKey))
             {
-                var prior = branchState.LookupMemberAccess(memberKey!)
-                    ?? context.ResolveExpressionType(subject, branchState);
-                if (expectNonNull)
-                {
-                    branchState.NarrowMemberAccess(memberKey!, RemoveNullability(prior));
-                }
-                else
-                {
-                    branchState.NarrowMemberAccess(memberKey!, CheckedTypes.Null);
-                }
-
+                branchState.NarrowMemberAccess(memberKey!, narrowed);
                 return true;
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// <c>null</c> uses <see cref="RemoveNullability"/> so <c>?T</c> unwraps. <c>true</c>/<c>false</c>
+        /// drop that arm of a union (and <c>bool !== false</c> becomes <c>true</c>).
+        /// </summary>
+        private static ICheckedType ExcludeIdentitySentinel(
+            ICheckedType current,
+            ICheckedType sentinel,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            if (TypeComparer.IsNullLiteral(sentinel) || TypeComparer.IsBuiltInName(sentinel, "null"))
+            {
+                return RemoveNullability(current);
+            }
+
+            if (TypeComparer.IsFalseType(sentinel) && TypeComparer.IsBuiltInName(current, "bool"))
+            {
+                return IdentitySentinelType(false);
+            }
+
+            if (TypeComparer.IsTrueType(sentinel) && TypeComparer.IsBuiltInName(current, "bool"))
+            {
+                return IdentitySentinelType(true);
+            }
+
+            return TypeComparer.NarrowTypeNegative(current, sentinel, symbolTree, globalScope);
+        }
+
+        private static bool TryGetIdentitySentinelType(IExpression? expression, out ICheckedType? sentinel)
+        {
+            sentinel = null;
+            if (IsNullLiteral(expression))
+            {
+                sentinel = CheckedTypes.Null;
+                return true;
+            }
+
+            if (IsBoolKeyword(expression, true))
+            {
+                sentinel = IdentitySentinelType(true);
+                return true;
+            }
+
+            if (IsBoolKeyword(expression, false))
+            {
+                sentinel = IdentitySentinelType(false);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static ICheckedType IdentitySentinelType(bool value) =>
+            new LiteralCheckedType(
+                value,
+                new SimpleCheckedType(new BuiltInTypeSymbol(value ? "true" : "false")));
+
+        private static bool IsBoolKeyword(IExpression? expression, bool value)
+        {
+            var expected = value ? "true" : "false";
+            return expression switch
+            {
+                PhpNameAst name =>
+                    string.Equals(name.ValueString?.TrimStart('\\'), expected, StringComparison.OrdinalIgnoreCase),
+                PhpScalarAst { ValueString: { } text } =>
+                    string.Equals(text, expected, StringComparison.OrdinalIgnoreCase),
+                PhpMagicConstantAst magic =>
+                    string.Equals(magic.ValueString, expected, StringComparison.OrdinalIgnoreCase),
+                _ => false,
+            };
         }
 
         /// <summary>
@@ -396,49 +470,13 @@ namespace Tyhp.TyhpLang.Checker
             GlobalScope globalScope,
             bool positive)
         {
-            if (!TryGetGuardFunctionCall(condition, out var call, out var fnName))
+            if (!TryGetGuardFunctionCall(condition, out var call, out _))
             {
                 return false;
             }
 
-            // Free-function built-ins / symbol-name guards only apply when the callee is a bare name.
-            // Static/instance method calls (`Type::isType<T>($x)`) fall through to user-defined guards.
-            if (fnName.Length > 0)
-            {
-                if (BuiltInTypeGuards.TryGetValue(fnName, out var targetTypeName))
-                {
-                    return ApplyBuiltInGuardNarrowing(
-                        call, branchState, context, symbolTree, globalScope, targetTypeName, positive);
-                }
-
-                // Prefer tyhpdef / user `$param is Type` return guards on both polarities so ExtCore
-                // signatures (e.g. class_exists<T>: $class is __ClassName<T>) control narrowing —
-                // including call-site generics — instead of the hardcoded SymbolNameGuards map.
-                if (TryApplyUserDefinedGuardNarrowing(
-                        condition, call, branchState, context, symbolTree, globalScope, positive))
-                {
-                    return true;
-                }
-
-                // Fallback for stubs that still return plain bool (property_exists / method_exists /
-                // is_a / is_subclass_of capture receiver type as a brand type arg).
-                if (positive)
-                {
-                    if (SymbolNameGuards.TryGetValue(fnName, out var symbolGuard))
-                    {
-                        return ApplySymbolNameGuardNarrowing(
-                            call, symbolGuard, branchState, context, globalScope);
-                    }
-
-                    if (string.Equals(fnName, "variable_exists", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return ApplyVariableNameGuardNarrowing(call, branchState, globalScope);
-                    }
-                }
-
-                return false;
-            }
-
+            // Narrowing comes only from the callee's `$param is` / `$param instanceof`
+            // return (tyhp or tyhpdef). There is no name-based override.
             return TryApplyUserDefinedGuardNarrowing(
                 condition, call, branchState, context, symbolTree, globalScope, positive);
         }
@@ -467,24 +505,22 @@ namespace Tyhp.TyhpLang.Checker
 
             var args = GetCallArguments(call);
 
-            var guardVarName = guard.GuardVariable?.ValueString?.TrimStart('$');
-            var guardedIndex = guardVarName is null
-                ? 0
-                : parameters.FindIndex(p =>
-                    string.Equals(p.Name.TrimStart('$'), guardVarName, StringComparison.Ordinal));
-            if (guardedIndex < 0)
-            {
-                guardedIndex = 0;
-            }
-
-            if (args.Count <= guardedIndex)
+            if (!TryResolveCallSiteGuardSubject(guard, parameters, args, call, out var subject)
+                || subject is null)
             {
                 return false;
             }
 
-            var subject = args[guardedIndex];
             var guardType = ResolveUserDefinedGuardTargetType(
-                guard, condition, call, genericParameters, branchState, context, symbolTree, globalScope);
+                guard,
+                condition,
+                call,
+                genericParameters,
+                parameters,
+                branchState,
+                context,
+                symbolTree,
+                globalScope);
 
             if (subject is PhpVariableAst argVar)
             {
@@ -513,10 +549,11 @@ namespace Tyhp.TyhpLang.Checker
                 }
 
                 branchState.NarrowVariable(argName, negative);
+                varState.IsPossiblyNull = negative.IsNullable;
                 return true;
             }
 
-            if (TryGetThisPropertyKey(subject, out var propertyKey)
+            if (TryGetTrackedPropertyKey(subject, branchState, out var propertyKey)
                 && TryGetPropertyEffectiveType(branchState, propertyKey!, context, symbolTree, out var propEffective))
             {
                 if (positive)
@@ -614,8 +651,46 @@ namespace Tyhp.TyhpLang.Checker
             if (deref.Base is PhpNameAst nameAst)
             {
                 if (CheckerHelpers.ResolveFreeFunction(nameAst, branchState, symbolTree, globalScope)
-                        is not { } func
-                    || func.ReturnType is not TyhpReturnTypeGuardAst freeGuard
+                        is not { } func)
+                {
+                    return false;
+                }
+
+                if (condition is PhpDereferenceableAst { Suffix: PhpCallAst guardCall })
+                {
+                    // Arity alone cannot disambiguate same-arity overloads whose guard differs
+                    // by argument *type* (`is_a`'s object-instance vs `$allow_string = true`
+                    // class-name-string overloads both take 3 args). Score by argument
+                    // compatibility, same as ordinary call-site overload resolution, so the
+                    // guard picked here always matches the overload the call itself resolves to.
+                    func = FunctionOverloadSelector.Select(
+                        func,
+                        guardCall,
+                        new FunctionOverloadSelector.Context
+                        {
+                            State = branchState,
+                            SymbolTree = symbolTree,
+                            GlobalScope = globalScope,
+                            InferArgumentType = expr => context.ResolveExpressionType(expr, branchState),
+                            ResolveParameterType = (candidate, typeAst) =>
+                            {
+                                var candidateState = branchState.Fork();
+                                candidateState.FunctionGenerics = candidate.GenericParameters;
+                                return context.ResolveTypeAnnotation(typeAst, candidateState);
+                            },
+                            InferBindings = (candidate, inferCall) =>
+                                context.TryInferGenericBindings(
+                                    candidate.GenericParameters,
+                                    candidate.Parameters,
+                                    inferCall,
+                                    branchState,
+                                    out var inferredBindings)
+                                    ? inferredBindings
+                                    : null,
+                        });
+                }
+
+                if (func.ReturnType is not TyhpReturnTypeGuardAst freeGuard
                     || freeGuard.TypeExpression is null)
                 {
                     return false;
@@ -680,16 +755,17 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// Resolves the guard's target type, substituting call-site generic arguments
-        /// (<c>isType&lt;TValue&gt;($x)</c> / <c>Type::isType&lt;TValue&gt;($x)</c>) so method/function
-        /// type parameters map to caller types. Omitted trailing type arguments use each
-        /// parameter's default (<c>T extends object = object</c> → <c>object</c>).
+        /// Resolves the guard's target type. Order: explicit call-site type arguments, then
+        /// argument-driven inference (<c>TryInferGenericBindings</c>), then omitted generic
+        /// defaults. Inference runs before resolving <c>__PropertyName&lt;T&gt;</c> so T is
+        /// bound (a class or <c>Foo::class</c> brand argument) rather than unconstrained.
         /// </summary>
         private static ICheckedType ResolveUserDefinedGuardTargetType(
             TyhpReturnTypeGuardAst guard,
             IExpression condition,
             PhpCallAst call,
             IReadOnlyList<GenericTypeParameterSymbol> genericParameters,
+            IReadOnlyList<ParameterInfo> parameters,
             CheckerState branchState,
             INarrowingResolution context,
             SymbolTree symbolTree,
@@ -704,6 +780,7 @@ namespace Tyhp.TyhpLang.Checker
                     ?? [];
 
                 substitutions = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
+                var unbound = new List<GenericTypeParameterSymbol>();
                 for (var i = 0; i < genericParameters.Count; i++)
                 {
                     var param = genericParameters[i];
@@ -715,6 +792,30 @@ namespace Tyhp.TyhpLang.Checker
                         continue;
                     }
 
+                    unbound.Add(param);
+                }
+
+                if (unbound.Count > 0
+                    && context.TryInferGenericBindings(
+                        genericParameters,
+                        parameters,
+                        call,
+                        branchState,
+                        out var inferred)
+                    && inferred.Count > 0)
+                {
+                    foreach (var pair in inferred)
+                    {
+                        if (!substitutions.ContainsKey(pair.Key.Name))
+                        {
+                            substitutions[pair.Key.Name] = pair.Value;
+                            unbound.Remove(pair.Key);
+                        }
+                    }
+                }
+
+                foreach (var param in unbound)
+                {
                     if (param.DefaultType is null)
                     {
                         continue;
@@ -859,37 +960,6 @@ namespace Tyhp.TyhpLang.Checker
                     or PhpInstanceMemberAccessAst;
         }
 
-        private static bool ApplySymbolNameGuardNarrowing(
-            PhpCallAst call,
-            SymbolNameGuardSpec spec,
-            CheckerState branchState,
-            INarrowingResolution context,
-            GlobalScope globalScope)
-        {
-            var args = GetCallArguments(call);
-            if (args.Count <= spec.NarrowedArgIndex || args[spec.NarrowedArgIndex] is not PhpVariableAst argVar)
-            {
-                return false;
-            }
-
-            var argName = CheckerHelpers.GetVariableName(argVar);
-            if (argName is null)
-            {
-                return false;
-            }
-
-            IReadOnlyList<ICheckedType>? typeArgs = null;
-            if (spec.CaptureReceiverType && args.Count > 0)
-            {
-                var receiverType = context.ResolveExpressionType(args[0], branchState);
-                typeArgs = [receiverType];
-            }
-
-            var narrowed = SymbolNameTypeHelper.MakeSymbolNameType(spec.Behavior, globalScope, typeArgs);
-            branchState.NarrowVariable(argName, narrowed);
-            return true;
-        }
-
         private static bool TryApplyIssetNarrowing(
             IExpression condition,
             CheckerState branchState,
@@ -937,7 +1007,7 @@ namespace Tyhp.TyhpLang.Checker
             INarrowingResolution context,
             SymbolTree symbolTree)
         {
-            if (!TryGetThisPropertyKey(expression, out var propertyKey)
+            if (!TryGetTrackedPropertyKey(expression, branchState, out var propertyKey)
                 || branchState.LookupPropertyInit(propertyKey!) is null)
             {
                 return false;
@@ -976,6 +1046,24 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
+        /// True when <paramref name="expression"/> is a tracked property access:
+        /// <c>$this->prop</c> or an enclosing-class static property
+        /// (<c>self::$prop</c> / <c>static::$prop</c> / <c>ClassName::$prop</c>).
+        /// </summary>
+        internal static bool TryGetTrackedPropertyKey(
+            IExpression? expression,
+            CheckerState state,
+            out string? propertyKey)
+        {
+            if (TryGetThisPropertyKey(expression, out propertyKey))
+            {
+                return true;
+            }
+
+            return TryGetEnclosingStaticPropertyKey(expression, state, out propertyKey);
+        }
+
+        /// <summary>
         /// True when <paramref name="expression"/> is a plain <c>$this->prop</c> access.
         /// </summary>
         private static bool TryGetThisPropertyKey(IExpression? expression, out string? propertyKey)
@@ -1011,7 +1099,88 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// Resolves the current effective type of a tracked <c>$this->prop</c>: any control-flow
+        /// True when <paramref name="expression"/> is <c>self::$prop</c>, <c>static::$prop</c>,
+        /// or <c>ClassName::$prop</c> for the enclosing class. <c>parent::$prop</c> and other
+        /// classes are excluded so a distinct static slot is not mixed into this class's map.
+        /// Dynamic names (<c>self::$$var</c>) are ignored.
+        /// </summary>
+        private static bool TryGetEnclosingStaticPropertyKey(
+            IExpression? expression,
+            CheckerState state,
+            out string? propertyKey)
+        {
+            propertyKey = null;
+            if (expression is not PhpDereferenceableAst
+                {
+                    Base: PhpNameAst receiver,
+                    Suffix: PhpStaticMemberAccessAst staticAccess,
+                }
+                || !IsEnclosingClassStaticReceiver(receiver, state))
+            {
+                return false;
+            }
+
+            // `self::$$var` nests another variable; GetVariableName would mis-key it as `$var`.
+            if (staticAccess.Member is PhpVariableAst { VariableExpression: PhpVariableAst })
+            {
+                return false;
+            }
+
+            var memberName = staticAccess.Member switch
+            {
+                PhpNameAst name => name.ValueString,
+                TokenValueAst token => token.ValueString,
+                PhpVariableAst variable => CheckerHelpers.GetVariableName(variable),
+                _ => staticAccess.Member?.Identifier,
+            };
+
+            if (memberName is null || memberName.StartsWith('{'))
+            {
+                return false;
+            }
+
+            propertyKey = memberName.StartsWith('$') ? memberName : "$" + memberName;
+            return true;
+        }
+
+        private static bool IsEnclosingClassStaticReceiver(PhpNameAst receiver, CheckerState state)
+        {
+            if (state.EnclosingObject is not { } enclosing)
+            {
+                return false;
+            }
+
+            var raw = receiver.ValueString ?? receiver.Identifier;
+            if (string.IsNullOrEmpty(raw))
+            {
+                return false;
+            }
+
+            var simple = raw.TrimStart('\\');
+            if (string.Equals(simple, "self", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(simple, "static", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (receiver.BoundSymbol is ObjectDeclarationSymbol bound
+                && ReferenceEquals(bound, enclosing))
+            {
+                return true;
+            }
+
+            if (string.Equals(simple, enclosing.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var fqn = (enclosing.FullyQualifiedName ?? enclosing.Name).TrimStart('\\');
+            return string.Equals(simple, fqn, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Resolves the current effective type of a tracked <c>$this->prop</c> /
+        /// <c>self::$prop</c>: any control-flow
         /// <see cref="PropertyInitializationState.NarrowedType"/>, else the declared property type.
         /// Looks the property up via <see cref="SymbolTree.ResolveMember"/> (not
         /// <c>EnclosingObject.Members</c> directly) so properties declared on a base class are
@@ -1141,183 +1310,6 @@ namespace Tyhp.TyhpLang.Checker
             return SymbolNameTypeHelper.MakeSymbolNameType(UtilityBehavior.VarName, globalScope);
         }
 
-        private static bool ApplyBuiltInGuardNarrowing(
-            PhpCallAst call,
-            CheckerState branchState,
-            INarrowingResolution context,
-            SymbolTree symbolTree,
-            GlobalScope globalScope,
-            string targetTypeName,
-            bool positive)
-        {
-            var args = GetCallArguments(call);
-            if (args.Count == 0)
-            {
-                return false;
-            }
-
-            var subject = args[0];
-            if (subject is PhpVariableAst argVar)
-            {
-                var argName = CheckerHelpers.GetVariableName(argVar);
-                if (argName is null || branchState.LookupVariable(argName) is not { } varState)
-                {
-                    return false;
-                }
-
-                if (positive)
-                {
-                    var guardType = ResolveBuiltInGuardType(targetTypeName);
-                    var narrowed = TypeComparer.NarrowType(
-                        varState.EffectiveType, guardType, symbolTree, globalScope);
-                    branchState.NarrowVariable(argName, narrowed);
-                    varState.IsPossiblyNull = narrowed.IsNullable
-                        || string.Equals(targetTypeName, "null", StringComparison.OrdinalIgnoreCase);
-                    return true;
-                }
-
-                var excludeType = ResolveBuiltInGuardType(targetTypeName);
-                ICheckedType negative;
-                if (string.Equals(targetTypeName, "null", StringComparison.OrdinalIgnoreCase)
-                    && varState.EffectiveType is NullableCheckedType nullable)
-                {
-                    negative = nullable.InnerType;
-                }
-                else
-                {
-                    negative = TypeComparer.NarrowTypeNegative(
-                        varState.EffectiveType, excludeType, symbolTree, globalScope);
-                }
-
-                if (TypeComparer.AreTypesEqual(negative, varState.EffectiveType))
-                {
-                    return false;
-                }
-
-                branchState.NarrowVariable(argName, negative);
-                if (string.Equals(targetTypeName, "null", StringComparison.OrdinalIgnoreCase))
-                {
-                    varState.IsPossiblyNull = false;
-                }
-
-                return true;
-            }
-
-            if (TryGetThisPropertyKey(subject, out var propertyKey)
-                && TryGetPropertyEffectiveType(branchState, propertyKey!, context, symbolTree, out var propEffective))
-            {
-                if (positive)
-                {
-                    var guardType = ResolveBuiltInGuardType(targetTypeName);
-                    var narrowed = TypeComparer.NarrowType(
-                        propEffective, guardType, symbolTree, globalScope);
-                    branchState.NarrowProperty(propertyKey!, narrowed);
-                    return true;
-                }
-
-                var excludeType = ResolveBuiltInGuardType(targetTypeName);
-                ICheckedType negative;
-                if (string.Equals(targetTypeName, "null", StringComparison.OrdinalIgnoreCase)
-                    && propEffective is NullableCheckedType nullable)
-                {
-                    negative = nullable.InnerType;
-                }
-                else
-                {
-                    negative = TypeComparer.NarrowTypeNegative(
-                        propEffective, excludeType, symbolTree, globalScope);
-                }
-
-                if (TypeComparer.AreTypesEqual(negative, propEffective))
-                {
-                    return false;
-                }
-
-                branchState.NarrowProperty(propertyKey!, negative);
-                return true;
-            }
-
-            if (TryGetMemberAccessKey(subject, out var memberKey))
-            {
-                var prior = branchState.LookupMemberAccess(memberKey!)
-                    ?? context.ResolveExpressionType(subject, branchState);
-                if (positive)
-                {
-                    var guardType = ResolveBuiltInGuardType(targetTypeName);
-                    var narrowed = TypeComparer.NarrowType(
-                        prior, guardType, symbolTree, globalScope);
-                    branchState.NarrowMemberAccess(memberKey!, narrowed);
-                    return true;
-                }
-
-                var excludeType = ResolveBuiltInGuardType(targetTypeName);
-                ICheckedType negative;
-                if (string.Equals(targetTypeName, "null", StringComparison.OrdinalIgnoreCase)
-                    && prior is NullableCheckedType nullable)
-                {
-                    negative = nullable.InnerType;
-                }
-                else
-                {
-                    negative = TypeComparer.NarrowTypeNegative(
-                        prior, excludeType, symbolTree, globalScope);
-                }
-
-                if (TypeComparer.AreTypesEqual(negative, prior))
-                {
-                    return false;
-                }
-
-                branchState.NarrowMemberAccess(memberKey!, negative);
-                return true;
-            }
-
-            if (TryGetIndexAccessKey(subject, out var indexKey))
-            {
-                var prior = branchState.LookupIndexAccess(indexKey!)
-                    ?? context.ResolveExpressionType(subject, branchState);
-                if (positive)
-                {
-                    var guardType = ResolveBuiltInGuardType(targetTypeName);
-                    var narrowed = TypeComparer.NarrowType(
-                        prior, guardType, symbolTree, globalScope);
-                    branchState.NarrowIndexAccess(indexKey!, narrowed);
-                    return true;
-                }
-
-                var excludeType = ResolveBuiltInGuardType(targetTypeName);
-                var negative = TypeComparer.NarrowTypeNegative(
-                    prior, excludeType, symbolTree, globalScope);
-                if (TypeComparer.AreTypesEqual(negative, prior))
-                {
-                    return false;
-                }
-
-                branchState.NarrowIndexAccess(indexKey!, negative);
-                return true;
-            }
-
-            return false;
-        }
-
-        private static ICheckedType ResolveBuiltInGuardType(string typeName)
-        {
-            if (typeName.Contains('|', StringComparison.Ordinal))
-            {
-                var parts = typeName.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                return CheckedTypes.UnionTypes(parts.Select(ResolveBuiltInGuardType).ToList());
-            }
-
-            // Keep true/false/null as precise literal types (same shape as ResolveNamedType).
-            return typeName.ToLowerInvariant() switch
-            {
-                "null" => CheckedTypes.Null,
-                "true" => new LiteralCheckedType(true, new SimpleCheckedType(new BuiltInTypeSymbol("true"))),
-                "false" => new LiteralCheckedType(false, new SimpleCheckedType(new BuiltInTypeSymbol("false"))),
-                _ => CheckedTypes.FromSymbol(new BuiltInTypeSymbol(typeName)),
-            };
-        }
-
         internal static bool IsLogicalAnd(string op) =>
             string.Equals(op, "&&", StringComparison.Ordinal)
             || string.Equals(op, "and", StringComparison.OrdinalIgnoreCase);
@@ -1325,6 +1317,14 @@ namespace Tyhp.TyhpLang.Checker
         internal static bool IsLogicalOr(string op) =>
             string.Equals(op, "||", StringComparison.Ordinal)
             || string.Equals(op, "or", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// PHP short-circuits <c>&&</c>/<c>and</c> and <c>||</c>/<c>or</c>. When checking the
+        /// right operand, the left is already proven (<c>&&</c>) or disproven (<c>||</c>), so
+        /// later operands should see that polarity of <see cref="ApplyConditionNarrowing"/>.
+        /// </summary>
+        internal static bool IsShortCircuitLogical(string op) =>
+            IsLogicalAnd(op) || IsLogicalOr(op);
 
         /// <summary>
         /// Builds a structural key for <c>$var->prop</c> member-access narrowing. Only static
@@ -1387,8 +1387,113 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// Builds a structural key for <c>$var[literal]</c> index-access narrowing. Only constant
-        /// int/string indices are supported; dynamic indices return false.
+        /// Maps a guard subject onto the call-site argument(s). A bare <c>$param</c> becomes
+        /// that argument. <c>$array[$key]</c> substitutes both parameters (or keeps a
+        /// signature-literal index) and rebuilds an index-read expression so later
+        /// <see cref="TryGetIndexAccessKey"/> uses the call-site names.
+        /// </summary>
+        private static bool TryResolveCallSiteGuardSubject(
+            TyhpReturnTypeGuardAst guard,
+            IReadOnlyList<ParameterInfo> parameters,
+            IReadOnlyList<IExpression> args,
+            Base2Ast contextNode,
+            out IExpression? subject)
+        {
+            subject = null;
+
+            if (guard.GuardSubject is PhpDereferenceableAst
+                {
+                    Base: PhpVariableAst arrayParam,
+                    Suffix: PhpArrayAccessAst { IndexExpression: { } indexExpr }
+                })
+            {
+                var arrayArg = FindArgumentByParameterName(
+                    parameters, args, CheckerHelpers.GetVariableName(arrayParam));
+                if (AsSimpleVariable(arrayArg) is not { } arrayArgVar)
+                {
+                    return false;
+                }
+
+                IExpression? callIndex = indexExpr is PhpVariableAst indexParam
+                    ? FindArgumentByParameterName(
+                        parameters, args, CheckerHelpers.GetVariableName(indexParam))
+                    : indexExpr;
+                if (callIndex is null)
+                {
+                    return false;
+                }
+
+                subject = PhpDereferenceableAst.CreateFromContext(
+                    arrayArgVar,
+                    PhpArrayAccessAst.CreateFromContext(callIndex, contextNode),
+                    contextNode);
+                return true;
+            }
+
+            var guardVarName = guard.GuardSubject is PhpVariableAst guardVar
+                ? CheckerHelpers.GetVariableName(guardVar)
+                : guard.GuardVariable?.ValueString?.TrimStart('$');
+            var guardedIndex = guardVarName is null
+                ? 0
+                : IndexOfParameter(parameters, guardVarName);
+            if (guardedIndex < 0)
+            {
+                guardedIndex = 0;
+            }
+
+            if (args.Count <= guardedIndex)
+            {
+                return false;
+            }
+
+            subject = args[guardedIndex];
+            return true;
+        }
+
+        private static IExpression? FindArgumentByParameterName(
+            IReadOnlyList<ParameterInfo> parameters,
+            IReadOnlyList<IExpression> args,
+            string? paramName)
+        {
+            if (paramName is null)
+            {
+                return null;
+            }
+
+            var index = IndexOfParameter(parameters, paramName);
+            if (index < 0 || index >= args.Count)
+            {
+                return null;
+            }
+
+            return args[index];
+        }
+
+        private static int IndexOfParameter(IReadOnlyList<ParameterInfo> parameters, string name)
+        {
+            for (var i = 0; i < parameters.Count; i++)
+            {
+                if (string.Equals(parameters[i].Name.TrimStart('$'), name, StringComparison.Ordinal))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static PhpVariableAst? AsSimpleVariable(IExpression? expression) =>
+            expression switch
+            {
+                PhpVariableAst variable => variable,
+                PhpDereferenceableAst { Base: PhpVariableAst variable, Suffix: null } => variable,
+                _ => null,
+            };
+
+        /// <summary>
+        /// Builds a structural key for <c>$var[index]</c> index-access narrowing. Constant
+        /// int/string indices (<c>$arr[0]</c>, <c>$arr['k']</c>) and simple variable indices
+        /// (<c>$arr[$k]</c>) are supported; other dynamic indices return false.
         /// </summary>
         internal static bool TryGetIndexAccessKey(IExpression? expression, out string? indexKey)
         {
@@ -1402,14 +1507,7 @@ namespace Tyhp.TyhpLang.Checker
                 return false;
             }
 
-            var varName = CheckerHelpers.GetVariableName(variable);
-            if (varName is null || !TryFormatConstantIndex(index, out var indexLit))
-            {
-                return false;
-            }
-
-            indexKey = "$" + varName + "[" + indexLit + "]";
-            return true;
+            return TryBuildIndexAccessKey(variable, index, out indexKey);
         }
 
         /// <summary>
@@ -1422,15 +1520,22 @@ namespace Tyhp.TyhpLang.Checker
             out string? indexKey)
         {
             indexKey = null;
-            if (baseNode is not PhpVariableAst variable
-                || arrayAccess.IndexExpression is null
-                || !TryFormatConstantIndex(arrayAccess.IndexExpression, out var indexLit))
+            if (baseNode is not PhpVariableAst variable || arrayAccess.IndexExpression is null)
             {
                 return false;
             }
 
+            return TryBuildIndexAccessKey(variable, arrayAccess.IndexExpression, out indexKey);
+        }
+
+        private static bool TryBuildIndexAccessKey(
+            PhpVariableAst variable,
+            IExpression index,
+            out string? indexKey)
+        {
+            indexKey = null;
             var varName = CheckerHelpers.GetVariableName(variable);
-            if (varName is null)
+            if (varName is null || !TryFormatIndex(index, out var indexLit))
             {
                 return false;
             }
@@ -1439,7 +1544,7 @@ namespace Tyhp.TyhpLang.Checker
             return true;
         }
 
-        private static bool TryFormatConstantIndex(IExpression index, out string literal)
+        private static bool TryFormatIndex(IExpression index, out string literal)
         {
             literal = string.Empty;
             switch (index)
@@ -1455,6 +1560,21 @@ namespace Tyhp.TyhpLang.Checker
                 case PhpScalarAst { ScalarType: PhpScalarType.String, ValueString: { } s }:
                     literal = "'" + s.Replace("\\", "\\\\").Replace("'", "\\'") + "'";
                     return true;
+                case PhpEncapsListAst encaps
+                    when PhpStringLiteralHelper.TryGetStaticLiteral(encaps, out var encapsValue):
+                    literal = "'" + encapsValue.Replace("\\", "\\\\").Replace("'", "\\'") + "'";
+                    return true;
+                case PhpVariableAst variable:
+                {
+                    var name = CheckerHelpers.GetVariableName(variable);
+                    if (name is null)
+                    {
+                        return false;
+                    }
+
+                    literal = "$" + name;
+                    return true;
+                }
                 case PhpMagicConstantAst magic
                     when string.Equals(magic.ValueString, "true", StringComparison.OrdinalIgnoreCase)
                         || string.Equals(magic.ValueString, "false", StringComparison.OrdinalIgnoreCase):
@@ -1480,14 +1600,10 @@ namespace Tyhp.TyhpLang.Checker
                 return true;
             }
 
-            // Fall back to text comparison for the `instanceof` keyword and its Tyhp aliases.
+            // Fall back to text comparison for `instanceof` and Tyhp `is`.
             var opText = binary.Operator?.ValueString;
             return string.Equals(opText, "instanceof", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(opText, "is", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(opText, "isa", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(opText, "isan", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(opText, "is_a", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(opText, "is_an", StringComparison.OrdinalIgnoreCase);
+                || string.Equals(opText, "is", StringComparison.OrdinalIgnoreCase);
         }
 
         private static List<IExpression> GetCallArguments(PhpCallAst call) =>

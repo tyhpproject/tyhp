@@ -152,6 +152,23 @@ namespace Tyhp.Config
             "--yes",
             "--no-tyhpdef",
             "--stdio",
+            // install
+            "--force",
+            "--global",
+            "--local",
+            // generate_tyhpdef
+            "--no-docs",
+            "--include-internal",
+            "--include-deprecated",
+            "--no-deprecated",
+            "--overwrite",
+            "--no-php",
+            "--verify",
+            "--include-dev",
+            "--require-stubs",
+            "--no-php-runtime-update",
+            "--refresh-snapshots",
+            "--vendor",
         };
 
         /// <summary>
@@ -172,6 +189,7 @@ namespace Tyhp.Config
             // Global
             "--tyhp-project",
             "--locale",
+            "--pid-file",
             // help / explain
             "--subject",
             "--code",
@@ -183,7 +201,15 @@ namespace Tyhp.Config
             "--namespace",
             "--php-version",
             "--ext-name",
-            "--composer-package",
+            "--package-path",
+            "--source",
+            "--output-file",
+            "--php",
+            "--php-targets",
+            "--php-runtime-dir",
+            "--validate",
+            "--audit-stubs",
+            "--split",
             // lint / build
             "--include",
             "--exclude",
@@ -191,12 +217,20 @@ namespace Tyhp.Config
             "--file",
             "--max-fix-iterations",
             "--cache-dir",
-            // tokenize / dump_ast
+            "--suppress-warnings",
+            // tokenize / dump_ast / symbol_tree
             "--mode",
             "--out",
+            "--filter",
             // language_server
             "--tcp",
             "--pipe",
+            // xdebug_proxy
+            "--ide-port",
+            "--xdebug-port",
+            "--sourcemap-dir",
+            "--ide-key",
+            "--log-level",
         };
 
         /// <summary>
@@ -438,6 +472,210 @@ namespace Tyhp.Config
             }
 
             return kept.ToArray();
+        }
+
+        /// <summary>
+        /// Joins repeated <c>--source</c> flags into one comma-separated <c>--source</c> value.
+        /// </summary>
+        /// <remarks>
+        /// <c>CommandLineConfigurationProvider</c> keeps only the last value when the same key is
+        /// passed twice, so <c>--source=a.php --source=b.php</c> would harvest <c>b.php</c> alone.
+        /// <see cref="Project.GetTyhpdefSourcePaths"/> already splits one comma-separated value, the
+        /// same way <c>--include</c> and <c>--php-targets</c> accept multiple entries. A single
+        /// <c>--source</c> is left unchanged. A value is kept whole, including commas, so
+        /// <see cref="Project.GetTyhpdefSourcePaths"/> splits the list once. Scanning stops at a
+        /// later command verb so that command's <c>--source</c> stays on its own argv. Call before
+        /// <see cref="SelectBinderArgs"/>, which drops that verb and would otherwise make the
+        /// following flags look like this command's.
+        /// </remarks>
+        public static string[] AccumulateRepeatedSourceFlags(string[] args)
+            => AccumulateRepeatedFlag(args, "--source");
+
+        /// <summary>
+        /// Joins repeated <c>--source</c>, <c>--include</c>, <c>--exclude</c>,
+        /// <c>--suppress-warnings</c>, and <c>--php-targets</c> flags. Each flag is joined on its
+        /// own; a value that already contains commas is kept whole so <see cref="Project"/> splits
+        /// that list once.
+        /// </summary>
+        public static string[] AccumulateRepeatedListFlags(string[] args)
+        {
+            args = AccumulateRepeatedFlag(args, "--source");
+            args = AccumulateRepeatedFlag(args, "--include");
+            args = AccumulateRepeatedFlag(args, "--exclude");
+            args = AccumulateRepeatedFlag(args, "--suppress-warnings");
+            args = AccumulateRepeatedFlag(args, "--php-targets");
+            return args;
+        }
+
+        /// <summary>
+        /// Joins repeated occurrences of <paramref name="flagName"/> into one
+        /// <c>--flag=a,b</c> value. A single valued occurrence is left unchanged. A following
+        /// switch is not a value, so a valueless flag is dropped: the binder would otherwise
+        /// take that switch (or a missing trailing value) as the flag's value. Scanning stops
+        /// at a later command verb.
+        /// </summary>
+        private static string[] AccumulateRepeatedFlag(string[] args, string flagName)
+        {
+            var end = IndexOfLaterCommand(args);
+            var values = new List<string>();
+            var firstValueIndex = -1;
+            var hasValueless = false;
+            for (var i = 0; i < end; i++)
+            {
+                if (!TryReadNamedFlag(args, i, flagName, out var value, out var consumed))
+                {
+                    continue;
+                }
+
+                if (value is null)
+                {
+                    hasValueless = true;
+                    continue;
+                }
+
+                if (firstValueIndex < 0)
+                {
+                    firstValueIndex = i;
+                }
+
+                values.Add(value);
+                i += consumed - 1;
+            }
+
+            if (!hasValueless && (values.Count < 2 || firstValueIndex < 0))
+            {
+                return args;
+            }
+
+            var collapsed = new List<string>(args.Length);
+            string? joined = values.Count >= 2 ? flagName + "=" + string.Join(',', values) : null;
+            for (var i = 0; i < end; i++)
+            {
+                if (joined != null && i == firstValueIndex)
+                {
+                    collapsed.Add(joined);
+                }
+
+                if (!TryReadNamedFlag(args, i, flagName, out var value, out var consumed))
+                {
+                    collapsed.Add(args[i]);
+                    continue;
+                }
+
+                // A following switch is not a value, and a trailing bare flag has none. Drop
+                // both so the binder cannot overwrite a real value with the switch or with empty.
+                if (value is null)
+                {
+                    continue;
+                }
+
+                if (joined == null)
+                {
+                    collapsed.Add(args[i]);
+                    if (consumed == 2)
+                    {
+                        collapsed.Add(args[i + 1]);
+                    }
+                }
+
+                i += consumed - 1;
+            }
+
+            for (var i = end; i < args.Length; i++)
+            {
+                collapsed.Add(args[i]);
+            }
+
+            return collapsed.ToArray();
+        }
+
+        /// <summary>
+        /// Index of the next command verb, or <paramref name="args"/>.Length when this argv is one command.
+        /// A verb that is the value of a preceding option is not a later command.
+        /// </summary>
+        private static int IndexOfLaterCommand(string[] args)
+        {
+            for (var i = 0; i < args.Length; i++)
+            {
+                if (TryReadRepeatedListFlag(args, i, out _, out var consumed))
+                {
+                    i += consumed - 1;
+                    continue;
+                }
+
+                var arg = args[i];
+                if (IsLaterCommand(arg))
+                {
+                    return i;
+                }
+
+                if (arg.StartsWith("--", StringComparison.Ordinal)
+                    && !arg.Contains('=', StringComparison.Ordinal)
+                    && i + 1 < args.Length
+                    && !args[i + 1].StartsWith('-'))
+                {
+                    i++;
+                }
+            }
+
+            return args.Length;
+        }
+
+        private static bool IsLaterCommand(string arg)
+            => !arg.StartsWith('-') && TryParseAction(arg, out _);
+
+        /// <summary>
+        /// Reads one repeated list flag (<c>--source</c>, <c>--include</c>, <c>--exclude</c>,
+        /// <c>--suppress-warnings</c>, or <c>--php-targets</c>). Used when finding the next command
+        /// so a verb-shaped value stays attached to its flag.
+        /// </summary>
+        private static bool TryReadRepeatedListFlag(
+            string[] args,
+            int index,
+            out string? value,
+            out int consumed)
+            => TryReadNamedFlag(args, index, "--source", out value, out consumed)
+                || TryReadNamedFlag(args, index, "--include", out value, out consumed)
+                || TryReadNamedFlag(args, index, "--exclude", out value, out consumed)
+                || TryReadNamedFlag(args, index, "--suppress-warnings", out value, out consumed)
+                || TryReadNamedFlag(args, index, "--php-targets", out value, out consumed);
+
+        /// <summary>
+        /// Reads one <paramref name="flagName"/> flag. A missing value (bare flag at the end, or a
+        /// following switch) is reported with <paramref name="value"/> null. The caller drops that
+        /// token so the binder does not take the switch as the value.
+        /// </summary>
+        private static bool TryReadNamedFlag(
+            string[] args,
+            int index,
+            string flagName,
+            out string? value,
+            out int consumed)
+        {
+            value = null;
+            consumed = 1;
+            var arg = args[index];
+            var equalsForm = flagName + "=";
+            if (arg.StartsWith(equalsForm, StringComparison.OrdinalIgnoreCase))
+            {
+                value = arg[equalsForm.Length..];
+                return true;
+            }
+
+            if (!string.Equals(arg, flagName, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // A value may share a command verb's spelling (`--source lint`). That token is this
+            // flag's value. A later command is a verb that is not owned by a preceding option.
+            if (index + 1 < args.Length && !args[index + 1].StartsWith('-'))
+            {
+                value = args[index + 1];
+                consumed = 2;
+            }
+
+            return true;
         }
 
         private static bool IsHelpTrueToken(string arg)

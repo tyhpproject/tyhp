@@ -39,9 +39,9 @@ namespace Tyhp.TyhpLang.Binder
                     varSymbol.IsParameter = true;
                     varSymbol.DefaultValue = param.DefaultValue;
 
-                    if (!funcScope.AddChildSymbol(varSymbol))
+                    if (!funcScope.TryAddChildSymbol(varSymbol, out var existing))
                     {
-                        _diagnostics.AddErrorFromAst(MessageCode.BinderDuplicateSymbolDeclaration, param, _currentFileName, paramName);
+                        ReportBinderDuplicate(param, existing, paramName);
                     }
 
                     symbol.Parameters.Add(new ParameterInfo(
@@ -59,7 +59,64 @@ namespace Tyhp.TyhpLang.Binder
             if (funcDecl.Body != null)
             {
                 BindStatementBlock(funcDecl.Body, funcScope);
+                symbol.IsGenerator = BodyContainsYield(funcDecl.Body);
             }
+        }
+
+        /// <summary>
+        /// True when <paramref name="node"/> contains a <c>yield</c> / <c>yield from</c> that
+        /// belongs to this callable. Nested functions / closures / methods are skipped — their
+        /// yields make them generators, not the enclosing callable. The parser emits yield as
+        /// <see cref="PhpUnaryOpAst"/> (not <see cref="PhpYieldAst"/>). Also used by
+        /// <c>ClosureRule</c> to decide a closure's own generator-ness rather than inheriting the
+        /// lexically enclosing callable's.
+        /// </summary>
+        internal static bool BodyContainsYield(IBase2Ast? node)
+        {
+            if (node is null)
+            {
+                return false;
+            }
+
+            if (node is PhpYieldAst)
+            {
+                return true;
+            }
+
+            if (node is PhpUnaryOpAst unary && IsYieldOperator(unary))
+            {
+                return true;
+            }
+
+            // Nested callables own their own yield; do not attribute them to the outer function.
+            if (node is PhpFunctionDeclAst or PhpInlineFunctionAst or PhpMethodDeclAst)
+            {
+                return false;
+            }
+
+            foreach (var child in node.AstChildren)
+            {
+                if (BodyContainsYield(child))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal static bool IsYieldOperator(PhpUnaryOpAst unary)
+        {
+            var op = unary.Operator?.ValueString;
+            if (string.Equals(op, "yield", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(op, "yield from", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var token = unary.Operator?.ValueInt64;
+            return token == Tyhp.TyhpLang.Parser.TyhpParser.T_YIELD
+                || token == Tyhp.TyhpLang.Parser.TyhpParser.T_YIELD_FROM;
         }
 
         partial void BindStatementBlock(IStatement stmt, IBaseScope parentScope)
@@ -104,6 +161,10 @@ namespace Tyhp.TyhpLang.Binder
                         BindAnonymousFunction(inlineFunc, parentScope);
                         break;
 
+                    case TyhpAsyncBlockAst asyncBlock:
+                        BindAsyncBlock(asyncBlock, parentScope);
+                        break;
+
                     // Named function declared inside a statement block (FOUND_BUGS #36). Without
                     // this arm the default path walks the function's AST children as if they
                     // belonged to the enclosing block and never calls BindFunctionDecl.
@@ -111,8 +172,8 @@ namespace Tyhp.TyhpLang.Binder
                         BindFunctionDecl(funcDecl, parentScope);
                         break;
 
-                    case PhpDeclareAst declareAst when declareAst.Body != null:
-                        BindDeclareBlock(declareAst, parentScope);
+                    case PhpDeclareAst declareAst:
+                        BindDeclare(declareAst, parentScope);
                         break;
 
                     case TyhpTypedVarExprAst typedVar:
@@ -215,7 +276,7 @@ namespace Tyhp.TyhpLang.Binder
         private void BindAnonymousFunction(PhpInlineFunctionAst funcAst, IBaseScope parentScope)
         {
             var name = $"closure@{funcAst.Line}:{funcAst.Column}";
-            var anonSymbol = new AnonymousFunctionSymbol(name, _currentFileName);
+            var anonSymbol = new AnonymousFunctionSymbol(name, _currentFileName, declaringNode: funcAst);
 
             anonSymbol.ReturnType = funcAst.ReturnType;
 
@@ -280,6 +341,27 @@ namespace Tyhp.TyhpLang.Binder
             }
         }
 
+        private void BindAsyncBlock(TyhpAsyncBlockAst block, IBaseScope parentScope)
+        {
+            var name = $"asyncBlock@{block.Line}:{block.Column}";
+            var anonSymbol = new AnonymousFunctionSymbol(name, _currentFileName);
+
+            if (parentScope is not ICodeBlockScopeParent cbParent)
+            {
+                _diagnostics.AddErrorFromAst(MessageCode.BinderInvalidSymbolTypeForParent, block,
+                    _currentFileName, "async block");
+                return;
+            }
+
+            var anonScope = new AnonymousFunctionScope(cbParent, anonSymbol);
+            cbParent.AddCodeBlockChildScope(anonScope);
+
+            if (block.Body != null)
+            {
+                BindStatementBlock(block.Body, anonScope);
+            }
+        }
+
         private void BindCodeBlockChildren(IBase2Ast node, IBaseScope parentScope)
         {
             _bindDepth++;
@@ -310,6 +392,10 @@ namespace Tyhp.TyhpLang.Binder
                     else if (child is PhpInlineFunctionAst inlineFunc)
                     {
                         BindAnonymousFunction(inlineFunc, parentScope);
+                    }
+                    else if (child is TyhpAsyncBlockAst asyncBlock)
+                    {
+                        BindAsyncBlock(asyncBlock, parentScope);
                     }
                     else if (child is IStatement childStmt)
                     {
@@ -431,10 +517,9 @@ namespace Tyhp.TyhpLang.Binder
                         varSymbol.DeclaredType = resource.TypeExpr as ITypeExpression;
                     }
 
-                    if (!blockScope.AddChildSymbol(varSymbol))
+                    if (!blockScope.TryAddChildSymbol(varSymbol, out var existing))
                     {
-                        _diagnostics.AddErrorFromAst(MessageCode.BinderDuplicateSymbolDeclaration,
-                            resource, _currentFileName, varName);
+                        ReportBinderDuplicate(resource, existing, varName);
                     }
                 }
             }

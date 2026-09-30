@@ -1,0 +1,17 @@
+<?tyhp
+declare(strict_types=1);
+namespace Demo;
+
+use App\Types\UserId;
+use App\Types\Optional;
+use App\UserService;
+
+function demo(mixed $x): mixed {
+    UserId();
+    typeof(UserId);
+    Optional(typeof(int));
+    typeof(Optional<int>);
+    $x is UserId;
+    default(UserId);
+    return UserService::NameType();
+}

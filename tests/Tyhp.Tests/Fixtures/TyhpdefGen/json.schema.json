@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "phpVersion": "8.3.11",
+  "extension": "json",
+  "extensionVersion": "8.3.11",
+  "constants": [
+    {
+      "name": "JSON_ERROR_NONE",
+      "value": { "kind": "int", "value": 0, "constName": null },
+      "type": { "kind": "named", "text": "int", "name": "int", "builtin": true, "nullable": false, "types": [] },
+      "modifiers": [],
+      "deprecated": false,
+      "docComment": null
+    },
+    {
+      "name": "JSON_THROW_ON_ERROR",
+      "value": { "kind": "int", "value": 4194304, "constName": null },
+      "type": { "kind": "named", "text": "int", "name": "int", "builtin": true, "nullable": false, "types": [] },
+      "modifiers": [],
+      "deprecated": false,
+      "docComment": null
+    }
+  ],
+  "functions": [
+    {
+      "name": "json_encode",
+      "params": [
+        {
+          "name": "value",
+          "type": { "kind": "named", "text": "mixed", "name": "mixed", "builtin": true, "nullable": false, "types": [] },
+          "optional": false,
+          "default": null,
+          "variadic": false,
+          "byRef": false,
+          "promoted": false,
+          "attributes": []
+        },
+        {
+          "name": "flags",
+          "type": { "kind": "named", "text": "int", "name": "int", "builtin": true, "nullable": false, "types": [] },
+          "optional": true,
+          "default": { "kind": "int", "value": 0, "constName": null },
+          "variadic": false,
+          "byRef": false,
+          "promoted": false,
+          "attributes": []
+        },
+        {
+          "name": "depth",
+          "type": { "kind": "named", "text": "int", "name": "int", "builtin": true, "nullable": false, "types": [] },
+          "optional": true,
+          "default": { "kind": "int", "value": 512, "constName": null },
+          "variadic": false,
+          "byRef": false,
+          "promoted": false,
+          "attributes": []
+        }
+      ],
+      "returnType": {
+        "kind": "union",
+        "text": "string|false",
+        "name": null,
+        "builtin": false,
+        "nullable": false,
+        "types": [
+          { "kind": "named", "text": "string", "name": "string", "builtin": true, "nullable": false, "types": [] },
+          { "kind": "named", "text": "false", "name": "false", "builtin": true, "nullable": false, "types": [] }
+        ]
+      },
+      "returnByRef": false,
+      "tentativeReturn": false,
+      "deprecated": false,
+      "docComment": null,
+      "attributes": [],
+      "modifiers": []
+    },
+    {
+      "name": "json_decode",
+      "params": [
+        {
+          "name": "json",
+          "type": { "kind": "named", "text": "string", "name": "string", "builtin": true, "nullable": false, "types": [] },
+          "optional": false,
+          "default": null,
+          "variadic": false,
+          "byRef": false,
+          "promoted": false,
+          "attributes": []
+        }
+      ],
+      "returnType": { "kind": "named", "text": "mixed", "name": "mixed", "builtin": true, "nullable": false, "types": [] },
+      "returnByRef": false,
+      "tentativeReturn": false,
+      "deprecated": false,
+      "docComment": null,
+      "attributes": [],
+      "modifiers": []
+    }
+  ],
+  "classes": [
+    {
+      "kind": "class",
+      "name": "JsonException",
+      "fqn": "\\JsonException",
+      "modifiers": [],
+      "extends": "\\Exception",
+      "implements": ["\\Throwable"],
+      "uses": [],
+      "isAnonymous": false,
+      "backingType": null,
+      "docComment": null,
+      "deprecated": false,
+      "attributes": [],
+      "constants": [
+        {
+          "name": "CODE",
+          "value": { "kind": "unavailable", "value": null, "constName": null },
+          "type": { "kind": "named", "text": "int", "name": "int", "builtin": true, "nullable": false, "types": [] },
+          "modifiers": ["public"],
+          "deprecated": false,
+          "docComment": null
+        }
+      ],
+      "properties": [
+        {
+          "name": "message",
+          "type": { "kind": "named", "text": "string", "name": "string", "builtin": true, "nullable": false, "types": [] },
+          "modifiers": ["protected"],
+          "hasDefault": false,
+          "default": null,
+          "deprecated": false,
+          "docComment": null,
+          "attributes": [],
+          "hooks": []
+        },
+        {
+          "name": "code",
+          "type": { "kind": "none", "text": "", "name": null, "builtin": false, "nullable": false, "types": [] },
+          "modifiers": [],
+          "hasDefault": false,
+          "default": null,
+          "deprecated": false,
+          "docComment": null,
+          "attributes": [],
+          "hooks": []
+        }
+      ],
+      "methods": [
+        {
+          "name": "__construct",
+          "params": [
+            {
+              "name": "message",
+              "type": { "kind": "named", "text": "string", "name": "string", "builtin": true, "nullable": false, "types": [] },
+              "optional": true,
+              "default": { "kind": "string", "value": "", "constName": null },
+              "variadic": false,
+              "byRef": false,
+              "promoted": false,
+              "attributes": []
+            }
+          ],
+          "returnType": { "kind": "named", "text": "void", "name": "void", "builtin": true, "nullable": false, "types": [] },
+          "returnByRef": false,
+          "tentativeReturn": false,
+          "deprecated": false,
+          "docComment": null,
+          "attributes": [],
+          "modifiers": ["public"]
+        }
+      ],
+      "enumCases": []
+    },
+    {
+      "kind": "interface",
+      "name": "JsonSerializable",
+      "fqn": "\\JsonSerializable",
+      "modifiers": [],
+      "extends": null,
+      "implements": [],
+      "uses": [],
+      "isAnonymous": false,
+      "backingType": null,
+      "docComment": null,
+      "deprecated": false,
+      "attributes": [],
+      "constants": [],
+      "properties": [],
+      "methods": [
+        {
+          "name": "jsonSerialize",
+          "params": [],
+          "returnType": { "kind": "named", "text": "mixed", "name": "mixed", "builtin": true, "nullable": false, "types": [] },
+          "returnByRef": false,
+          "tentativeReturn": false,
+          "deprecated": false,
+          "docComment": null,
+          "attributes": [],
+          "modifiers": ["public"]
+        }
+      ],
+      "enumCases": []
+    }
+  ]
+}

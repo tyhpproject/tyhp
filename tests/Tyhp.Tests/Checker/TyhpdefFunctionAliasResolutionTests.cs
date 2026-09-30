@@ -89,61 +89,19 @@ public class TyhpdefFunctionAliasResolutionTests
 
     private static (Tyhp.TyhpLang.Binder.Scopes.GlobalScope? Scope, DiagnosticBag Diagnostics) BindOnly(string content)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var filePath = Path.Combine(tempDir, "test.tyhp");
-        File.WriteAllText(filePath, content);
-
-        try
-        {
-            using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
-            var result = compilationService.ParseFiles([filePath], options);
-            return (result.GlobalScope, result.Diagnostics);
-        }
-        finally
-        {
-            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
-        }
+        var result = IsolatedCompilation.ParseSnippet(content, skipChecking: true);
+        return (result.GlobalScope, result.Diagnostics);
     }
 
     private static DiagnosticBag CompileAndCheck(string content)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var filePath = Path.Combine(tempDir, "test.tyhp");
-        File.WriteAllText(filePath, content);
+        var result = IsolatedCompilation.ParseSnippet(content, skipChecking: true);
+        result.GlobalScope.Should().NotBeNull("bind should succeed");
+        result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
 
-        try
-        {
-            using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
-            var result = compilationService.ParseFiles([filePath], options);
-            result.GlobalScope.Should().NotBeNull("bind should succeed");
-            result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
-
-            var symbolTree = new SymbolTree(result.GlobalScope!);
-            var checker = new TyhpChecker(result.Diagnostics, symbolTree, result.GlobalScope!);
-            checker.Check(result.ParsedFiles!);
-            return result.Diagnostics;
-        }
-        finally
-        {
-            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
-        }
+        var symbolTree = new SymbolTree(result.GlobalScope!);
+        var checker = new TyhpChecker(result.Diagnostics, symbolTree, result.GlobalScope!);
+        checker.Check(result.ParsedFiles!);
+        return result.Diagnostics;
     }
 }

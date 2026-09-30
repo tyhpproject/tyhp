@@ -1,0 +1,11 @@
+<?tyhp
+class Box<T> {
+    public function __construct(public T $v): void {}
+}
+
+function main(): void {
+    Box<string> $b = new Box<string>("ok");
+    echo $b->v;
+}
+
+main();

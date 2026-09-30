@@ -14,10 +14,16 @@ namespace Tyhp.TyhpLang.Ast
 
         public IExpression? DefaultValue => Children.ElementAtOrDefault(2) as IExpression;
 
+        /// <summary>
+        /// Optional type on a typed foreach binding (<c>foreach ($xs as string $v)</c>).
+        /// Null for ordinary variables and untyped foreach targets.
+        /// </summary>
+        public ITypeExpression? Type => Children.ElementAtOrDefault(3) as ITypeExpression;
+
         public bool IsRef => HasFlag(IS_REF_FLAG);
         
-        public static PhpVariableAst Create(IExpression expression, bool isRef, ParserRuleContext context, string? languageMode = null)
-            => Create(null, expression, isRef, null, context, languageMode);
+        public static PhpVariableAst Create(IExpression expression, bool isRef, ParserRuleContext context, string? languageMode = null, ITypeExpression? type = null)
+            => Create(null, expression, isRef, null, context, languageMode, type);
 
         public static PhpVariableAst Create(IExpression expression, bool isRef, IExpression? defaultValue, ParserRuleContext context, string? languageMode = null)
             => Create(null, expression, isRef, defaultValue, context, languageMode);
@@ -28,11 +34,11 @@ namespace Tyhp.TyhpLang.Ast
         public static PhpVariableAst Create(TokenValueAst variableToken, bool isRef, IExpression? defaultValue, ParserRuleContext context, string? languageMode = null)
             => Create(variableToken, null, isRef, defaultValue, context, languageMode);
         
-        public static PhpVariableAst Create(TokenValueAst? variableToken, IExpression? expression, bool isRef, IExpression? defaultValue, ParserRuleContext context, string? languageMode = null)
+        public static PhpVariableAst Create(TokenValueAst? variableToken, IExpression? expression, bool isRef, IExpression? defaultValue, ParserRuleContext context, string? languageMode = null, ITypeExpression? type = null)
         {
             var result = new PhpVariableAst
             {
-                Children = [variableToken, expression, defaultValue],
+                Children = [variableToken, expression, defaultValue, type],
             };
             result.SetContext(context, languageMode);
             result.SetFlag(IS_REF_FLAG, isRef);
@@ -46,7 +52,7 @@ namespace Tyhp.TyhpLang.Ast
             var token = TokenValueAst.CreateFromContext(name, TyhpLang.Parser.TyhpParser.T_VARIABLE, context);
             var result = new PhpVariableAst
             {
-                Children = [token, null, null],
+                Children = [token, null, null, null],
             };
             result.SetContext(context);
             result.SetFlag(IS_REF_FLAG, isRef);
@@ -61,7 +67,7 @@ namespace Tyhp.TyhpLang.Ast
         {
             var result = new PhpVariableAst
             {
-                Children = [TokenValueAst.CreateError(context, languageMode), null, null],
+                Children = [TokenValueAst.CreateError(context, languageMode), null, null, null],
             };
             result.SetContext(context, languageMode);
             return result;

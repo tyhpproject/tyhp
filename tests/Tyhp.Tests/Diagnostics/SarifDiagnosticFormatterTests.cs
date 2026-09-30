@@ -7,6 +7,7 @@ using Tyhp.Domain.Exceptions;
 namespace Tyhp.Tests.Diagnostics;
 
 [Trait("Category", "Diagnostics")]
+[Collection("ProcessGlobalState")]
 public class SarifDiagnosticFormatterTests : IDisposable
 {
     private sealed class FakeLocalizer : IStringLocalizer<TyhpHostedService>
@@ -19,7 +20,7 @@ public class SarifDiagnosticFormatterTests : IDisposable
             ["INFO_TYHP1001"] = "Info template",
             // Backticked spans where the placeholder is not the whole span.
             ["ERROR_TYHP4013"] = "Variable `${0}` is used before being assigned",
-            ["WARNING_TYHP8026"] = "PHP extension package not found; install `tyhp/php-{0}` via Composer",
+            ["WARNING_TYHP8026"] = "PHP extension package not found; install `tyhpdef/php-{0}` via Composer",
         };
 
         public LocalizedString this[string name]

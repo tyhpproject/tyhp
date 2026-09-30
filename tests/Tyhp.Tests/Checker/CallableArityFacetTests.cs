@@ -68,10 +68,10 @@ public class CallableArityFacetTests
             <?tyhp
             namespace Test;
             function greet(string $name, int $times = 1): void {}
-            function takeOne(callable<string, void> $fn): void {
+            function takeOne(callable(string $s): void $fn): void {
                 $fn("a");
             }
-            function takeTwo(callable<string, int, void> $fn): void {
+            function takeTwo(callable(string, int): void $fn): void {
                 $fn("a", 2);
             }
             function main(): void {
@@ -91,7 +91,7 @@ public class CallableArityFacetTests
             <?tyhp
             namespace Test;
             function both(string $a, int $b): void {}
-            function takeOne(callable<string, void> $fn): void {
+            function takeOne(callable(string $s): void $fn): void {
                 $fn("a");
             }
             function main(): void {
@@ -112,10 +112,10 @@ public class CallableArityFacetTests
             <?tyhp
             namespace Test;
             function maybe(string $label = ""): void {}
-            function takeZero(callable<void> $fn): void {
+            function takeZero(callable(): void $fn): void {
                 $fn();
             }
-            function takeOne(callable<string, void> $fn): void {
+            function takeOne(callable(string $s): void $fn): void {
                 $fn("x");
             }
             function main(): void {
@@ -136,7 +136,7 @@ public class CallableArityFacetTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            type Greeter = callable<string, int, void> & callable<string, void>;
+            type Greeter = (callable(string $s, int $n): void) & (callable(string $s): void);
             function accept(Greeter $fn): void {
                 $fn("a");
             }
@@ -157,10 +157,10 @@ public class CallableArityFacetTests
             <?tyhp
             namespace Test;
             function joinAll(string ...$parts): void {}
-            function takeZero(callable<void> $fn): void {
+            function takeZero(callable(): void $fn): void {
                 $fn();
             }
-            function takeOne(callable<string, void> $fn): void {
+            function takeOne(callable(string $s): void $fn): void {
                 $fn("x");
             }
             function main(): void {
@@ -181,7 +181,7 @@ public class CallableArityFacetTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            type Pick = callable<string, int> & callable<string, string, bool>;
+            type Pick = (callable(string $s): int) & (callable(string $a, string $b): bool);
             function apply(Pick $fn): void {
                 int $one = $fn("a");
                 bool $two = $fn("a", "b");
@@ -196,11 +196,11 @@ public class CallableArityFacetTests
     public void UserWrittenCallableIntersection_IsAllowed()
     {
         // Prefer a type alias so each callable's generics are closed before `&` (avoids
-        // ambiguous `callable<…, void & …>` parses if prediction mis-reads past `>`).
+        // ambiguous `callable(…): void & …` parses if prediction mis-reads past `>`).
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            type Greeter = callable<string, int, void> & callable<string, void>;
+            type Greeter = (callable(string $s, int $n): void) & (callable(string $s): void);
             function accept(Greeter $fn): void {
                 $fn("a");
             }
@@ -220,7 +220,7 @@ public class CallableArityFacetTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            function takeOne(callable<string, void> $fn): void {
+            function takeOne(callable(string $s): void $fn): void {
                 $fn("a");
             }
             function main(): void {
@@ -255,7 +255,7 @@ public class CallableArityFacetTests
         var errors = CompileAndCheck("""
             <?tyhp
             namespace Test;
-            type Greeter = callable<string, int, void> & callable<string, void>;
+            type Greeter = (callable(string $s, int $n): void) & (callable(string $s): void);
             function take(Greeter $fn): void {
                 $fn("a");
             }
@@ -279,16 +279,16 @@ public class CallableArityFacetTests
         try
         {
             using var compilationService = new CompilationService();
-            var options = new CompilationOptions
-            {
-                EnableAstCache = false,
-                PhpVersion = "8.2",
-                ProjectPath = TestFileManager.GetRepoRoot(),
-                TyhpdefIncludePaths = TestFileManager.GetDevPackageManifestIncludes(),
-                SkipChecking = true,
-            };
+            var options = IsolatedCompilation.CreateOptions(tempDir, skipChecking: true);
             var result = compilationService.ParseFiles([filePath], options);
-            result.GlobalScope.Should().NotBeNull("bind should succeed");
+            if (result.GlobalScope is null)
+            {
+                return result.Diagnostics.Errors
+                    .Where(e => e.FileName is not null
+                        && e.FileName.Replace('\\', '/').EndsWith(fileName, StringComparison.Ordinal))
+                    .ToList();
+            }
+
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
 
             var symbolTree = new SymbolTree(result.GlobalScope!);

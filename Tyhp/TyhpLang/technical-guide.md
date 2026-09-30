@@ -51,9 +51,9 @@ Source bytes (.tyhp / .php / .tyhpdef)
 Inside `CompilationService.ParseFiles`:
 
 1. **Parse** always runs (parallel when `MaxThreads != 1`).
-2. **Bind** runs only if parse produced **no** errors.
-3. **Check** runs only if bind produced a non-null `GlobalScope` and `SkipChecking` is false.
-4. AST cache flush runs after bind (including tyhpdefs loaded during bind).
+2. **Bind** runs for files that produced no parse errors on that file. A parse failure in one source file does not skip bind for siblings that parsed. Bind is skipped entirely only when no such files remain. `TyhpBinder.Bind` is not invoked with an empty list (that would add a spurious “no source files” error). Parse diagnostics stay on the broken file.
+3. **Check** runs when bind produced a non-null `GlobalScope` and `SkipChecking` is false. Bind errors (including tyhpdef) do not skip check. The checker walks the same files that were bound, not recovery trees from files that failed to parse.
+4. AST cache flush to disk runs after bind when `EnableAstCache` is true (including tyhpdefs loaded during bind). Language-rule tests keep cache off and skip that flush.
 
 Emission is **not** part of `CompilationService`. `BuildAction` decides whether to emit (`ShouldContinueToEmit`), builds `EmitContext` from the result, calls `TyhpEmitter.Emit`, then `OutputWriterService.WriteAll`. Lint runs parse/bind/check (and optional auto-fix loops) but does not emit PHP.
 
@@ -71,12 +71,13 @@ Production entry point for parse → bind → check. Callers today:
 |--------|------|
 | `Tyhp/CLI/BuildAction.cs` | Full build: service → emit → write |
 | `Tyhp/CLI/LintAction.cs` | Diagnostics (+ optional `Lint/` auto-fix), no emit |
+| `Tyhp/CLI/SymbolTreeAction.cs` | Parse + bind, dump resolved `GlobalScope` as JSON (no check/emit) |
 | `Tyhp/CLI/DebugAction.cs` | Debug / dump / tokenize-style workflows |
-| `tests/Tyhp.Tests/**` | Fixture pipelines via `new CompilationService().ParseFiles(...)` |
+| `tests/Tyhp.Tests/**` | Language-rule helpers reuse one `CompilationService` (`IsolatedCompilation`) and pass in-memory snippets into `ParseFiles` |
 
 The service’s XML docs also mention a language server; LSP (Story 19) is not a live caller of this service in the current tree — treat CLI + tests as the verified consumers.
 
-`ParseFiles(filePaths, options, cancellationToken)` returns a `CompilationResult` (`Tyhp/Domain/Diagnostics/CompilationResult.cs`) carrying:
+`ParseFiles(filePaths, options, cancellationToken)` and `ParseFiles(inMemoryFiles, options, cancellationToken)` return a `CompilationResult` (`Tyhp/Domain/Diagnostics/CompilationResult.cs`) carrying:
 
 - `Diagnostics` — shared bag across phases
 - `ParsedFiles` — `SrcFileAst` list (ordered by file name)
@@ -91,7 +92,7 @@ For each file, `CompilationService.ParseFile`:
 
 1. Uses **thread-local** `TyhpLexer` / `TyhpParser` (no cross-thread sharing of recognizers).
 2. Configures tagless mode from `CompilationOptions.Tagless` for `.tyhp` / `.tyhpdef`.
-3. Picks the ANTLR entry rule by extension (**.tyhpdef before .tyhp** because `.tyhpdef` ends with `.tyhp`):
+3. Picks the ANTLR entry rule by extension:
    - `.tyhpdef` → `tyhpdefSrcFile` / `tyhpdefTaglessSrcFile`
    - `.tyhp` → `tyhpSrcFile` / `tyhpTaglessSrcFile`
    - else → `phpSrcFile`
@@ -103,7 +104,7 @@ Secondary same-pattern parse: `Binder/BuiltIn/Tyhpdef.ParseContent` for package/
 
 ### 3.3 Bind hand-off
 
-`BindParsedFiles` constructs `TyhpBinder(diagnostics, options)` and calls `Bind(parsedFiles)` → `GlobalScope?`.
+`BindParsedFiles` constructs `TyhpBinder(diagnostics, options)` and calls `Bind` on the files that parsed without errors → `GlobalScope?`.
 
 Binder:
 
@@ -115,7 +116,7 @@ Scope types live under `Binder/Scopes/` (see [Binder](Binder/technical-guide.md)
 
 ### 3.4 Check hand-off
 
-`CheckParsedFiles` wraps `GlobalScope` in `SymbolTree`, constructs `TyhpChecker`, calls `Check(parsedFiles)`, then copies checker outputs onto `CompilationResult`.
+`CheckParsedFiles` wraps `GlobalScope` in `SymbolTree`, constructs `TyhpChecker`, calls `Check` on the same files that were bound, then copies checker outputs onto `CompilationResult`.
 
 Checker consumes bound AST + symbols; it does not re-parse. It may resolve things the binder deliberately leaves open (e.g. free function names at call sites). Emitter contracts are **side dictionaries / sets**, not fields on symbols.
 
@@ -181,6 +182,9 @@ Static constants and helpers for **compiler-generated PHP identifiers** that mus
 | `GenericFactory` / `MangleFullyQualifiedName` | `new_<mangledFqn>__tyhpGeneric` factory naming |
 | `PropertyHookInitHook` | Uniform `__initPropertyHooks__tyhpPropertyHook` across hooked inheritance levels |
 | `PropertyHookGetMethod` / `PropertyHookSetMethod` | `__get_/__set_<prop>__tyhpPropertyHook` |
+| `ExtensionReceiverThisAlias` (`$this_`) | Static-method rename of extension `$this` (PHP forbids `$this` as a static parameter) |
+| `ExtensionBackerSuffix` (`__tyhpExtensionBacker`) | Tyhp-only alias on the compiled PHP backer class for standalone `extension Name { }` (`class PhpName as Name__tyhpExtensionBacker`). Never appears in emitted PHP |
+| `EndsWithExtensionBackerSuffix` | Case-insensitive collision check; user types of that Tyhp name are an error (TYHP4171) |
 
 **Why it lives at the root:** the checker must reject user declarations that would collide with these names (`DeclarationRule.Callable` uses `EndsWithGenericVariantSuffix`). The emitter emits the same strings (`TyhpEmitter.GenericClasses`, `GenericVariants`, `Generics`). Keeping names outside `Emitter/` avoids checker ↔ emitter drift.
 
@@ -190,8 +194,9 @@ Identifies **compile-time-only overload signatures** that binder skips and emitt
 
 1. **Top-level functions** — bodyless + grammar addon `isOverloadSignature` (`IsErasableFunctionOverloadSignature`). Named short functions get a desugared body at visit time and are **not** overload signatures.
 2. **Class methods** — no dedicated grammar; structural detection: bodyless, non-abstract, and a same-named method **with a body** exists in the type (`CollectImplementedMethodNames` + `IsClassMethodOverloadSignature`). Abstract/interface methods stay.
+3. **Extension functions** — bodyless `function name(...): T;` in an `extension` body when a same-named member with a body exists (`CollectImplementedExtensionFunctionNames` + `IsExtensionFunctionOverloadSignature`). Binder attaches those signatures to the implementation's `Overloads`.
 
-**Used by:** `TyhpBinder.TopStatements` / `TyhpBinder.ObjectBody`, `TyhpEmitter.Declarations`.
+**Used by:** `TyhpBinder.TopStatements` / `TyhpBinder.ObjectBody` / `TyhpBinder.Extensions`, `TyhpEmitter.Declarations`, `ExtensionRule`.
 
 ### `StaticValueTypeHelper.cs`
 
@@ -206,12 +211,13 @@ Does **not** cover `true` / `false` / `null` — those are builtin type symbols 
 ### `ArityFacetExpansion.cs`
 
 Shared **optional-parameter arity prefix** math for callable/Closure facets (checker) and Story 27
-`new<>` constructable facets (binder). Given ordered `(HasDefault, IsVariadic)` flags, returns
-ascending prefix lengths from `requiredCount` to `totalCount` (non-variadic only). Variadic-only
-signatures yield a single `0` prefix — never infinite arities.
+class-shape constructor matching (`__New<Shape>`: which call prefixes a class constructor supports).
+Given ordered `(HasDefault, IsVariadic)` flags, returns ascending prefix lengths from
+`requiredCount` to `totalCount` (non-variadic only). Variadic-only signatures yield a single `0`
+prefix — never infinite arities.
 
-**Used by:** `CallableArityFacetBuilder` (checker); Story 27 binder facet computation should call the
-same API rather than re-implementing the loop.
+**Used by:** `CallableArityFacetBuilder` (checker); Story 27 `__New<Shape>` constructor matching
+should call the same API rather than re-implementing the loop.
 
 ---
 
@@ -232,6 +238,7 @@ Each subfolder that ships a `technical-guide.md` (all of the following do):
 | **Interop** | Story 15 contract version + required `\Tyhp\*` surface (`InteropContract` / `InteropContractSurface`). | [Interop/technical-guide.md](Interop/technical-guide.md) |
 | **Enum** | Shared language/compiler enumerations and token→enum helpers used everywhere. | [Enum/technical-guide.md](Enum/technical-guide.md) |
 | **Lint** | Auto-fix engine for `tyhp lint --fix` (`ILintFix` / `LintFixEngine`). Not checker rules; not emit. | [Lint/technical-guide.md](Lint/technical-guide.md) |
+| **Versioning** | Composer PHP-platform constraint parser (`PhpVersionConstraint`) vs `output.phpVersion`. No diagnostics. | [Versioning/technical-guide.md](Versioning/technical-guide.md) |
 
 ---
 
@@ -245,7 +252,7 @@ For a new developer getting oriented:
 4. [Binder](Binder/technical-guide.md) — symbols, scopes (`Binder/Scopes/`), and resolution.
 5. [Checker](Checker/technical-guide.md) — semantics and emitter contracts.
 6. [Emitter](Emitter/technical-guide.md) — PHP lowering.
-7. Skim [Enum](Enum/technical-guide.md), [Attributes](Attributes/technical-guide.md), and [Lint](Lint/technical-guide.md) when you hit those surfaces.
+7. Skim [Enum](Enum/technical-guide.md), [Attributes](Attributes/technical-guide.md), [Lint](Lint/technical-guide.md), and [Versioning](Versioning/technical-guide.md) when you hit those surfaces.
 8. Read `CompilationService.cs` and `BuildAction.cs` once — they are the glue outside TyhpLang.
 
 When changing an area, update that area’s `technical-guide.md` (see `.cursor/rules/tyhplang-technical-guides.mdc`). Cross-cutting pipeline or root-helper changes belong in **this** file.

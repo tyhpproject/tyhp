@@ -303,6 +303,7 @@ namespace Tyhp.TyhpLang.Emitter
                     }
 
                     if (propertyDecl.Type is null
+                        || this.IsEraseGenericOptedOut(propertyDecl)
                         || !this.IsFreeObjectGenericPropertyType(propertyDecl.Type))
                     {
                         continue;
@@ -345,6 +346,7 @@ namespace Tyhp.TyhpLang.Emitter
                         }
 
                         if (parameter.Type is null
+                            || this.IsEraseGenericOptedOut(parameter)
                             || !this.IsFreeObjectGenericPropertyType(parameter.Type))
                         {
                             continue;
@@ -654,7 +656,7 @@ namespace Tyhp.TyhpLang.Emitter
 
                 foreach (var traitName in traitUse.TraitNames?.GetAllNotNull() ?? [])
                 {
-                    var text = traitName.Identifier ?? (traitName as PhpNameAst)?.ValueString ?? "";
+                    var text = NameText(traitName);
                     var normalized = text.TrimStart('\\');
                     if (string.Equals(normalized, "Tyhp\\Concerns\\UsesPropertyAccessors", StringComparison.OrdinalIgnoreCase)
                         || string.Equals(normalized, "Concerns\\UsesPropertyAccessors", StringComparison.OrdinalIgnoreCase)
@@ -930,6 +932,33 @@ namespace Tyhp.TyhpLang.Emitter
 
             var templateLines = this.BuildGenericTemplatePhpDocTags();
             MergeMagicPropertyPhpDocTags(classBlock, templateLines, tagLines);
+        }
+
+        /// <summary>
+        /// Erased generic classes still keep <c>@template</c> PHPDoc for static analysis even when
+        /// Mechanism C plumbing is omitted. The hooked-property path already merges those tags.
+        /// </summary>
+        private void AttachGenericTemplatePhpDocIfNeeded(
+            PhpObjectTypeDeclAst objectDecl,
+            EmitItem classBlock)
+        {
+            if (this._currentObjectGenericParams.Count == 0)
+            {
+                return;
+            }
+
+            if (this.ShouldLowerPropertyAccessors() && this.ObjectHasPendingHookedProperties())
+            {
+                return;
+            }
+
+            var templateLines = this.BuildGenericTemplatePhpDocTags();
+            if (templateLines.Count == 0)
+            {
+                return;
+            }
+
+            MergeMagicPropertyPhpDocTags(classBlock, templateLines, []);
         }
 
         private string BuildPhpDocTypeExpression(ITypeExpression? typeExpression)
@@ -1596,7 +1625,8 @@ namespace Tyhp.TyhpLang.Emitter
             this._hookBackingPropertyName = propertyName;
             try
             {
-                // Never compact: PSR-12 forbids content after `{` / before `}` on the same line.
+                // Never compact: keep multiline hook bodies so PHPCS/fixer tokenizers
+                // that still mishandle PHP 8.4 hooks (PHP_CodeSniffer#731) can parse them.
                 return this.BuildMethodBodyInline(block, compact: false);
             }
             finally

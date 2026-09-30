@@ -45,6 +45,15 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         /// </summary>
         public string? OriginalPhpName { get; internal set; }
 
+        /// <summary>
+        /// Additional overload signatures for the same method name. Overlay last-wins
+        /// replace keeps the first overlay declaration as this symbol; later same-name methods
+        /// in that overlay body append here. Tyhp source extension overload signatures
+        /// (bodyless <c>function name(...): T;</c> plus an implementation) are attached the
+        /// same way. Same pattern as <see cref="FunctionDeclarationSymbol.Overloads"/>.
+        /// </summary>
+        public List<ObjectMethodSymbol> Overloads { get; } = new();
+
         public virtual bool CanBeStatic => true;
         public virtual bool CanBeInstance => true;
 

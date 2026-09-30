@@ -2,12 +2,12 @@
 
 namespace TestData\Binder;
 
-struct SerializedExpression {
+type SerializedExpression = struct {
     string $nodeType = '';
     string $type = '';
-}
+};
 
-struct SerializedParameterExpression extends SerializedExpression {
+type SerializedParameterExpression = struct extends SerializedExpression {
     string $name = '';
     int $index = 0;
-}
+};
