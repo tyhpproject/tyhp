@@ -107,12 +107,17 @@ def emit_visitors() -> None:
         ),
         encoding="utf-8",
     )
+    tyhpdef_visitor_body = replace_tyhpdef_types(tyhp_body).replace(
+        "private void ReportMissingRequired(",
+        "private new void ReportMissingRequired(",
+        1,
+    )
     (VISITOR / "TyhpdefParserAstVisitor.Included.cs").write_text(
         wrap_partial(
             "TyhpdefParserAstVisitor",
             "",
             tyhp_usings,
-            replace_tyhpdef_types(tyhp_body),
+            tyhpdef_visitor_body,
         ),
         encoding="utf-8",
     )

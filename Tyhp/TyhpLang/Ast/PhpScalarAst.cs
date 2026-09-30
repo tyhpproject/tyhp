@@ -38,7 +38,7 @@ namespace Tyhp.TyhpLang.Ast
 
         public PhpScalarType ScalarType => GetEnumFlags<PhpScalarType>(SCALAR_TYPE_OFFSET).FirstOrDefault();
         
-        public static PhpScalarAst Create(TokenValueAst tokenValue, PhpScalarType scalarType, ParserRuleContext context, string? languageMode = null)
+        public static PhpScalarAst Create(TokenValueAst? tokenValue, PhpScalarType scalarType, ParserRuleContext context, string? languageMode = null)
         {
             var result = new PhpScalarAst {
                 Children = [tokenValue],
@@ -49,7 +49,7 @@ namespace Tyhp.TyhpLang.Ast
 
             // PHP/Tyhp numeric literals allow `_` as a digit separator (e.g. `1_000_000`),
             // which none of the parse routines below understand directly.
-            var tokenString = tokenValue.ValueString?.Replace("_", string.Empty);
+            var tokenString = tokenValue?.ValueString?.Replace("_", string.Empty);
 
             switch (scalarType) {
                 case PhpScalarType.Integer:
@@ -103,7 +103,7 @@ namespace Tyhp.TyhpLang.Ast
                     break;
                     
                 case PhpScalarType.String:
-                    result.ValueString = tokenValue.ValueString ?? string.Empty;
+                    result.ValueString = tokenValue?.ValueString ?? string.Empty;
                     break;
                     
                 default:

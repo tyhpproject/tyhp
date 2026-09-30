@@ -40,7 +40,7 @@ namespace Tyhp.TyhpLang.Ast
             ParserRuleContext context,
             string? languageMode = null)
         {
-            var children = new List<IBase2Ast>();
+            var children = new List<IBase2Ast?>();
             if (typeExpr != null) children.Add(typeExpr);
             if (variable != null) children.Add(variable);
             children.Add(expression);

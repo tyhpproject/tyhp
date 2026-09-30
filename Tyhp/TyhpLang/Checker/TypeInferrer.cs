@@ -237,7 +237,8 @@ namespace Tyhp.TyhpLang.Checker
                 foreach (var block in nsScope.ChildScopes)
                 {
                     if (block is NamespaceBlockScope nsBlock
-                        && ReferenceEquals(nsBlock.DeclarationSymbol.OwningFileScope, matchingFile))
+                        && nsBlock.DeclarationSymbol is { } declaration
+                        && ReferenceEquals(declaration.OwningFileScope, matchingFile))
                     {
                         declaringScope = nsBlock;
                         return true;

@@ -52,7 +52,6 @@ namespace Tyhp.CLI
         private int totalFilesCount = 0;
         private readonly string directoryPath = "./DebugProject/"; // TODO: set this to a path with lots of php files
         private long totalBytesRead = 0L;
-        private int threadsRunning = 0;
         private ConcurrentDictionary<string, string> debugHashes;
         public int MaxThreads
         {

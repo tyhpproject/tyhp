@@ -150,9 +150,12 @@ namespace Tyhp.TyhpLang.Emitter
             try
             {
                 var scopeVar = this._context.EnsureDisposableScopeForCurrentBlock();
-                var condition = this.BuildUsingCallCondition(
-                    (PhpDereferenceableAst)ifAst.Condition,
-                    scopeVar);
+                if (ifAst.Condition is not PhpDereferenceableAst usingDeref)
+                {
+                    return EmitItem.Empty(ifAst, emitType, parent);
+                }
+
+                var condition = this.BuildUsingCallCondition(usingDeref, scopeVar);
 
                 var segments = new List<(string Open, Action<EmitItem> Body)>();
                 segments.Add((FormatControlStructureOpen("if", condition), block => this.EmitStatementBody(ifAst.ThenStatement, block)));
@@ -767,8 +770,12 @@ namespace Tyhp.TyhpLang.Emitter
                 var scopeVar = this._context.EnsureDisposableScopeForCurrentBlock();
                 EmitItem.Line(deref, emitType, $"{scopeVar} = \\Tyhp\\DisposableScope::create();", parent);
 
-                var callAst = (PhpCallAst)deref.Suffix;
-                var args = callAst.Arguments.GetAllNotNull().ToList();
+                if (deref.Suffix is not PhpCallAst callAst)
+                {
+                    return EmitItem.Empty(deref, emitType, parent);
+                }
+
+                var args = callAst.Arguments?.GetAllNotNull().ToList() ?? [];
 
                 if (args.Count == 1
                     && args[0].Expression is PhpBinaryOpAst binaryOp
@@ -793,8 +800,12 @@ namespace Tyhp.TyhpLang.Emitter
                 return this.BuildExpression(deref);
             }
 
-            var callAst = (PhpCallAst)deref.Suffix;
-            var args = callAst.Arguments.GetAllNotNull().ToList();
+            if (deref.Suffix is not PhpCallAst callAst)
+            {
+                return this.BuildExpression(deref);
+            }
+
+            var args = callAst.Arguments?.GetAllNotNull().ToList() ?? [];
 
             if (args.Count == 1
                 && args[0].Expression is PhpBinaryOpAst binaryOp

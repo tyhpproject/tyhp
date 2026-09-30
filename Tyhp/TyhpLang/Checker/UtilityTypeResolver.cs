@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast.Interfaces;
@@ -1286,9 +1287,9 @@ namespace Tyhp.TyhpLang.Checker
             StructCheckedType structType,
             string key,
             out string propertyKey,
-            out StructPropertyInfo propInfo)
+            [NotNullWhen(true)] out StructPropertyInfo? propInfo)
         {
-            if (structType.Properties.TryGetValue(key, out propInfo!))
+            if (structType.Properties.TryGetValue(key, out propInfo))
             {
                 propertyKey = key;
                 return true;
@@ -1301,7 +1302,7 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             propertyKey = key;
-            propInfo = null!;
+            propInfo = null;
             return false;
         }
 

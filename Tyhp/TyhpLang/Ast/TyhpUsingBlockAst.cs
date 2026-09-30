@@ -29,11 +29,11 @@ namespace Tyhp.TyhpLang.Ast
         public static TyhpUsingBlockAst Create(
             bool isAsync,
             IEnumerable<TyhpUsingResourceAst> resources,
-            IStatement body,
+            IStatement? body,
             ParserRuleContext context,
             string? languageMode = null)
         {
-            var children = new List<IBase2Ast>();
+            var children = new List<IBase2Ast?>();
             children.AddRange(resources);
             children.Add(body);
 

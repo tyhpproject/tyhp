@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Emitter;
@@ -166,7 +167,10 @@ namespace Tyhp.Domain.Services
             return true;
         }
 
-        private static bool TryGetNegatedCall(IExpression condition, string name, out IExpression? argument)
+        private static bool TryGetNegatedCall(
+            IExpression condition,
+            string name,
+            [NotNullWhen(true)] out IExpression? argument)
         {
             argument = null;
             return TryGetNegatedCall(condition, out var callName, out argument, out _)

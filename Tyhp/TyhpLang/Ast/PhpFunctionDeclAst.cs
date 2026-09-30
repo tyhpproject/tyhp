@@ -18,7 +18,7 @@ namespace Tyhp.TyhpLang.Ast
         public ITypeExpression? ReturnType => Children.ElementAtOrDefault(1) as ITypeExpression;
         public PhpStatementBlockAst? Body => Children.ElementAtOrDefault(2) as PhpStatementBlockAst;
         
-        public static PhpFunctionDeclAst Create(string? name, bool returnsRef, PhpParameterListAst parameters, ITypeExpression? returnType, PhpStatementBlockAst? body, ParserRuleContext context, string? languageMode = null, string? docComment = null, bool isShortSyntax = false)
+        public static PhpFunctionDeclAst Create(string? name, bool returnsRef, PhpParameterListAst? parameters, ITypeExpression? returnType, PhpStatementBlockAst? body, ParserRuleContext context, string? languageMode = null, string? docComment = null, bool isShortSyntax = false)
         {
             var result = new PhpFunctionDeclAst
             {

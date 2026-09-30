@@ -3447,7 +3447,7 @@ namespace Tyhp.TyhpLang.Visitor
         /// Reports <see cref="MessageCode.VisitorMissingRequiredNode"/> for a child that ANTLR
         /// error recovery left null, so callers can continue with a placeholder AST instead of NRE.
         /// </summary>
-        private void ReportMissingRequired(ParserRuleContext context, string ruleName)
+        private new void ReportMissingRequired(ParserRuleContext context, string ruleName)
         {
             this.Diagnostics.AddError(
                 MessageCode.VisitorMissingRequiredNode,

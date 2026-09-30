@@ -825,6 +825,11 @@ namespace Tyhp.Domain.Services
 
         private static void TryChmodExecute(string path)
         {
+            if (OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
             try
             {
                 var mode = File.GetUnixFileMode(path);

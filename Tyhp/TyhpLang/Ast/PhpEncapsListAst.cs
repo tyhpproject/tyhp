@@ -15,9 +15,14 @@ namespace Tyhp.TyhpLang.Ast
 
     public static class PhpEncapsListAstExtensions
     {
-        public static TPhpEncapsListAstType WithStringType<TPhpEncapsListAstType>(this TPhpEncapsListAstType astNode, TokenValueAst tokenValue)
+        public static TPhpEncapsListAstType WithStringType<TPhpEncapsListAstType>(this TPhpEncapsListAstType astNode, TokenValueAst? tokenValue)
             where TPhpEncapsListAstType : PhpEncapsListAst, new()
-            => astNode.WithStringType<TPhpEncapsListAstType>(PhpStringTypeExtensions.FromToken(Convert.ToInt32(tokenValue.ValueInt64 ?? -1)) ?? PhpStringType.SingleQuoted);
+        {
+            var stringType = tokenValue is null
+                ? PhpStringType.SingleQuoted
+                : PhpStringTypeExtensions.FromToken(Convert.ToInt32(tokenValue.ValueInt64 ?? -1)) ?? PhpStringType.SingleQuoted;
+            return astNode.WithStringType<TPhpEncapsListAstType>(stringType);
+        }
 
         public static TPhpEncapsListAstType WithStringType<TPhpEncapsListAstType>(this TPhpEncapsListAstType astNode, PhpStringType stringType)
             where TPhpEncapsListAstType : PhpEncapsListAst, new()

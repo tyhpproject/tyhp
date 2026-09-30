@@ -3495,7 +3495,7 @@ namespace Tyhp.TyhpLang.Visitor
                 this.VisitReturnsRef(context.ReturnsRef) != null,
                 this.VisitPropertyHookModifiers(context.Modifiers),
                 this.VisitOptionalParameterList(context.Parameters),
-                this.VisitPropertyHookBody(context.AccessorBody),
+                context.AccessorBody is { } accessorBody ? this.VisitPropertyHookBody(accessorBody) : null,
                 context,
                 languageMode: null,
                 isExpressionBody: isExpressionBody

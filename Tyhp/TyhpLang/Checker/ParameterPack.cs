@@ -123,7 +123,7 @@ namespace Tyhp.TyhpLang.Checker
             return inner.IsNullable ? inner : new NullableCheckedType(inner);
         }
 
-        public static ICheckedType ApplyNonNullable(ICheckedType inner)
+        public static ICheckedType? ApplyNonNullable(ICheckedType inner)
         {
             if (TryExpandPack(inner, out var members, out var lastVariadic))
             {

@@ -8,7 +8,7 @@ namespace Tyhp.TyhpLang.Ast
         public TokenValueAst? Accessor => Children.ElementAtOrDefault(0) as TokenValueAst;
         public IExpression? MemberName => Children.ElementAtOrDefault(1) as IExpression;
 
-        public static PhpInstanceMemberAccessAst Create(TokenValueAst accessor, IExpression memberName, ParserRuleContext context, string? languageMode = null)
+        public static PhpInstanceMemberAccessAst Create(TokenValueAst? accessor, IExpression memberName, ParserRuleContext context, string? languageMode = null)
         {
             var result = new PhpInstanceMemberAccessAst
             {

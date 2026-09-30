@@ -28,10 +28,10 @@ namespace Tyhp.TyhpLang.Ast
         public static PhpVariableAst Create(IExpression expression, bool isRef, IExpression? defaultValue, ParserRuleContext context, string? languageMode = null)
             => Create(null, expression, isRef, defaultValue, context, languageMode);
 
-        public static PhpVariableAst Create(TokenValueAst variableToken, bool isRef, ParserRuleContext context, string? languageMode = null)
+        public static PhpVariableAst Create(TokenValueAst? variableToken, bool isRef, ParserRuleContext context, string? languageMode = null)
             => Create(variableToken, null, isRef, null, context, languageMode);
 
-        public static PhpVariableAst Create(TokenValueAst variableToken, bool isRef, IExpression? defaultValue, ParserRuleContext context, string? languageMode = null)
+        public static PhpVariableAst Create(TokenValueAst? variableToken, bool isRef, IExpression? defaultValue, ParserRuleContext context, string? languageMode = null)
             => Create(variableToken, null, isRef, defaultValue, context, languageMode);
         
         public static PhpVariableAst Create(TokenValueAst? variableToken, IExpression? expression, bool isRef, IExpression? defaultValue, ParserRuleContext context, string? languageMode = null, ITypeExpression? type = null)
