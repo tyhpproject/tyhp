@@ -31,7 +31,7 @@ public class NullableInstanceofEmitterTests
             """);
 
         php.Should().Contain(
-            "\\Tyhp\\Type::is($x, \\Tyhp\\Type::nullable(\\Tyhp\\Type::fromClassName('A'::class)))");
+            "\\Tyhp\\Type::is($x, \\Tyhp\\Type::nullable(\\Tyhp\\Type::fromClassName(\\A::class)))");
         php.Should().NotContain("$x instanceof ?A");
         php.Should().NotContain("$x is ?A");
         php.Should().NotContain("$x instanceof A");

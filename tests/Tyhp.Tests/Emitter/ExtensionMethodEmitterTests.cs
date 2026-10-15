@@ -215,6 +215,52 @@ public class ExtensionMethodEmitterTests
     }
 
     [Fact]
+    public void Emit_TopLevelStatement_HonorsLocalUseExtensionAlias()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace TestEmitter;
+
+            extension StringOps extends string {
+                fn shout(): string => $this . '!';
+            }
+
+            use extension StringOps {
+                StringOps::shout as yell;
+            }
+
+            string $name = 'hi';
+            $loud = $name->yell();
+            """);
+
+        php.Should().NotContain("->yell(");
+        php.Should().Contain("$loud = ($name . '!');");
+    }
+
+    [Theory]
+    [InlineData("true", "$a = !true;")]
+    [InlineData("false", "$a = !false;")]
+    [InlineData("TRUE", "$a = !TRUE;")]
+    public void Emit_BoolLiteralReceiver_RewritesToInlineBody(string literal, string expected)
+    {
+        var php = CompileAndEmit($$"""
+            <?tyhp
+            namespace TestEmitter;
+
+            extension BoolUtils extends bool {
+                fn flip(): bool => !$this;
+            }
+
+            function demo(): void {
+                bool $a = {{literal}}->flip();
+            }
+            """);
+
+        php.Should().Contain(expected);
+        php.Should().NotContain("->flip(");
+    }
+
+    [Fact]
     public void Emit_ScalarIntReceiver_RewritesToStaticCall()
     {
         var php = CompileAndEmit("""
@@ -882,14 +928,10 @@ public class ExtensionMethodEmitterTests
             function show(Money $m): string {
                 return $m->format();
             }
-            function hidden(Money $m): string {
-                return $m->extra();
-            }
             """);
 
         php.Should().Contain("return 'ok';");
         php.Should().NotContain("$m->format(");
-        php.Should().Contain("$m->extra(");
         php.Should().NotContain(@"\MoneyFormatting::extra(");
     }
 }

@@ -77,6 +77,24 @@ public class FallbackDeclarationEmitterTests
     }
 
     [Fact]
+    public void FallbackFunctionOverload_EmitsOneExistenceCheck()
+    {
+        var compiled = Compile("""
+            <?tyhp
+            fallback function gnrc(string $className): string;
+            fallback function gnrc(string|int $value): string {
+                return 'ok';
+            }
+            """);
+
+        compiled.Errors.Should().BeEmpty();
+        var gates = compiled.Php.Split("if (!\\function_exists").Length - 1;
+        gates.Should().Be(1);
+        compiled.Php.Should().Contain("function gnrc(string|int $value): string");
+        compiled.Php.Should().NotContain("function gnrc(string $className)");
+    }
+
+    [Fact]
     public void FallbackFunction_IsEmittedAfterPlainDeclarations()
     {
         var compiled = Compile("""

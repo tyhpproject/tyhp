@@ -119,6 +119,28 @@ public class ExpressionCheckerTests
     }
 
     [Fact]
+    public void Check_ExpressionVariableOfDifferentShape_ReportsArgumentMismatchNotInlineFn()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class User {
+                public int $age;
+            }
+            function all(\Tyhp\Expression<callable(mixed): bool> $first): void {}
+            function demo(\Tyhp\Expression<callable(User): bool> $pred): void {
+                all($pred);
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(
+            d => d.Code == MessageCode.CheckerExpressionRequiresInlineFn,
+            string.Join(", ", diagnostics.Errors.Select(e => $"{e.Code}: {e.Message}")));
+        diagnostics.Errors.Should().Contain(
+            d => d.Code == MessageCode.CheckerIncompatibleArgumentType
+                && d.Message.Contains("Expression", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Check_StatementClosure_Reports4323()
     {
         var diagnostics = CompileAndCheck("""
@@ -188,6 +210,52 @@ public class ExpressionCheckerTests
 
         diagnostics.Errors.Should().Contain(
             d => d.Code == MessageCode.CheckerExpressionUnsupportedNode);
+    }
+
+    [Theory]
+    [InlineData("'Ada'")]
+    [InlineData("\"Ada\"")]
+    [InlineData("true")]
+    [InlineData("false")]
+    [InlineData("null")]
+    [InlineData("TRUE")]
+    [InlineData("1.5")]
+    [InlineData("18")]
+    public void Check_LiteralInBody_NoError(string literal)
+    {
+        var diagnostics = CompileAndCheck($$"""
+            <?tyhp
+            class User {
+                public mixed $value;
+            }
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
+            function demo(): void {
+                take(fn ($u) => $u->value === {{literal}});
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(
+            d => d.Code == MessageCode.CheckerExpressionUnsupportedNode,
+            string.Join(", ", diagnostics.Errors.Select(e => $"{e.Code}: {e.Message}")));
+    }
+
+    [Fact]
+    public void Check_InterpolatedStringInBody_Reports4322()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class User {
+                public string $name;
+            }
+            function take(\Tyhp\Expression<callable(User): string> $pred): void {}
+            function demo(): void {
+                take(fn ($u) => "x{$u->name}y");
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(
+            d => d.Code == MessageCode.CheckerExpressionUnsupportedNode
+                && d.Message.Contains("string interpolation", StringComparison.Ordinal));
     }
 
     [Fact]

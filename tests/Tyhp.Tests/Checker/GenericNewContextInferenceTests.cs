@@ -282,10 +282,12 @@ public class GenericNewContextInferenceTests
             }
             """);
 
-        errors.Should().HaveCount(2, Describe(errors));
-        errors.Should().OnlyContain(
-            e => e.Code == MessageCode.CheckerTypeMismatch && IsUnboundGenericParameterMismatch(e),
-            Describe(errors));
+        // A raw `Box` is `Box<mixed>`, so each uninferred `new Box()` also fails the declared
+        // return type; those returns are the only diagnostics besides the two unbound-`T` ones.
+        errors.Count(e => e.Code == MessageCode.CheckerTypeMismatch && IsUnboundGenericParameterMismatch(e))
+            .Should().Be(2, Describe(errors));
+        errors.Where(e => !(e.Code == MessageCode.CheckerTypeMismatch && IsUnboundGenericParameterMismatch(e)))
+            .Should().OnlyContain(e => e.Code == MessageCode.CheckerIncompatibleReturnType, Describe(errors));
     }
 
     [Fact]
@@ -330,10 +332,11 @@ public class GenericNewContextInferenceTests
             }
             """);
 
-        errors.Should().HaveCount(2, Describe(errors));
-        errors.Should().OnlyContain(
-            e => e.Code == MessageCode.CheckerTypeMismatch && IsUnboundGenericParameterMismatch(e),
-            Describe(errors));
+        // The raw `Box` elements (`Box<mixed>`) also fail the declared array return type.
+        errors.Count(e => e.Code == MessageCode.CheckerTypeMismatch && IsUnboundGenericParameterMismatch(e))
+            .Should().Be(2, Describe(errors));
+        errors.Where(e => !(e.Code == MessageCode.CheckerTypeMismatch && IsUnboundGenericParameterMismatch(e)))
+            .Should().OnlyContain(e => e.Code == MessageCode.CheckerIncompatibleReturnType, Describe(errors));
     }
 
     [Fact]

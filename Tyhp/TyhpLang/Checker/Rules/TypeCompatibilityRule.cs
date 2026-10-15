@@ -24,6 +24,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
         public bool SuppressChildTraversal(IBase2Ast node) =>
             node is PhpDereferenceableAst
+            || (node is PhpBinaryOpAst deferredAssignment && IsDeferredVariableAssignment(deferredAssignment))
             || (node is PhpBinaryOpAst binary
                 && TypeNarrowingRule.IsShortCircuitLogical(binary.Operator?.ValueString ?? string.Empty));
 
@@ -31,6 +32,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
         {
             switch (node)
             {
+                case PhpBinaryOpAst binary when IsDeferredVariableAssignment(binary):
+                    CheckDeferredVariableAssignment(binary, state, context, diagnostics);
+                    break;
                 case PhpBinaryOpAst binary:
                     CheckBinaryOp(binary, state, context, diagnostics);
                     break;

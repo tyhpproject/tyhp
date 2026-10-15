@@ -28,23 +28,26 @@ namespace Tyhp.TyhpLang.Emitter
             IExpression? rightOperand,
             IBaseSymbol owningType,
             Func<IExpression?, IBaseSymbol?> resolveExpressionType,
-            Func<IExpression?, string> guessOperandTypeName)
+            Func<IExpression?, string> guessOperandTypeName,
+            Func<IExpression?, IReadOnlyList<OperatorOperandMember>?>? resolveUnionMembers = null,
+            Func<ObjectDeclarationSymbol, ObjectDeclarationSymbol, bool>? isSubtypeOf = null)
         {
+            var leftMembers = resolveUnionMembers?.Invoke(leftOperand);
+            var rightMembers = resolveUnionMembers?.Invoke(rightOperand);
             var leftSymbol = resolveExpressionType(leftOperand);
             var leftName = guessOperandTypeName(leftOperand);
             var rightSymbol = resolveExpressionType(rightOperand);
             var rightName = guessOperandTypeName(rightOperand);
-            var leftUnknown = leftSymbol == null && leftOperand is PhpVariableAst;
-            var rightUnknown = rightSymbol == null && rightOperand is PhpVariableAst;
+            var leftUnknown = leftMembers is null && leftSymbol == null && leftOperand is PhpVariableAst;
+            var rightUnknown = rightMembers is null && rightSymbol == null && rightOperand is PhpVariableAst;
 
             return SelectMatchingBinaryForm(
                 candidates,
                 op,
-                leftSymbol,
-                leftName,
-                rightSymbol,
-                rightName,
+                leftMembers ?? [new OperatorOperandMember(leftSymbol, leftName)],
+                rightMembers ?? [new OperatorOperandMember(rightSymbol, rightName)],
                 owningType,
+                isSubtypeOf,
                 leftUnknown,
                 rightUnknown);
         }
@@ -61,6 +64,32 @@ namespace Tyhp.TyhpLang.Emitter
             IBaseSymbol? rightSymbol,
             string rightName,
             IBaseSymbol owningType,
+            bool leftUnknown = false,
+            bool rightUnknown = false,
+            Func<ObjectDeclarationSymbol, ObjectDeclarationSymbol, bool>? isSubtypeOf = null)
+            => SelectMatchingBinaryForm(
+                candidates,
+                op,
+                [new OperatorOperandMember(leftSymbol, leftName)],
+                [new OperatorOperandMember(rightSymbol, rightName)],
+                owningType,
+                isSubtypeOf,
+                leftUnknown,
+                rightUnknown);
+
+        /// <summary>
+        /// Core binary selection. An operand that is a union contributes one member per arm: a form
+        /// matches only when its parameter accepts every arm of the operand, and a class operand
+        /// matches a named parameter it implements or extends when <paramref name="isSubtypeOf"/>
+        /// confirms the relation.
+        /// </summary>
+        public static ObjectOperatorOverloadMethodSymbol? SelectMatchingBinaryForm(
+            IEnumerable<ObjectOperatorOverloadMethodSymbol> candidates,
+            OverloadableOperator op,
+            IReadOnlyList<OperatorOperandMember> leftMembers,
+            IReadOnlyList<OperatorOperandMember> rightMembers,
+            IBaseSymbol owningType,
+            Func<ObjectDeclarationSymbol, ObjectDeclarationSymbol, bool>? isSubtypeOf = null,
             bool leftUnknown = false,
             bool rightUnknown = false)
         {
@@ -84,8 +113,8 @@ namespace Tyhp.TyhpLang.Emitter
                     continue;
                 }
 
-                var leftOk = leftUnknown || TypeMatches(leftSymbol, leftName, leftParam, owningType);
-                var rightOk = rightUnknown || TypeMatches(rightSymbol, rightName, rightParam, owningType);
+                var leftOk = leftUnknown || MembersMatch(leftMembers, leftParam, owningType, isSubtypeOf);
+                var rightOk = rightUnknown || MembersMatch(rightMembers, rightParam, owningType, isSubtypeOf);
                 if (!leftOk || !rightOk)
                 {
                     continue;
@@ -97,8 +126,8 @@ namespace Tyhp.TyhpLang.Emitter
                     continue;
                 }
 
-                var score = ScoreType(leftSymbol, leftName, leftParam, owningType)
-                    + ScoreType(rightSymbol, rightName, rightParam, owningType);
+                var score = ScoreMembers(leftMembers, leftParam, owningType, isSubtypeOf)
+                    + ScoreMembers(rightMembers, rightParam, owningType, isSubtypeOf);
                 if (score > bestScore)
                 {
                     bestScore = score;
@@ -120,6 +149,38 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             return null;
+        }
+
+        private static bool MembersMatch(
+            IReadOnlyList<OperatorOperandMember> members,
+            ITypeExpression paramType,
+            IBaseSymbol owningType,
+            Func<ObjectDeclarationSymbol, ObjectDeclarationSymbol, bool>? isSubtypeOf)
+        {
+            foreach (var member in members)
+            {
+                if (!TypeMatches(member.Symbol, member.Name, paramType, owningType, isSubtypeOf))
+                {
+                    return false;
+                }
+            }
+
+            return members.Count > 0;
+        }
+
+        private static int ScoreMembers(
+            IReadOnlyList<OperatorOperandMember> members,
+            ITypeExpression paramType,
+            IBaseSymbol owningType,
+            Func<ObjectDeclarationSymbol, ObjectDeclarationSymbol, bool>? isSubtypeOf)
+        {
+            var total = 0;
+            foreach (var member in members)
+            {
+                total += ScoreType(member.Symbol, member.Name, paramType, owningType, isSubtypeOf);
+            }
+
+            return total;
         }
 
         /// <summary>
@@ -312,26 +373,27 @@ namespace Tyhp.TyhpLang.Emitter
             string operandName,
             ITypeExpression paramType,
             IBaseSymbol leftType,
+            Func<ObjectDeclarationSymbol, ObjectDeclarationSymbol, bool>? isSubtypeOf = null,
             HashSet<IBaseSymbol>? visitingAliases = null)
         {
             if (TryExpandAlias(paramType, visitingAliases, out var expanded, out var nextVisiting)
                 && expanded != null)
             {
-                return TypeMatches(operandSymbol, operandName, expanded, leftType, nextVisiting);
+                return TypeMatches(operandSymbol, operandName, expanded, leftType, isSubtypeOf, nextVisiting);
             }
 
             return paramType switch
             {
                 PhpTypeExpressionAst composite when composite.TypeKind == PhpTypeKind.Union =>
                     composite.Types?.GetAllNotNull().Any(member =>
-                        TypeMatches(operandSymbol, operandName, member, leftType, visitingAliases)) == true,
+                        TypeMatches(operandSymbol, operandName, member, leftType, isSubtypeOf, visitingAliases)) == true,
                 PhpTypeExpressionAst composite when composite.IsNullable =>
                     TypeMatches(operandSymbol, operandName,
-                        composite.Types?.GetAllNotNull().FirstOrDefault() ?? composite, leftType, visitingAliases),
+                        composite.Types?.GetAllNotNull().FirstOrDefault() ?? composite, leftType, isSubtypeOf, visitingAliases),
                 PhpTypeExpressionAst composite =>
                     composite.Types?.GetAllNotNull().FirstOrDefault() is ITypeExpression inner
-                        && TypeMatches(operandSymbol, operandName, inner, leftType, visitingAliases),
-                _ => MatchesAtomicType(operandSymbol, operandName, paramType, leftType),
+                        && TypeMatches(operandSymbol, operandName, inner, leftType, isSubtypeOf, visitingAliases),
+                _ => MatchesAtomicType(operandSymbol, operandName, paramType, leftType, isSubtypeOf),
             };
         }
 
@@ -377,7 +439,8 @@ namespace Tyhp.TyhpLang.Emitter
             IBaseSymbol? operandSymbol,
             string operandName,
             ITypeExpression paramType,
-            IBaseSymbol leftType)
+            IBaseSymbol leftType,
+            Func<ObjectDeclarationSymbol, ObjectDeclarationSymbol, bool>? isSubtypeOf = null)
         {
             if (IsSelfType(paramType, leftType))
             {
@@ -461,9 +524,19 @@ namespace Tyhp.TyhpLang.Emitter
 
                 if (operandSymbol is IBaseSymbol symbol)
                 {
-                    return string.Equals(symbol.Name, paramName, StringComparison.OrdinalIgnoreCase)
+                    if (string.Equals(symbol.Name, paramName, StringComparison.OrdinalIgnoreCase)
                         || string.Equals(symbol.FullyQualifiedName, paramName, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(symbol.FullyQualifiedName, "\\" + paramName.TrimStart('\\'), StringComparison.OrdinalIgnoreCase);
+                        || string.Equals(symbol.FullyQualifiedName, "\\" + paramName.TrimStart('\\'), StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+
+                    // A class operand is accepted by a parameter naming a class or interface it
+                    // extends or implements.
+                    return isSubtypeOf is not null
+                        && symbol is ObjectDeclarationSymbol operandObject
+                        && named.BoundSymbol is ObjectDeclarationSymbol paramObject
+                        && isSubtypeOf(operandObject, paramObject);
                 }
 
                 return string.Equals(operandName, paramName, StringComparison.OrdinalIgnoreCase)
@@ -477,19 +550,20 @@ namespace Tyhp.TyhpLang.Emitter
             IBaseSymbol? operandSymbol,
             string operandName,
             ITypeExpression paramType,
-            IBaseSymbol leftType)
+            IBaseSymbol leftType,
+            Func<ObjectDeclarationSymbol, ObjectDeclarationSymbol, bool>? isSubtypeOf = null)
         {
             if (TryExpandAlias(paramType, visitingAliases: null, out var expanded, out _)
                 && expanded != null)
             {
-                return ScoreType(operandSymbol, operandName, expanded, leftType);
+                return ScoreType(operandSymbol, operandName, expanded, leftType, isSubtypeOf);
             }
 
             if (paramType is PhpTypeExpressionAst composite && composite.TypeKind == PhpTypeKind.Union)
             {
                 var members = composite.Types?.GetAllNotNull().ToList() ?? [];
                 var memberScores = members
-                    .Select(member => ScoreType(operandSymbol, operandName, member, leftType))
+                    .Select(member => ScoreType(operandSymbol, operandName, member, leftType, isSubtypeOf))
                     .Where(score => score > 0)
                     .ToList();
 
@@ -504,12 +578,12 @@ namespace Tyhp.TyhpLang.Emitter
             if (paramType is PhpTypeExpressionAst wrapper
                 && wrapper.Types?.GetAllNotNull().FirstOrDefault() is ITypeExpression inner)
             {
-                return ScoreType(operandSymbol, operandName, inner, leftType);
+                return ScoreType(operandSymbol, operandName, inner, leftType, isSubtypeOf);
             }
 
             if (IsSelfType(paramType, leftType))
             {
-                return MatchesAtomicType(operandSymbol, operandName, paramType, leftType) ? 90 : 0;
+                return MatchesAtomicType(operandSymbol, operandName, paramType, leftType, isSubtypeOf) ? 90 : 0;
             }
 
             if (paramType is PhpBuiltinTypeAst builtin)
@@ -525,7 +599,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (paramType is PhpNamedTypeAst)
             {
-                return MatchesAtomicType(operandSymbol, operandName, paramType, leftType) ? 100 : 0;
+                return MatchesAtomicType(operandSymbol, operandName, paramType, leftType, isSubtypeOf) ? 100 : 0;
             }
 
             return 0;
@@ -767,4 +841,10 @@ namespace Tyhp.TyhpLang.Emitter
             return name;
         }
     }
+
+    /// <summary>
+    /// One arm of an operator operand's type: the resolved symbol (when known) and its spelled name.
+    /// A union-typed operand contributes one member per arm.
+    /// </summary>
+    internal readonly record struct OperatorOperandMember(IBaseSymbol? Symbol, string Name);
 }

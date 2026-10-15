@@ -15,7 +15,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
         public bool Handles(IBase2Ast node) =>
             node is PhpFunctionDeclAst function
-            && function.BoundSymbol is FunctionDeclarationSymbol { Overloads.Count: > 0 };
+            && function.BoundSymbol is FunctionDeclarationSymbol { Overloads.Count: > 0, IsSourceOverloadSet: false };
 
         public void Check(IBase2Ast node, CheckerState state, CheckerRuleContext context, DiagnosticBag diagnostics)
         {

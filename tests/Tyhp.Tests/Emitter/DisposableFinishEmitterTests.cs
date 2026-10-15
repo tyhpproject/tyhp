@@ -94,7 +94,7 @@ public class DisposableFinishEmitterTests
     }
 
     [Fact]
-    public void Emit_NestedDisposableInsideTryFinallyFallback_StillUsesDisposableScope()
+    public void Emit_NestedDisposableInsideTryFinallyFallback_UsesOwnTryFinally()
     {
         var php = CompileAndEmit("""
             <?tyhp
@@ -114,12 +114,11 @@ public class DisposableFinishEmitterTests
             }
             """);
 
-        // Outer circular scope → try/finally; nested := must still use DisposableScope.
-        php.Should().Contain("try {");
-        php.Should().Contain("\\Tyhp\\DisposableScope::create()");
-        php.Should().Contain("$inner = ");
-        php.Should().Contain("->using(new Node())");
+        // Outer circular scope → try/finally; the nested block disposes its own := at block end.
         php.Should().Contain("$a = null;");
+        php.Should().Contain("$inner = null;");
+        php.Should().Contain("$inner = new Node();");
+        php.Should().NotContain("DisposableScope");
     }
 
     [Fact]

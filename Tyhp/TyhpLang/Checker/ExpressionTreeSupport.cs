@@ -266,6 +266,28 @@ namespace Tyhp.TyhpLang.Checker
                 case PhpMagicConstantAst:
                     return true;
 
+                // String literals parse as an encaps list; a literal made only of string pieces is a
+                // constant. Interpolation (`"x{$u->name}"`) has no node form.
+                case PhpEncapsListAst { StringType: PhpStringType.BackQuoted or PhpStringType.BinaryBackQuoted }:
+                    unsupportedKind = "shell command";
+                    return false;
+
+                case PhpEncapsListAst encapsList:
+                    if (!IsConstantStringLiteral(encapsList))
+                    {
+                        unsupportedKind = "string interpolation";
+                        return false;
+                    }
+
+                    return true;
+
+                case PhpEncapsStringAst:
+                    return true;
+
+                // `true` / `false` / `null` parse as bare names.
+                case PhpNameAst name when IsLiteralConstantName(name):
+                    return true;
+
                 case PhpVariableAst:
                     return true;
 
@@ -310,6 +332,7 @@ namespace Tyhp.TyhpLang.Checker
                     return TryValidateArgumentList(newExpr.Arguments, out unsupportedKind);
 
                 case PhpArrayAst:
+                case PhpArrayPairListAst:
                     unsupportedKind = "array literal";
                     return false;
 
@@ -468,6 +491,14 @@ namespace Tyhp.TyhpLang.Checker
 
             if (deref.Suffix is PhpCallAst call)
             {
+                // `$u->name(...)` / `name(...)` creates a Closure; a call node would describe an
+                // invocation instead.
+                if (Rules.CheckerHelpers.IsFirstClassCallableArgumentList(call.Arguments))
+                {
+                    unsupportedKind = "first-class callable";
+                    return false;
+                }
+
                 if (deref.Base is PhpDereferenceableAst inner
                     && inner.Suffix is PhpInstanceMemberAccessAst instanceMember)
                 {
@@ -604,6 +635,25 @@ namespace Tyhp.TyhpLang.Checker
             }
         }
 
+        /// <summary>
+        /// True for a string literal with no interpolated expression parts: it evaluates to the same
+        /// value on every run, so the tree holds it as a <c>ConstantExpression</c>.
+        /// </summary>
+        public static bool IsConstantStringLiteral(PhpEncapsListAst encapsList)
+            => encapsList.GetAllNotNull().All(static part => part is PhpEncapsStringAst);
+
+        /// <summary>
+        /// True for the bare literal names <c>true</c>, <c>false</c>, and <c>null</c> (any case,
+        /// optionally root-qualified).
+        /// </summary>
+        public static bool IsLiteralConstantName(PhpNameAst name)
+        {
+            var text = name.ValueString?.TrimStart('\\');
+            return string.Equals(text, "true", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "false", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "null", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static bool IsCastToken(int token) =>
             token is TyhpParser.T_INT_CAST
                 or TyhpParser.T_BOOL_CAST
@@ -656,14 +706,53 @@ namespace Tyhp.TyhpLang.Checker
 
         private static string DescribeUnsupported(IExpression expression)
         {
-            var typeName = expression.GetType().Name;
-            if (typeName.StartsWith("Php", StringComparison.Ordinal)
-                && typeName.EndsWith("Ast", StringComparison.Ordinal))
+            switch (expression)
             {
-                typeName = typeName[3..^3];
+                case PhpIssetStatementAst:
+                    return "isset";
+                case PhpEmptyStatementAst:
+                    return "empty";
+                case TyhpNameofAst:
+                    return "nameof";
+                case PhpArrayPairListAst:
+                case PhpArrayAst:
+                    return "array literal";
             }
 
-            return string.IsNullOrEmpty(typeName) ? "unsupported" : typeName;
+            // Readable fallback: strip the `Php`/`Tyhp` prefix and `Ast` suffix, then spell the
+            // PascalCase remainder as lower-case words (`ClassConstantAccess` → `class constant access`).
+            var typeName = expression.GetType().Name;
+            foreach (var prefix in new[] { "Php", "Tyhp" })
+            {
+                if (typeName.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    typeName = typeName[prefix.Length..];
+                    break;
+                }
+            }
+
+            if (typeName.EndsWith("Ast", StringComparison.Ordinal))
+            {
+                typeName = typeName[..^3];
+            }
+
+            if (string.IsNullOrEmpty(typeName))
+            {
+                return "unsupported";
+            }
+
+            var words = new System.Text.StringBuilder(typeName.Length + 4);
+            for (var i = 0; i < typeName.Length; i++)
+            {
+                if (i > 0 && char.IsUpper(typeName[i]))
+                {
+                    words.Append(' ');
+                }
+
+                words.Append(char.ToLowerInvariant(typeName[i]));
+            }
+
+            return words.ToString();
         }
     }
 }

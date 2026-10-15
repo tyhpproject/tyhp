@@ -46,23 +46,46 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                 request.Parameters,
                 out var eagerCounts,
                 out var lazyNames,
-                out var eagerOrder);
+                out var eagerOrder,
+                out var lazyCounts);
+
+            // Uses behind a short-circuit still repeat the name in the spliced body, so a
+            // non-simple argument is bound once whenever the name is used more than once overall.
+            int TotalUses(string key)
+            {
+                var eager = eagerCounts.GetValueOrDefault(key);
+                return eager > 0 ? eager + lazyCounts.GetValueOrDefault(key) : 0;
+            }
 
             var hoists = new List<Hoist>();
             var substitutions = new Dictionary<string, IExpression>(StringComparer.OrdinalIgnoreCase);
+            var variadicKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var param in request.Parameters)
             {
                 var key = SpliceAst.NormalizeName(param.Name);
-                var arg = SpliceAnalysis.ArgumentFor(
-                    param, request.Parameters, request.Receiver, request.Arguments)
-                    ?? param.DefaultValue;
+                var variadicArgs = param.IsVariadic
+                    ? SpliceAnalysis.VariadicArgumentsFor(
+                        param, request.Parameters, request.Arguments, request.ArgumentIsSpread)
+                    : null;
+                // A variadic parameter is the list of every remaining argument; with none passed
+                // it is an empty array rather than "no argument", so its uses never dangle.
+                var arg = variadicArgs is not null
+                    ? BuildVariadicArgument(variadicArgs, request)
+                    : SpliceAnalysis.ArgumentFor(
+                        param, request.Parameters, request.Receiver, request.Arguments)
+                        ?? param.DefaultValue;
                 if (arg is null)
                 {
                     continue;
                 }
 
-                var count = eagerCounts.GetValueOrDefault(key);
+                if (variadicArgs is not null)
+                {
+                    variadicKeys.Add(key);
+                }
+
+                var count = TotalUses(key);
                 var hookedByValue = SpliceAnalysis.IsByValueHookedRead(arg);
                 var hookedByRef = SpliceAnalysis.IsByRefHookedRead(arg);
                 // A simple variable (or literal/constant) skips the local even for a `&`
@@ -70,12 +93,14 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                 // real by-reference bind would do, so no ref-bound temp is needed. Only a
                 // non-simple argument (property read, array element, call result) needs hoisting
                 // to avoid re-evaluating it or losing the reference.
-                var skipLocal = SpliceAst.IsSimpleArgument(arg) && !hookedByValue && !hookedByRef;
+                var skipLocal = variadicArgs is not null
+                    ? variadicArgs.All(v => SpliceAst.IsSimpleArgument(v.Expression))
+                    : SpliceAst.IsSimpleArgument(arg) && !hookedByValue && !hookedByRef;
 
                 if (count > 1 && !skipLocal)
                 {
-                    var tempName = _context.AllocateTempName();
                     var byRef = param.IsByReference || hookedByRef;
+                    var tempName = _context.AllocateTempName();
                     hoists.Add(new Hoist(tempName, arg, byRef, request.CallSite));
                     substitutions[key] = PhpVariableAst.CreateFromContext(
                         tempName,
@@ -91,7 +116,7 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                 && !request.Parameters.Any(p => p.IsThis)
                 && eagerCounts.GetValueOrDefault("this") > 0)
             {
-                var count = eagerCounts.GetValueOrDefault("this");
+                var count = TotalUses("this");
                 if (count > 1 && !SpliceAst.IsSimpleArgument(request.Receiver))
                 {
                     var tempName = _context.AllocateTempName();
@@ -115,7 +140,9 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                 lazyNames,
                 eagerOrder,
                 needsRefHoist,
-                request.HasStatementSlot);
+                request.HasStatementSlot,
+                request.ArgumentIsSpread,
+                request.Body);
             if (fidelity != SpliceDeclineReason.None)
             {
                 return SpliceResult.Decline(fidelity, request.HasPhpBacker);
@@ -129,7 +156,7 @@ namespace Tyhp.TyhpLang.Emitter.Splice
             }
 
             var cloned = SpliceAst.Clone(request.Body);
-            var rewritten = Substitute(cloned, substitutions, request);
+            var rewritten = Substitute(cloned, substitutions, variadicKeys, request);
             rewritten = ReduceNested(rewritten, request);
             var parenthesized = SpliceAst.Parenthesize(rewritten, (Base2Ast)request.CallSite);
             SpliceAst.StampOriginalAst(parenthesized, request.CallSite);
@@ -168,9 +195,31 @@ namespace Tyhp.TyhpLang.Emitter.Splice
             return SpliceResult.Spliced(expression, hoistStatements);
         }
 
+        /// <summary>
+        /// The value a variadic parameter takes at a call site: the argument itself when the call
+        /// is exactly one unpacked <c>...$expr</c>, otherwise an array literal of every packed
+        /// argument (unpacked ones become <c>...$expr</c> elements).
+        /// </summary>
+        private static IExpression BuildVariadicArgument(
+            List<(IExpression Expression, bool IsSpread)> items,
+            SpliceRequest request)
+        {
+            if (items is [{ IsSpread: true } only])
+            {
+                return only.Expression;
+            }
+
+            var context = (Base2Ast)request.CallSite;
+            var pairs = items.Select(item => PhpArrayPairAst.CreateFromContext(
+                null, item.Expression, item.IsSpread, context));
+            return PhpArrayAst.CreateFromContext(
+                PhpArrayPairListAst.Create(pairs, context), isShortSyntax: true, context);
+        }
+
         private IExpression Substitute(
             IExpression cloned,
             Dictionary<string, IExpression> substitutions,
+            HashSet<string> variadicKeys,
             SpliceRequest request)
         {
             if (cloned is not Base2Ast)
@@ -178,14 +227,20 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                 return cloned;
             }
 
+            // Substituted copies of a variadic parameter's array literal, by identity: a
+            // `...$param` argument whose value is one of them is flattened back into plain
+            // arguments afterwards (`f(...['a', 'b'])` becomes `f('a', 'b')`).
+            var variadicLiterals = new HashSet<IBase2Ast>(ReferenceEqualityComparer.Instance);
             return (IExpression)AstWalker.TransformTree(
                 cloned,
-                node => TransformSubstitution(node, substitutions, request))!;
+                node => TransformSubstitution(node, substitutions, variadicKeys, variadicLiterals, request))!;
         }
 
         private IBase2Ast? TransformSubstitution(
             IBase2Ast node,
             Dictionary<string, IExpression> substitutions,
+            HashSet<string> variadicKeys,
+            HashSet<IBase2Ast> variadicLiterals,
             SpliceRequest request)
         {
             if (node is PhpInlineFunctionAst or PhpFunctionDeclAst)
@@ -202,8 +257,19 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                 {
                     var clone = SpliceAst.Clone(replacement);
                     SpliceAst.StampOriginalAst(clone, request.CallSite);
+                    if (variadicKeys.Contains(SpliceAst.NormalizeName(name)) && clone is PhpArrayAst)
+                    {
+                        variadicLiterals.Add(clone);
+                    }
+
                     return clone;
                 }
+            }
+
+            if (node is PhpArgumentListAst argumentList && variadicLiterals.Count > 0)
+            {
+                FlattenVariadicSpreads(argumentList, variadicLiterals, request);
+                return node;
             }
 
             if (node is PhpDereferenceableAst deref
@@ -224,6 +290,60 @@ namespace Tyhp.TyhpLang.Emitter.Splice
             }
 
             return node;
+        }
+
+        private static void FlattenVariadicSpreads(
+            PhpArgumentListAst argumentList,
+            HashSet<IBase2Ast> variadicLiterals,
+            SpliceRequest request)
+        {
+            var arguments = argumentList.GetAllNotNull().ToList();
+            if (!arguments.Any(a => a.IsVariadic && a.Expression is { } e && variadicLiterals.Contains(e)))
+            {
+                return;
+            }
+
+            var context = (Base2Ast)request.CallSite;
+            var flattened = new List<IBase2Ast>();
+            foreach (var argument in arguments)
+            {
+                if (!argument.IsVariadic
+                    || argument.Expression is not PhpArrayAst literal
+                    || !variadicLiterals.Contains(literal))
+                {
+                    flattened.Add(argument);
+                    continue;
+                }
+
+                foreach (var pair in literal.ArrayPairs?.GetAllNotNull() ?? [])
+                {
+                    if (pair.ValueExpr is not { } value)
+                    {
+                        continue;
+                    }
+
+                    if (pair.IsExpansion)
+                    {
+                        // Keep the unpacking flag by reusing the original `...$param` argument node.
+                        var spread = SpliceAst.Clone(argument);
+                        spread.ReplaceChild(spread.Expression!, value);
+                        SpliceAst.StampOriginalAst(spread, request.CallSite);
+                        flattened.Add(spread);
+                    }
+                    else
+                    {
+                        var plain = PhpArgumentAst.CreateFromContext(value, context);
+                        SpliceAst.StampOriginalAst(plain, request.CallSite);
+                        flattened.Add(plain);
+                    }
+                }
+            }
+
+            argumentList.ClearChildren();
+            foreach (var child in flattened)
+            {
+                argumentList.AddChild(child);
+            }
         }
 
         private IExpression? RewriteClassContextKeyword(
@@ -324,6 +444,7 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                 Parameters = nested.Parameters,
                 Receiver = nested.Receiver,
                 Arguments = nested.Arguments,
+                ArgumentIsSpread = nested.ArgumentIsSpread,
                 HasPhpBacker = nested.HasPhpBacker,
                 HasStatementSlot = hasStatementSlot,
                 DeclaringClassFqn = nested.DeclaringClassFqn,
@@ -383,6 +504,7 @@ namespace Tyhp.TyhpLang.Emitter.Splice
 
             IExpression? receiver = null;
             var args = new List<IExpression?>();
+            var spread = new List<bool>();
             if (deref.Base is PhpDereferenceableAst { Suffix: PhpInstanceMemberAccessAst } member
                 && member.Base is IExpression recv)
             {
@@ -394,6 +516,7 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                 foreach (var arg in call.Arguments.GetAllNotNull())
                 {
                     args.Add(arg.Expression);
+                    spread.Add(arg.IsVariadic);
                 }
             }
 
@@ -405,6 +528,7 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                 Parameters = parameters,
                 Receiver = receiver,
                 Arguments = args,
+                ArgumentIsSpread = spread,
                 HasPhpBacker = SpliceAst.MemberHasPhpBacker(declaring, owner),
                 HasStatementSlot = false,
                 DeclaringClassFqn = spliceOwner?.FullyQualifiedName,
@@ -512,6 +636,10 @@ namespace Tyhp.TyhpLang.Emitter.Splice
             string tempName,
             PhpBinaryOpAst bind)
         {
+            // Bind at the first use that always runs. A use behind a short-circuit (`&&`, `||`,
+            // `??`, or a ternary branch) can be skipped, which would leave the temp unassigned for
+            // a later use.
+            var target = SpliceAnalysis.FindFirstEagerUse(expression, tempName);
             var replaced = false;
             return (IExpression)AstWalker.TransformTree(
                 expression,
@@ -523,7 +651,8 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                     }
 
                     var name = CheckerHelpers.GetVariableName(variable);
-                    if (!SpliceAst.NamesEqual(name, tempName))
+                    if (!SpliceAst.NamesEqual(name, tempName)
+                        || (target is not null && !ReferenceEquals(variable, target)))
                     {
                         return node;
                     }

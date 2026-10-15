@@ -59,8 +59,34 @@ public class JsonDecodeEmitterTests
         php.Should().Contain("\\Tyhp\\Type::struct(");
         php.Should().Contain("'name'");
         php.Should().Contain("'age'");
+        php.Should().Contain("], ['name', 'age'])");
         php.Should().NotContain("User::class");
         php.Should().NotContain("fromClassName");
+    }
+
+    [Fact]
+    public void JsonDecode_StructWithDefaultAndNullableFields_RequiresOnlyMandatoryKeys()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace Test;
+            type User = struct {
+                string $name;
+                int $age = 18;
+                ?string $nick;
+            };
+            final class Json {
+                public static function decode<T>(string $json): T {
+                    typeof(T);
+                    return default(T);
+                }
+            }
+            function load(string $json): User {
+                return Json::decode<User>($json);
+            }
+            """);
+
+        php.Should().Contain("], ['name'])");
     }
 
     [Fact]

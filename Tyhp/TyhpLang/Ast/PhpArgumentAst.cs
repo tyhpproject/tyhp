@@ -37,6 +37,18 @@ namespace Tyhp.TyhpLang.Ast
             return result;
         }
 
+        /// <summary>Builds a <c>...expr</c> argument for emitter-synthesized calls.</summary>
+        internal static PhpArgumentAst CreateVariadicFromContext(IExpression? expression, Base2Ast context)
+        {
+            var result = new PhpArgumentAst
+            {
+                Children = [expression, null],
+            };
+            result.SetFlag(IS_VARIADIC_FLAG, true);
+            result.SetContext(context);
+            return result;
+        }
+
         /// <summary>Builds a <c>name: expr</c> argument for emitter-synthesized calls.</summary>
         internal static PhpArgumentAst CreateNamedFromContext(
             IExpression? expression,

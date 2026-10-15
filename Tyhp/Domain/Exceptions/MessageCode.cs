@@ -203,6 +203,40 @@ namespace Tyhp.Domain.Exceptions
             /// </summary>
             BinderTypeAliasReservedFunctionName = 3030,
 
+            /// <summary>
+            /// Bodyless overload signatures for a function or method are not followed by an
+            /// implementation (a declaration with a body).
+            /// </summary>
+            BinderOverloadMissingImplementation = 3031,
+
+            /// <summary>
+            /// An overload signature is declared after its implementation, or other declarations
+            /// separate it from the implementation. Signatures must directly precede it.
+            /// </summary>
+            BinderOverloadNotAdjacent = 3032,
+
+            /// <summary>
+            /// A single overload signature precedes an implementation; an overload set needs at
+            /// least two signatures to add anything over the implementation's own signature.
+            /// </summary>
+            BinderOverloadLone = 3033,
+
+            /// <summary>
+            /// Two overload signatures in a set spell the same parameters and return type.
+            /// </summary>
+            BinderOverloadDuplicate = 3034,
+
+            /// <summary>
+            /// An overload signature's modifiers (<c>static</c>, visibility, <c>async</c>,
+            /// <c>abstract</c>, <c>final</c>) differ from the rest of its set.
+            /// </summary>
+            BinderOverloadModifierMismatch = 3035,
+
+            /// <summary>
+            /// Overload signatures are declared for a constructor or destructor.
+            /// </summary>
+            BinderOverloadConstructorNotSupported = 3036,
+
             #endregion Binder
 
             #region Checker
@@ -1151,7 +1185,41 @@ namespace Tyhp.Domain.Exceptions
             /// </summary>
             CheckerReservedPhp86Name = 4372,
 
-            // 4373–4399 reserved for Stories 25, 26, 27 follow-ups
+            /// <summary>
+            /// A type argument for a parameter declared <c>extends __Awaited&lt;…&gt;</c> (for example
+            /// <c>Promise&lt;T&gt;</c>) is not an already-awaited type: it is a promise, <c>mixed</c>,
+            /// <c>object</c>, or a type parameter that could hold one.
+            /// </summary>
+            CheckerAwaitedBoundNotSettled = 4373,
+
+            /// <summary>
+            /// A call to a function or method declared with overload signatures matches none of
+            /// them. The message lists the overload signatures that were considered.
+            /// </summary>
+            CheckerOverloadNoMatch = 4374,
+
+            /// <summary>
+            /// A call to an overloaded function or method matches no signature as written, and
+            /// more than one signature accepts it only through implicit <c>operator convert</c>
+            /// while converting arguments to different types. The message lists those overloads.
+            /// </summary>
+            CheckerOverloadAmbiguous = 4375,
+
+            /// <summary>
+            /// A first-class callable of an overloaded function or method has a parameter position
+            /// where one type converts implicitly (<c>operator convert</c>) to different types in
+            /// different overloads and no overload accepts that type as written. The callable's
+            /// wrapper cannot choose the conversion, so the reference itself is rejected.
+            /// </summary>
+            CheckerOverloadCallableAmbiguousConversion = 4376,
+
+            /// <summary>
+            /// A generic call left a type parameter with no argument binding, no expected-type
+            /// context, and no declared default.
+            /// </summary>
+            CheckerCannotInferTypeArgument = 4377,
+
+            // 4378–4399 reserved for Stories 25, 26, 27 follow-ups
 
             // Deprecation warnings (4500+ range)
             CheckerDeprecatedUsage = 4500,
@@ -1194,8 +1262,9 @@ namespace Tyhp.Domain.Exceptions
             /// <summary>The TyhpLib runtime is required but not configured.</summary>
             EmitterMissingRuntime = 5014,
 
-            /// <summary>A configured struct backing class was not found.</summary>
-            EmitterStructBackingError = 5015,
+            // 5015 was EmitterStructBackingError: the configured struct backing class could not be
+            // found. Retired when the custom `build.structBacking` class option was removed (structs
+            // are always PHP arrays). Do not reuse the number.
 
             /// <summary>A disposable variable's type does not implement IsDisposable.</summary>
             EmitterDisposableError = 5016,
@@ -1264,6 +1333,12 @@ namespace Tyhp.Domain.Exceptions
 
             /// <summary>A <c>{name}</c>-style placeholder in <c>tyhp.json</c> could not be expanded.</summary>
             ConfigInterpolationFailed = 6009,
+
+            /// <summary>
+            /// <c>build.structBacking</c> names a class; structs are always PHP arrays, so the value
+            /// is ignored.
+            /// </summary>
+            ConfigStructBackingIgnored = 6010,
 
             #endregion Configuration (6000–6999)
 

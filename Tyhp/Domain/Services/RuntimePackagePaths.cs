@@ -4,7 +4,9 @@ namespace Tyhp.Domain.Services
     /// Path checks for engine and runtime package sources. In-tree
     /// <c>runtime/packages/</c> stays recognized while that tree is still present.
     /// A sibling <c>tyhp-runtime-src/packages</c> checkout, <c>TYHP_RUNTIME_SRC</c>,
-    /// and <c>/packages/php/</c> are the same sources once packages live beside the compiler.
+    /// and <c>/packages/tyhpdef/php/</c> are the same sources once packages live beside the compiler.
+    /// Under that packages root, compiled runtimes sit in <c>tyhp/&lt;pkg&gt;</c> and tyhpdef
+    /// packages (<c>php</c>, <c>php-ext-*</c>) in <c>tyhpdef/&lt;pkg&gt;</c>.
     /// </summary>
     internal static class RuntimePackagePaths
     {
@@ -44,7 +46,7 @@ namespace Tyhp.Domain.Services
 
             var normalized = sourceFile.Replace('\\', '/');
             if (HasPathSuffix(normalized, "runtime/packages/php/")
-                || HasPathSuffix(normalized, "packages/php/"))
+                || HasPathSuffix(normalized, "packages/tyhpdef/php/"))
             {
                 return true;
             }
@@ -54,7 +56,7 @@ namespace Tyhp.Domain.Services
                 return false;
             }
 
-            var phpRoot = runtimePackagesRoot.Replace('\\', '/').TrimEnd('/') + "/php";
+            var phpRoot = runtimePackagesRoot.Replace('\\', '/').TrimEnd('/') + "/tyhpdef/php";
             return ContainsDirectory(normalized, phpRoot);
         }
 

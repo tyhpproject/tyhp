@@ -199,5 +199,19 @@ namespace Tyhp.XDebugProxy.Dbgp
             ArgumentNullException.ThrowIfNull(stream);
             return ReadResponseFromStreamCore(stream, cancellationToken);
         }
+
+        /// <summary>
+        /// Blocking form of <see cref="ReadResponseFromStream"/>. The accept thread uses this
+        /// so a saturated thread pool cannot stall the init handshake.
+        /// </summary>
+        internal static DbgpResponse ReadResponseFromStreamBlocking(Stream stream)
+        {
+            ArgumentNullException.ThrowIfNull(stream);
+            byte[] lengthBytes = ReadUntilNullBlocking(stream, 32);
+            int length = ParseLengthPrefix(Utf8.GetString(lengthBytes));
+            byte[] xmlBytes = ReadExactBlocking(stream, length);
+            ReadTrailingNullBlocking(stream);
+            return ParseResponseXml(xmlBytes);
+        }
     }
 }

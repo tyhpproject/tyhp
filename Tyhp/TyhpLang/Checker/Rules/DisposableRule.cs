@@ -2,6 +2,7 @@ using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Checker.Rules
@@ -101,6 +102,15 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
+            // Resource variables are scoped to the using block; later resources may refer to
+            // earlier ones, so every resource is checked and declared in the block state.
+            var blockState = state.Split(ScopeType.CodeBlock);
+            if (usingBlock.IsAsync && !state.IsInAsyncContext && !state.IsTopLevelAwaitableScope())
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics, state, usingBlock, MessageCode.CheckerAwaitOutsideAsync);
+            }
+
             foreach (var resource in usingBlock.Resources)
             {
                 if (resource.Expression is null)
@@ -108,27 +118,79 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     continue;
                 }
 
-                var resourceType = context.ResolveExpressionType(resource.Expression, state);
+                ICheckedType? declaredType = null;
+                if (resource.TypeExpr is ITypeExpression typeExpression)
+                {
+                    context.CheckNode(typeExpression, blockState);
+                    context.MarkImportNames(typeExpression, blockState);
+                    declaredType = context.ResolveTypeAnnotation(typeExpression, blockState);
+                }
+
+                context.CheckNode(resource.Expression, blockState);
+                var resourceType = context.ResolveExpressionType(resource.Expression, blockState);
                 var ok = usingBlock.IsAsync
                     ? ImplementsAnyDisposable(resourceType, context)
                     : ImplementsDisposable(resourceType, context);
                 if (!ok)
                 {
                     CheckerHelpers.ReportError(
-                        diagnostics, state, resource, MessageCode.CheckerDisposableRequiresInterface);
+                        diagnostics, blockState, resource, MessageCode.CheckerDisposableRequiresInterface);
                 }
 
                 if (resource.Variable is PhpVariableAst variable)
                 {
-                    MarkVariableDisposable(variable, state);
+                    DeclareResourceVariable(
+                        resource, variable, declaredType, resourceType, blockState, context, diagnostics);
+                    MarkVariableDisposable(variable, blockState);
                 }
             }
 
             if (usingBlock.Body is IStatement body)
             {
-                var blockState = state.Split(ScopeType.CodeBlock);
                 context.CheckNode(body, blockState);
+
+                // The body always runs, so a `return` / `throw` on every path through it ends
+                // the enclosing function's paths too.
+                state.HasReturnedOnAllPaths = blockState.HasReturnedOnAllPaths;
             }
+        }
+
+        private static void DeclareResourceVariable(
+            TyhpUsingResourceAst resource,
+            PhpVariableAst variable,
+            ICheckedType? declaredType,
+            ICheckedType resourceType,
+            CheckerState blockState,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var name = CheckerHelpers.GetVariableName(variable);
+            if (name is null)
+            {
+                return;
+            }
+
+            if (declaredType is not null
+                && !context.IsAssignable(resourceType, declaredType, blockState))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    blockState,
+                    resource,
+                    MessageCode.CheckerTypeMismatch,
+                    resourceType.DisplayName,
+                    declaredType.DisplayName);
+            }
+
+            blockState.DeclareVariable(
+                name,
+                new Binder.Symbols.VariableSymbol(
+                    name,
+                    variable,
+                    CheckerHelpers.ResolveDiagnosticFileName(blockState, resource)),
+                declaredType ?? resourceType,
+                isAssigned: true,
+                diagnostics);
         }
 
         private static void CheckClosurePropertyAssignment(
@@ -162,12 +224,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             var edges = new HashSet<(string From, string To)>();
             CollectDisposableReferenceEdges(block, disposableVars, edges);
-            if (!HasReferenceCycle(edges))
-            {
-                return;
-            }
-
-            if (context.MarkRequiresDisposableTryFinally(block))
+            if (HasReferenceCycle(edges) && context.MarkRequiresDisposableTryFinally(block))
             {
                 CheckerHelpers.ReportWarning(
                     diagnostics, state, block, MessageCode.CheckerDisposableCircularReference);
@@ -394,14 +451,48 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
         }
 
+        private const string DisposableInterfaceName = "\\Tyhp\\Contracts\\IsDisposable";
+        private const string AsyncDisposableInterfaceName = "\\Tyhp\\Contracts\\AsyncIsDisposable";
+
         private static bool ImplementsAnyDisposable(ICheckedType type, CheckerRuleContext context) =>
-            ImplementsDisposable(type, context) || ImplementsAsyncDisposable(type, context);
+            ImplementsContracts(type, context, DisposableInterfaceName, AsyncDisposableInterfaceName);
 
         private static bool ImplementsDisposable(ICheckedType type, CheckerRuleContext context) =>
-            CheckerHelpers.ImplementsInterface(type, "IsDisposable", context.SymbolTree, context.GlobalScope);
+            ImplementsContracts(type, context, DisposableInterfaceName);
 
-        private static bool ImplementsAsyncDisposable(ICheckedType type, CheckerRuleContext context) =>
-            CheckerHelpers.ImplementsInterface(type, "AsyncIsDisposable", context.SymbolTree, context.GlobalScope);
+        /// <summary>
+        /// True when <paramref name="type"/> is a class/interface implementing at least one of the
+        /// fully qualified runtime contracts. Contracts that are not loaded (the async contract
+        /// ships in tyhp/async) cannot be implemented; when none is loaded, nothing is judged.
+        /// </summary>
+        private static bool ImplementsContracts(
+            ICheckedType type,
+            CheckerRuleContext context,
+            params string[] contractNames)
+        {
+            if (type is not SimpleCheckedType { ResolvedSymbol: ObjectDeclarationSymbol })
+            {
+                return false;
+            }
+
+            var anyLoaded = false;
+            foreach (var contractName in contractNames)
+            {
+                var contract = CheckerHelpers.ResolveNamedType(contractName, context.SymbolTree, context.GlobalScope);
+                if (contract is UnresolvedCheckedType)
+                {
+                    continue;
+                }
+
+                anyLoaded = true;
+                if (TypeComparer.IsSubtypeOf(type, contract, context.SymbolTree, context.GlobalScope))
+                {
+                    return true;
+                }
+            }
+
+            return !anyLoaded;
+        }
 
         private static bool IsUsingEqualOperator(PhpBinaryOpAst binary) =>
             PhpAssignmentOperatorExtensions.FromToken(

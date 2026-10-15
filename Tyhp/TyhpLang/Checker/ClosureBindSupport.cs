@@ -555,8 +555,8 @@ namespace Tyhp.TyhpLang.Checker
                 return false;
             }
 
-            return path.Contains("packages/php/", StringComparison.OrdinalIgnoreCase)
-                || path.Contains("packages/php-ext-", StringComparison.OrdinalIgnoreCase)
+            return path.Contains("packages/tyhpdef/php/", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("packages/tyhpdef/php-ext-", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("php/_tyhpdef/", StringComparison.OrdinalIgnoreCase);
         }
 

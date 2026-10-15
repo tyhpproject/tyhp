@@ -46,6 +46,45 @@ public class StringInterpolationTests
         php.Should().Contain("\"first $arr[0]\"");
     }
 
+    [Fact]
+    public void Interpolate_MethodCallInBraces_KeepsBraces()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Box {
+                public function twice(int $v): int { return $v * 2; }
+            }
+            $o = new Box();
+            echo "twice={$o->twice(4)}!";
+            """);
+
+        php.Should().Contain("\"twice={$o->twice(4)}!\"");
+    }
+
+    [Fact]
+    public void Interpolate_QuotedArrayKeyInBraces_KeepsBraces()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            array<string, int> $arr = ['k' => 7];
+            echo "k={$arr['k']}";
+            """);
+
+        php.Should().Contain("\"k={$arr['k']}\"");
+    }
+
+    [Fact]
+    public void Interpolate_BracedVariableBeforeIdentifierText_KeepsBraces()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            $name = "bob";
+            echo "{$name}s and {$name}[0] and $name!";
+            """);
+
+        php.Should().Contain("\"{$name}s and {$name}[0] and $name!\"");
+    }
+
     private static string CompileAndEmit(string content)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));

@@ -848,6 +848,11 @@ namespace Tyhp.Domain.Services
                 {
                     yield return name;
                 }
+
+                foreach (var name in ExtractNames(parameter.Default, skip))
+                {
+                    yield return name;
+                }
             }
 
             foreach (var parent in ExtendsAndImplements(type))
@@ -912,6 +917,11 @@ namespace Tyhp.Domain.Services
             foreach (var parameter in method.GenericParameters ?? [])
             {
                 foreach (var name in ExtractNames(parameter.Constraint, skip))
+                {
+                    yield return name;
+                }
+
+                foreach (var name in ExtractNames(parameter.Default, skip))
                 {
                     yield return name;
                 }

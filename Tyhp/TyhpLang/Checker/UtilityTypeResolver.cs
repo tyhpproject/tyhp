@@ -18,7 +18,7 @@ namespace Tyhp.TyhpLang.Checker
     /// </summary>
     internal static class UtilityTypeResolver
     {
-        private static readonly DiagnosticBag ExpandDiagnostics = new();
+        private static DiagnosticBag ExpandDiagnostics => new();
 
         public static ICheckedType Resolve(
             BuiltInUtilityTypeSymbol utility,
@@ -58,7 +58,7 @@ namespace Tyhp.TyhpLang.Checker
                 UtilityBehavior.CallableParametersTuple => ResolveCallableParametersTuple(utility, typeArguments),
                 UtilityBehavior.CallableParametersRest => ResolveCallableParametersRest(utility, typeArguments),
                 UtilityBehavior.CallableParametersSlice => ResolveCallableParametersSlice(utility, typeArguments),
-                UtilityBehavior.Awaited => ResolveAwaited(typeArguments, symbolTree, globalScope),
+                UtilityBehavior.Awaited => ResolveAwaited(utility, typeArguments),
                 UtilityBehavior.StructKey => ResolveStructKey(typeArguments, state, symbolTree, globalScope, resolveType),
                 UtilityBehavior.StructRecord => ResolveStructRecord(utility, typeArguments),
                 UtilityBehavior.StructDef => ResolveStructDef(typeArguments, state, symbolTree, globalScope, resolveType),
@@ -431,12 +431,8 @@ namespace Tyhp.TyhpLang.Checker
         /// <summary>
         /// True when a parameter type should receive call-site generic bindings so a deferred
         /// wrapper can expand once the sibling argument has filled the type parameter.
-        /// </summary>
-        /// <summary>
-        /// True when a parameter type should receive call-site generic bindings so a deferred
-        /// wrapper can expand once the sibling argument has filled the type parameter.
-        /// Rest / Tuple / Struct / return-type / Properties skip argument-driven binding of
-        /// <c>TCallable</c> (the callback argument fills it). Slice is not in this set:
+        /// Rest / Tuple / Struct / return-type / Properties / Awaited skip argument-driven binding of
+        /// <c>TCallable</c> / <c>T</c> (the callback or object argument fills it). Slice is not in this set:
         /// <c>TZip</c> is inferred from array element types.
         /// </summary>
         internal static bool IsCallSiteExpandingUtility(UtilityBehavior behavior) =>
@@ -445,7 +441,8 @@ namespace Tyhp.TyhpLang.Checker
                 or UtilityBehavior.CallableParametersRest
                 or UtilityBehavior.CallableReturnType
                 or UtilityBehavior.ReturnType
-                or UtilityBehavior.Properties;
+                or UtilityBehavior.Properties
+                or UtilityBehavior.Awaited;
 
         /// <summary>
         /// Utilities that stay deferred until substitution fills their type argument, including
@@ -504,6 +501,8 @@ namespace Tyhp.TyhpLang.Checker
                     ExpandCallableParametersSliceAfterSubstitution(generic),
                 UtilityBehavior.Properties =>
                     ExpandPropertiesAfterSubstitution(generic, utility, symbolTree, globalScope),
+                UtilityBehavior.Awaited =>
+                    ExpandAwaitedAfterSubstitution(generic),
                 _ when MagicUtilityTypeResolver.IsMagicBehavior(utility.Behavior) =>
                     MagicUtilityTypeResolver.ExpandAfterSubstitution(generic, utility, symbolTree, globalScope),
                 _ => type,
@@ -846,25 +845,226 @@ namespace Tyhp.TyhpLang.Checker
             return CheckedTypes.Unresolved;
         }
 
+        /// <summary>
+        /// <c>__Awaited&lt;T&gt;</c> unwraps <c>\Tyhp\Promise&lt;X&gt;</c> to <c>X</c> (repeatedly, so a
+        /// nested promise collapses fully) and applies member-wise to unions and nullable wrappers.
+        /// While any unwrap leaf is still an open type parameter (<c>T</c> could itself be a
+        /// promise) the utility stays a <see cref="GenericCheckedType"/> wrapper, and
+        /// <see cref="ExpandAfterSubstitution(ICheckedType, SymbolTree?, GlobalScope?)"/> unwraps it once
+        /// substitution fills <c>T</c>.
+        /// </summary>
         private static ICheckedType ResolveAwaited(
-            IReadOnlyList<ICheckedType> args,
-            SymbolTree symbolTree,
-            GlobalScope globalScope)
+            BuiltInUtilityTypeSymbol utility,
+            IReadOnlyList<ICheckedType> args)
         {
             if (args.Count == 0)
             {
                 return CheckedTypes.Unresolved;
             }
 
-            var current = args[0];
-            while (current is GenericCheckedType generic
-                && generic.BaseType.DisplayName.Contains("Promise", StringComparison.OrdinalIgnoreCase)
-                && generic.TypeArguments.Count > 0)
+            return NormalizeAwaited(CheckedTypes.FromSymbol(utility), args[0]);
+        }
+
+        private static ICheckedType ExpandAwaitedAfterSubstitution(GenericCheckedType generic) =>
+            NormalizeAwaited(generic.BaseType, generic.TypeArguments[0]);
+
+        /// <summary>
+        /// Settles <c>__Awaited&lt;argument&gt;</c>: closed members become their settled type, and a
+        /// member whose unwrap leaf is still an open type parameter becomes
+        /// <c>__Awaited&lt;leaf&gt;</c> (promise layers above the leaf removed). Unions distribute, so
+        /// <c>__Awaited&lt;Promise&lt;T&gt;|int&gt;</c> is <c>__Awaited&lt;T&gt;|int</c>.
+        /// </summary>
+        private static ICheckedType NormalizeAwaited(ICheckedType utilityBase, ICheckedType argument)
+        {
+            if (argument is UnionCheckedType union)
             {
-                current = generic.TypeArguments[0];
+                var members = new List<ICheckedType>(union.Members.Count);
+                foreach (var member in union.Members)
+                {
+                    members.Add(NormalizeAwaited(utilityBase, member));
+                }
+
+                return CheckedTypes.UnionTypes(members);
             }
 
-            return current;
+            return TryUnwrapAwaited(argument, out var unwrapped)
+                ? unwrapped
+                : new GenericCheckedType(utilityBase, new[] { unwrapped });
+        }
+
+        /// <summary>
+        /// Unwraps promises from <paramref name="type"/>. Returns false while an unwrap leaf is an
+        /// unbound type parameter, which keeps <c>__Awaited&lt;T&gt;</c> deferred. Even then
+        /// <paramref name="result"/> holds the partially unwrapped type (every promise layer above
+        /// an open leaf removed), so <c>__Awaited&lt;Promise&lt;T&gt;&gt;</c> normalizes to
+        /// <c>__Awaited&lt;T&gt;</c>.
+        /// </summary>
+        internal static bool TryUnwrapAwaited(ICheckedType type, out ICheckedType result)
+        {
+            switch (type)
+            {
+                case NullableCheckedType nullable:
+                    var innerClosed = TryUnwrapAwaited(nullable.InnerType, out var inner);
+                    result = inner.IsNullable || inner.IsMixed ? inner : new NullableCheckedType(inner);
+                    return innerClosed;
+
+                case UnionCheckedType union:
+                    var members = new List<ICheckedType>(union.Members.Count);
+                    var allClosed = true;
+                    foreach (var member in union.Members)
+                    {
+                        allClosed &= TryUnwrapAwaited(member, out var unwrappedMember);
+                        members.Add(unwrappedMember);
+                    }
+
+                    result = CheckedTypes.UnionTypes(members);
+                    return allClosed;
+
+                case GenericCheckedType generic when IsPromiseClass(generic.BaseType):
+                    if (generic.TypeArguments.Count == 0)
+                    {
+                        result = CheckedTypes.Mixed;
+                        return true;
+                    }
+
+                    return TryUnwrapAwaited(generic.TypeArguments[0], out result);
+
+                case SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol { IsAwaitedBound: true } }:
+                    // `T extends __Awaited<…>` is its own awaited type: `__Awaited<T>` is `T`.
+                    result = type;
+                    return true;
+
+                case SimpleCheckedType simple:
+                    if (CallableSignatureReflection.IsUnboundTypeParameter(simple))
+                    {
+                        result = type;
+                        return false;
+                    }
+
+                    // A bare `Promise` (no type argument) settles with `mixed`.
+                    result = IsPromiseClass(simple) ? CheckedTypes.Mixed : type;
+                    return true;
+
+                default:
+                    result = type;
+                    return true;
+            }
+        }
+
+        /// <summary>
+        /// The settled type of <paramref name="type"/>, i.e. <c>__Awaited&lt;type&gt;</c> normalized:
+        /// promise layers are removed, awaited-bound parameters stay as they are, and an open
+        /// parameter that could hold a promise stays a deferred <c>__Awaited&lt;T&gt;</c>. This is what an
+        /// <c>async</c> callable's declared return type means to its callers and its body.
+        /// </summary>
+        internal static ICheckedType Settle(ICheckedType type, GlobalScope globalScope)
+        {
+            if (type.Kind == CheckedTypeKind.Unresolved)
+            {
+                return type;
+            }
+
+            var symbol = ((Binder.Scopes.Interfaces.IBaseScope)globalScope).FindChildSymbolByName("__Awaited")
+                as BuiltInUtilityTypeSymbol;
+            return symbol is null
+                ? (TryUnwrapAwaited(type, out var unwrapped) ? unwrapped : type)
+                : NormalizeAwaited(CheckedTypes.FromSymbol(symbol), type);
+        }
+
+        /// <summary>
+        /// True when <paramref name="type"/> is its own awaited type: it is not, and cannot be, a
+        /// <c>\Tyhp\Promise</c> (so <c>__Awaited&lt;type&gt;</c> is <paramref name="type"/>). This is the
+        /// requirement a <c>T extends __Awaited&lt;…&gt;</c> bound places on its type argument.
+        /// A concrete <c>mixed</c> or <c>object</c> is its own awaited type and is settled; an open
+        /// type parameter is settled only when it is awaited-bound, or its own bound is settled and
+        /// cannot hold a promise (so a parameter bounded by <c>mixed</c> or <c>object</c> is not).
+        /// </summary>
+        internal static bool IsSettledType(ICheckedType type)
+        {
+            switch (type)
+            {
+                case NullableCheckedType nullable:
+                    return IsSettledType(nullable.InnerType);
+
+                case UnionCheckedType union:
+                    return union.Members.All(IsSettledType);
+
+                case GenericCheckedType generic when TryGetDeferredAwaited(generic, out _):
+                    // A still-deferred `__Awaited<T>` is an awaited type by definition.
+                    return true;
+
+                case GenericCheckedType generic:
+                    return !IsPromiseClass(generic.BaseType) && !IsPromiseClass(generic);
+
+                case SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol parameter }:
+                    // An open parameter is settled only when no promise can inhabit it.
+                    return parameter.IsAwaitedBound
+                        || (parameter.ResolvedConstraint is { } bound
+                            && !ReferenceEquals(bound, type)
+                            && IsSettledType(bound)
+                            && !CanHoldPromise(bound));
+
+                case SimpleCheckedType simple:
+                    // A concrete `mixed` / `object` is its own awaited type (`__Awaited<mixed>` is
+                    // `mixed`); only the promise class itself is unsettled.
+                    return !IsPromiseClass(simple);
+
+                default:
+                    return true;
+            }
+        }
+
+        /// <summary>True when <paramref name="type"/> is, or has a member that is, a <c>\Tyhp\Promise</c>.</summary>
+        internal static bool ContainsPromise(ICheckedType type) =>
+            type switch
+            {
+                NullableCheckedType nullable => ContainsPromise(nullable.InnerType),
+                UnionCheckedType union => union.Members.Any(ContainsPromise),
+                GenericCheckedType generic => IsPromiseClass(generic.BaseType) || IsPromiseClass(generic),
+                SimpleCheckedType simple => IsPromiseClass(simple),
+                _ => false,
+            };
+
+        /// <summary>True when a <c>\Tyhp\Promise</c> value could inhabit <paramref name="type"/>.</summary>
+        private static bool CanHoldPromise(ICheckedType type) =>
+            type.IsMixed || type switch
+            {
+                NullableCheckedType nullable => CanHoldPromise(nullable.InnerType),
+                UnionCheckedType union => union.Members.Any(CanHoldPromise),
+                SimpleCheckedType simple => TypeComparer.IsBuiltInName(simple, "mixed")
+                    || TypeComparer.IsBuiltInName(simple, "object")
+                    || IsPromiseClass(simple),
+                GenericCheckedType generic => IsPromiseClass(generic.BaseType),
+                _ => false,
+            };
+
+        /// <summary>
+        /// True only for the runtime's promise class <c>\Tyhp\Promise</c>; other classes whose name
+        /// merely contains "Promise" are ordinary types.
+        /// </summary>
+        internal static bool IsPromiseClass(ICheckedType type) =>
+            TypeComparer.TryGetObjectDeclaration(type) is { } declaration
+            && string.Equals(
+                declaration.FullyQualifiedName.TrimStart('\\'),
+                "Tyhp\\Promise",
+                StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// True when <paramref name="type"/> is a still-deferred <c>__Awaited&lt;X&gt;</c> wrapper;
+        /// <paramref name="payload"/> is <c>X</c>.
+        /// </summary>
+        internal static bool TryGetDeferredAwaited(ICheckedType type, out ICheckedType payload)
+        {
+            payload = type;
+            if (type is GenericCheckedType { TypeArguments.Count: > 0 } generic
+                && SymbolNameTypeHelper.TryGetUtilitySymbol(generic, out var utility)
+                && utility.Behavior == UtilityBehavior.Awaited)
+            {
+                payload = generic.TypeArguments[0];
+                return true;
+            }
+
+            return false;
         }
 
         private static ICheckedType ResolveStructKey(

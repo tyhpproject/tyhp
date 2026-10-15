@@ -714,7 +714,10 @@ namespace Tyhp.LanguageServer.Analysis
                     })
                     .Build();
                 this._project = new Project(configuration);
-                Project.Singleton = this._project;
+                lock (Project.SingletonGate)
+                {
+                    Project.Singleton = this._project;
+                }
                 this._options = CompilationOptions.FromProject(this._project);
                 this._configuration.Project = this._project;
                 this._configuration.TyhpProjectPath = projectFile;

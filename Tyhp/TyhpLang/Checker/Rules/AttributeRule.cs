@@ -416,7 +416,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
         /// Engine / stub sources. A user <c>.tyhp</c> class that reuses a Core name is userland.
         /// Unbound names (empty source) are treated as the engine class — isolated tests have no
         /// ExtCore <c>Override</c> / <c>DelayedTargetValidation</c> stub. Paths under
-        /// <c>runtime/packages/php/</c>, <c>/packages/php/</c>, or the resolved runtime-src
+        /// <c>runtime/packages/php/</c>, <c>/packages/tyhpdef/php/</c>, or the resolved runtime-src
         /// <c>php</c> package are engine sources.
         /// </summary>
         private static bool IsEngineDeclarationSource(string? sourceFile)

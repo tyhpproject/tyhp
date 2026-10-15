@@ -29,7 +29,8 @@ public static class EmittedPhpRunner
             foreach (var file in files)
             {
                 var name = Path.GetFileName(file.OutputFilePath);
-                if (string.IsNullOrEmpty(name) || name == "run.php")
+                // Two namespaces each emit a `_functions.php`; keep both rather than overwrite.
+                if (string.IsNullOrEmpty(name) || name == "run.php" || File.Exists(Path.Combine(tempDir, name)))
                 {
                     name = $"emitted-{index}.php";
                 }

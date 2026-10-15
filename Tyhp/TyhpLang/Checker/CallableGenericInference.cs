@@ -15,6 +15,14 @@ namespace Tyhp.TyhpLang.Checker
     internal static class CallableGenericInference
     {
         /// <summary>
+        /// Returns the type arguments <paramref name="target"/> receives from the nominal
+        /// <c>actual</c> type through its inheritance chain, or null when it is not an ancestor.
+        /// </summary>
+        internal delegate IReadOnlyList<ICheckedType>? AncestorProjection(
+            ICheckedType actual,
+            ObjectDeclarationSymbol target);
+
+        /// <summary>
         /// True when <paramref name="type"/> still mentions any
         /// <see cref="GenericTypeParameterSymbol"/> (open generic left after acquiring
         /// <c>keep_keys(...)</c> / similar).
@@ -99,16 +107,30 @@ namespace Tyhp.TyhpLang.Checker
         /// first binding for each <see cref="GenericTypeParameterSymbol"/>. Shared by direct-call
         /// inference and callable-facet invocation.
         /// </summary>
+        /// <param name="projectToAncestor">
+        /// When supplied, a nominal <paramref name="actual"/> that is not the pattern's generic
+        /// class/interface is first projected onto that ancestor (the type arguments it receives
+        /// through its <c>extends</c> / <c>implements</c> chain), so <c>Task&lt;T&gt;</c> binds
+        /// <c>T = int</c> from a <c>class CountTask implements Task&lt;int&gt;</c> argument.
+        /// </param>
         public static void CollectGenericBindings(
             ICheckedType pattern,
             ICheckedType actual,
-            Dictionary<GenericTypeParameterSymbol, ICheckedType> bindings)
+            Dictionary<GenericTypeParameterSymbol, ICheckedType> bindings,
+            AncestorProjection? projectToAncestor = null,
+            bool mergeTypeArguments = false)
         {
+            var patternIsNullable = false;
             while (pattern is NullableCheckedType np)
             {
+                patternIsNullable = true;
                 pattern = np.InnerType;
             }
 
+            // A bare `T` receiving a nullable argument binds the nullable type (`T = ?int`), so
+            // nullability is neither lost in the result nor in `T extends X` checks. `?T` already
+            // accounts for the null, so there `T` binds the non-null part.
+            var nullableActual = actual;
             while (actual is NullableCheckedType na)
             {
                 actual = na.InnerType;
@@ -116,15 +138,33 @@ namespace Tyhp.TyhpLang.Checker
 
             if (pattern is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol param })
             {
+                if (!patternIsNullable)
+                {
+                    actual = nullableActual;
+                }
+
                 // `__ClassName<Foo>` is a branded string, not an object. Binding it to a naked
                 // `T extends object` in `T|__ClassName<T>` is the wrong arm — the brand argument
                 // (`Foo`) is filled by the structured `__ClassName<T>` member instead.
+                // A `mixed` argument binds `T = mixed` (so `T extends X` is checked against it and
+                // the result stays `mixed`); only the error-recovery `Unresolved` type is skipped.
                 if (!TypeComparer.IsUnresolvedType(actual)
-                    && !TypeComparer.IsMixedType(actual)
-                    && !bindings.ContainsKey(param)
                     && !SymbolNameTypeHelper.IsSymbolNameType(actual))
                 {
-                    bindings[param] = actual;
+                    // A literal argument infers the widened type (`'plain'` → `string`,
+                    // `1` → `int`) so `boxOf('plain')` is `Box<string>`.
+                    var widened = GeneratorBodyInference.WidenLiteral(actual);
+                    if (!bindings.TryGetValue(param, out var existing))
+                    {
+                        bindings[param] = widened;
+                    }
+                    else if (mergeTypeArguments
+                        && !TypeComparer.AreTypesEqual(existing, widened))
+                    {
+                        // Array elements and variadic arguments contribute together:
+                        // `Cell<int>` and `Cell<string>` bind `T` to `int|string`.
+                        bindings[param] = CheckedTypes.UnionTypes(existing, widened);
+                    }
                 }
 
                 return;
@@ -162,13 +202,15 @@ namespace Tyhp.TyhpLang.Checker
                     actualFacet.ParameterTypes.Count);
                 for (var i = 0; i < sharedArity; i++)
                 {
-                    CollectGenericBindings(
-                        patternFacet.ParameterTypes[i],
-                        actualFacet.ParameterTypes[i],
-                        bindings);
+                CollectGenericBindings(
+                    patternFacet.ParameterTypes[i],
+                    actualFacet.ParameterTypes[i],
+                    bindings,
+                    projectToAncestor,
+                    mergeTypeArguments);
                 }
 
-                CollectGenericBindings(patternFacet.ReturnType, actualFacet.ReturnType, bindings);
+                CollectGenericBindings(patternFacet.ReturnType, actualFacet.ReturnType, bindings, projectToAncestor, mergeTypeArguments);
                 return;
             }
 
@@ -177,10 +219,28 @@ namespace Tyhp.TyhpLang.Checker
             {
                 foreach (var member in actualUnion.Members)
                 {
-                    CollectGenericBindings(unionPattern, member, bindings);
+                    // Each member of `Cell<int>|Cell<string>` contributes its type
+                    // argument. Later members merge with the first instead of being dropped.
+                    CollectGenericBindings(
+                        unionPattern, member, bindings, projectToAncestor, mergeTypeArguments: true);
                 }
 
                 return;
+            }
+
+            // `Task<T>` against a class that merely implements/extends `Task<int>` (or a generic
+            // class that forwards its own parameter): view the actual through the pattern's class.
+            if (projectToAncestor is not null
+                && pattern is GenericCheckedType
+                {
+                    TypeArguments.Count: > 0,
+                    BaseType: SimpleCheckedType { ResolvedSymbol: ObjectDeclarationSymbol { GenericParameters.Count: > 0 } patternDecl } patternBase,
+                }
+                && TypeComparer.TryGetNominalSymbol(actual) is ObjectDeclarationSymbol actualDecl
+                && !TypeComparer.SymbolsMatch(actualDecl, patternDecl)
+                && projectToAncestor(actual, patternDecl) is { Count: > 0 } projected)
+            {
+                actual = new GenericCheckedType(patternBase, projected);
             }
 
             if (pattern is GenericCheckedType patternGeneric
@@ -200,7 +260,7 @@ namespace Tyhp.TyhpLang.Checker
                 var limit = closure ? Math.Min(patternArgs.Count, actualArgs.Count) : patternArgs.Count;
                 for (var i = 0; i < limit && offset + i < actualArgs.Count; i++)
                 {
-                    CollectGenericBindings(patternArgs[i], actualArgs[offset + i], bindings);
+                    CollectGenericBindings(patternArgs[i], actualArgs[offset + i], bindings, projectToAncestor, mergeTypeArguments);
                 }
             }
             else if (TryBindClassNameBrandFromString(pattern, actual, bindings))
@@ -209,7 +269,7 @@ namespace Tyhp.TyhpLang.Checker
             }
             else if (pattern is UnionCheckedType patternUnion)
             {
-                BindUnionPattern(patternUnion, actual, bindings);
+                BindUnionPattern(patternUnion, actual, bindings, projectToAncestor, mergeTypeArguments);
             }
         }
 
@@ -223,7 +283,9 @@ namespace Tyhp.TyhpLang.Checker
         private static void BindUnionPattern(
             UnionCheckedType patternUnion,
             ICheckedType actual,
-            Dictionary<GenericTypeParameterSymbol, ICheckedType> bindings)
+            Dictionary<GenericTypeParameterSymbol, ICheckedType> bindings,
+            AncestorProjection? projectToAncestor,
+            bool mergeTypeArguments)
         {
             if (actual is UnionCheckedType actualUnion
                 && patternUnion.Members.Count == actualUnion.Members.Count
@@ -231,7 +293,7 @@ namespace Tyhp.TyhpLang.Checker
             {
                 for (var i = 0; i < patternUnion.Members.Count; i++)
                 {
-                    CollectGenericBindings(patternUnion.Members[i], actualUnion.Members[i], bindings);
+                    CollectGenericBindings(patternUnion.Members[i], actualUnion.Members[i], bindings, projectToAncestor, mergeTypeArguments);
                 }
 
                 return;
@@ -244,7 +306,7 @@ namespace Tyhp.TyhpLang.Checker
                 {
                     if (!IsNakedTypeParameter(member))
                     {
-                        CollectGenericBindings(member, actualMember, bindings);
+                        CollectGenericBindings(member, actualMember, bindings, projectToAncestor);
                     }
                 }
             }
@@ -255,7 +317,7 @@ namespace Tyhp.TyhpLang.Checker
                 {
                     if (IsNakedTypeParameter(member))
                     {
-                        CollectGenericBindings(member, actualMember, bindings);
+                        CollectGenericBindings(member, actualMember, bindings, projectToAncestor);
                     }
                 }
             }

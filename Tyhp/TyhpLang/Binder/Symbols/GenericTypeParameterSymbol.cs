@@ -1,3 +1,4 @@
+using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
@@ -23,6 +24,35 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         /// as foreach key types over <c>TProperties extends struct</c>.
         /// </summary>
         public ICheckedType? ResolvedConstraint { get; set; }
+
+        /// <summary>
+        /// True when the declared bound is <c>__Awaited&lt;X&gt;</c> (<c>T extends __Awaited&lt;void|mixed&gt;</c>):
+        /// the parameter only ever holds an already-awaited type, so it can never be (or contain) a
+        /// <c>\Tyhp\Promise</c>. <see cref="ResolvedConstraint"/> still holds the settled payload
+        /// <c>X</c>; this flag carries the "is its own awaited type" half of the bound.
+        /// </summary>
+        public bool IsAwaitedBound => IsAwaitedUtilityReference(Constraint);
+
+        private static bool IsAwaitedUtilityReference(ITypeExpression? type)
+        {
+            switch (type)
+            {
+                case PhpTypeExpressionAst { TypeKind: PhpTypeKind.Simple, IsStatic: false } wrapper
+                    when wrapper.Types?.GetAllNotNull().ToList() is { Count: 1 } members:
+                    return !wrapper.IsNullable && IsAwaitedUtilityReference(members[0]);
+
+                case PhpBuiltinTypeAst builtin:
+                    return string.Equals(
+                        builtin.Identifier?.TrimStart('\\'), "__Awaited", StringComparison.OrdinalIgnoreCase);
+
+                case PhpNamedTypeAst named:
+                    return (named.BoundSymbol ?? (named.Name as PhpNameAst)?.BoundSymbol)
+                        is BuiltInUtilityTypeSymbol { Behavior: UtilityBehavior.Awaited };
+
+                default:
+                    return false;
+            }
+        }
 
         public TypeVariance Variance { get; internal set; }
 

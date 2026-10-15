@@ -15,8 +15,13 @@ namespace Tyhp.TyhpLang.Emitter
             this._context.EnterDisposableBlockScope();
             try
             {
+                // A nested block ends before its function does and PHP has no block scope, so a
+                // nested block that owns `:=` locals is compiled to try/finally: its locals are
+                // disposed when the block ends. Function bodies use a scope object unless the
+                // checker flagged a reference cycle.
+                var isNestedBlock = emitType == EmitType.SubBlockStatement;
                 if (ContainsUsingEqualAssignment(block)
-                    && this._context.RequiresDisposableTryFinallyFor(block))
+                    && (isNestedBlock || this._context.RequiresDisposableTryFinallyFor(block)))
                 {
                     this.EmitDisposableTryFinallyInto(block, parent, emitType);
                     return;

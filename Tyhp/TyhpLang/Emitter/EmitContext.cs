@@ -184,8 +184,8 @@ namespace Tyhp.TyhpLang.Emitter
 
         /// <summary>
         /// The originating <see cref="Project"/> configuration, or null for test/standalone contexts.
-        /// Backs the config-flag helpers (<see cref="IsStructBackedByArray"/>, <see cref="GetDecimalBacking"/>,
-        /// <see cref="IsExperimentalReadonlyCloneWith"/>, <see cref="IsRuntimeGenericChecks"/>).
+        /// Backs the config-flag helpers (<see cref="IsExperimentalReadonlyCloneWith"/>,
+        /// <see cref="IsRuntimeGenericChecks"/>).
         /// </summary>
         public Project? Project { get; private set; }
         public Dictionary<string, string> TypeAliasMap { get; }
@@ -497,6 +497,16 @@ namespace Tyhp.TyhpLang.Emitter
                 && GenericRuntimeAttributeSupport.IsTyhpdefSymbol(symbol)
                 && GenericRuntimeAttributeSupport.TryRead(symbol) is not null;
 
+        /// <summary>
+        /// True when the tyhpdef <c>#[\Tyhp\GenericRuntime]</c> stamp on <paramref name="symbol"/>
+        /// says its compiled body reads a type argument at runtime (<c>erased: false</c>). Such a
+        /// member must be reached through <c>\Tyhp\Generic::bind</c>; an <c>erased: true</c> stamp
+        /// only records the type parameters and leaves the member free to inline at the call site.
+        /// </summary>
+        public bool HasForeignGenericBinder(IBaseSymbol? symbol)
+            => this.HasForeignGenericRuntime(symbol)
+                && GenericRuntimeAttributeSupport.TryRead(symbol) is { Erased: false };
+
         public bool RequiresWeakReferenceCaptureFor(PhpInlineFunctionAst? closure)
             => closure is not null && this.RequiresWeakReferenceCapture.Contains(closure);
 
@@ -561,26 +571,6 @@ namespace Tyhp.TyhpLang.Emitter
                 this.RequiredPackages.Add(packageName);
             }
         }
-
-        /// <summary>
-        /// The configured struct backing (<c>build.structBacking</c>); defaults to <c>array</c> when
-        /// <see cref="Project"/> is null (test/standalone emit) or the setting is unset.
-        /// </summary>
-        public string GetStructBacking()
-            => this.Project?.Build.StructBacking ?? "array";
-
-        /// <summary>
-        /// True when structs are backed by PHP arrays (the default <c>build.structBacking = "array"</c>).
-        /// When false, <see cref="GetStructBacking"/> names a custom backing class.
-        /// </summary>
-        public bool IsStructBackedByArray()
-            => string.Equals(this.GetStructBacking(), "array", StringComparison.OrdinalIgnoreCase);
-
-        /// <summary>
-        /// The decimal backing library (<c>bcmath</c> or <c>gmp</c>); defaults to <c>bcmath</c>.
-        /// </summary>
-        public string GetDecimalBacking()
-            => this.Project?.Build.DecimalBacking ?? "bcmath";
 
         /// <summary>
         /// Opt-in for the anonymous-class wrapper for <c>clone ... with</c> on readonly properties (PHP &lt; 8.5).
@@ -737,6 +727,29 @@ namespace Tyhp.TyhpLang.Emitter
             return symbol is BaseSymbol { DeclaringAstNode.LanguageMode: "tyhpdef" };
         }
 
+        /// <summary>
+        /// The PHP spelling a consumer emits for a tyhpdef <c>class php_name as tyhpName</c>. An
+        /// unqualified <c>php_name</c> is relative to the tyhpdef namespace block that declared it
+        /// (<c>namespace Tyhp { class StringExtensions as … }</c> names <c>\Tyhp\StringExtensions</c>),
+        /// so it is qualified with the alias symbol's namespace and root-anchored. Left relative it
+        /// would resolve against the consuming file's own namespace.
+        /// </summary>
+        private static string RootAnchorOriginalPhpType(ObjectDeclarationSymbol symbol, string originalType)
+        {
+            var name = originalType.TrimStart('\\');
+            if (!name.Contains('\\'))
+            {
+                var fqn = (symbol.FullyQualifiedName ?? "").TrimStart('\\');
+                var separator = fqn.LastIndexOf('\\');
+                if (separator > 0)
+                {
+                    name = fqn[..(separator + 1)] + name;
+                }
+            }
+
+            return "\\" + name;
+        }
+
         private static void CollectAliasMaps(
             IBaseScope scope,
             Dictionary<string, string> typeAliases,
@@ -791,9 +804,9 @@ namespace Tyhp.TyhpLang.Emitter
                         // Tyhpdef `function php_name as tyhpName` — symbol lives under tyhpName.
                         tyhpdefAliases[symbol.Name] = originalFunction;
                         break;
-                    case ObjectDeclarationSymbol { OriginalPhpName: { Length: > 0 } originalType }:
+                    case ObjectDeclarationSymbol { OriginalPhpName: { Length: > 0 } originalType } aliasedType:
                         // Tyhpdef `class php_name as tyhpName` — symbol lives under tyhpName.
-                        tyhpdefAliases[symbol.Name] = originalType;
+                        tyhpdefAliases[symbol.Name] = RootAnchorOriginalPhpType(aliasedType, originalType);
                         break;
                     case ObjectMethodSymbol { OriginalPhpName: { Length: > 0 } originalMethod }:
                         tyhpdefMemberAliases[symbol.Name] = originalMethod;

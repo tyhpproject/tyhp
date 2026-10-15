@@ -10,14 +10,14 @@
 ## Semantic versioning with a PHP-encoded MAJOR
 
 Tyhp uses standard three-part semantic versioning (`MAJOR.MINOR.PATCH`), e.g. the current compiler is
-`805.1.0-beta.1`.
+`805.1.0-beta.2`.
 
 ### Pre-release (alpha / beta / RC)
 
 A prerelease suffix (`-alpha.N`, `-beta.N`, `-rc.N`) is allowed **before** the first stable `805.X.X`.
 Prereleases may still break source compatibility. Semver guarantees in this document apply from the first
-stable release of a MAJOR. Composer and Git tags for this beta use `805.1.0-beta.1` (GitHub Release tags
-may be `v805.1.0-beta.1`).
+stable release of a MAJOR. Composer and Git tags for this beta use `805.1.0-beta.2` (GitHub Release tags
+may be `v805.1.0-beta.2`).
 
 ### MAJOR — encodes the highest PHP version supported
 
@@ -55,13 +55,13 @@ new MINOR. An emergency compile-time flag whose **default preserves existing Tyh
 
 ### Runtime Composer packages (PHP-target MAJOR + independent X.Y)
 
-The **compiler** version `805.1.0-beta.1` means the compiler can emit for PHP up through 8.5. It still emits
+The **compiler** version `805.1.0-beta.2` means the compiler can emit for PHP up through 8.5. It still emits
 for 8.2, 8.3, and 8.4 when `output.phpVersion` says so. That number is **not** the runtime package version.
 
-Each of `tyhp/core`, `tyhp/async`, `tyhp/decimal`, `tyhp/lambda`, and `tyhpdef/php` has its **own**
+Each of `tyhp/core`, `tyhp/async`, `tyhp/decimal`, `tyhp/lambda`, `tyhp/parallel`, `tyhp/io`, and `tyhpdef/php` has its **own**
 version in that package's `composer.json`. Bump a package without bumping the compiler.
 
-**Compiled** `tyhp/*` helpers (`core`, `async`, `decimal`, `lambda`) publish as `80N.X.Y` where `80N` is
+**Compiled** `tyhp/*` helpers (`core`, `async`, `decimal`, `lambda`, `parallel`, `io`) publish as `80N.X.Y` where `80N` is
 the PHP target (`802` … `805`). Example: `tyhp/core` source `1.4` → Packagist `802.1.4`, `803.1.4`,
 `804.1.4`, `805.1.4`. Source `0.0` → `802.0.0` … `805.0.0`. A library that supports several PHP versions
 ORs majors and keeps **that package's** X: `803.1.* || 804.1.* || 805.1.*` for core `1.y`.

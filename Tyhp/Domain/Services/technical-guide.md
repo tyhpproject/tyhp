@@ -19,7 +19,7 @@ Reflection attribute arguments keep `ReflectionAttribute::getArguments()` names 
 A single `--package-path` run generates one PHP package. It does not walk the
 Composer `require` graph or generate prerequisite wrappers. Generate those
 wrappers first (the same order `dev-docs/PROPOSED_TYHPDEF_PACKAGES.md` uses).
-`runtime/packages/new-composer-lib.sh` scaffolds and generates one package at
+`tyhp-runtime-src/packages/new-composer-lib.sh` scaffolds and generates one package at
 a time. When a target `require` names a PHP package / `ext-*` that no catalog
 wrapper maps to, PHP-source harvest warns (`CLI_TyhpdefRequiredPhpPackageMissingWrapper`)
 and leaves those types unresolved — it does not `extern` a required dependency.
@@ -32,10 +32,18 @@ Built **before** classifying foreign names in this package’s generated IR.
 
 - `null` — discover the runtime packages root (`TYHP_RUNTIME_SRC`, then a sibling
   `../tyhp-runtime-src/packages`; no in-tree `runtime/packages` requirement) via
-  `ComposerJsonService.TryResolveRuntimePackagesRoot`. Cached until that
+  `ComposerJsonService.TryResolveRuntimePackagesRoot`, then index its `tyhpdef/`
+  subdirectory (the root itself when that subdirectory is absent). Cached until that
   environment value or the working directory changes.
 - empty list — no catalog (every foreign name is unknown origin).
 - one or more directories — only those trees (tests).
+
+The runtime packages root is laid out as `tyhp/<pkg>` (compiled runtimes such as
+`core` and `async`), `tyhpdef/<pkg>` (`php`, `php-ext-*`, and versioned
+Composer-lib wrappers `<vendor>-<name>/<version>`), and `dist/`.
+`ComposerJsonService.BuildRuntimePackagePathMap` maps each Composer `name` found in
+`tyhp/*` and `tyhpdef/*` to its directory (the path repositories registered for a
+build); `RuntimePackagePaths` recognises `tyhpdef/php` as the engine PHP package.
 
 Each `composer.json` under a root that has `extra.tyhp.package` as an object
 (skipping `vendor` / `node_modules` /
@@ -129,6 +137,14 @@ its parent).
 | In `require-dev` only | Name-only `extern` of the right kind + `// @provided-by: <owner>` in `package.tyhpdef` |
 | Unknown | Leave as written |
 
+**Source overload sets.** `TyhpCodeTyhpdefGenerator.MapMethod` / `MapFunction` publish only
+the declared overload signatures of a `.tyhp` set (`CheckerHelpers.EnumerateMethodSignatures`
+/ `EnumerateFunctionSignatures`): the first signature is the base declaration and the rest go
+in `Overloads`, in declaration order; the implementation signature is not published. Every
+published signature carries the implementation's `#[\Tyhp\GenericRuntime(...)]` stamp (the
+implementation is the member PHP actually contains). Abstract/interface sets publish every
+signature.
+
 Compiled-library tyhpdef does not write `_tyhpdef/externs.tyhpdef`. A public type must still
 not `extends` / `implements` an extern type (`TYHP3026` / `TYHP3027`).
 
@@ -209,7 +225,9 @@ including generic arguments such as `Builder<static>`).
 
 **Defaults** (`SpellLiteral` → `SanitizeDefaultValue`; `FormatParameter`
 sanitizes again at write): keep a single-line quoted string, number
-(`0x` / `0b` / `0o`), `true` / `false` / `null` / `[]`, or `Class::CONST`.
+(`0x` / `0b` / `0o`), `true` / `false` / `null` / `[]`, a short-syntax array literal whose
+keys and values are themselves emitable defaults (`[1]`, `['a' => [2, 3]]`; a spread or a
+non-literal element drops the whole default), a global constant, or `Class::CONST`.
 Drop nowdocs and heredocs before literal checks (the body is raw text, so a
 one-word body such as `hi` is not kept as a constant), `/regex/` bodies,
 interpolations, multiline text,
@@ -219,7 +237,24 @@ default keep `= <literal>` when it is emitable, otherwise `= null` so the
 checker still treats the argument as optional (`DefaultValue is null` would
 mean required). That dummy is the same `= null` already written for harvested
 implicit-nullable PHP (`string $timezone = null`). The dummy does not widen
-the parameter type.
+the parameter type. A default that is two or more integer literals, global
+constants, or class constants joined by `|`, `&`, `^`, `<<`, or `>>` (for
+example `\ENT_QUOTES | \ENT_SUBSTITUTE | \ENT_HTML401`) is also emitable
+(`PhpAstTypeExtractor.IsBitwiseConstantExpression`); `TyhpdefExpressionSpeller`
+does not parenthesize a left operand that uses the same operator, so a chain
+spells flat. `PhpAstTypeExtractor.IsBalanced` does not count the `=>` of an array pair as an
+angle-bracket closer.
+
+`TyhpdefTypeSpeller.SpellComposite` drops the `?` shorthand only when a **top-level** member of
+the spelled union is `null`; a type whose name merely contains the letters `null`
+(`\PregMatchSetNullable`) keeps its `?`.
+
+**Extension overloads** (`MapExtensionBlockMembers`): an extension method with
+bodyless overload signatures maps to one `fn` per signature, overloads first
+and the implementation last (`MapStandaloneFunctionOverload`). Each overload
+keeps its own parameters, attributes, and return type. Its body is the backer
+call re-spelled with the overload's parameters when the implementation maps to
+a backer call, otherwise the implementation's mapping body.
 
 **Attributes** (`FormatAttribute`): if the whole `#[Name(args)]` is unmatched,
 write `#[Name]`.
@@ -250,7 +285,9 @@ replaces `*/` with `* /` so the harvested `/** */` cannot close early.
   `source.tagless` from the project). Applications with `build.generateTyhpdef`
   write `package.tyhpdef` only. The merge adds missing keys and array string
   items; it does not remove or change existing values. Skips `private` and
-  `IsInternal` when that flag exists. Skips anonymous `anonClass@` classes (they
+  `internal` symbols, and any class or member whose docblock carries an `@internal`
+  tag (`TyhpCodeTyhpdefGenerator.IsOmittedFromPublicApi`). A member that another
+  package calls must not carry the tag. Skips anonymous `anonClass@` classes (they
   are not PHP types). A `return new class { … }` in a public function or method
   becomes a same-namespace shape alias (`Owner_method_Return`, numeric suffix on
   collision) used as the return type (or unioned with a non-weak declared /
@@ -290,6 +327,12 @@ replaces `*/` with `* /` so the harvested `/** */` cannot close early.
   `__construct` are copied onto the shape; `extends` / `implements` become
   intersection conjuncts. Weak PHP returns (`object` / `mixed` / missing) are
   replaced; a non-weak declared return is kept when every `return` is `new class`.
+- Struct `extends` — a named struct's parent is a raw class name, so
+  `ObjectDeclarationSymbol.ExtendsType` is null. `MapType` falls back to
+  `StructExtends.FromDeclaringNode(obj.DeclaringAstNode)`, resolves the parent with
+  `TypeComparer.TryResolveClassName`, and spells it through
+  `TyhpdefTypeSpeller.SpellClassName` (root-anchored FQCN, generic arguments kept), so
+  `type Leaf = struct extends Node` is written `extends \Ns\Node`.
 - `PhpAstTypeExtractor` — PHP AST → tyhpdef types and literals
   (`ToTyhpdefType`, `RewriteStaticTypeInValuePosition`, `SpellLiteral` /
   `SanitizeDefaultValue`, `CopyDocComment`). `PhpTypeNameResolver.ResolveTypeExpression` (used by

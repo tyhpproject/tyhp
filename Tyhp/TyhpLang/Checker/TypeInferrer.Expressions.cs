@@ -134,18 +134,25 @@ namespace Tyhp.TyhpLang.Checker
                 _ => false,
             };
 
-        private ICheckedType InferNamedConstant(PhpNameAst name, CheckerState state)
-        {
-            // Underlying symbol names match the registered builtins (`true`/`false`), not `bool`,
-            // so assignability against declared `: true` / `true $x` (SimpleCheckedType("true"))
-            // succeeds via underlying equality as well as the dedicated bool-literal rules.
-            var builtin = name.ValueString?.ToLowerInvariant() switch
+        /// <summary>
+        /// Type of the language constants <c>true</c>, <c>false</c> and <c>null</c> written as bare
+        /// names. Underlying symbol names match the registered builtins (<c>true</c>/<c>false</c>),
+        /// not <c>bool</c>, so assignability against declared <c>: true</c> / <c>true $x</c>
+        /// (<c>SimpleCheckedType("true")</c>) succeeds via underlying equality as well as the
+        /// dedicated bool-literal rules.
+        /// </summary>
+        private static ICheckedType? TryInferLanguageConstant(PhpNameAst name) =>
+            name.ValueString?.ToLowerInvariant() switch
             {
                 "null" => CheckedTypes.Null,
                 "true" => new LiteralCheckedType(true, new SimpleCheckedType(new BuiltInTypeSymbol("true"))),
                 "false" => new LiteralCheckedType(false, new SimpleCheckedType(new BuiltInTypeSymbol("false"))),
-                _ => (ICheckedType?)null,
+                _ => null,
             };
+
+        private ICheckedType InferNamedConstant(PhpNameAst name, CheckerState state)
+        {
+            var builtin = TryInferLanguageConstant(name);
             if (builtin is not null)
             {
                 return builtin;
@@ -161,11 +168,6 @@ namespace Tyhp.TyhpLang.Checker
 
         private ICheckedType TypeOfConstant(IBaseSymbol symbol, CheckerState state)
         {
-            if (TyhpdefConstIntLiteral.TryGetLiteralType(symbol, out var literal))
-            {
-                return literal;
-            }
-
             var declared = symbol switch
             {
                 ConstantSymbol constant => constant.DeclaredType,
@@ -173,10 +175,67 @@ namespace Tyhp.TyhpLang.Checker
                 _ => null,
             };
 
-            return declared is not null
-                ? ResolveTypeExpression(declared, state)
-                : CheckedTypes.Unresolved;
+            // A constant declared `mixed` reads as `mixed` — its initializer's literal type is an
+            // implementation detail the declaration deliberately hides.
+            if (declared is not null
+                && CheckerHelpers.IsUnnarrowedMixed(ResolveTypeExpression(declared, state)))
+            {
+                return CheckedTypes.Mixed;
+            }
+
+            if (TyhpdefConstIntLiteral.TryGetLiteralType(symbol, out var literal))
+            {
+                return literal;
+            }
+
+            if (declared is not null)
+            {
+                return ResolveTypeExpression(declared, state);
+            }
+
+            return symbol is ConstantSymbol { DeclaringAstNode: PhpConstDeclListAst declaration } sourceConstant
+                && TryInferSourceConstantType(declaration, sourceConstant.Name, state, out var inferred)
+                    ? inferred
+                    : CheckedTypes.Unresolved;
         }
+
+        /// <summary>
+        /// A source <c>const NAME = literal;</c> carries no written type; its type is the widened type of a
+        /// self-contained initializer (scalar literal, signed number, <c>true</c>/<c>false</c>/<c>null</c>).
+        /// Other initializers resolve names against the declaring file, so they stay unresolved here.
+        /// </summary>
+        private bool TryInferSourceConstantType(
+            PhpConstDeclListAst declaration,
+            string name,
+            CheckerState state,
+            out ICheckedType type)
+        {
+            type = CheckedTypes.Unresolved;
+            var value = declaration.GetAllNotNull()
+                .FirstOrDefault(d => string.Equals(d.Identifier, name, StringComparison.Ordinal))?.Value;
+            if (!IsSelfContainedConstantInitializer(value))
+            {
+                return false;
+            }
+
+            type = WidenLiteral(InferExpressionType(value!, state));
+            if (type is SimpleCheckedType { ResolvedSymbol.Name: "true" or "false" })
+            {
+                type = CheckedTypes.Bool;
+            }
+
+            return !ReferenceEquals(type, CheckedTypes.Unresolved);
+        }
+
+        private static bool IsSelfContainedConstantInitializer(IExpression? expression) =>
+            expression switch
+            {
+                PhpScalarAst => true,
+                PhpUnaryOpAst { Operand: PhpScalarAst } unary
+                    => unary.Operator?.ValueString is "-" or "+",
+                PhpNameAst name => TryInferLanguageConstant(name) is not null,
+                _ => false,
+            };
 
         private static ICheckedType InferScalar(PhpScalarAst scalar)
         {
@@ -464,6 +523,15 @@ namespace Tyhp.TyhpLang.Checker
                 {
                     TypeNarrowingRule.ResetNarrowingOnAssignment(name, state);
                     state.AssignVariable(name, resultType, _diagnostics);
+                    if (assignmentOp == PhpAssignmentOperator.Assign)
+                    {
+                        var asyncClosure = binary.Right is PhpInlineFunctionAst inline
+                            && Rules.ClosureRule.IsAsyncClosure(inline);
+                        state.NoteAsyncClosureAssignment(
+                            name,
+                            asyncClosure,
+                            asyncClosure ? ((PhpInlineFunctionAst)binary.Right!).ReturnType : null);
+                    }
                 }
             }
             else if (TypeNarrowingRule.TryGetTrackedPropertyKey(binary.Left, state, out var propertyKey))
@@ -735,7 +803,7 @@ namespace Tyhp.TyhpLang.Checker
             else
             {
                 // Elvis form (`a ?: b`): the true value is the (truthy) condition itself.
-                trueType = InferExpressionType(ternary.Condition!, state);
+                trueType = RemoveFalsyFromType(InferExpressionType(ternary.Condition!, state));
             }
 
             ICheckedType falseType;
@@ -772,13 +840,20 @@ namespace Tyhp.TyhpLang.Checker
                 state.Merge(falseState);
             }
 
+            if (ternary.TrueExpr is null && trueType.Kind == CheckedTypeKind.Unresolved)
+            {
+                return falseType;
+            }
+
             return CheckedTypes.UnionTypes(trueType, falseType);
         }
 
         /// <summary>
-        /// Infers an array literal as <c>array&lt;T&gt;</c> (list — no explicit keys) or
-        /// <c>array&lt;K, V&gt;</c> (any explicit key). Element/key literals widen to their
-        /// underlying scalar so <c>[1, 2, 3]</c> is <c>array&lt;int&gt;</c>, not a literal union.
+        /// Infers an array literal as <c>array&lt;K, V&gt;</c>. An entry without a key gets
+        /// PHP's implicit <c>int</c> key, so a list <c>[1, 2, 3]</c> is <c>array&lt;int, int&gt;</c>
+        /// (assignable to <c>array&lt;int&gt;</c> and <c>array&lt;int, int&gt;</c>) and
+        /// <c>['a', 'k' => 1]</c> has <c>int|string</c> keys. Element/key literals widen to their
+        /// underlying scalar, not a literal union.
         /// Empty <c>[]</c> is <c>array&lt;never, never&gt;</c> (bottom keys and values) so it
         /// assigns into any <c>array&lt;…&gt;</c> under covariant array variance — including
         /// narrowed keys like <c>array&lt;string, T&gt;</c>. One-arg <c>array&lt;never&gt;</c>
@@ -793,7 +868,6 @@ namespace Tyhp.TyhpLang.Checker
 
             var valueTypes = new List<ICheckedType>();
             var keyTypes = new List<ICheckedType>();
-            var hasExplicitKey = false;
 
             foreach (var pair in pairs)
             {
@@ -802,20 +876,19 @@ namespace Tyhp.TyhpLang.Checker
                     var spreadType = pair.ValueExpr is not null
                         ? WidenLiteral(InferExpressionType(pair.ValueExpr, state))
                         : CheckedTypes.Unresolved;
-                    UnpackSpreadArray(spreadType, keyTypes, valueTypes, ref hasExplicitKey);
+                    UnpackSpreadArray(spreadType, keyTypes, valueTypes);
                     continue;
                 }
 
-                if (pair.KeyExpr is not null)
+                if (pair.ValueExpr is null)
                 {
-                    hasExplicitKey = true;
-                    keyTypes.Add(WidenLiteral(InferExpressionType(pair.KeyExpr, state)));
+                    continue;
                 }
 
-                if (pair.ValueExpr is not null)
-                {
-                    valueTypes.Add(WidenLiteral(InferExpressionType(pair.ValueExpr, state)));
-                }
+                keyTypes.Add(pair.KeyExpr is not null
+                    ? WidenLiteral(InferExpressionType(pair.KeyExpr, state))
+                    : CheckedTypes.Int);
+                valueTypes.Add(WidenLiteral(InferExpressionType(pair.ValueExpr, state)));
             }
 
             if (valueTypes.Count == 0)
@@ -826,17 +899,9 @@ namespace Tyhp.TyhpLang.Checker
             var valueType = valueTypes.Count == 1
                 ? valueTypes[0]
                 : CheckedTypes.UnionTypes(valueTypes);
-
-            if (!hasExplicitKey)
-            {
-                return MakeArrayType([valueType]);
-            }
-
-            var keyType = keyTypes.Count == 0
-                ? CheckedTypes.UnionTypes(CheckedTypes.Int, CheckedTypes.String)
-                : keyTypes.Count == 1
-                    ? keyTypes[0]
-                    : CheckedTypes.UnionTypes(keyTypes);
+            var keyType = keyTypes.Count == 1
+                ? keyTypes[0]
+                : CheckedTypes.UnionTypes(keyTypes);
 
             return MakeArrayType([keyType, valueType]);
         }
@@ -844,30 +909,21 @@ namespace Tyhp.TyhpLang.Checker
         private static void UnpackSpreadArray(
             ICheckedType spreadType,
             List<ICheckedType> keyTypes,
-            List<ICheckedType> valueTypes,
-            ref bool hasExplicitKey)
+            List<ICheckedType> valueTypes)
         {
             if (spreadType is GenericCheckedType generic
                 && IsArrayBaseType(generic.BaseType)
                 && generic.TypeArguments.Count > 0)
             {
-                if (generic.TypeArguments.Count >= 2)
-                {
-                    hasExplicitKey = true;
-                    keyTypes.Add(generic.TypeArguments[0]);
-                    valueTypes.Add(generic.TypeArguments[^1]);
-                }
-                else
-                {
-                    valueTypes.Add(generic.TypeArguments[0]);
-                }
-
+                keyTypes.Add(generic.TypeArguments.Count >= 2
+                    ? generic.TypeArguments[0]
+                    : CheckedTypes.UnionTypes(CheckedTypes.Int, CheckedTypes.String));
+                valueTypes.Add(generic.TypeArguments[^1]);
                 return;
             }
 
             // Bare `array` / unknown spread — gradual any-element.
             valueTypes.Add(CheckedTypes.Mixed);
-            hasExplicitKey = true;
             keyTypes.Add(CheckedTypes.UnionTypes(CheckedTypes.Int, CheckedTypes.String));
         }
 
@@ -1143,6 +1199,12 @@ namespace Tyhp.TyhpLang.Checker
                 returnType = inferredGenerator;
             }
 
+            // An `async` closure declares the unwrapped value type; calling it yields a Promise.
+            if (ClosureRule.IsAsyncClosure(closure))
+            {
+                returnType = WrapIfAsyncCall(returnType, isAsync: true);
+            }
+
             var shape = CallableArityFacetBuilder.BuildFromClosureParameters(
                 parameters, paramTypes, returnType);
             var isStatic = ClosureRule.IsStaticClosure(closure);
@@ -1405,6 +1467,52 @@ namespace Tyhp.TyhpLang.Checker
         private static bool IsNullLiteral(ICheckedType type) =>
             type is LiteralCheckedType literal && literal.Value is null;
 
+        /// <summary>
+        /// The type an Elvis left operand can have when it is returned: drops <c>null</c>,
+        /// <c>false</c>, and falsy literals (<c>0</c>, <c>0.0</c>, <c>''</c>, <c>'0'</c>), and
+        /// turns <c>bool</c> into <c>true</c>. Returns <c>unresolved</c> when nothing truthy remains.
+        /// </summary>
+        private static ICheckedType RemoveFalsyFromType(ICheckedType type)
+        {
+            if (type.Kind == CheckedTypeKind.Unresolved || type.IsMixed)
+            {
+                return type;
+            }
+
+            var kept = new List<ICheckedType>();
+            CollectTruthyMembers(type, kept);
+            return kept.Count == 0
+                ? CheckedTypes.Unresolved
+                : CheckedTypes.UnionTypes(kept);
+        }
+
+        private static void CollectTruthyMembers(ICheckedType type, List<ICheckedType> kept)
+        {
+            switch (type)
+            {
+                case NullableCheckedType nullable:
+                    CollectTruthyMembers(nullable.InnerType, kept);
+                    return;
+                case UnionCheckedType union:
+                    foreach (var member in union.Members)
+                    {
+                        CollectTruthyMembers(member, kept);
+                    }
+                    return;
+                case LiteralCheckedType { Value: null or false or "" or "0" or 0 or 0L or 0.0 }:
+                    return;
+            }
+
+            if (TypeComparer.IsBuiltInName(type, "null") || TypeComparer.IsFalseType(type))
+            {
+                return;
+            }
+
+            kept.Add(TypeComparer.IsBuiltInName(type, "bool")
+                ? new LiteralCheckedType(true, new SimpleCheckedType(new BuiltInTypeSymbol("true")))
+                : type);
+        }
+
         private static bool IsCastToken(int token) =>
             token is TyhpParser.T_INT_CAST
                 or TyhpParser.T_BOOL_CAST
@@ -1421,7 +1529,7 @@ namespace Tyhp.TyhpLang.Checker
                 TyhpParser.T_BOOL_CAST => CheckedTypes.Bool,
                 TyhpParser.T_STRING_CAST => CheckedTypes.String,
                 TyhpParser.T_DOUBLE_CAST => CheckedTypes.Float,
-                TyhpParser.T_DECIMAL_CAST => CheckedTypes.FromSymbol(new BuiltInTypeSymbol("decimal")),
+                TyhpParser.T_DECIMAL_CAST => CheckerHelpers.ResolveDecimalCastType(_symbolTree, _globalScope),
                 TyhpParser.T_ARRAY_CAST => CheckedTypes.FromSymbol(new BuiltInTypeSymbol("array")),
                 TyhpParser.T_OBJECT_CAST => InferObjectCastType(operand),
                 _ => CheckedTypes.Unresolved,

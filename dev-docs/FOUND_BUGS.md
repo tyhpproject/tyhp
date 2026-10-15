@@ -148,7 +148,3 @@ Severity (Ready and NEEDS INPUT items):
   useful `?? default(MyClass)` shape. Stage 2 is the feature.
 
 ---
-
-## Ready
-
-

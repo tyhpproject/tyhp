@@ -70,6 +70,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 case PhpEmptyStatementAst:
                 case TyhpVariableExistsAst:
                     // Existence probes are not uses — do not report 4014/4015/4157 on their operands.
+                    // Their operands are still typed (silently) so the emitter sees the receiver's
+                    // checked type, e.g. to erase `isset($anon->key)` on an anonymous struct to
+                    // `isset($anon['key'])`.
+                    RecordProbeOperandTypes(node, state, context);
                     return;
 
                 case PhpVariableAst variable:
@@ -79,6 +83,31 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 case PhpDereferenceableAst deref:
                     CheckPropertyUse(deref, state, context);
                     return;
+            }
+        }
+
+        private static void RecordProbeOperandTypes(
+            IBase2Ast probe,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            var operands = probe switch
+            {
+                PhpIssetStatementAst isset => isset.Variables?.GetAllNotNull().Cast<IBase2Ast>().ToList() ?? [],
+                PhpEmptyStatementAst { Expression: IBase2Ast operand } => [operand],
+                _ => new List<IBase2Ast>(),
+            };
+
+            foreach (var operand in operands)
+            {
+                // Type the whole access chain (`$a->b->c`, `$a['k']->c`) so every receiver hop has
+                // a recorded type, not just the outermost operand.
+                IBase2Ast? hop = operand;
+                while (hop is not null)
+                {
+                    context.ResolveExpressionType(hop, state);
+                    hop = (hop as PhpDereferenceableAst)?.Base as IBase2Ast;
+                }
             }
         }
 

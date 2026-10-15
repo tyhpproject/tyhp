@@ -108,6 +108,14 @@ namespace Tyhp.TyhpLang.Checker
 
         public IReadOnlyList<ICheckedType> Members { get; }
 
+        /// <summary>
+        /// True for the callable value of a source overload set: one callable facet per declared
+        /// signature, in declaration order (<see cref="CallableOverloadSet"/>). Calling it picks the
+        /// first accepting facet and reports TYHP4374 when none accepts, whereas the facets of an
+        /// ordinary intersection are arity siblings of one signature.
+        /// </summary>
+        public bool IsOverloadSet { get; init; }
+
         public CheckedTypeKind Kind => CheckedTypeKind.Intersection;
 
         public string DisplayName => string.Join("&", Members.Select(m => m.DisplayName));
@@ -243,7 +251,8 @@ namespace Tyhp.TyhpLang.Checker
         ICheckedType Type,
         bool IsReadonly = false,
         int? IntegerKeyAlias = null,
-        bool IsOptional = false)
+        bool IsOptional = false,
+        string? StringKeyAlias = null)
     {
         public StructPropertyInfo WithType(ICheckedType type) => this with { Type = type };
     }

@@ -260,6 +260,6 @@ namespace Tyhp.TyhpLang.Checker
                 ?? TypeComparer.ResolveObjectType(trimmed, symbolTree, globalScope);
         }
 
-        private static readonly DiagnosticBag SilentBag = new();
+        private static DiagnosticBag SilentBag => new();
     }
 }

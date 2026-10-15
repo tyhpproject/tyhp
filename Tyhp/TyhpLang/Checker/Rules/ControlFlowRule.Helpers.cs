@@ -335,11 +335,21 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return AsyncForeachKind.AsyncIterable;
             }
 
+            if (TryGetNominalAsyncIterableTypes(operandType, state, context, out valueType, out keyType))
+            {
+                return AsyncForeachKind.AsyncIterable;
+            }
+
             if (IsPromiseType(operandType, out var promised) && promised is not null)
             {
                 if (IsAsyncIterableType(promised))
                 {
                     ExtractAsyncIterableItemTypes(promised, out valueType, out keyType);
+                    return AsyncForeachKind.PromiseAsyncIterable;
+                }
+
+                if (TryGetNominalAsyncIterableTypes(promised, state, context, out valueType, out keyType))
+                {
                     return AsyncForeachKind.PromiseAsyncIterable;
                 }
 
@@ -353,6 +363,65 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             return AsyncForeachKind.None;
+        }
+
+        private const string AsyncIterableContractName = @"Tyhp\Contracts\AsyncIterable";
+
+        /// <summary>
+        /// A class (or interface) that implements <c>\Tyhp\Contracts\AsyncIterable&lt;T&gt;</c> rather
+        /// than spelling it. The value type is the <c>T</c> it binds. The key type is <c>int</c>
+        /// unless the declared <c>getAsyncIterator()</c> return type is an
+        /// <c>AsyncKeyValueIterator&lt;TKey, TValue&gt;</c>, whose <c>TKey</c> / <c>TValue</c> are
+        /// what a key-value <c>foreach (await $x as $k =&gt; $v)</c> reads through
+        /// <c>currentKey()</c> / <c>currentValue()</c>.
+        /// </summary>
+        private static bool TryGetNominalAsyncIterableTypes(
+            ICheckedType type,
+            CheckerState state,
+            CheckerRuleContext context,
+            out ICheckedType valueType,
+            out ICheckedType keyType)
+        {
+            valueType = CheckedTypes.Mixed;
+            keyType = CheckedTypes.Int;
+
+            if (!GenericInheritanceBindings.TryGetAncestorTypeArguments(
+                    type,
+                    declaration => string.Equals(
+                        declaration.FullyQualifiedName?.TrimStart('\\'),
+                        AsyncIterableContractName,
+                        StringComparison.OrdinalIgnoreCase),
+                    state,
+                    context.SymbolTree,
+                    context.GlobalScope,
+                    context.ResolveTypeAnnotation,
+                    out var arguments)
+                || arguments.Count == 0)
+            {
+                return false;
+            }
+
+            valueType = arguments[^1];
+
+            var receiver = CheckerHelpers.UnwrapMemberAccessReceiver(type);
+            if (CheckerHelpers.TryResolveInstanceOrExtensionMethod(
+                    receiver,
+                    "getAsyncIterator",
+                    staticOnly: false,
+                    state,
+                    context.SymbolTree,
+                    context.GlobalScope,
+                    out var method)
+                && method?.ReturnType is { } returnTypeAst
+                && context.ResolveMemberDeclaredType(returnTypeAst, receiver, state, method)
+                    is GenericCheckedType { TypeArguments.Count: >= 2 } iterator
+                && BaseTypeNameContains(iterator.BaseType, "AsyncKeyValueIterator"))
+            {
+                keyType = iterator.TypeArguments[0];
+                valueType = iterator.TypeArguments[^1];
+            }
+
+            return true;
         }
 
         private static bool IsBuiltInIterableName(ICheckedType type)

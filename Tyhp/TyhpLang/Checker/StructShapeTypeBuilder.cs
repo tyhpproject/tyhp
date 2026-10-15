@@ -47,7 +47,8 @@ namespace Tyhp.TyhpLang.Checker
                     : resolveType(property.TypeExpression);
                 properties[key] = new StructPropertyInfo(
                     declared,
-                    IntegerKeyAlias: IntegerKeyAlias(property));
+                    IntegerKeyAlias: IntegerKeyAlias(property),
+                    StringKeyAlias: StringKeyAlias(property));
             }
 
             return new StructCheckedType(properties);
@@ -77,6 +78,12 @@ namespace Tyhp.TyhpLang.Checker
 
             return false;
         }
+
+        /// <summary>
+        /// PHP array key text for <c>string 'Reply-To' as $replyTo</c>; null without a string alias.
+        /// </summary>
+        private static string? StringKeyAlias(TyhpStructPropertyAst property)
+            => property.IsNumericAlias ? null : StructTypeHelper.UnquoteStringAlias(property.AliasOf);
 
         private static int? IntegerKeyAlias(TyhpStructPropertyAst property)
         {

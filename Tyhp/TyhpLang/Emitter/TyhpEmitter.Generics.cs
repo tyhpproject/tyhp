@@ -476,6 +476,27 @@ namespace Tyhp.TyhpLang.Emitter
                     return $"{RuntimeTypeClassFq}::intersection({string.Join(", ", parts)})";
                 }
 
+                case GenericCheckedType or SimpleCheckedType
+                    when SymbolNameTypeHelper.TryGetUtilitySymbol(type, out var utility):
+                {
+                    var utilityArgs = SymbolNameTypeHelper.GetTypeArguments(type);
+                    if (utility.Behavior == UtilityBehavior.Awaited
+                        && utilityArgs.Count > 0
+                        && UtilityTypeResolver.TryUnwrapAwaited(utilityArgs[0], out var settledArg))
+                    {
+                        // The settled value type, not the `\Tyhp\Promise` wrapper.
+                        return this.BuildRuntimeTypeExpressionFromCheckedCore(settledArg, preferCtorLocals);
+                    }
+
+                    return BuildRuntimeUtilityType(
+                        utility.Behavior,
+                        utilityArgs.Count,
+                        i => this.BuildRuntimeTypeExpressionFromCheckedCore(utilityArgs[i], preferCtorLocals),
+                        () => CallableSignatureReflection.TryGetReturnType(utilityArgs[0], out var returnType)
+                            ? this.BuildRuntimeTypeExpressionFromCheckedCore(returnType, preferCtorLocals)
+                            : null);
+                }
+
                 case GenericCheckedType generic:
                     return this.BuildRuntimeGenericFromChecked(generic, preferCtorLocals);
 
@@ -569,11 +590,227 @@ namespace Tyhp.TyhpLang.Emitter
             return $"{RuntimeTypeClassFq}::fromClassName({QuoteClassNameForType(simple)}::class)";
         }
 
+        /// <summary>
+        /// Runtime <c>\Tyhp\Type</c> for a checker-only <c>__</c> utility type (<c>__CallableReturnType</c>,
+        /// <c>__StructKey</c>, …). PHP has no such classes, so <c>Type::generic(\__X::class, …)</c> would
+        /// check against a class that does not exist. Each utility reifies to the same surface its native
+        /// hint erases to (<see cref="TypeSpellingHelper"/>): a concrete callable shape resolves to its
+        /// return type, symbol-name brands are <c>string</c>, struct-ish utilities are <c>array</c>, and
+        /// anything that cannot be resolved at emit time (an unbound <c>TCallable</c>, a shape-less
+        /// <c>callable</c>) is <c>mixed</c> — a runtime callable type carries no signature to compare.
+        /// </summary>
+        /// <param name="behavior">The utility's checker behavior.</param>
+        /// <param name="argCount">Number of written/inferred type arguments.</param>
+        /// <param name="buildArg">Runtime type of argument <c>i</c>.</param>
+        /// <param name="buildCallableReturn">Runtime type of the return slot of argument 0, or null when unresolved.</param>
+        private static string BuildRuntimeUtilityType(
+            UtilityBehavior behavior,
+            int argCount,
+            Func<int, string> buildArg,
+            Func<string?> buildCallableReturn)
+        {
+            var mixed = $"{RuntimeTypeClassFq}::mixed()";
+
+            if (behavior == UtilityBehavior.TyhpInternal)
+            {
+                return argCount > 0 ? buildArg(0) : mixed;
+            }
+
+            if (SymbolNameTypeHelper.IsSymbolNameBehavior(behavior))
+            {
+                return $"{RuntimeTypeClassFq}::string()";
+            }
+
+            if (TypeNameAlgebraResolver.IsTypeNameAlgebraBehavior(behavior))
+            {
+                // `__AsType<'int'>` resolves a type-name literal back to a type; every other
+                // algebra brand is a type-name string.
+                return behavior == UtilityBehavior.AsType ? mixed : $"{RuntimeTypeClassFq}::string()";
+            }
+
+            switch (behavior)
+            {
+                case UtilityBehavior.ReturnType:
+                case UtilityBehavior.CallableReturnType:
+                    return argCount > 0 ? (buildCallableReturn() ?? mixed) : mixed;
+
+                case UtilityBehavior.StructKey:
+                    return $"{RuntimeTypeClassFq}::string()";
+
+                case UtilityBehavior.Properties:
+                case UtilityBehavior.StructDef:
+                case UtilityBehavior.StructPartial:
+                case UtilityBehavior.Record:
+                case UtilityBehavior.Pick:
+                case UtilityBehavior.Omit:
+                case UtilityBehavior.Partial:
+                case UtilityBehavior.Required:
+                case UtilityBehavior.Parameters:
+                case UtilityBehavior.CallableParametersStruct:
+                case UtilityBehavior.CallableParametersTuple:
+                    return $"{RuntimeTypeClassFq}::array()";
+
+                case UtilityBehavior.Readonly:
+                case UtilityBehavior.Awaited:
+                    // Reached only while the argument is still open (a type parameter): settle it at run time.
+                    return argCount > 0 ? $"{RuntimeTypeClassFq}::awaited({buildArg(0)})" : mixed;
+
+                case UtilityBehavior.NonNullable:
+                case UtilityBehavior.AsNotNullable:
+                case UtilityBehavior.AsReadOnly:
+                case UtilityBehavior.FunctionReturnType:
+                case UtilityBehavior.Exclude:
+                case UtilityBehavior.Extract:
+                case UtilityBehavior.TypeDiff:
+                case UtilityBehavior.New:
+                    return argCount > 0 ? buildArg(0) : mixed;
+
+                case UtilityBehavior.Nullable:
+                case UtilityBehavior.AsNullable:
+                {
+                    if (argCount == 0)
+                    {
+                        return mixed;
+                    }
+
+                    var inner = buildArg(0);
+                    return inner.StartsWith($"{RuntimeTypeClassFq}::nullable(", StringComparison.Ordinal)
+                        || inner.StartsWith($"{RuntimeTypeClassFq}::mixed(", StringComparison.Ordinal)
+                        || inner.StartsWith($"{RuntimeTypeClassFq}::null(", StringComparison.Ordinal)
+                        ? inner
+                        : $"{RuntimeTypeClassFq}::nullable({inner})";
+                }
+
+                case UtilityBehavior.SuperType:
+                    return $"{RuntimeTypeClassFq}::object()";
+
+                case UtilityBehavior.CurrentScope:
+                case UtilityBehavior.CallableThis:
+                    return $"{RuntimeTypeClassFq}::nullable({RuntimeTypeClassFq}::object())";
+
+                case UtilityBehavior.SuperTypeName:
+                    return $"{RuntimeTypeClassFq}::string()";
+
+                case UtilityBehavior.CallableScope:
+                    return $"{RuntimeTypeClassFq}::union({RuntimeTypeClassFq}::object(), "
+                        + $"{RuntimeTypeClassFq}::string(), {RuntimeTypeClassFq}::null())";
+
+                case UtilityBehavior.IndexKeys:
+                    return $"{RuntimeTypeClassFq}::union({RuntimeTypeClassFq}::string(), {RuntimeTypeClassFq}::int())";
+
+                default:
+                    // CallableParametersRest / Slice, MethodReturnType, StructRecord, IndexValueType(s), …
+                    return mixed;
+            }
+        }
+
+        /// <summary>
+        /// AST form of <see cref="BuildRuntimeUtilityType"/>: null when <paramref name="typeExpr"/> is not
+        /// a built-in utility type.
+        /// </summary>
+        private string? TryBuildRuntimeUtilityTypeFromAst(IBase2Ast typeExpr, bool preferCtorLocals)
+        {
+            var symbol = typeExpr switch
+            {
+                PhpNamedTypeAst named => named.BoundSymbol
+                    ?? (named.Name as PhpNameAst)?.BoundSymbol,
+                PhpNameAst name => name.BoundSymbol,
+                _ => null,
+            };
+            if (symbol is not BuiltInUtilityTypeSymbol utility)
+            {
+                return null;
+            }
+
+            IReadOnlyList<ITypeExpression> typeArgs =
+                GetGenericTypeArgumentAddon(typeExpr)
+                ?? (typeExpr is PhpNamedTypeAst { Name: IBase2Ast nameNode }
+                    ? GetGenericTypeArgumentAddon(nameNode)
+                    : null)
+                ?? Array.Empty<ITypeExpression>();
+
+            if (utility.Behavior == UtilityBehavior.Awaited && typeArgs.Count > 0)
+            {
+                // `__Awaited<Promise<X>>` reifies as the settled value type `X`.
+                var settled = typeArgs[0];
+                while (settled is PhpNamedTypeAst promiseNamed
+                    && (promiseNamed.BoundSymbol ?? (promiseNamed.Name as PhpNameAst)?.BoundSymbol)
+                        is ObjectDeclarationSymbol { FullyQualifiedName: { } promiseName }
+                    && string.Equals(promiseName.TrimStart('\\'), "Tyhp\\Promise", StringComparison.OrdinalIgnoreCase))
+                {
+                    var promiseArgs = GetGenericTypeArgumentAddon(promiseNamed)
+                        ?? (promiseNamed.Name is IBase2Ast promiseNameNode
+                            ? GetGenericTypeArgumentAddon(promiseNameNode)
+                            : null);
+                    if (promiseArgs is not { Count: > 0 })
+                    {
+                        return $"{RuntimeTypeClassFq}::mixed()";
+                    }
+
+                    settled = promiseArgs[0];
+                }
+
+                var settledExpression = this.BuildRuntimeTypeExpression(settled, preferCtorLocals);
+
+                // A class or builtin cannot hide a Promise; anything else (a type parameter, alias,
+                // union, …) is settled at run time.
+                return settled is PhpNamedTypeAst closedNamed
+                    && (closedNamed.BoundSymbol ?? (closedNamed.Name as PhpNameAst)?.BoundSymbol)
+                        is ObjectDeclarationSymbol or BuiltInTypeSymbol
+                    ? settledExpression
+                    : $"{RuntimeTypeClassFq}::awaited({settledExpression})";
+            }
+
+            return BuildRuntimeUtilityType(
+                utility.Behavior,
+                typeArgs.Count,
+                i => this.BuildRuntimeTypeExpression(typeArgs[i], preferCtorLocals),
+                () => this.TryBuildRuntimeCallableReturnFromAst(typeArgs[0], preferCtorLocals));
+        }
+
+        /// <summary>
+        /// Return slot of a written <c>callable(…): R</c> / <c>\Closure&lt;callable(…): R&gt;</c> argument;
+        /// null for a bare <c>callable</c> or a type parameter (nothing to resolve at emit time).
+        /// </summary>
+        private string? TryBuildRuntimeCallableReturnFromAst(ITypeExpression callableArg, bool preferCtorLocals)
+        {
+            ITypeExpression? leaf = callableArg;
+            while (leaf is PhpTypeExpressionAst composite)
+            {
+                var members = composite.Types?.GetAllNotNull().ToList() ?? [];
+                if (members.Count != 1)
+                {
+                    return null;
+                }
+
+                leaf = members[0];
+            }
+
+            if (leaf is TyhpCallableShapeAst { ReturnType: { } shapeReturn })
+            {
+                return this.BuildRuntimeTypeExpression(shapeReturn, preferCtorLocals);
+            }
+
+            if (leaf is IBase2Ast leafNode
+                && string.Equals(leaf.BoundSymbol?.Name, "Closure", StringComparison.OrdinalIgnoreCase)
+                && GetGenericTypeArgumentAddon(leafNode) is { Count: > 0 } closureArgs)
+            {
+                return this.TryBuildRuntimeCallableReturnFromAst(closureArgs[0], preferCtorLocals);
+            }
+
+            return null;
+        }
+
         private string BuildRuntimeTypeExpressionCore(ITypeExpression typeExpr, bool preferCtorLocals)
         {
             if (this.TryBuildAliasFactoryRuntimeType(typeExpr, preferCtorLocals) is { } aliasFactory)
             {
                 return aliasFactory;
+            }
+
+            if (this.TryBuildRuntimeUtilityTypeFromAst(typeExpr, preferCtorLocals) is { } utilityRuntime)
+            {
+                return utilityRuntime;
             }
 
             if (typeExpr is PhpNamedTypeAst named)
@@ -1084,7 +1321,7 @@ namespace Tyhp.TyhpLang.Emitter
             int arity,
             bool preferCtorLocals)
         {
-            var paramHint = GuessGenericParamName(parentClassName, index, arity);
+            var paramHint = this.ResolveRuntimeGenericParamName(parentClassName, index, arity);
 
             string? typeParamName = typeArg switch
             {
@@ -1112,6 +1349,32 @@ namespace Tyhp.TyhpLang.Emitter
 
             var underlying = this.BuildRuntimeTypeExpression(typeArg, preferCtorLocals);
             return $"new {RuntimeNamedTypeFq}('{paramHint}', {underlying})";
+        }
+
+        /// <summary>
+        /// Label for a <c>NamedType</c> argument of <paramref name="className"/>. A resolved
+        /// class or interface uses its declared parameter name. <c>array</c>, <c>iterable</c>,
+        /// and <c>Closure</c> keep the positional guess (<c>TKey</c> / <c>TValue</c> /
+        /// <c>TCallableShape</c>).
+        /// </summary>
+        private string ResolveRuntimeGenericParamName(string className, int index, int arity)
+        {
+            var shortName = className.TrimStart('\\').Split('\\')[^1];
+            var guessedFamily = string.Equals(shortName, "array", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(shortName, "iterable", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(shortName, "Closure", StringComparison.OrdinalIgnoreCase);
+            if (!guessedFamily
+                && this.TryResolveObjectByName(className) is { GenericParameters.Count: > 0 } declaration
+                && index < declaration.GenericParameters.Count)
+            {
+                var declared = declaration.GenericParameters[index].Name;
+                if (!string.IsNullOrEmpty(declared))
+                {
+                    return declared;
+                }
+            }
+
+            return GuessGenericParamName(className, index, arity);
         }
 
         private static string GuessGenericParamName(string className, int index, int arity)

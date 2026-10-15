@@ -79,35 +79,67 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 {
                     // Prefer a tyhpdef overload whose arity *and* argument types match
                     // (call_user_func_array Struct vs Tuple bags share arity 2).
-                    var selected = FunctionOverloadSelector.Select(
-                        function,
-                        call,
-                        new FunctionOverloadSelector.Context
+                    var functionSelectorContext = new FunctionOverloadSelector.Context
+                    {
+                        State = state,
+                        SymbolTree = context.SymbolTree,
+                        GlobalScope = context.GlobalScope,
+                        InferArgumentType = expr => context.ResolveExpressionType(expr, state),
+                        ResolveParameterType = (fn, typeAst) =>
+                            context.ResolveFunctionDeclaredType(typeAst, fn, state, nameAst),
+                        InferBindings = (fn, c) =>
                         {
-                            State = state,
-                            SymbolTree = context.SymbolTree,
-                            GlobalScope = context.GlobalScope,
-                            InferArgumentType = expr => context.ResolveExpressionType(expr, state),
-                            ResolveParameterType = (fn, typeAst) =>
-                                context.ResolveFunctionDeclaredType(typeAst, fn, state, nameAst),
-                            InferBindings = (fn, c) =>
+                            if (fn.GenericParameters.Count == 0)
                             {
-                                if (fn.GenericParameters.Count == 0)
-                                {
-                                    return null;
-                                }
+                                return null;
+                            }
 
-                                return context.TryInferGenericBindings(
-                                    fn.GenericParameters, fn.Parameters, c, state, out var inferred)
-                                    && inferred.Count > 0
-                                    ? inferred
-                                    : null;
-                            },
-                        });
+                            return context.TryInferGenericBindings(
+                                fn.GenericParameters, fn.Parameters, c, state, out var inferred)
+                                && inferred.Count > 0
+                                ? inferred
+                                : null;
+                        },
+                        ResolveCallSiteType = typeAst => context.ResolveTypeAnnotation(typeAst, state),
+                    };
+                    var selected = FunctionOverloadSelector.Select(function, call, functionSelectorContext);
+                    if (FunctionOverloadSelector.HasNoApplicableOverload(function, call, functionSelectorContext))
+                    {
+                        CheckerHelpers.ReportError(
+                            diagnostics,
+                            state,
+                            deref,
+                            MessageCode.CheckerOverloadNoMatch,
+                            function.Name,
+                            SourceOverloadSelector.DescribeOverloads(
+                                function.Name,
+                                CheckerHelpers.EnumerateFunctionSignatures(function),
+                                functionSelectorContext.ResolveParameterType));
+                        return;
+                    }
+
+                    if (FunctionOverloadSelector.FindAmbiguousOverloads(function, call, functionSelectorContext)
+                        is { } ambiguousFunctions)
+                    {
+                        CheckerHelpers.ReportError(
+                            diagnostics,
+                            state,
+                            deref,
+                            MessageCode.CheckerOverloadAmbiguous,
+                            function.Name,
+                            SourceOverloadSelector.DescribeOverloads(
+                                function.Name,
+                                ambiguousFunctions,
+                                functionSelectorContext.ResolveParameterType));
+                        return;
+                    }
+
                     parameters = selected.Parameters;
                     calleeFunction = selected;
                     callBase = nameAst;
-                    nameAst.BoundSymbol = selected;
+                    // Emit and downstream passes see the declaration that is actually emitted.
+                    nameAst.BoundSymbol = selected.EmittedSymbol;
+                    nameAst.SelectedOverload = selected.OverloadOwner is null ? null : selected;
                 }
                 else if (CheckerHelpers.ResolveTypeAliasFactory(
                     nameAst, state, context.SymbolTree, context.GlobalScope) is { } aliasFactory)
@@ -213,43 +245,83 @@ namespace Tyhp.TyhpLang.Checker.Rules
                             out var method,
                             allowInstanceForwarding))
                     {
-                        var selected = FunctionOverloadSelector.SelectMethod(
-                            method!,
-                            call,
-                            new FunctionOverloadSelector.MethodContext
-                            {
-                                State = state,
-                                SymbolTree = context.SymbolTree,
-                                GlobalScope = context.GlobalScope,
-                                InferArgumentType = expr => context.ResolveExpressionType(expr, state),
-                                ResolveParameterType = (m, typeAst) =>
-                                    context.ResolveMemberDeclaredType(
-                                        typeAst, receiverType, state, m, chain),
-                                InferBindings = (m, c) =>
-                                {
-                                    if (m.GenericParameters.Count == 0)
-                                    {
-                                        return null;
-                                    }
+                        // PHP invokes `__call` / `__callStatic` with the method name and the
+                        // argument array. The source call's arguments are not parameters of
+                        // that signature.
+                        if (IsMagicCallDispatch(method!, methodName))
+                        {
+                            return;
+                        }
 
-                                    return context.TryInferGenericBindings(
-                                        m.GenericParameters,
-                                        m.Parameters,
-                                        c,
-                                        state,
-                                        out var inferred,
-                                        receiverType,
-                                        m)
-                                        && inferred.Count > 0
-                                        ? inferred
-                                        : null;
-                                },
-                            });
+                        var methodSelectorContext = new FunctionOverloadSelector.MethodContext
+                        {
+                            State = state,
+                            SymbolTree = context.SymbolTree,
+                            GlobalScope = context.GlobalScope,
+                            InferArgumentType = expr => context.ResolveExpressionType(expr, state),
+                            ResolveParameterType = (m, typeAst) =>
+                                context.ResolveMemberDeclaredType(
+                                    typeAst, receiverType, state, m, chain),
+                            InferBindings = (m, c) =>
+                            {
+                                if (m.GenericParameters.Count == 0)
+                                {
+                                    return null;
+                                }
+
+                                return context.TryInferGenericBindings(
+                                    m.GenericParameters,
+                                    m.Parameters,
+                                    c,
+                                    state,
+                                    out var inferred,
+                                    receiverType,
+                                    m)
+                                    && inferred.Count > 0
+                                    ? inferred
+                                    : null;
+                            },
+                            ResolveCallSiteType = typeAst => context.ResolveTypeAnnotation(typeAst, state),
+                        };
+                        var selected = FunctionOverloadSelector.SelectMethod(method!, call, methodSelectorContext);
+                        if (FunctionOverloadSelector.HasNoApplicableOverload(method!, call, methodSelectorContext))
+                        {
+                            CheckerHelpers.ReportError(
+                                diagnostics,
+                                state,
+                                deref,
+                                MessageCode.CheckerOverloadNoMatch,
+                                method!.Name,
+                                SourceOverloadSelector.DescribeOverloads(
+                                    method.Name,
+                                    CheckerHelpers.EnumerateMethodSignatures(method),
+                                    methodSelectorContext.ResolveParameterType));
+                            return;
+                        }
+
+                        if (FunctionOverloadSelector.FindAmbiguousOverloads(method!, call, methodSelectorContext)
+                            is { } ambiguousMethods)
+                        {
+                            CheckerHelpers.ReportError(
+                                diagnostics,
+                                state,
+                                deref,
+                                MessageCode.CheckerOverloadAmbiguous,
+                                method!.Name,
+                                SourceOverloadSelector.DescribeOverloads(
+                                    method.Name,
+                                    ambiguousMethods,
+                                    methodSelectorContext.ResolveParameterType));
+                            return;
+                        }
+
                         parameters = selected.Parameters;
                         selfResolutionReceiver = receiverType;
                         calleeMethod = selected;
                         callBase = chain;
-                        deref.BoundSymbol = selected;
+                        // Emit and downstream passes see the declaration that is actually emitted.
+                        deref.BoundSymbol = selected.EmittedSymbol;
+                        deref.SelectedOverload = selected.OverloadOwner is null ? null : selected;
                         CheckMemberVisibility(selected, state, deref, diagnostics);
                         CheckFromCallableVisibility(selected, call, state, context, diagnostics);
                         ClosureBindSupport.Check(
@@ -280,8 +352,15 @@ namespace Tyhp.TyhpLang.Checker.Rules
                             context,
                             diagnostics);
                     }
-                    else if (!staticOnly
-                        && CheckerHelpers.IsClosedMemberReceiver(receiverType))
+                    else if ((!staticOnly && CheckerHelpers.IsClosedMemberReceiver(receiverType))
+                        || (IsStaticMemberNameNode(chain.Suffix)
+                            && IsUndeclaredMemberOnKnownType(
+                            receiverType,
+                            methodName,
+                            staticOnly ? UndeclaredMemberKind.StaticMethod : UndeclaredMemberKind.InstanceMethod,
+                            chain.Base,
+                            state,
+                            context)))
                     {
                         // Scalars / `\Closure` / structs cannot grow real PHP methods. Missing or
                         // `hide`d extension members are compile errors (TYHP4101), not gradual
@@ -344,42 +423,81 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         calleeType, "__invoke", staticOnly: false, state, context, out var invokeMethod)
                     && invokeMethod is { IsStatic: false })
                 {
+                    var invokeSelectorContext = new FunctionOverloadSelector.MethodContext
+                    {
+                        State = state,
+                        SymbolTree = context.SymbolTree,
+                        GlobalScope = context.GlobalScope,
+                        InferArgumentType = expr => context.ResolveExpressionType(expr, state),
+                        ResolveParameterType = (m, typeAst) =>
+                            context.ResolveMemberDeclaredType(
+                                typeAst, calleeType, state, m, deref.Base as IDereferenceableBase),
+                        InferBindings = (m, c) =>
+                        {
+                            if (m.GenericParameters.Count == 0)
+                            {
+                                return null;
+                            }
+
+                            return context.TryInferGenericBindings(
+                                m.GenericParameters,
+                                m.Parameters,
+                                c,
+                                state,
+                                out var inferred,
+                                calleeType,
+                                m)
+                                && inferred.Count > 0
+                                ? inferred
+                                : null;
+                        },
+                        ResolveCallSiteType = typeAst => context.ResolveTypeAnnotation(typeAst, state),
+                    };
+
+                    // An overloaded `__invoke` reports TYHP4374 like any other overloaded method.
+                    if (SourceOverloadSelector.IsSourceSet(invokeMethod)
+                        && FunctionOverloadSelector.HasNoApplicableOverload(invokeMethod, call, invokeSelectorContext))
+                    {
+                        CheckerHelpers.ReportError(
+                            diagnostics,
+                            state,
+                            deref,
+                            MessageCode.CheckerOverloadNoMatch,
+                            invokeMethod.Name,
+                            SourceOverloadSelector.DescribeOverloads(
+                                invokeMethod.Name,
+                                CheckerHelpers.EnumerateMethodSignatures(invokeMethod),
+                                invokeSelectorContext.ResolveParameterType));
+                        return;
+                    }
+
+                    if (FunctionOverloadSelector.FindAmbiguousOverloads(invokeMethod, call, invokeSelectorContext)
+                        is { } ambiguousInvokes)
+                    {
+                        CheckerHelpers.ReportError(
+                            diagnostics,
+                            state,
+                            deref,
+                            MessageCode.CheckerOverloadAmbiguous,
+                            invokeMethod.Name,
+                            SourceOverloadSelector.DescribeOverloads(
+                                invokeMethod.Name,
+                                ambiguousInvokes,
+                                invokeSelectorContext.ResolveParameterType));
+                        return;
+                    }
+
                     var selected = FunctionOverloadSelector.SelectMethod(
                         invokeMethod,
                         call,
-                        new FunctionOverloadSelector.MethodContext
-                        {
-                            State = state,
-                            SymbolTree = context.SymbolTree,
-                            GlobalScope = context.GlobalScope,
-                            InferArgumentType = expr => context.ResolveExpressionType(expr, state),
-                            ResolveParameterType = (m, typeAst) =>
-                                context.ResolveMemberDeclaredType(
-                                    typeAst, calleeType, state, m, deref.Base as IDereferenceableBase),
-                            InferBindings = (m, c) =>
-                            {
-                                if (m.GenericParameters.Count == 0)
-                                {
-                                    return null;
-                                }
-
-                                return context.TryInferGenericBindings(
-                                    m.GenericParameters,
-                                    m.Parameters,
-                                    c,
-                                    state,
-                                    out var inferred,
-                                    calleeType,
-                                    m)
-                                    && inferred.Count > 0
-                                    ? inferred
-                                    : null;
-                            },
-                        });
+                        invokeSelectorContext);
                     parameters = selected.Parameters;
                     selfResolutionReceiver = calleeType;
                     calleeMethod = selected;
                     callBase = deref.Base as IDereferenceableBase;
+                    // Unlike a named method call, `$obj(...)` has no bound symbol; the emitter reads
+                    // the `__invoke` signature chosen here to rewrite implicitly converted arguments.
+                    deref.SelectedOverload = selected;
                     CheckMemberVisibility(selected, state, deref, diagnostics);
                 }
             }
@@ -441,6 +559,17 @@ namespace Tyhp.TyhpLang.Checker.Rules
         /// (<c>Optional&lt;int&gt;()</c>) are TYHP4186. Value arguments are <c>\Tyhp\Type</c>
         /// and match the alias's generic parameter arity (all optional, matching PHP emit).
         /// </summary>
+        private static bool IsMagicCallDispatch(ObjectMethodSymbol method, string calledName)
+        {
+            if (string.Equals(method.Name, calledName, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return method.SymbolType is SymbolType.ObjectMagicCallMethod
+                or SymbolType.ObjectMagicCallStaticMethod;
+        }
+
         private static void CheckTypeAliasFactoryCall(
             IBaseSymbol alias,
             PhpCallAst call,
@@ -618,8 +747,31 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             var positionalCount = CallableArityFacetBuilder.CountPositionalArguments(arguments);
             var namedNames = CallableArityFacetBuilder.CollectNamedArgumentNames(arguments);
-            if (!CallableArityFacetBuilder.TrySelectCallableFacetForCall(
-                    calleeType, positionalCount, namedNames, out var facet)
+            CallableCheckedType? facet;
+            if (CallableOverloadSet.IsOverloadSet(calleeType))
+            {
+                // Overload-set value: the first declared signature that accepts the arguments.
+                facet = CallableOverloadSet.Select(
+                    calleeType,
+                    arguments,
+                    state,
+                    context.SymbolTree,
+                    context.GlobalScope,
+                    expr => context.ResolveExpressionType(expr, state));
+                if (facet is null)
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        arguments,
+                        MessageCode.CheckerOverloadNoMatch,
+                        "callable",
+                        CallableOverloadSet.Describe(calleeType));
+                    return;
+                }
+            }
+            else if (!CallableArityFacetBuilder.TrySelectCallableFacetForCall(
+                    calleeType, positionalCount, namedNames, out facet)
                 || facet is null)
             {
                 // No exact-arity facet: nested argument expressions were already CheckNode'd
@@ -763,7 +915,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // keeping a symbol-name brand (`__ClassName<T>` → `__ClassName<object>`).
             if (CallableGenericInference.ContainsUnboundGeneric(paramType))
             {
-                paramType = GradualizeUnboundCallableParameter(paramType);
+                paramType = GradualizeUnboundCallableParameter(
+                    paramType, closureArgument: arg.Expression is PhpInlineFunctionAst);
             }
 
             if (arg.Expression is PhpInlineFunctionAst closure)
@@ -980,7 +1133,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckNestedCalleeIfNeeded(deref.Base, state, context);
             var receiverType = context.ResolveExpressionType(deref.Base as IExpression ?? deref, state);
             if (CheckerHelpers.ReportMixedRequiresNarrowing(
-                    diagnostics, state, deref.Base ?? deref, receiverType))
+                    diagnostics, state, deref.Base ?? deref, receiverType, evenInExistenceProbe: true))
             {
                 return;
             }
@@ -1055,7 +1208,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
             else if ((TypeComparer.IsObjectShapeReceiver(receiverType)
                     && receiverType is not IntersectionCheckedType)
-                || CheckerHelpers.IsClosedMemberReceiver(receiverType))
+                || CheckerHelpers.IsClosedMemberReceiver(receiverType)
+                || (memberAccess.MemberName is PhpNameAst or TokenValueAst
+                    && IsUndeclaredMemberOnKnownType(
+                        receiverType, memberName, UndeclaredMemberKind.Property, deref.Base, state, context)))
             {
                 CheckerHelpers.ReportError(
                     diagnostics,
@@ -1549,6 +1705,19 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
+            // `$m::class` / `$m::FOO` on a value-typed receiver needs a narrowed object/class-string.
+            if (deref.Base is IExpression valueReceiver
+                && deref.Base is not (PhpNameAst or PhpBuiltinTypeAst or TyhpGenericIdentifierAst))
+            {
+                var valueReceiverType = context.ResolveExpressionType(valueReceiver, state);
+                if (CheckerHelpers.IsUnnarrowedMixed(valueReceiverType))
+                {
+                    CheckerHelpers.ReportMixedRequiresNarrowing(
+                        diagnostics, state, valueReceiver, valueReceiverType);
+                    return;
+                }
+            }
+
             // Bare class names are not value expressions, so ResolveExpressionType yields
             // unresolved; resolve them as type receivers the same way instanceof targets do.
             var receiverNode = deref.Base as IBase2Ast ?? deref;
@@ -1854,6 +2023,19 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         }
                     }
 
+                    CheckSpreadElementTypes(
+                        arg,
+                        positionalIndex,
+                        parameters,
+                        paramResolveState,
+                        selfResolutionReceiver,
+                        calleeMethod,
+                        callBase,
+                        state,
+                        context,
+                        calleeFunction,
+                        InferBindings,
+                        diagnostics);
                     continue;
                 }
 
@@ -1909,7 +2091,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     state,
                     context,
                     calleeFunction,
-                    InferBindings);
+                    InferBindings,
+                    // A by-reference parameter is written through, so its unbound-generic shape
+                    // (`array<P, resource> &$pipes`) describes what the callee stores, not what the
+                    // caller's variable must already hold — keep it gradual like a closure literal.
+                    closureArgument: arg.Expression is PhpInlineFunctionAst || param.IsByReference);
 
                 if (param.IsVariadic
                     && UtilityTypeResolver.TryGetCallableParametersRest(
@@ -1980,7 +2166,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     expectedParamType,
                     state,
                     context,
-                    diagnostics);
+                    diagnostics,
+                    param,
+                    selfResolutionReceiver,
+                    calleeMethod,
+                    callBase,
+                    calleeFunction,
+                    InferBindings);
             }
 
             if (!restUnpackDone && restParamIndex >= 0
@@ -2039,6 +2231,103 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         arityReportNode ?? callBase as IBase2Ast ?? arguments,
                         hasSpread: false,
                         emptySlice.Start);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Checks the element type of a spread argument (<c>f(...$xs)</c>) against every positional
+        /// parameter it can fill: the spread's length is unknown, so each remaining positional
+        /// parameter (and a trailing variadic's element type) may receive one of its elements.
+        /// An <c>array&lt;V&gt;</c> / <c>iterable&lt;V&gt;</c> (or bare <c>array</c>, whose elements
+        /// are <c>mixed</c>) therefore has to have a <c>V</c> that fits all of them. Spreads of
+        /// string-keyed arrays bind by parameter name and are not checked positionally; spreads whose
+        /// element type is not known stay unchecked.
+        /// </summary>
+        private static void CheckSpreadElementTypes(
+            PhpArgumentAst arg,
+            int firstPositionalIndex,
+            IReadOnlyList<ParameterInfo> parameters,
+            CheckerState paramResolveState,
+            ICheckedType? selfResolutionReceiver,
+            ObjectMethodSymbol? calleeMethod,
+            IDereferenceableBase? callBase,
+            CheckerState state,
+            CheckerRuleContext context,
+            FunctionDeclarationSymbol? calleeFunction,
+            Func<Dictionary<GenericTypeParameterSymbol, ICheckedType>?> inferBindings,
+            DiagnosticBag diagnostics)
+        {
+            if (arg.Expression is null || firstPositionalIndex >= parameters.Count)
+            {
+                return;
+            }
+
+            var spreadType = context.ResolveExpressionType(arg.Expression, state);
+            while (spreadType is NullableCheckedType nullable)
+            {
+                spreadType = nullable.InnerType;
+            }
+
+            ICheckedType elementType;
+            ICheckedType keyType = CheckedTypes.Int;
+            if (spreadType is GenericCheckedType { TypeArguments.Count: > 0 } generic
+                && (CheckerHelpers.IsBuiltInName(generic.BaseType, "array")
+                    || CheckerHelpers.IsBuiltInName(generic.BaseType, "iterable")))
+            {
+                elementType = generic.TypeArguments[^1];
+                if (generic.TypeArguments.Count >= 2)
+                {
+                    keyType = generic.TypeArguments[0];
+                }
+            }
+            else if (CheckerHelpers.IsBuiltInName(spreadType, "array"))
+            {
+                elementType = CheckedTypes.Mixed;
+                keyType = CheckedTypes.PhpArrayKey;
+            }
+            else
+            {
+                return;
+            }
+
+            if (TypeComparer.IsUnresolvedType(elementType)
+                || TypeComparer.IsUnresolvedType(keyType)
+                || TypeComparer.TryGetBuiltInName(keyType, out var keyName) && keyName == "string")
+            {
+                return;
+            }
+
+            for (var index = firstPositionalIndex; index < parameters.Count; index++)
+            {
+                var param = parameters[index];
+                if (param.DeclaredType is null || param.IsByReference)
+                {
+                    continue;
+                }
+
+                var paramType = ResolveCalleeParameterType(
+                    param.DeclaredType,
+                    paramResolveState,
+                    selfResolutionReceiver,
+                    calleeMethod,
+                    callBase,
+                    state,
+                    context,
+                    calleeFunction,
+                    inferBindings);
+
+                if (!context.IsAssignableAllowingOperatorConvert(elementType, paramType, state))
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics, state, arg, MessageCode.CheckerIncompatibleArgumentType,
+                        elementType.DisplayName, paramType.DisplayName);
+                    return;
+                }
+
+                if (param.IsVariadic)
+                {
+                    return;
                 }
             }
         }
@@ -2348,12 +2637,96 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
         }
 
+        private static bool TryReportUnmatchedUnionArgument(
+            PhpArgumentAst arg,
+            ICheckedType argType,
+            ParameterInfo param,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics,
+            ICheckedType? selfResolutionReceiver,
+            ObjectMethodSymbol? calleeMethod,
+            IDereferenceableBase? callBase,
+            FunctionDeclarationSymbol? calleeFunction,
+            Func<Dictionary<GenericTypeParameterSymbol, ICheckedType>?> inferBindings)
+        {
+            if (param.DeclaredType is null || argType is not UnionCheckedType)
+            {
+                return false;
+            }
+
+            var bindings = inferBindings();
+            var generics = calleeFunction?.GenericParameters ?? calleeMethod?.GenericParameters;
+            if (bindings is not { Count: > 0 } || generics is not { Count: > 0 })
+            {
+                return false;
+            }
+
+            ICheckedType raw;
+            if (calleeFunction is not null)
+            {
+                raw = context.ResolveFunctionDeclaredType(
+                    param.DeclaredType, calleeFunction, state, callBase);
+            }
+            else if (selfResolutionReceiver is not null)
+            {
+                raw = context.ResolveMemberDeclaredType(
+                    param.DeclaredType, selfResolutionReceiver, state, calleeMethod, callBase);
+            }
+            else
+            {
+                return false;
+            }
+
+            if (raw is not UnionCheckedType)
+            {
+                return false;
+            }
+
+            var relevant = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
+            foreach (var parameter in generics)
+            {
+                if (bindings.TryGetValue(parameter, out var bound))
+                {
+                    relevant[parameter] = bound;
+                }
+            }
+
+            if (relevant.Count == 0)
+            {
+                return false;
+            }
+
+            var concrete = TypeComparer.ResolveGenericTypeBySymbol(
+                raw, relevant, context.SymbolTree, context.GlobalScope);
+            if (ContainsUnboundCalleeGeneric(concrete, generics)
+                || context.IsAssignable(argType, concrete, state))
+            {
+                return false;
+            }
+
+            CheckerHelpers.ReportError(
+                diagnostics,
+                state,
+                arg,
+                MessageCode.CheckerIncompatibleArgumentType,
+                argType.DisplayName,
+                concrete.DisplayName);
+            return true;
+        }
+
         private static void CheckArgumentAgainstParameterType(
             PhpArgumentAst arg,
             ICheckedType expectedParamType,
             CheckerState state,
             CheckerRuleContext context,
-            DiagnosticBag diagnostics)
+            DiagnosticBag diagnostics,
+            ParameterInfo? unionParameter = null,
+            ICheckedType? selfResolutionReceiver = null,
+            ObjectMethodSymbol? calleeMethod = null,
+            IDereferenceableBase? callBase = null,
+            FunctionDeclarationSymbol? calleeFunction = null,
+            Func<Dictionary<GenericTypeParameterSymbol, ICheckedType>?>? inferBindings = null)
         {
             if (arg.Expression is null)
             {
@@ -2444,6 +2817,16 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 if (!context.IsAssignableAllowingOperatorConvert(
                         expressionArgType, expectedParamType, state))
                 {
+                    if (ExpressionTreeSupport.IsExpressionType(expressionArgType))
+                    {
+                        // The argument already is an Expression, so "requires an inline fn" would
+                        // send the caller the wrong way: the two Expression types simply differ.
+                        CheckerHelpers.ReportError(
+                            diagnostics, state, arg, MessageCode.CheckerIncompatibleArgumentType,
+                            expressionArgType.DisplayName, expectedParamType.DisplayName);
+                        return;
+                    }
+
                     ExpressionTreeSupport.TryGetExpressionTypeArgs(
                         expectedParamType, out var expectedParams, out var expectedReturn);
                     CheckerHelpers.ReportError(
@@ -2472,9 +2855,35 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             var argType = context.ResolveExpressionType(arg.Expression!, state);
+            if (unionParameter is not null
+                && inferBindings is not null
+                && TryReportUnmatchedUnionArgument(
+                    arg,
+                    argType,
+                    unionParameter,
+                    state,
+                    context,
+                    diagnostics,
+                    selfResolutionReceiver,
+                    calleeMethod,
+                    callBase,
+                    calleeFunction,
+                    inferBindings))
+            {
+                return;
+            }
             // PropertyPath / Expression → \Closure is rewritten by the emitter to `->callable`.
             if (IsClosureTargetType(expectedParamType)
                 && PropertyPathSupport.IsPropertyPathOrExpressionType(argType))
+            {
+                return;
+            }
+
+            // `Expression` defines `__invoke`, so `Expression<callable(T): R>` is accepted where a
+            // `callable(T): R` is expected.
+            if (expectedParamType is CallableCheckedType
+                && ExpressionTreeSupport.TryMapToCallable(argType, out var expressionCallable)
+                && context.IsAssignableAllowingOperatorConvert(expressionCallable, expectedParamType, state))
             {
                 return;
             }
@@ -2492,6 +2901,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             if (!context.IsAssignableAllowingOperatorConvert(argType, expectedParamType, state)
+                && !FunctionOverloadSelector.IntegerFlagBitsCoverParameter(
+                    arg.Expression!, expectedParamType, state, context.SymbolTree, context.GlobalScope)
                 && !CheckerHelpers.IsArrayCallableLiteral(arg.Expression, expectedParamType, context, state))
             {
                 if (!CheckerHelpers.TryReportObjectShapeRequiresGuard(
@@ -2726,7 +3137,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerState callerState,
             CheckerRuleContext context,
             FunctionDeclarationSymbol? calleeFunction = null,
-            Func<Dictionary<GenericTypeParameterSymbol, ICheckedType>?>? inferBindings = null)
+            Func<Dictionary<GenericTypeParameterSymbol, ICheckedType>?>? inferBindings = null,
+            bool closureArgument = false)
         {
             if (selfResolutionReceiver is not null)
             {
@@ -2747,7 +3159,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     && ContainsUnboundCalleeGeneric(memberResolved, calleeMethod.GenericParameters))
                 {
                     return PreserveShapeForUnboundCalleeGenerics(
-                        memberResolved, calleeMethod.GenericParameters);
+                        memberResolved, calleeMethod.GenericParameters, closureArgument);
                 }
 
                 return memberResolved;
@@ -2769,7 +3181,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 if (ContainsUnboundCalleeGeneric(resolved, calleeFunction.GenericParameters))
                 {
                     return PreserveShapeForUnboundCalleeGenerics(
-                        resolved, calleeFunction.GenericParameters);
+                        resolved, calleeFunction.GenericParameters, closureArgument);
                 }
 
                 return resolved;
@@ -2953,16 +3365,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
         /// (unbound <c>__EnumName&lt;T&gt;</c> uses the unbound-enum placeholder, not a written
         /// <c>object</c>). Any other leftover generic collapses to <c>mixed</c>.
         /// </summary>
-        private static ICheckedType GradualizeUnboundCallableParameter(ICheckedType type)
+        private static ICheckedType GradualizeUnboundCallableParameter(
+            ICheckedType type,
+            bool closureArgument = false)
         {
-            if (!ContainsSymbolNameBrand(type))
-            {
-                return CheckedTypes.Mixed;
-            }
-
             var parameters = new List<GenericTypeParameterSymbol>();
             CollectGenericTypeParameters(type, parameters);
-            return PreserveShapeForUnboundCalleeGenerics(type, parameters);
+            return PreserveShapeForUnboundCalleeGenerics(type, parameters, closureArgument);
         }
 
         private static void CollectGenericTypeParameters(
@@ -3045,7 +3454,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
         /// </summary>
         private static ICheckedType PreserveShapeForUnboundCalleeGenerics(
             ICheckedType type,
-            IReadOnlyList<GenericTypeParameterSymbol> genericParameters)
+            IReadOnlyList<GenericTypeParameterSymbol> genericParameters,
+            bool closureArgument = false)
         {
             // Keep PropertyPath / Expression wrappers: collapsing those to mixed drops
             // Story 16 inline-fn conversion (`select<R>(Expression<callable(T): R>)` + `fn ($u) => …`).
@@ -3067,8 +3477,188 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     CheckedTypes.FromSymbol(new BuiltInTypeSymbol("object")));
             }
 
-            return CheckedTypes.Mixed;
+            // An inline closure argument is typed contextually from this slot; it must not see the
+            // placeholder replacements below as its parameter types.
+            if (closureArgument)
+            {
+                return CheckedTypes.Mixed;
+            }
+
+            return TrySubstituteUnboundShape(type, genericParameters, covariant: true, out var shaped)
+                ? shaped
+                : CheckedTypes.Mixed;
         }
+
+        /// <summary>
+        /// Rebuilds <paramref name="type"/> with each unbound callee generic replaced by the weakest
+        /// placeholder for its position, keeping the structural shape (<c>array&lt;TKey, TValue&gt;</c>
+        /// becomes <c>array&lt;mixed, mixed&gt;</c>, <c>callable(TValue): TResult</c> becomes
+        /// <c>callable(never): mixed</c>). A covariant position takes <c>mixed</c> (every argument
+        /// satisfies it); a callable parameter slot is contravariant and takes <c>never</c> (every
+        /// callback parameter type satisfies it). A bare unbound parameter, alone or as a union arm,
+        /// accepts anything. Returns false for shapes this substitution does not model
+        /// (parameter packs, deferred utilities, object shapes); the caller then stays gradual.
+        /// </summary>
+        private static bool TrySubstituteUnboundShape(
+            ICheckedType type,
+            IReadOnlyList<GenericTypeParameterSymbol> genericParameters,
+            bool covariant,
+            out ICheckedType result)
+        {
+            result = type;
+            if (!ContainsUnboundCalleeGeneric(type, genericParameters))
+            {
+                return true;
+            }
+
+            switch (type)
+            {
+                case SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol }:
+                    result = covariant ? CheckedTypes.Mixed : CheckedTypes.Never;
+                    return true;
+
+                case NullableCheckedType nullable:
+                {
+                    if (!TrySubstituteUnboundShape(nullable.InnerType, genericParameters, covariant, out var inner))
+                    {
+                        return false;
+                    }
+
+                    result = TypeComparer.IsMixedType(inner) || TypeComparer.IsNeverType(inner)
+                        ? inner
+                        : new NullableCheckedType(inner);
+                    return true;
+                }
+
+                case UnionCheckedType union:
+                {
+                    if (union.Members.Any(m =>
+                            m is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol gp }
+                            && genericParameters.Contains(gp)))
+                    {
+                        result = covariant ? CheckedTypes.Mixed : CheckedTypes.Never;
+                        return true;
+                    }
+
+                    var members = new List<ICheckedType>(union.Members.Count);
+                    foreach (var member in union.Members)
+                    {
+                        if (!TrySubstituteUnboundShape(member, genericParameters, covariant, out var mapped))
+                        {
+                            return false;
+                        }
+
+                        members.Add(mapped);
+                    }
+
+                    result = CheckedTypes.UnionTypes(members);
+                    return true;
+                }
+
+                case IntersectionCheckedType intersection:
+                {
+                    var members = new List<ICheckedType>(intersection.Members.Count);
+                    foreach (var member in intersection.Members)
+                    {
+                        if (!TrySubstituteUnboundShape(member, genericParameters, covariant, out var mapped))
+                        {
+                            return false;
+                        }
+
+                        members.Add(mapped);
+                    }
+
+                    result = new IntersectionCheckedType(members);
+                    return true;
+                }
+
+                case GenericCheckedType generic:
+                {
+                    if (SymbolNameTypeHelper.TryGetUtilitySymbol(generic.BaseType, out _)
+                        || ContainsUnboundCalleeGeneric(generic.BaseType, genericParameters))
+                    {
+                        return false;
+                    }
+
+                    // Only covariant containers keep their shape under a contravariant slot;
+                    // an invariant user generic cannot be weakened there (`Box<never>` is not
+                    // `Box<int>`), so the whole slot accepts any callback parameter type.
+                    if (!covariant && !IsCovariantContainer(generic.BaseType))
+                    {
+                        result = CheckedTypes.Never;
+                        return true;
+                    }
+
+                    var args = new List<ICheckedType>(generic.TypeArguments.Count);
+                    foreach (var argument in generic.TypeArguments)
+                    {
+                        if (!TrySubstituteUnboundShape(argument, genericParameters, covariant, out var mapped))
+                        {
+                            return false;
+                        }
+
+                        args.Add(mapped);
+                    }
+
+                    result = generic.With(generic.BaseType, args);
+                    return true;
+                }
+
+                case CallableCheckedType callable:
+                {
+                    var parameters = new List<ICheckedType>(callable.ParameterTypes.Count);
+                    foreach (var parameter in callable.ParameterTypes)
+                    {
+                        if (!TrySubstituteUnboundShape(parameter, genericParameters, !covariant, out var mapped))
+                        {
+                            return false;
+                        }
+
+                        parameters.Add(mapped);
+                    }
+
+                    if (!TrySubstituteUnboundShape(callable.ReturnType, genericParameters, covariant, out var returnType))
+                    {
+                        return false;
+                    }
+
+                    result = new CallableCheckedType(
+                        parameters,
+                        returnType,
+                        callable.ParameterNames,
+                        callable.LastParameterIsVariadic,
+                        callable.IsAnyArity);
+                    return true;
+                }
+
+                case StructCheckedType structure:
+                {
+                    var mappedTypes = new Dictionary<string, ICheckedType>(structure.Properties.Count);
+                    foreach (var pair in structure.Properties)
+                    {
+                        if (!TrySubstituteUnboundShape(pair.Value.Type, genericParameters, covariant, out var mapped))
+                        {
+                            return false;
+                        }
+
+                        mappedTypes[pair.Key] = mapped;
+                    }
+
+                    result = new StructCheckedType(
+                        structure.Properties.ToDictionary(
+                            pair => pair.Key,
+                            pair => pair.Value.WithType(mappedTypes[pair.Key])));
+                    return true;
+                }
+
+                default:
+                    return false;
+            }
+        }
+
+        private static bool IsCovariantContainer(ICheckedType baseType) =>
+            TypeComparer.IsBuiltInName(baseType, "array")
+            || TypeComparer.IsBuiltInName(baseType, "iterable");
 
         private static bool ContainsSymbolNameBrand(ICheckedType type) =>
             type switch

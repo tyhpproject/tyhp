@@ -372,6 +372,64 @@ public class MethodOverrideRuleTests
             d.Code == MessageCode.CheckerDynamicPropertyProhibited);
     }
 
+    [Fact]
+    public void Check_ImplementsWiderReturn_Reports4118()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            interface Reader {
+                public function read(): string;
+            }
+            class Impl implements Reader {
+                public function read(): ?string {
+                    return null;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerOverloadSignatureIncompatible);
+    }
+
+    [Fact]
+    public void Check_ImplementsOverloadSetWiderReturn_Reports4118()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            interface Fmt {
+                public function fmt(int $v): string;
+                public function fmt(string $v): string;
+            }
+            final class Impl implements Fmt {
+                public function fmt(int|string $v): ?string {
+                    return null;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerOverloadSignatureIncompatible);
+    }
+
+    [Fact]
+    public void Check_ImplementsCompatibleReturn_DoesNotReport4118()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            interface Reader {
+                public function read(): string;
+            }
+            class Impl implements Reader {
+                public function read(): string {
+                    return "ok";
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerOverloadSignatureIncompatible);
+    }
+
     private static DiagnosticBag CompileAndCheck(string content)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));

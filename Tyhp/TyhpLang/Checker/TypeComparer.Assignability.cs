@@ -183,7 +183,9 @@ namespace Tyhp.TyhpLang.Checker
 
             if (target is NullableCheckedType nullableTarget)
             {
-                if (IsNullLiteral(source))
+                // The null literal and the nominal builtin `null` (an array literal's widened `null`
+                // element) are the same type, and a nullable target accepts it.
+                if (IsNullLiteral(source) || IsBuiltInName(source, "null"))
                 {
                     return true;
                 }
@@ -240,12 +242,12 @@ namespace Tyhp.TyhpLang.Checker
                     IsAssignableToCore(source, member, symbolTree, globalScope, visited));
             }
 
-            // A raw generic (`new Box()` when the expected type's members disagree, so inference
-            // falls back to the open class) is gradual relative to any instantiation of that class.
-            // Field checks still report unbound `T`; the returned value is not a second error.
-            if (IsOpenGenericAssignableToSameDeclaration(source, target))
+            // A raw generic (`Box` without type arguments) is `Box<mixed>` (a bounded parameter
+            // widens to its bound): it is assignable to an instantiation only when that widened
+            // argument is acceptable for every type argument.
+            if (TryInstantiateRawGenericWithMixed(source, target, symbolTree, globalScope) is { } rawAsMixed)
             {
-                return true;
+                return IsAssignableToCore(rawAsMixed, target, symbolTree, globalScope, visited);
             }
 
             // Intersection on both sides: each target member must be covered by *some* source
@@ -673,20 +675,78 @@ namespace Tyhp.TyhpLang.Checker
                 && IsBuiltInName(generic.TypeArguments[0], "object");
         }
 
-        private static bool IsOpenGenericAssignableToSameDeclaration(ICheckedType source, ICheckedType target)
+        /// <summary>
+        /// For a raw generic source and an instantiation of the same declaration as the target,
+        /// the source spelled with each type parameter widened (<see cref="WidenRawGenericParameter"/>);
+        /// otherwise null.
+        /// </summary>
+        private static GenericCheckedType? TryInstantiateRawGenericWithMixed(
+            ICheckedType source,
+            ICheckedType target,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
         {
             if (OpenGenericDeclaration(source) is not ObjectDeclarationSymbol sourceObj
-                || TryGetObjectDeclaration(target) is not ObjectDeclarationSymbol targetObj)
+                || TryGetObjectDeclaration(target) is not ObjectDeclarationSymbol targetObj
+                || target is not GenericCheckedType { TypeArguments.Count: > 0 }
+                || !ReferenceEquals(sourceObj, targetObj))
             {
-                return false;
+                return null;
             }
 
-            if (target is GenericCheckedType { TypeArguments.Count: > 0 })
+            var baseType = source is GenericCheckedType rawGeneric ? rawGeneric.BaseType : source;
+
+            // Bare `\Closure` is PHP's closure type, not an unknown instantiation: it stays gradual
+            // (assignable to any `\Closure<…>`; the checker documents it as the one raw generic
+            // that never widens).
+            if (CallableArityFacetBuilder.IsClosureDeclaration(sourceObj))
             {
-                return ReferenceEquals(sourceObj, targetObj);
+                return new GenericCheckedType(baseType, ((GenericCheckedType)target).TypeArguments);
             }
 
-            return false;
+            var widenedArguments = new List<ICheckedType>(sourceObj.GenericParameters.Count);
+            foreach (var parameter in sourceObj.GenericParameters)
+            {
+                widenedArguments.Add(WidenRawGenericParameter(
+                    parameter, sourceObj.GenericParameters, symbolTree, globalScope));
+            }
+
+            return new GenericCheckedType(baseType, widenedArguments);
+        }
+
+        /// <summary>
+        /// The argument a raw generic stands for at one type parameter: <c>mixed</c> when the
+        /// parameter is unbounded, otherwise its resolved <c>extends X</c> bound. The checker
+        /// resolves every class bound before walking (<c>TyhpChecker.ResolveObjectGenericBounds</c>),
+        /// so a bound that is still missing means the declaration never resolved and widens to
+        /// <c>mixed</c>. A bound that mentions the declaration's own type parameters
+        /// (<c>T extends Box&lt;T&gt;</c>) has those references widened to <c>mixed</c> rather than
+        /// recursing. An <c>Unresolved</c> bound (error recovery) stays <c>Unresolved</c> so it never
+        /// cascades.
+        /// </summary>
+        internal static ICheckedType WidenRawGenericParameter(
+            GenericTypeParameterSymbol parameter,
+            IReadOnlyList<GenericTypeParameterSymbol> declaredParameters,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            if (parameter.ResolvedConstraint is not { } bound)
+            {
+                return CheckedTypes.Mixed;
+            }
+
+            if (IsUnresolvedType(bound) || !CallableGenericInference.ContainsUnboundGeneric(bound))
+            {
+                return bound;
+            }
+
+            var erased = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
+            foreach (var declared in declaredParameters)
+            {
+                erased[declared] = CheckedTypes.Mixed;
+            }
+
+            return ResolveGenericTypeBySymbol(bound, erased, symbolTree, globalScope);
         }
 
         private static ObjectDeclarationSymbol? OpenGenericDeclaration(ICheckedType type) =>

@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder;
+using Tyhp.TyhpLang.Binder.Resolution;
 using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
@@ -14,6 +16,53 @@ namespace Tyhp.TyhpLang.Checker
 {
     public static partial class TypeComparer
     {
+        // The file whose call sites are being checked. A project-source extension's
+        // `operator convert` only applies in a file that declares or imports that extension, so
+        // convert lookups need the file. Per thread, like the template-string budget, so
+        // parallel compilations do not see each other's file.
+        [ThreadStatic]
+        private static ConvertSiteState? _convertSite;
+
+        private static SrcFileAst? _convertSiteFile => _convertSite?.File;
+
+        /// <summary>
+        /// Makes <paramref name="file"/> the call-site file for extension <c>operator convert</c>
+        /// lookups on this thread until the returned scope is disposed. The symbol set is fixed
+        /// while a file is checked, so the scope also caches the convert-to index that
+        /// <see cref="EnumerateConvertibleSources"/> builds.
+        /// </summary>
+        public static IDisposable UseConvertSite(SrcFileAst? file)
+        {
+            var previous = _convertSite;
+            _convertSite = new ConvertSiteState(file);
+            return new ConvertSiteScope(previous);
+        }
+
+        private sealed class ConvertSiteState(SrcFileAst? file)
+        {
+            public SrcFileAst? File { get; } = file;
+
+            public Dictionary<string, List<ConvertToCandidate>>? ConvertToIndex { get; set; }
+        }
+
+        private sealed class ConvertSiteScope(ConvertSiteState? previous) : IDisposable
+        {
+            public void Dispose() => _convertSite = previous;
+        }
+
+        /// <summary>
+        /// Extension-contributed converts of <paramref name="typeSymbol"/> that apply in the
+        /// current call-site file (<see cref="ExtensionActivation.IsConvertVisible"/>).
+        /// </summary>
+        internal static IEnumerable<ObjectOperatorOverloadMethodSymbol> VisibleExtensionConverts(
+            ObjectDeclarationSymbol typeSymbol,
+            GlobalScope globalScope)
+        {
+            var site = _convertSiteFile;
+            return typeSymbol.ExtensionContributedOperators.Where(
+                m => ExtensionActivation.IsConvertVisible(m, site, globalScope));
+        }
+
         /// <summary>
         /// True when <paramref name="source"/> can reach <paramref name="target"/> via a matching
         /// <c>operator convert</c> that emit rewrites at call / return / <c>new</c> sites
@@ -81,6 +130,14 @@ namespace Tyhp.TyhpLang.Checker
             GlobalScope globalScope) =>
             IsAssignableTo(source, target, symbolTree, globalScope)
             || IsAssignableViaOperatorConvert(source, target, symbolTree, globalScope);
+
+        /// <summary>
+        /// The single type an argument is converted to when a call site rewrites it through
+        /// <c>operator convert</c> for <paramref name="target"/> (the spelled key of the class or
+        /// scalar; <c>?T</c> is <c>T</c>). False when the target is not one concrete type.
+        /// </summary>
+        internal static bool TryGetConvertTargetKey(ICheckedType target, out string targetKey) =>
+            TryGetSingleConvertTargetKey(target, out targetKey, out _);
 
         private static bool TryGetSingleConvertTargetKey(
             ICheckedType target,
@@ -182,7 +239,7 @@ namespace Tyhp.TyhpLang.Checker
             GlobalScope globalScope)
         {
             foreach (var overload in EnumerateClassOperatorOverloads(typeSymbol, globalScope)
-                .Concat(typeSymbol.ExtensionContributedOperators))
+                .Concat(VisibleExtensionConverts(typeSymbol, globalScope)))
             {
                 if (overload.IsNativePassthrough
                     || overload.Operator != OverloadableOperator.Convert
@@ -195,6 +252,25 @@ namespace Tyhp.TyhpLang.Checker
                 var returnKey = OperatorOverloadResolver.SpellTypeKey(
                     overload.ReturnType, typeSymbol.Name);
                 if (string.Equals(returnKey, targetKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool ClassHasAnyConvertToOverload(
+            ObjectDeclarationSymbol typeSymbol,
+            GlobalScope globalScope)
+        {
+            foreach (var overload in EnumerateClassOperatorOverloads(typeSymbol, globalScope)
+                .Concat(VisibleExtensionConverts(typeSymbol, globalScope)))
+            {
+                if (!overload.IsNativePassthrough
+                    && overload.Operator == OverloadableOperator.Convert
+                    && overload.Parameters.Count == 1
+                    && OperatorOverloadResolver.IsConvertToForm(overload, typeSymbol))
                 {
                     return true;
                 }
@@ -279,7 +355,7 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             foreach (var candidate in EnumerateClassOperatorOverloads(typeSymbol, globalScope)
-                .Concat(typeSymbol.ExtensionContributedOperators))
+                .Concat(VisibleExtensionConverts(typeSymbol, globalScope)))
             {
                 if (candidate.IsNativePassthrough
                     || candidate.Operator != OverloadableOperator.Convert

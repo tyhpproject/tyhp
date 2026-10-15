@@ -48,9 +48,14 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return null;
             }
 
-            var fromScope = state.EnclosingFunction?.ContainingScope
+            // Top-level script statements have no enclosing callable or object; the `use const`
+            // imports they rely on live on the declaring file's namespace block / file scope.
+            var fromScope = state.NameResolutionScope
+                ?? state.EnclosingFunction?.ContainingScope
                 ?? state.EnclosingObject?.ContainingScope
-                ?? (IBaseScope)globalScope;
+                ?? (TypeInferrer.TryGetDeclaringFileResolutionScope(nameAst, globalScope, out var declaringScope)
+                    ? declaringScope
+                    : (IBaseScope)globalScope);
 
             var resolver = new NameResolver(symbolTree, new DiagnosticBag());
             var isFullyQualified = raw.StartsWith('\\');
@@ -75,7 +80,15 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     ?? resolver.ResolveRelativeName([trimmed], fromScope);
             }
 
-            return resolved as ConstantSymbol;
+            // Record the declaration on the name so emit can tell an imported constant (rooted
+            // at the global namespace) from a bare name relative to the current namespace.
+            if (resolved is ConstantSymbol resolvedConstant)
+            {
+                nameAst.BoundSymbol ??= resolvedConstant;
+                return resolvedConstant;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -512,8 +525,34 @@ namespace Tyhp.TyhpLang.Checker.Rules
             return argCount > widestMax ? widest : narrowest;
         }
 
+        /// <summary>
+        /// The signatures a caller can match, in declaration order. For a <c>.tyhp</c> overload set
+        /// whose declaration has the body, the declaration's own signature is not callable — only
+        /// the overload signatures are. For an abstract/interface set the final declaration follows
+        /// the overloads. tyhpdef overloads list the first declaration, then the rest.
+        /// </summary>
         public static IEnumerable<ObjectMethodSymbol> EnumerateMethodSignatures(ObjectMethodSymbol primary)
         {
+            switch (primary.Overloads.Count == 0 ? SourceOverloadRole.None : primary.OverloadRole)
+            {
+                case SourceOverloadRole.Implementation:
+                    foreach (var overload in primary.Overloads)
+                    {
+                        yield return overload;
+                    }
+
+                    yield break;
+
+                case SourceOverloadRole.LastSignature:
+                    foreach (var overload in primary.Overloads)
+                    {
+                        yield return overload;
+                    }
+
+                    yield return primary;
+                    yield break;
+            }
+
             yield return primary;
             foreach (var overload in primary.Overloads)
             {
@@ -533,6 +572,17 @@ namespace Tyhp.TyhpLang.Checker.Rules
         public static IEnumerable<FunctionDeclarationSymbol> EnumerateFunctionSignatures(
             FunctionDeclarationSymbol primary)
         {
+            if (primary.OverloadRole == SourceOverloadRole.Implementation && primary.Overloads.Count > 0)
+            {
+                // The declaration with the body is not callable on its own; callers see the overloads.
+                foreach (var overload in primary.Overloads)
+                {
+                    yield return overload;
+                }
+
+                yield break;
+            }
+
             yield return primary;
             foreach (var overload in primary.Overloads)
             {
@@ -1145,14 +1195,17 @@ namespace Tyhp.TyhpLang.Checker.Rules
         /// <summary>
         /// Reports TYHP4160 when <paramref name="type"/> is unnarrowed <c>mixed</c>, unless the
         /// current state is an existence-probe context (<c>isset</c>/<c>??</c>/…).
+        /// A <em>member-access receiver</em> passes <paramref name="evenInExistenceProbe"/>:
+        /// probing <c>$m-&gt;p</c> still dereferences <c>$m</c>, so the receiver must be narrowed.
         /// </summary>
         public static bool ReportMixedRequiresNarrowing(
             DiagnosticBag diagnostics,
             CheckerState state,
             IBase2Ast node,
-            ICheckedType type)
+            ICheckedType type,
+            bool evenInExistenceProbe = false)
         {
-            if (state.IsExistenceProbeContext || !IsUnnarrowedMixed(type))
+            if ((state.IsExistenceProbeContext && !evenInExistenceProbe) || !IsUnnarrowedMixed(type))
             {
                 return false;
             }
@@ -1294,6 +1347,15 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return true;
             }
 
+            // Symbol-name brands (`__ClassName<T>`, `__InterfaceName<T>`, …) are strings at run
+            // time (`\get_class($e)`, `Foo::class`); stringify through their erasure.
+            if (SymbolNameTypeHelper.IsSymbolNameType(type))
+            {
+                var erased = SymbolNameTypeHelper.GetFullErasure(type, globalScope);
+                return !SymbolNameTypeHelper.IsSymbolNameType(erased)
+                    && IsStringableType(erased, symbolTree, globalScope);
+            }
+
             var stringable = ResolveNamedType("Stringable", symbolTree, globalScope);
             if (stringable is UnresolvedCheckedType)
             {
@@ -1389,8 +1451,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             var resolver = new NameResolver(globalScope, new DiagnosticBag());
-            return resolver.FindCallSiteScope(
-                node: null, lexicalScope: null, state.CurrentNamespaceName);
+            // Statements outside any callable or object belong to the file being checked.
+            return resolver.FindCallSiteScopeForFile(state.CurrentFileName, state.CurrentNamespaceName);
         }
 
         /// <summary>
@@ -1565,7 +1627,17 @@ namespace Tyhp.TyhpLang.Checker.Rules
             ObjectDeclarationSymbol? objectDecl,
             GlobalScope globalScope)
         {
-            if (TypeComparer.TryGetBuiltInName(unwrapped, out var builtinName)
+            if (TypeComparer.TryGetBuiltInName(unwrapped, out var builtinName))
+            {
+                // `true` / `false` (literal or declared singleton) are members of `bool`;
+                // extensions on `bool` apply to them.
+                if (builtinName is "true" or "false")
+                {
+                    builtinName = "bool";
+                }
+            }
+
+            if (builtinName is not null
                 && TypeComparer.ResolveBuiltIn(builtinName, globalScope) is { } canonical)
             {
                 return canonical;
@@ -1790,13 +1862,6 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return true;
             }
 
-            var source = owner.SourceFile ?? "";
-            if (source.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase)
-                && !source.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
             for (var scope = callSite; scope is not null; scope = scope.ParentScope)
             {
                 if (scope is FileScope file
@@ -1951,9 +2016,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     }
                     else
                     {
-                        var fromScope = GetInstanceofResolutionScope(state, globalScope);
+                        var fromScope = GetInstanceofResolutionScope(state, globalScope, nameAst);
                         var resolver = new NameResolver(symbolTree, new DiagnosticBag());
                         var symbol = ResolveInstanceofTypeSymbol(resolver, written, raw, fromScope);
+
                         if (symbol is not null)
                         {
                             resolver.RecordResolution(nameAst, symbol);
@@ -1979,7 +2045,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                             baseType, nameAst, state, context, symbolTree, globalScope);
                     }
 
-                    ReportUnresolvedInstanceofTarget(raw, nameAst, state, diagnostics, fromScope: GetInstanceofResolutionScope(state, globalScope));
+                    ReportUnresolvedInstanceofTarget(raw, nameAst, state, diagnostics, fromScope: GetInstanceofResolutionScope(state, globalScope, nameAst));
                     return CheckedTypes.Unresolved;
                 }
             }
@@ -2041,6 +2107,22 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 if (state.EnclosingObject.ExtendsType is { } extendsType)
                 {
                     type = context.ResolveTypeAnnotation(extendsType, state);
+
+                    // `class Child<U> extends Base<U>`: the extends clause is a raw class name, so
+                    // the resolved parent is the open `Base`. Carry the clause's type arguments so
+                    // `parent::` members bind `Base<T>`'s parameters to `U` (or a concrete type).
+                    if (type is not GenericCheckedType
+                        && TryGetObjectDeclaration(type) is { GenericParameters.Count: > 0 }
+                        && GenericInheritanceBindings.GetExtendsTypeArguments(state.EnclosingObject)
+                            is { Count: > 0 } extendsArguments)
+                    {
+                        type = new GenericCheckedType(
+                            type,
+                            extendsArguments
+                                .Select(argument => context.ResolveTypeAnnotation(argument, state))
+                                .ToList());
+                    }
+
                     return true;
                 }
 
@@ -2187,7 +2269,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
             return NameResolver.IsTypePositionSymbol(symbol) ? symbol : null;
         }
 
-        private static IBaseScope GetInstanceofResolutionScope(CheckerState state, GlobalScope globalScope)
+        private static IBaseScope GetInstanceofResolutionScope(
+            CheckerState state,
+            GlobalScope globalScope,
+            IBase2Ast? node = null)
         {
             if (state.NameResolutionScope is { } overrideScope)
             {
@@ -2202,6 +2287,14 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (state.EnclosingObject?.ContainingScope is IBaseScope objectScope)
             {
                 return objectScope;
+            }
+
+            // Top-level script statements have no enclosing callable or object; their `use`
+            // imports live on the declaring file's namespace block / file scope, not on global.
+            if (node is not null
+                && TypeInferrer.TryGetDeclaringFileResolutionScope(node, globalScope, out var declaringScope))
+            {
+                return declaringScope;
             }
 
             return globalScope;
@@ -2339,6 +2432,17 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     : baseType;
             return new GenericCheckedType(bareBase, args);
         }
+
+        /// <summary>
+        /// Type of a <c>(decimal)</c> cast: <c>\Tyhp\Decimal</c> whenever that class is loaded
+        /// (the same class the <c>decimal</c> type keyword names), else the built-in
+        /// <c>decimal</c> placeholder.
+        /// </summary>
+        public static ICheckedType ResolveDecimalCastType(SymbolTree symbolTree, GlobalScope globalScope) =>
+            symbolTree.ResolveQualifiedName(new[] { "Tyhp", "Decimal" }, globalScope, new DiagnosticBag())
+                is ObjectDeclarationSymbol { ObjectKind: PhpTypeDeclType.Class } decimalClass
+                ? CheckedTypes.FromSymbol(decimalClass)
+                : CheckedTypes.FromSymbol(new BuiltInTypeSymbol("decimal"));
 
         public static ICheckedType ResolveNamedType(
             string name,
@@ -2677,6 +2781,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
                             calleeClosure, state, context, diagnostics, depth + 1);
                     }
 
+                    // `echo ['a' => 1, 'a' => 2]['a']` — CheckNode does not visit the literal
+                    // for duplicate keys. The pair list sits on the base.
+                    ReportArrayLiteralsIn(deref, state, context, diagnostics);
                     return;
 
                 // Progressive short-circuit narrowing: check left, apply its polarity
@@ -2734,6 +2841,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 // coalesce, and short-circuit `&&`/`||` already have dedicated cases above.
                 case PhpBinaryOpAst otherBinary:
                     context.CheckNode(otherBinary, state);
+                    // `if (['a' => 1, 'a' => 2]['a'] > 0)` — the comparison is checked as an
+                    // operator, and the literal is not a child this walk would otherwise reach.
+                    ReportArrayLiteralsIn(otherBinary, state, context, diagnostics);
                     return;
 
                 // Nested statements are checked through their own ControlFlow entry points —
@@ -2771,6 +2881,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 case PhpConditionalAst:
                 case PhpEchoStatementAst:
                     return;
+
+                // Array literals inside return/echo/if/yield expressions: `[...$m]` iterates `$m`.
+                // The literal node is never dispatched from here, so check its spreads directly.
+                case PhpArrayPairListAst pairList:
+                    ReportMixedSpreadElements(pairList.GetAllExcludingSkippedSlots(), state, context, diagnostics);
+                    ReportDuplicateArrayKeys(pairList.GetAllExcludingSkippedSlots(), state, diagnostics);
+                    break;
             }
 
             foreach (var child in node.AstChildren)
@@ -2778,6 +2895,118 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 if (child is not null)
                 {
                     CheckCompileTimeConstructsInTree(child, state, context, diagnostics, depth + 1);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reports TYHP4160 for each spread element (<c>[...$m]</c>) whose operand is unnarrowed
+        /// <c>mixed</c>: spreading iterates the value, so it must be narrowed first.
+        /// </summary>
+        /// <summary>
+        /// Reports TYHP4092 for a repeated literal key in one array literal. Used from
+        /// <see cref="TypeCompatibilityRule"/> and from
+        /// <see cref="CheckCompileTimeConstructsInTree"/>, which is the only walk that
+        /// sees a literal inside <c>return</c> / <c>echo</c> / <c>if</c> / <c>yield</c>.
+        /// </summary>
+        private static void ReportArrayLiteralsIn(
+            IBase2Ast node,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (node is PhpInlineFunctionAst or PhpFunctionDeclAst or PhpMethodDeclAst)
+            {
+                return;
+            }
+
+            if (node is PhpArrayPairListAst pairList)
+            {
+                var pairs = pairList.GetAllExcludingSkippedSlots();
+                ReportMixedSpreadElements(pairs, state, context, diagnostics);
+                ReportDuplicateArrayKeys(pairs, state, diagnostics);
+            }
+
+            foreach (var child in node.AstChildren)
+            {
+                if (child is not null)
+                {
+                    ReportArrayLiteralsIn(child, state, context, diagnostics);
+                }
+            }
+        }
+
+        public static void ReportDuplicateArrayKeys(
+            IEnumerable<PhpArrayPairAst> pairs,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            var seenKeys = new Dictionary<string, PhpArrayPairAst>(StringComparer.Ordinal);
+            foreach (var pair in pairs)
+            {
+                if (pair.IsSkippedSlot || pair.KeyExpr is null)
+                {
+                    continue;
+                }
+
+                var keyText = DuplicateArrayKeyText(pair.KeyExpr);
+                if (string.IsNullOrEmpty(keyText))
+                {
+                    continue;
+                }
+
+                if (seenKeys.TryGetValue(keyText, out var firstPair))
+                {
+                    var fileName = ResolveDiagnosticFileName(state, pair);
+                    diagnostics.AddDuplicateFromAst(
+                        MessageCode.CheckerDuplicateArrayKey,
+                        pair,
+                        fileName,
+                        firstPair,
+                        fileName,
+                        keyText);
+                    continue;
+                }
+
+                seenKeys[keyText] = pair;
+            }
+        }
+
+        private static string? DuplicateArrayKeyText(IExpression key) =>
+            key switch
+            {
+                PhpEncapsListAst list => DuplicateEncapsKeyText(list),
+                PhpEncapsStringAst encaps => encaps.ValueString ?? encaps.TokenValue?.ValueString,
+                PhpScalarAst scalar => scalar.ValueString ?? scalar.ValueInt64?.ToString(),
+                PhpNameAst name => name.ValueString,
+                TokenValueAst token => token.ValueString,
+                _ => key.Identifier,
+            };
+
+        private static string? DuplicateEncapsKeyText(PhpEncapsListAst list)
+        {
+            var parts = list.GetAllNotNull().ToList();
+            if (parts.Count == 0 || parts.Any(part => part is not PhpEncapsStringAst))
+            {
+                return null;
+            }
+
+            return string.Concat(parts.Select(part => part.ValueString ?? ""));
+        }
+
+        public static void ReportMixedSpreadElements(
+            IEnumerable<PhpArrayPairAst>? pairs,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            foreach (var pair in pairs ?? [])
+            {
+                if (pair.IsExpansion && pair.ValueExpr is not null)
+                {
+                    ReportMixedRequiresNarrowing(
+                        diagnostics, state, pair.ValueExpr,
+                        context.ResolveExpressionType(pair.ValueExpr, state));
                 }
             }
         }

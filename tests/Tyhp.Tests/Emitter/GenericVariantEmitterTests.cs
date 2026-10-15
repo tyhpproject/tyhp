@@ -453,6 +453,111 @@ public class GenericVariantEmitterTests
         returnFn.Should().BeGreaterThan(prologue);
     }
 
+    private const string AsyncCallableReturnHost = """
+        <?tyhp
+        namespace Probe;
+
+        function pick<T>(callable(): T $fn): mixed {
+            return typeof(T);
+        }
+
+        function pair<A, B>(callable(): A $first, callable(): B $second): mixed {
+            return typeof(A);
+        }
+
+        class Runner {
+            public static function make<T>(callable(): T $fn): mixed {
+                return typeof(T);
+            }
+        }
+
+        """;
+
+    [Theory]
+    [InlineData(
+        "return pick(async function(): int { return 1; });",
+        "pick__tyhpGeneric(\\Tyhp\\Type::int())(")]
+    [InlineData(
+        "return pick(async fn(): string => 'x');",
+        "pick__tyhpGeneric(\\Tyhp\\Type::string())(")]
+    [InlineData(
+        "return pick(fn: async function(): int { return 1; });",
+        "pick__tyhpGeneric(\\Tyhp\\Type::int())(")]
+    [InlineData(
+        "return Runner::make(async function(): bool { return true; });",
+        "Runner::make__tyhpGeneric(\\Tyhp\\Type::bool())(")]
+    [InlineData(
+        "return pair(async function(): int { return 1; }, fn(): string => 'x');",
+        "pair__tyhpGeneric(\\Tyhp\\Type::int(), \\Tyhp\\Type::string())(")]
+    public void Emit_AsyncClosureArgument_BindsAwaitedTypeAtCallSite(string statement, string expected)
+    {
+        var php = CompileAndEmit(AsyncCallableReturnHost + $$"""
+            function run(): mixed {
+                {{statement}}
+            }
+            """);
+
+        php.Should().Contain(expected);
+        php.Should().NotContain("return pick(");
+        php.Should().NotContain("return Runner::make(");
+        php.Should().NotContain("return pair(");
+    }
+
+    [Fact]
+    public void Emit_AsyncClosureWithoutDeclaredReturn_LeavesTypeArgumentToBinderDefault()
+    {
+        var php = CompileAndEmit(AsyncCallableReturnHost + """
+            function run(): mixed {
+                return pick(async function() { return 1; });
+            }
+            """);
+
+        php.Should().Contain("pick__tyhpGeneric(null)(");
+        php.Should().NotContain("fromCallableReturn(function");
+    }
+
+    [Fact]
+    public void Emit_AsyncClosureVariable_BindsAwaitedTypeAtCallSite()
+    {
+        var php = CompileAndEmit(AsyncCallableReturnHost + """
+            function run(): mixed {
+                $fn = async function(): int { return 1; };
+                return pick($fn);
+            }
+            """);
+
+        php.Should().Contain("pick__tyhpGeneric(\\Tyhp\\Type::int())(");
+        php.Should().NotContain("return pick($fn)");
+    }
+
+    [Theory]
+    [InlineData("return pick(function(): int { return 1; });")]
+    [InlineData("callable(): int $f = fn(): int => 1; return pick($f);")]
+    public void Emit_NonAsyncCallableArgument_KeepsDeclaredNameWrapper(string statement)
+    {
+        var php = CompileAndEmit(AsyncCallableReturnHost + $$"""
+            function run(): mixed {
+                {{statement}}
+            }
+            """);
+
+        php.Should().Contain("pick(");
+        php.Should().NotContain("pick__tyhpGeneric(\\Tyhp\\Type::int())(");
+    }
+
+    [Fact]
+    public void Emit_AsyncClosureAlongsideNonLiteralCallable_KeepsDeclaredNameWrapper()
+    {
+        var php = CompileAndEmit(AsyncCallableReturnHost + """
+            function run(callable(): string $second): mixed {
+                return pair(async function(): int { return 1; }, $second);
+            }
+            """);
+
+        php.Should().Contain("return pair(");
+        php.Should().NotContain("pair__tyhpGeneric(\\Tyhp\\Type::int()");
+    }
+
     [Theory]
     [InlineData("return Holder::zero<int>();", "Holder::zero__tyhpGeneric(\\Tyhp\\Type::int())()")]
     [InlineData("return $h->zero<int>();", "$h->zero__tyhpGeneric(\\Tyhp\\Type::int())()")]

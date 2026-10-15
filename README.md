@@ -19,7 +19,7 @@
   <a href="https://tyhplang.com"><img src="https://img.shields.io/badge/docs-tyhplang.com-34A4F4" alt="Documentation"></a>
   <a href="https://www.php.net"><img src="https://img.shields.io/badge/PHP-8.2--8.5-777BB4?logo=php&logoColor=white" alt="PHP 8.2 to 8.5"></a>
   <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache%202.0-34A4F4" alt="Apache License 2.0"></a>
-  <a href="https://github.com/tyhpproject/tyhp/releases"><img src="https://img.shields.io/badge/status-805.1.0--beta.1-orange" alt="Beta 805.1.0-beta.1"></a>
+  <a href="https://github.com/tyhpproject/tyhp/releases"><img src="https://img.shields.io/badge/status-805.1.0--beta.2-orange" alt="Beta 805.1.0-beta.2"></a>
 </p>
 
 ---
@@ -28,7 +28,7 @@ Tyhp is a typed superset of the PHP language. You write `.tyhp` (and can keep `.
 
 **Compile with Tyhp. Deploy with PHP.** Required types, null safety, generics, structs, `async`/`await`, extension methods, and expression trees are part of Tyhp; the output is ordinary PHP that runs on a PHP runtime. Composer packages and existing hosting stay in the picture.
 
-> **Public beta (`805.1.0-beta.1`).** The compiler, type checker, emitter, and CLI work today. Syntax may still change.
+> **Public beta (`805.1.0-beta.2`).** The compiler, type checker, emitter, and CLI work today. Syntax may still change.
 
 ## Write this. Ship PHP.
 
@@ -626,7 +626,7 @@ php build/src/index.php
 
 `tyhp init` writes `tyhp.json`, `src/index.tyhp`, and a `composer.json` with `tyhp/core` as `@dev` in `require`, `tyhpdef/php` as `@dev` in `require-dev`, `tyhp/compiler` in `require-dev`, and Composer scripts for `vendor/bin/tyhp`. Init does not run `composer install`. `tyhp build` emits PHP under `build/`. `tyhp lint` type-checks without emitting.
 
-Until Packagist lists the runtime packages, clone [tyhp-runtime-src](https://github.com/tyhpproject/tyhp-runtime-src) beside this checkout (or set `TYHP_RUNTIME_SRC` to that clone). The compiler uses `packages/` there for local path repositories. When a package fails to compile, fix the Tyhp compiler or its tyhpdefs first.
+Until Packagist lists the runtime packages, clone [tyhp-runtime-src](https://github.com/tyhpproject/tyhp-runtime-src) beside this checkout (or set `TYHP_RUNTIME_SRC` to that clone). The compiler uses `packages/tyhp/` and `packages/tyhpdef/` there for local path repositories. When a package fails to compile, fix the Tyhp compiler or its tyhpdefs first.
 
 ## Runtime packages
 

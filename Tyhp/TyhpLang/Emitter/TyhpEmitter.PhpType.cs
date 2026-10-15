@@ -58,6 +58,49 @@ namespace Tyhp.TyhpLang.Emitter
             return string.IsNullOrWhiteSpace(spelled) ? "" : ": " + spelled;
         }
 
+        /// <summary>
+        /// Return type of the closure an <c>async</c> function/method passes to
+        /// <c>\Tyhp\Promise::_async</c>: the settled type <c>__Awaited&lt;R&gt;</c> of the declared
+        /// <c>R</c> (so <c>async function f(): Promise&lt;int&gt;</c> hands over <c>: int</c>). The outer
+        /// signature stays <c>\Tyhp\Promise</c>, and <c>Type::fromCallableReturn</c> reads this
+        /// closure's type to reify the promise's settled type.
+        /// </summary>
+        private string SpellAsyncInnerReturnPhpType(
+            ITypeExpression? returnType,
+            IBase2Ast host,
+            string? inheritedHint)
+        {
+            if (PhpTypeAttributeSupport.TryGetHint(host, out var local))
+            {
+                return ": " + local;
+            }
+
+            // A `return` that supplies a promise is adopted by the runtime; a settled-type
+            // typehint on the inner closure would reject it, so leave the closure untyped.
+            if (AsyncReturnFacts.ReturnsPromise(host))
+            {
+                return "";
+            }
+
+            if (!string.IsNullOrWhiteSpace(inheritedHint))
+            {
+                return ": " + inheritedHint;
+            }
+
+            if (returnType is null)
+            {
+                return "";
+            }
+
+            this.ReportInternalErrorIfExternType(returnType);
+            var spelled = TypeSpellingHelper.SpellSettled(
+                returnType,
+                this._context.TypeAliasMap,
+                this._context.GlobalScope,
+                this._context.Config.NamespacePrefix);
+            return string.IsNullOrWhiteSpace(spelled) ? "" : ": " + spelled;
+        }
+
         private string SpellFunctionReturnPhpType(PhpFunctionDeclAst function)
         {
             var spelled = this.SpellEmittedType(function.ReturnType, function, inheritedHint: null);

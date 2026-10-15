@@ -62,6 +62,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
+            // Child traversal is suppressed for this node, so the import rule never sees the
+            // operand; without this a `use` consumed only by `nameof(Alias::member)` reads as unused.
+            context.MarkImportNames(expression, state);
+
             if (!IsNameofReference(expression, state, context))
             {
                 CheckerHelpers.ReportError(
@@ -118,6 +122,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             var resolved = context.ResolveTypeAnnotation(typeofExpr.TypeExpression, state);
             ReportUnresolvedTypeofTarget(typeofExpr.TypeExpression, resolved, state, context, diagnostics);
+            BindTypeofClassName(typeofExpr.TypeExpression, resolved);
+
+            // Child traversal is suppressed for this node, so the import rule never sees the
+            // operand; without this a `use` consumed only by `typeof(Alias)` reads as unused.
+            context.MarkImportNames(typeofExpr.TypeExpression, state);
 
             // typeof of a named alias is `\Tyhp\Type` (TypeInferrer), not mixed: the annotation
             // resolve above binds the alias so emit can call the factory (or inline a tyhpdef body).
@@ -145,6 +154,34 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             context.MarkRequiresRuntimeGenericTracking(state.EnclosingObject);
+        }
+
+        /// <summary>
+        /// Records the declared class a lone <c>typeof(Name)</c> operand resolved to on the name node.
+        /// The binder leaves these names unbound, and a name written through a <c>use</c> import
+        /// or a qualified spelling (<c>\App\Models\User</c>) cannot be found again from its text
+        /// alone once emit has rewritten it, so emit reads the class from this binding.
+        /// </summary>
+        private static void BindTypeofClassName(ITypeExpression typeExpression, ICheckedType resolved)
+        {
+            if (resolved is not SimpleCheckedType { ResolvedSymbol: ObjectDeclarationSymbol declared })
+            {
+                return;
+            }
+
+            var name = typeExpression switch
+            {
+                PhpNameAst bare => bare,
+                PhpNamedTypeAst { Name: PhpNameAst named } => named,
+                PhpTypeExpressionAst { IsNullable: false, Types: { } members }
+                    when members.GetAllNotNull().ToList() is [PhpNamedTypeAst { Name: PhpNameAst inner }] => inner,
+                _ => null,
+            };
+
+            if (name is not null && name.BoundSymbol is null)
+            {
+                name.BoundSymbol = declared;
+            }
         }
 
         /// <summary>
@@ -365,7 +402,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     // so nameof(T) / nameof(TBatchReturn) constant-folds instead of TYHP4090.
                     return nameAst.BoundSymbol is not null
                         || IsInScopeGenericParameter(nameAst, state)
-                        || ResolveNameofSymbol(nameAst.ValueString ?? string.Empty, state, context) is not null;
+                        || ResolveNameofSymbol(nameAst, state, context) is not null;
 
                 case PhpDereferenceableAst deref:
                     return deref.Base is not null
@@ -384,16 +421,17 @@ namespace Tyhp.TyhpLang.Checker.Rules
         }
 
         private static IBaseSymbol? ResolveNameofSymbol(
-            string name,
+            PhpNameAst nameAst,
             CheckerState state,
             CheckerRuleContext context)
         {
+            var name = nameAst.ValueString ?? string.Empty;
             if (string.IsNullOrEmpty(name))
             {
                 return null;
             }
 
-            var scope = GetResolutionScope(state, context.GlobalScope);
+            var scope = GetResolutionScope(state, context.GlobalScope, nameAst);
             var resolver = new NameResolver(context.SymbolTree, new DiagnosticBag());
             var segments = name.TrimStart('\\').Split('\\', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (segments.Length == 0)
@@ -408,8 +446,16 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     ?? resolver.ResolveRelativeName(segments, scope);
         }
 
-        private static IBaseScope GetResolutionScope(CheckerState state, GlobalScope globalScope)
+        private static IBaseScope GetResolutionScope(
+            CheckerState state,
+            GlobalScope globalScope,
+            IBase2Ast? node = null)
         {
+            if (state.NameResolutionScope is { } overrideScope)
+            {
+                return overrideScope;
+            }
+
             // See TypeInferrer.GetResolutionScope: EnclosingCallable (not EnclosingFunction) is set
             // for methods, and its ContainingScope is the enclosing class's own scope, so `self`/
             // `parent`-qualified nameof() targets inside a method body resolve correctly.
@@ -421,6 +467,14 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (state.EnclosingObject?.ContainingScope is IBaseScope objectScope)
             {
                 return objectScope;
+            }
+
+            // Top-level script statements have no enclosing callable or object; their `use`
+            // imports live on the declaring file's namespace block / file scope, not on global.
+            if (node is not null
+                && TypeInferrer.TryGetDeclaringFileResolutionScope(node, globalScope, out var declaringScope))
+            {
+                return declaringScope;
             }
 
             return globalScope;

@@ -40,7 +40,7 @@ namespace Tyhp.XDebugProxy.Network
             this.TryPair();
         }
 
-        private async Task OnXdebugAcceptedAsync(TcpClient client, CancellationToken cancellationToken)
+        private void OnXdebugAccepted(TcpClient client)
         {
             ConfigureClient(client);
             this.RaiseAccepted("XDebug", client);
@@ -69,7 +69,7 @@ namespace Tyhp.XDebugProxy.Network
             try
             {
                 var handler = new TcpConnectionHandler(client);
-                DbgpResponse init = await handler.ReadResponseAsync(cancellationToken).ConfigureAwait(false);
+                DbgpResponse init = DbgpMessageParser.ReadResponseFromStreamBlocking(handler.Stream);
                 string? ideKey = init.GetAttribute("idekey");
                 if (!this.IsIdeKeyAccepted(ideKey))
                 {

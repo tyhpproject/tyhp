@@ -128,7 +128,7 @@ public class AsyncAwaitFinishEmitterTests
             $fn = async fn(int $x): int => await doubleAsync($x);
             """);
 
-        php.Should().Contain("fn(int $x): \\Tyhp\\Promise => \\Tyhp\\Promise::_async(fn() =>");
+        php.Should().Contain("fn(int $x): \\Tyhp\\Promise => \\Tyhp\\Promise::_async(fn(): int =>");
         php.Should().Contain("\\Tyhp\\Promise::_await(doubleAsync($x))");
         php.Should().NotContain("async fn");
         php.Should().NotContain("async function");
@@ -144,7 +144,7 @@ public class AsyncAwaitFinishEmitterTests
             $fn = async fn(int $x): int => await scaleAsync($x, $factor);
             """);
 
-        php.Should().Contain("fn(int $x): \\Tyhp\\Promise => \\Tyhp\\Promise::_async(fn() =>");
+        php.Should().Contain("fn(int $x): \\Tyhp\\Promise => \\Tyhp\\Promise::_async(fn(): int =>");
         php.Should().Contain("scaleAsync($x, $factor)");
         // No explicit `use (...)` needed — arrows capture automatically.
         php.Should().NotContain("use (");

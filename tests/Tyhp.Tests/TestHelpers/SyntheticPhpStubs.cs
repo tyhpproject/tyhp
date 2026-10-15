@@ -625,6 +625,7 @@ public static class SyntheticPhpStubs
             class Expression<TCallableShape extends callable> {
                 public \Tyhp\Expression\ExpressionNode $body;
                 public array<\Tyhp\Expression\ParameterExpression> $parameters;
+                public readonly \Closure<TCallableShape> $callable;
                 public function equals(\Tyhp\Expression $other): bool;
             }
 
@@ -632,7 +633,11 @@ public static class SyntheticPhpStubs
                 public function getPath(): string;
             }
 
-            class Promise<TReturn extends void|mixed = mixed> {
+            class Promise<TReturn extends __Awaited<void|mixed> = __Awaited<mixed>> {
+                public function __construct(callable(): TReturn|Promise<TReturn> $executor, bool $immediateResolve = false);
+                public static function _async<T extends void|mixed>(callable(): T $fn): self<__Awaited<T>>;
+                public static function run<T extends void|mixed>(callable(): T $fn, mixed $token = null): __Awaited<T>;
+                public static function resolve<T extends __Awaited<void|mixed>>(?T $value = null): self<T>;
             }
         }
 

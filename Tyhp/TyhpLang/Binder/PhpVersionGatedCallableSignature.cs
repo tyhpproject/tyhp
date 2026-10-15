@@ -115,7 +115,7 @@ namespace Tyhp.TyhpLang.Binder
             return builder.ToString();
         }
 
-        private static string SpellType(ITypeExpression? type)
+        internal static string SpellType(ITypeExpression? type)
         {
             if (type is null)
             {

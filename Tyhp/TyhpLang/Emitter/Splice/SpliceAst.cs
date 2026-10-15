@@ -110,10 +110,21 @@ namespace Tyhp.TyhpLang.Emitter.Splice
             {
                 PhpFunctionDeclAst function => function.Body != null && !function.IsShortSyntax,
                 PhpMethodDeclAst method => !method.IsShortSyntax,
-                TyhpOperatorOverloadAst op => !op.IsShortSyntax,
+                TyhpOperatorOverloadAst op => !op.IsShortSyntax || IsConvertOperator(op),
                 _ => false,
             };
         }
+
+        /// <summary>
+        /// True for an <c>operator convert</c> member. Convert call sites are rewritten to the
+        /// extension's static <c>__from</c> / <c>__to{T}</c> and are never spliced, so a short
+        /// <c>=&gt;</c> convert keeps its PHP method like a brace member does.
+        /// </summary>
+        public static bool IsConvertOperator(TyhpOperatorOverloadAst op) =>
+            OverloadableOperatorHelper.FromToken(
+                (int)(op.Op?.ValueInt64 ?? -1),
+                op.Op?.ValueString ?? "",
+                isAlternateKind: op.RightParameter == null) == OverloadableOperator.Convert;
 
         /// <summary>
         /// True when the Tyhp extension emits a PHP backer class: at least one member has a
@@ -347,6 +358,13 @@ namespace Tyhp.TyhpLang.Emitter.Splice
             {
                 PhpVariableAst variable => IsSimpleVariable(variable),
                 PhpScalarAst => true,
+                // Quoted string without interpolation.
+                PhpStringAst str when str.Parts is null
+                    || str.Parts.GetAllNotNull().All(part => part is PhpEncapsStringAst) => true,
+                PhpEncapsListAst encaps when encaps.GetAllNotNull().All(part => part is PhpEncapsStringAst) => true,
+                // Signed numeric literal (`-1`): a constant, not an operation with a side effect.
+                PhpUnaryOpAst { IsPrefix: true, Operand: PhpScalarAst } unary
+                    when unary.Operator?.ValueString is "-" or "+" => true,
                 PhpMagicConstantAst => true,
                 PhpNameAst name when IsConstantName(name) => true,
                 PhpDereferenceableAst
@@ -591,7 +609,8 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                     name,
                     p.IsByReference,
                     p.DefaultValue,
-                    firstIsThis && i == 0));
+                    firstIsThis && i == 0,
+                    p.IsVariadic));
             }
 
             return list;

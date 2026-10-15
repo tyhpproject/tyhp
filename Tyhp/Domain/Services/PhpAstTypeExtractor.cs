@@ -516,6 +516,11 @@ namespace Tyhp.Domain.Services
                 return true;
             }
 
+            if (trimmed.Length > 2 && trimmed[0] == '[' && trimmed[^1] == ']')
+            {
+                return IsEmitableArrayLiteral(trimmed);
+            }
+
             if (trimmed.Length >= 2 && trimmed[0] is '\'' or '"')
             {
                 return IsQuotedStringLiteral(trimmed);
@@ -550,8 +555,132 @@ namespace Tyhp.Domain.Services
                 return true;
             }
 
-            return ClassConstDefault.IsMatch(trimmed);
+            if (ClassConstDefault.IsMatch(trimmed))
+            {
+                return true;
+            }
+
+            return IsBitwiseConstantExpression(trimmed);
         }
+
+        /// <summary>
+        /// A short-syntax array literal whose keys and values are themselves emitable default
+        /// literals (<c>[1]</c>, <c>['a' =&gt; 1, 'b' =&gt; [2, 3]]</c>). Spreads are not emitable.
+        /// </summary>
+        private static bool IsEmitableArrayLiteral(string trimmed)
+        {
+            var inner = trimmed[1..^1];
+            foreach (var element in SplitTopLevel(inner, ','))
+            {
+                var text = element.Trim();
+                if (text.Length == 0)
+                {
+                    // A trailing comma yields an empty tail element.
+                    continue;
+                }
+
+                var arrow = SplitTopLevel(text, "=>");
+                if (arrow.Count > 2)
+                {
+                    return false;
+                }
+
+                foreach (var part in arrow)
+                {
+                    var partText = part.Trim();
+                    if (partText.Length == 0 || !IsEmitableDefaultLiteral(partText))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static List<string> SplitTopLevel(string text, char separator)
+            => SplitTopLevel(text, separator.ToString());
+
+        private static List<string> SplitTopLevel(string text, string separator)
+        {
+            var parts = new List<string>();
+            var depth = 0;
+            var quote = '\0';
+            var start = 0;
+            for (var i = 0; i < text.Length; i++)
+            {
+                var c = text[i];
+                if (quote != '\0')
+                {
+                    if (c == '\\')
+                    {
+                        i++;
+                    }
+                    else if (c == quote)
+                    {
+                        quote = '\0';
+                    }
+
+                    continue;
+                }
+
+                switch (c)
+                {
+                    case '\'' or '"':
+                        quote = c;
+                        continue;
+                    case '[' or '(' or '{':
+                        depth++;
+                        continue;
+                    case ']' or ')' or '}':
+                        depth--;
+                        continue;
+                }
+
+                if (depth == 0 && string.CompareOrdinal(text, i, separator, 0, separator.Length) == 0)
+                {
+                    parts.Add(text[start..i]);
+                    i += separator.Length - 1;
+                    start = i + 1;
+                }
+            }
+
+            parts.Add(text[start..]);
+            return parts;
+        }
+
+        /// <summary>
+        /// Flag combinations such as <c>\ENT_QUOTES | \ENT_SUBSTITUTE | \ENT_HTML401</c>: two or more
+        /// integer literals / constant names joined by <c>|</c>, <c>&amp;</c>, <c>^</c>, <c>&lt;&lt;</c> or
+        /// <c>&gt;&gt;</c>. The tyhpdef parser accepts these as constant expressions.
+        /// </summary>
+        private static bool IsBitwiseConstantExpression(string trimmed)
+        {
+            var operands = BitwiseOperator.Split(trimmed.Replace("(", "", StringComparison.Ordinal).Replace(")", "", StringComparison.Ordinal));
+            if (operands.Length < 2)
+            {
+                return false;
+            }
+
+            foreach (var operand in operands)
+            {
+                var text = operand.Trim();
+                if (text.Length == 0
+                    || text[0] is '\'' or '"'
+                    || !(int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out _)
+                        || GlobalConstDefault.IsMatch(text)
+                        || ClassConstDefault.IsMatch(text)))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static readonly Regex BitwiseOperator = new(
+            @"\s*(?:\||&|\^|<<|>>)\s*",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         /// <summary>
         /// A single quoted span with the closer as the last character. Concatenation such as
@@ -646,6 +775,12 @@ namespace Tyhp.Domain.Services
                         angle++;
                         break;
                     case '>':
+                        if (i > 0 && text[i - 1] == '=')
+                        {
+                            // Array-pair arrow (`'a' => 1`), not a generic closer.
+                            break;
+                        }
+
                         angle--;
                         if (angle < 0)
                         {

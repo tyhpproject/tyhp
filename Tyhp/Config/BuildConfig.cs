@@ -19,16 +19,6 @@ namespace Tyhp.Config
             "none", "basic", "aggressive",
         };
 
-        private static readonly HashSet<string> ValidDecimalBackings = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "bcmath", "gmp",
-        };
-
-        private static readonly HashSet<string> ValidDecimalRoundings = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "halfUp", "halfDown", "halfEven", "up", "down", "ceiling", "floor",
-        };
-
         /// <summary>
         /// Auto-generate tyhpdef for compiled code. <c>null</c> until resolved from project type.
         /// </summary>
@@ -48,18 +38,6 @@ namespace Tyhp.Config
         /// Set <c>composer</c> to an empty string or <c>none</c> to disable injection.
         /// Per-file override: <c>declare(autoload="composer"|"none"|path|key);</c>.</summary>
         public Dictionary<string, string>? EntryPointAutoloader { get; set; }
-
-        /// <summary>Struct backing strategy (<c>array</c> or custom class name).</summary>
-        public string StructBacking { get; set; } = "array";
-
-        /// <summary>Decimal backing library (<c>bcmath</c> or <c>gmp</c>).</summary>
-        public string DecimalBacking { get; set; } = "bcmath";
-
-        /// <summary>Default decimal scale.</summary>
-        public int DecimalScale { get; set; } = 28;
-
-        /// <summary>Default decimal rounding mode.</summary>
-        public string DecimalRounding { get; set; } = "halfUp";
 
         /// <summary>Re-enable <c>eval()</c> usage.</summary>
         public bool AllowEval { get; set; } = false;
@@ -119,43 +97,13 @@ namespace Tyhp.Config
                 "build:entryPointAutoloader",
                 includeEmptyValues: true);
 
-            this.StructBacking = configuration["build:structBacking"] ?? this.StructBacking;
-
-            var decimalBacking = configuration["build:decimalBacking"];
-            if (!String.IsNullOrWhiteSpace(decimalBacking))
+            // Structs are always PHP arrays. The retired `build.structBacking` key is tolerated as
+            // "array"; any other value is reported once and otherwise ignored.
+            var structBacking = configuration["build:structBacking"];
+            if (!String.IsNullOrWhiteSpace(structBacking)
+                && !String.Equals(structBacking, "array", StringComparison.OrdinalIgnoreCase))
             {
-                if (ValidDecimalBackings.Contains(decimalBacking))
-                {
-                    this.DecimalBacking = decimalBacking;
-                }
-                else
-                {
-                    warn?.Invoke(MessageCode.ConfigInvalidValue, ["build:decimalBacking", decimalBacking]);
-                }
-            }
-
-            if (configuration.GetSection("build:decimalScale").Exists()
-                && Int32.TryParse(configuration["build:decimalScale"], out int decimalScale)
-                && decimalScale >= 0)
-            {
-                this.DecimalScale = decimalScale;
-            }
-            else if (configuration.GetSection("build:decimalScale").Exists())
-            {
-                warn?.Invoke(MessageCode.ConfigInvalidValue, ["build:decimalScale", configuration["build:decimalScale"] ?? ""]);
-            }
-
-            var decimalRounding = configuration["build:decimalRounding"];
-            if (!String.IsNullOrWhiteSpace(decimalRounding))
-            {
-                if (ValidDecimalRoundings.Contains(decimalRounding))
-                {
-                    this.DecimalRounding = decimalRounding;
-                }
-                else
-                {
-                    warn?.Invoke(MessageCode.ConfigInvalidValue, ["build:decimalRounding", decimalRounding]);
-                }
+                warn?.Invoke(MessageCode.ConfigStructBackingIgnored, [structBacking]);
             }
 
             this.AllowEval = ReadBool(configuration, "build:allowEval", this.AllowEval);

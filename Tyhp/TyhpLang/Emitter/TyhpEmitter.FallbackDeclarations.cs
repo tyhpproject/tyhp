@@ -30,6 +30,14 @@ namespace Tyhp.TyhpLang.Emitter
                 return false;
             }
 
+            // Overload signatures erase to nothing. Wrapping one in `if (!function_exists)`
+            // would emit an empty gate beside the implementation.
+            if (node is PhpFunctionDeclAst overloadSignature
+                && OverloadSignatureHelper.IsErasableFunctionOverloadSignature(overloadSignature))
+            {
+                return false;
+            }
+
             if (node is PhpConstDeclListAst constList)
             {
                 var constConditions = RuntimeGateEmission.GetConditions(constList, this._context.Config.TargetPhpVersion);

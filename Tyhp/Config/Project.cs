@@ -14,12 +14,28 @@ namespace Tyhp.Config
     public sealed class Project
     {
         /// <summary>
-        /// Process-wide active project for CLI/LSP cache pathing and fallback
+        /// Active project for CLI/LSP cache pathing and fallback
         /// <see cref="Domain.Services.CompilationOptions.FromProject"/>. The constructor does not
-        /// set this; <c>TyhpHostedService</c> and the language server assign it. Tests that need
-        /// the fallback must set and restore it themselves.
+        /// set this; <c>TyhpHostedService</c> and the language server assign it. The value is
+        /// stored in <see cref="AsyncLocal{T}"/> so a test or server that publishes a project
+        /// does not change file names or cache roots observed by another thread. Execution
+        /// context still flows the host's value into work that host starts. Tests that need
+        /// the fallback must set and restore it themselves, holding <see cref="SingletonGate"/>
+        /// for the whole publish/use/restore.
         /// </summary>
-        public static Project? Singleton = null;
+        public static Project? Singleton
+        {
+            get => SingletonLocal.Value;
+            set => SingletonLocal.Value = value;
+        }
+
+        private static readonly AsyncLocal<Project?> SingletonLocal = new();
+
+        /// <summary>
+        /// Serializes test and host writes of <see cref="Singleton"/> so two overlapping
+        /// save/set/restore sequences cannot restore each other's value.
+        /// </summary>
+        internal static readonly object SingletonGate = new();
 
         #region configuration items
         
@@ -327,7 +343,6 @@ namespace Tyhp.Config
         private void ApplySuppressedWarnings()
         {
             this.SuppressedWarnings = FrozenSet<MessageCode>.Empty;
-            DiagnosticBag.DefaultSuppressedWarnings = this.SuppressedWarnings;
 
             var raw = this._configuration.GetSection("suppress-warnings").Exists()
                 ? this.ReadGlobList("suppress-warnings")
@@ -355,8 +370,6 @@ namespace Tyhp.Config
             {
                 this.SuppressedWarnings = codes.ToFrozenSet();
             }
-
-            DiagnosticBag.DefaultSuppressedWarnings = this.SuppressedWarnings;
         }
 
         /// <summary>

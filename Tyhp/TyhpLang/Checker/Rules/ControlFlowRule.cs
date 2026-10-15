@@ -366,6 +366,45 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             state.Merge(loopState);
             state.HasReturnedOnAllPaths = false;
+
+            // Exiting `while` / `do` means the condition is false, unless `break` left early.
+            // `while (!\is_int($m)) { $m = 1; }` therefore leaves `$m` as `int`.
+            if (loop.LoopType is PhpLoopType.While or PhpLoopType.DoWhile
+                && !ContainsBreak(loop.Body))
+            {
+                ApplyConditionNarrowing(loop.Condition, state, context, positive: false);
+            }
+        }
+
+        /// <summary>
+        /// True when <paramref name="node"/> contains a <c>break</c> that is not inside a
+        /// nested function or closure. A nested <c>break</c> still suppresses exit narrowing:
+        /// it may target this loop (<c>break 2</c>).
+        /// </summary>
+        private static bool ContainsBreak(IBase2Ast? node)
+        {
+            if (node is null
+                || node is PhpInlineFunctionAst
+                or PhpFunctionDeclAst
+                or PhpMethodDeclAst)
+            {
+                return false;
+            }
+
+            if (node is PhpJumpStatementAst { JumpType: PhpJumpType.Break })
+            {
+                return true;
+            }
+
+            foreach (var child in node.AstChildren)
+            {
+                if (child is not null && ContainsBreak(child))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static void CheckStatement(
@@ -435,6 +474,18 @@ namespace Tyhp.TyhpLang.Checker.Rules
             finally
             {
                 state.ExpectedExpressionType = previousExpected;
+            }
+
+            // An async callable settles with what it returns: a returned promise is adopted by the
+            // runtime, so `return Promise<X>` supplies `X` (and `__Awaited<R>` supplies itself).
+            if (state.IsAsyncReturnScope && !IsInsideGenerator(state))
+            {
+                if (state.AsyncReturnOwner is { } asyncOwner && UtilityTypeResolver.ContainsPromise(actual))
+                {
+                    AsyncReturnFacts.MarkReturnsPromise(asyncOwner);
+                }
+
+                actual = UtilityTypeResolver.Settle(actual, context.GlobalScope);
             }
 
             // PHP fatal: `Method X::__construct() cannot return a value` (same for `__destruct`).

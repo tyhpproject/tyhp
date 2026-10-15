@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Tyhp.CLI;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
+using Tyhp.Domain.Services.PhpDoc;
 using Tyhp.TyhpLang;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
@@ -11,6 +12,7 @@ using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
+using Tyhp.TyhpLang.Checker.Rules;
 using Tyhp.TyhpLang.Emitter;
 using Tyhp.TyhpLang.Enum;
 
@@ -24,6 +26,7 @@ namespace Tyhp.Domain.Services
     public sealed class TyhpCodeTyhpdefGenerator
     {
         private readonly GlobalScope _globalScope;
+        private TyhpLang.Binder.SymbolTree? _symbolTree;
         private readonly TyhpdefGenerationOptions _options;
         private readonly DiagnosticBag _diagnostics;
         private readonly bool _isLibrary;
@@ -344,6 +347,16 @@ namespace Tyhp.Domain.Services
                     case ObjectMethodSymbol method:
                     {
                         var (mapping, hasBacker) = this.MapStandaloneFunctionMapping(method, backerAlias, ns, speller, diagnostics);
+
+                        // Overload signatures come first (most specific first), the
+                        // implementation last, matching the authored order. Each carries the
+                        // implementation's mapping body so call sites splice per overload.
+                        foreach (var overload in method.Overloads)
+                        {
+                            mappings.Add(this.MapStandaloneFunctionOverload(
+                                method, overload, mapping, hasBacker, backerAlias, ns));
+                        }
+
                         mappings.Add(mapping);
                         if (hasBacker)
                         {
@@ -424,6 +437,46 @@ namespace Tyhp.Domain.Services
                 ByRefReceiver = byRefReceiver,
                 Attributes = attributes,
             }, hasBacker);
+        }
+
+        private TyhpdefExtensionMember MapStandaloneFunctionOverload(
+            ObjectMethodSymbol implementation,
+            ObjectMethodSymbol overload,
+            TyhpdefExtensionMember implementationMapping,
+            bool hasBacker,
+            string backerAlias,
+            string ns)
+        {
+            var parameters = this.MapParameters(overload.Parameters, ns, rewriteThisAlias: false, overload.DeclaringAstNode);
+            var (emittedParameters, byRefReceiver) = StripImplicitReceiver(parameters);
+            var backerCallFor = (IEnumerable<TyhpdefParameter> ps)
+                => backerAlias + "::" + implementation.Name + "(" + string.Join(", ", ps.Select(p => FormatCallArg(p.Name))) + ")";
+            var implementationCall = backerCallFor(
+                this.MapParameters(implementation.Parameters, ns, rewriteThisAlias: false, implementation.DeclaringAstNode));
+
+            // A backer-call body is rebuilt from the overload's own parameter names; a copied
+            // expression is shared as written.
+            var body = hasBacker && string.Equals(implementationMapping.Body, implementationCall, StringComparison.Ordinal)
+                ? backerCallFor(parameters)
+                : implementationMapping.Body;
+            var attributes = this.MapDeclarationAttributes(overload.DeclaringAstNode);
+            this.StampGenericRuntime(
+                attributes,
+                this.BinderStamp(overload, backerAlias + "::" + implementation.Name + GeneratedNames.GenericVariantSuffix));
+            return new TyhpdefExtensionMember
+            {
+                Kind = "fn",
+                Name = implementation.Name,
+                Parameters = emittedParameters,
+                ReturnType = this.SpellRequired(overload.ReturnType, ns),
+                GenericParameters = this.MapGenerics(overload.GenericParameters, ns),
+                Body = body,
+                DocComment = this.CopyDoc(overload.DocComment ?? implementation.DocComment),
+                IsDeprecated = implementation.IsDeprecated,
+                IsObsolete = implementation.IsObsolete,
+                ByRefReceiver = byRefReceiver,
+                Attributes = attributes,
+            };
         }
 
         private (TyhpdefExtensionMember Mapping, bool HasPhpBacker) MapStandaloneOperatorMapping(
@@ -574,6 +627,9 @@ namespace Tyhp.Domain.Services
                         Constraint = parameter.Constraint is null
                             ? null
                             : ReplaceSelfTypeAtom(parameter.Constraint, target),
+                        Default = parameter.Default is null
+                            ? null
+                            : ReplaceSelfTypeAtom(parameter.Default, target),
                     })
                     .ToList(),
             };
@@ -906,7 +962,7 @@ namespace Tyhp.Domain.Services
                 Kind = kind,
                 Name = phpName,
                 Modifiers = FormatTypeModifiers(obj.Visibility),
-                Extends = this.Spell(obj.ExtendsType, ns),
+                Extends = this.Spell(obj.ExtendsType, ns) ?? this.SpellRawExtends(obj),
                 BackingType = kind == "enum" ? this.Spell(obj.BackingType, ns) : null,
                 Implements = obj.ImplementsTypes.Select(t => this.SpellRequired(t, ns)).Where(s => s.Length > 0).ToList(),
                 GenericParameters = this.MapGenerics(obj.GenericParameters, ns),
@@ -1195,55 +1251,92 @@ namespace Tyhp.Domain.Services
 
         private TyhpdefMethod MapMethod(ObjectMethodSymbol method, string ns, bool harvestAnonymousReturns = true)
         {
+            if (!method.IsSourceOverloadSet || method.Overloads.Count == 0)
+            {
+                return this.MapMethodSignature(method, method, ns, harvestAnonymousReturns);
+            }
+
+            // A source overload set publishes only its declared signatures (the implementation
+            // signature is not part of the call surface). Every signature carries the generic
+            // runtime stamp of the implementation, which is the member PHP actually contains.
+            var signatures = CheckerHelpers.EnumerateMethodSignatures(method)
+                .Select(signature => this.MapMethodSignature(signature, method, ns, harvestAnonymousReturns))
+                .ToList();
+            return signatures[0] with { Overloads = signatures.Skip(1).ToList() };
+        }
+
+        private TyhpdefMethod MapMethodSignature(
+            ObjectMethodSymbol signature,
+            ObjectMethodSymbol stampOwner,
+            string ns,
+            bool harvestAnonymousReturns)
+        {
             var mapped = new TyhpdefMethod
             {
-                Name = method.Name,
-                Modifiers = FormatMemberModifiers(method.Visibility, method.IsStatic, method.IsAbstract, method.IsAsync),
-                Parameters = this.MapParameters(method.Parameters, ns, rewriteThisAlias: false, method.DeclaringAstNode),
+                Name = signature.Name,
+                Modifiers = FormatMemberModifiers(signature.Visibility, signature.IsStatic, signature.IsAbstract, signature.IsAsync),
+                Parameters = this.MapParameters(signature.Parameters, ns, rewriteThisAlias: false, signature.DeclaringAstNode),
                 ReturnType = harvestAnonymousReturns
                     ? this.SpellReturnWithAnonymousShapes(
-                        method.ReturnType,
-                        method.DeclaringAstNode,
-                        OwnerTypeName(method),
-                        method.Name,
+                        signature.ReturnType,
+                        signature.DeclaringAstNode,
+                        OwnerTypeName(stampOwner),
+                        signature.Name,
                         ns)
-                    : this.Spell(method.ReturnType, ns) ?? "",
-                GenericParameters = this.MapGenerics(method.GenericParameters, ns),
-                DocComment = this.CopyDoc(method.DocComment),
-                IsDeprecated = method.IsDeprecated,
-                IsObsolete = method.IsObsolete,
-                IsAsync = method.IsAsync,
-                Attributes = this.MapDeclarationAttributes(method.DeclaringAstNode),
+                    : this.Spell(signature.ReturnType, ns) ?? "",
+                GenericParameters = this.MapGenerics(signature.GenericParameters, ns),
+                DocComment = this.CopyDoc(signature.DocComment),
+                IsDeprecated = signature.IsDeprecated,
+                IsObsolete = signature.IsObsolete,
+                IsAsync = signature.IsAsync,
+                Attributes = this.MapDeclarationAttributes(signature.DeclaringAstNode),
             };
             this.StampGenericRuntime(
                 mapped.Attributes,
-                this.BinderStamp(method, method.Name + GeneratedNames.GenericVariantSuffix));
+                this.BinderStamp(stampOwner, stampOwner.Name + GeneratedNames.GenericVariantSuffix));
             return mapped;
         }
 
         private TyhpdefFunction MapFunction(FunctionDeclarationSymbol function, string ns)
         {
+            if (!function.IsSourceOverloadSet || function.Overloads.Count == 0)
+            {
+                return this.MapFunctionSignature(function, function, ns, function.Overloads);
+            }
+
+            var signatures = CheckerHelpers.EnumerateFunctionSignatures(function)
+                .Select(signature => this.MapFunctionSignature(signature, function, ns, []))
+                .ToList();
+            return signatures[0] with { Overloads = signatures.Skip(1).Cast<TyhpdefMethod>().ToList() };
+        }
+
+        private TyhpdefFunction MapFunctionSignature(
+            FunctionDeclarationSymbol signature,
+            FunctionDeclarationSymbol stampOwner,
+            string ns,
+            IReadOnlyList<FunctionDeclarationSymbol> tyhpdefOverloads)
+        {
             var mapped = new TyhpdefFunction
             {
-                Name = function.Name,
-                Parameters = this.MapParameters(function.Parameters, ns, rewriteThisAlias: false, function.DeclaringAstNode),
+                Name = signature.Name,
+                Parameters = this.MapParameters(signature.Parameters, ns, rewriteThisAlias: false, signature.DeclaringAstNode),
                 ReturnType = this.SpellReturnWithAnonymousShapes(
-                    function.ReturnType,
-                    function.DeclaringAstNode,
+                    signature.ReturnType,
+                    signature.DeclaringAstNode,
                     ownerTypeName: null,
-                    function.Name,
+                    signature.Name,
                     ns),
-                GenericParameters = this.MapGenerics(function.GenericParameters, ns),
-                DocComment = this.CopyDoc(function.DocComment),
-                IsDeprecated = function.IsDeprecated,
-                IsObsolete = function.IsObsolete,
-                IsAsync = function.IsAsync,
-                Overloads = function.Overloads.Select(o => (TyhpdefMethod)this.MapFunction(o, ns)).ToList(),
-                Attributes = this.MapDeclarationAttributes(function.DeclaringAstNode),
+                GenericParameters = this.MapGenerics(signature.GenericParameters, ns),
+                DocComment = this.CopyDoc(signature.DocComment),
+                IsDeprecated = signature.IsDeprecated,
+                IsObsolete = signature.IsObsolete,
+                IsAsync = signature.IsAsync,
+                Overloads = tyhpdefOverloads.Select(o => (TyhpdefMethod)this.MapFunction(o, ns)).ToList(),
+                Attributes = this.MapDeclarationAttributes(signature.DeclaringAstNode),
             };
             this.StampGenericRuntime(
                 mapped.Attributes,
-                this.BinderStamp(function, function.Name + GeneratedNames.GenericVariantSuffix));
+                this.BinderStamp(stampOwner, stampOwner.Name + GeneratedNames.GenericVariantSuffix));
             return mapped;
         }
 
@@ -1253,8 +1346,9 @@ namespace Tyhp.Domain.Services
             {
                 Name = prop.Name.StartsWith('$') ? prop.Name : "$" + prop.Name,
                 Type = this.Spell(prop.DeclaredType, ns) ?? "",
-                Modifiers = isStruct ? [] : FormatMemberModifiers(prop.Visibility, isStatic: false, isAbstract: false, isAsync: false),
+                Modifiers = isStruct ? [] : FormatPropertyModifiers(prop.Visibility),
                 CoalesceValue = isStruct ? null : this.SpellExpr(prop.DefaultValue, ns),
+                StructDefault = isStruct ? this.SpellExpr(prop.DefaultValue, ns) : null,
                 DocComment = this.CopyDoc(prop.DocComment),
                 IsDeprecated = prop.IsDeprecated,
                 Attributes = this.MapDeclarationAttributes(this.PropertyAttributeHost(prop)),
@@ -1616,6 +1710,7 @@ namespace Tyhp.Domain.Services
                 {
                     Name = param.Name,
                     Constraint = this.Spell(param.Constraint, ns),
+                    Default = this.Spell(param.DefaultType, ns),
                 });
             }
 
@@ -1630,6 +1725,22 @@ namespace Tyhp.Domain.Services
 
         private string SpellRequired(ITypeExpression? type, string ns)
             => this.Spell(type, ns) ?? "mixed";
+
+        /// <summary>
+        /// A struct's <c>extends</c> is parsed as a raw class name, so <c>ExtendsType</c> is null on
+        /// the symbol; read the parent from the declaring AST instead.
+        /// </summary>
+        private string? SpellRawExtends(ObjectDeclarationSymbol obj)
+        {
+            if (!obj.IsStruct || StructExtends.FromDeclaringNode(obj.DeclaringAstNode) is not { } className)
+            {
+                return null;
+            }
+
+            this._symbolTree ??= new TyhpLang.Binder.SymbolTree(this._globalScope);
+            var parent = TyhpLang.Checker.TypeComparer.TryResolveClassName(className, obj, this._symbolTree, this._globalScope);
+            return TyhpdefTypeSpeller.SpellClassName(className, parent);
+        }
 
         private HashSet<string> ShapeUsedNames(string ns)
         {
@@ -2109,10 +2220,17 @@ namespace Tyhp.Domain.Services
         }
 
         /// <summary>
-        /// Public library tyhpdef omits <c>private</c> and <c>internal</c> (same generation boundary).
+        /// Public library tyhpdef omits <c>private</c> and <c>internal</c> members (same generation
+        /// boundary) and anything whose docblock carries an <c>@internal</c> tag.
         /// </summary>
         private static bool IsOmittedFromPublicApi(IBaseSymbol symbol)
-            => SymbolExportVisibility.OmitFromPublicTyhpdef(symbol);
+            => SymbolExportVisibility.OmitFromPublicTyhpdef(symbol)
+                || HasInternalDocTag(symbol);
+
+        private static bool HasInternalDocTag(IBaseSymbol symbol)
+            => symbol is BaseSymbol { DocComment: { Length: > 0 } doc }
+                && doc.Contains("@internal", StringComparison.Ordinal)
+                && PhpDocParser.Parse(doc).IsInternal;
 
         /// <summary>
         /// Methods/properties/constants plus operator overloads. Operators are child symbols of
@@ -2257,6 +2375,17 @@ namespace Tyhp.Domain.Services
             if (isAbstract || (visibility & MemberModifier.Abstract) != 0) list.Add("abstract");
             if ((visibility & MemberModifier.Final) != 0) list.Add("final");
             if (isAsync || (visibility & MemberModifier.Async) != 0) list.Add("async");
+            return list;
+        }
+
+        private static List<string> FormatPropertyModifiers(MemberModifier visibility)
+        {
+            var list = FormatMemberModifiers(visibility, isStatic: false, isAbstract: false, isAsync: false);
+            if ((visibility & MemberModifier.Readonly) != 0)
+            {
+                list.Insert(0, "readonly");
+            }
+
             return list;
         }
 

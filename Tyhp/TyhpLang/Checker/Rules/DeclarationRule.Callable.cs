@@ -40,6 +40,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             funcState.EnclosingCallable = functionSymbol;
             funcState.FunctionGenerics = functionSymbol.GenericParameters;
             GenericConstraintResolver.ResolveAll(functionSymbol.GenericParameters, funcState, context);
+            if (functionSymbol.IsSourceOverloadSet)
+            {
+                ValidateFunctionOverloadSet(functionSymbol, state, context, diagnostics);
+            }
+
             var returnTypeAst = function.ReturnType ?? functionSymbol.ReturnType;
             if (returnTypeAst is TyhpReturnTypeGuardAst typeGuard)
             {
@@ -52,6 +57,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 returnTypeAst, funcState, context);
             funcState.IsInAsyncContext = functionSymbol.IsAsync;
             funcState.IsInGeneratorContext = functionSymbol.IsGenerator;
+            TypeGuardValidation.ApplyAsyncReturnScope(
+                funcState, function, functionSymbol.IsAsync, functionSymbol.IsGenerator, context);
             if (functionSymbol.IsGenerator)
             {
                 funcState.GeneratorInference = GeneratorBodyCollector.ForDeclaredReturn(returnTypeAst);
@@ -236,6 +243,14 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
+            if (methodSymbol.IsOverloadSignature)
+            {
+                // A bodyless overload signature: the declaration of its set carries the member-level
+                // checks (modifiers, overriding); the signature only needs valid types.
+                CheckMethodOverloadSignature(method, methodSymbol, state, context, diagnostics);
+                return;
+            }
+
             var modifiers = CheckerHelpers.ToMemberModifiers(method.Modifiers);
             if (CheckerHelpers.CountVisibilityModifiers(modifiers) > 1)
             {
@@ -293,6 +308,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             GenericConstraintResolver.ResolveAll(methodSymbol.GenericParameters, methodState, context);
+            // Abstract/interface sets have no implementation to be compatible with: each signature
+            // stands alone, and an overriding method is checked against every one of them.
+            if (methodSymbol.OverloadRole == SourceOverloadRole.Implementation)
+            {
+                ValidateMethodOverloadSet(methodSymbol, state, context, diagnostics);
+            }
+
             AsyncRule.ValidateAsyncMethod(method, methodState, context, diagnostics);
             var methodReturnTypeAst = method.ReturnType ?? methodSymbol.ReturnType;
             if (methodReturnTypeAst is TyhpReturnTypeGuardAst methodTypeGuard)
@@ -315,6 +337,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     methodReturnTypeAst, methodState, context);
             methodState.IsInAsyncContext = methodSymbol.IsAsync;
             methodState.IsInGeneratorContext = methodSymbol.IsGenerator;
+            TypeGuardValidation.ApplyAsyncReturnScope(
+                methodState, method, methodSymbol.IsAsync, methodSymbol.IsGenerator, context);
             if (methodSymbol.IsGenerator)
             {
                 methodState.GeneratorInference = GeneratorBodyCollector.ForDeclaredReturn(methodReturnTypeAst);
@@ -526,20 +550,45 @@ namespace Tyhp.TyhpLang.Checker.Rules
             DiagnosticBag diagnostics,
             bool checkSignature = true)
         {
-            if (TryFindOverriddenMethod(methodSymbol.Name, state, context) is not { } parentMethod)
+            if (TryFindOverriddenMethod(methodSymbol.Name, state, context) is { } parentMethod)
             {
-                return;
+                if ((parentMethod.Visibility & MemberModifier.Final) != 0)
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics, state, method, MessageCode.CheckerFinalMethodOverridden, methodSymbol.Name);
+                }
+
+                if (checkSignature)
+                {
+                    ValidateOverrideSignature(method, methodSymbol, parentMethod, state, context, diagnostics);
+                    if (parentMethod.OverloadRole == SourceOverloadRole.LastSignature)
+                    {
+                        foreach (var parentOverload in parentMethod.Overloads)
+                        {
+                            ValidateOverrideSignature(method, methodSymbol, parentOverload, state, context, diagnostics);
+                        }
+                    }
+                }
             }
 
-            if ((parentMethod.Visibility & MemberModifier.Final) != 0)
+            if (checkSignature
+                && state.EnclosingObject is { ObjectKind: PhpTypeDeclType.Class or PhpTypeDeclType.Enum } owner)
             {
-                CheckerHelpers.ReportError(
-                    diagnostics, state, method, MessageCode.CheckerFinalMethodOverridden, methodSymbol.Name);
-            }
+                foreach (var iface in CollectImplementedInterfaces(owner, context))
+                {
+                    if (!iface.Members.TryGetValue(methodSymbol.Name, out var member)
+                        || member is not ObjectMethodSymbol ifaceMethod
+                        || (ifaceMethod.Visibility & MemberModifier.Private) != 0)
+                    {
+                        continue;
+                    }
 
-            if (checkSignature)
-            {
-                ValidateOverrideSignature(method, methodSymbol, parentMethod, state, context, diagnostics);
+                    ValidateOverrideSignature(method, methodSymbol, ifaceMethod, state, context, diagnostics);
+                    foreach (var ifaceOverload in ifaceMethod.Overloads)
+                    {
+                        ValidateOverrideSignature(method, methodSymbol, ifaceOverload, state, context, diagnostics);
+                    }
+                }
             }
         }
 
@@ -614,6 +663,30 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     ? CheckedTypes.FromSymbol(state.EnclosingObject)
                     : CheckedTypes.Unresolved);
 
+            // A generic override re-declares the base method's type parameters (same order). They are
+            // distinct symbols, so the base method's own parameters are mapped onto the override's by
+            // position before the two signatures are compared.
+            var methodGenericMap = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
+            for (var g = 0; g < Math.Min(parentMethod.GenericParameters.Count, methodSymbol.GenericParameters.Count); g++)
+            {
+                methodGenericMap[parentMethod.GenericParameters[g]] =
+                    CheckedTypes.FromSymbol(methodSymbol.GenericParameters[g]);
+            }
+
+            // The override's own type parameters shadow same-named class parameters.
+            var childState = state;
+            if (methodSymbol.GenericParameters.Count > 0)
+            {
+                childState = state.Fork();
+                childState.FunctionGenerics = methodSymbol.GenericParameters;
+            }
+
+            ICheckedType MapParentMethodGenerics(ICheckedType type) =>
+                methodGenericMap.Count == 0
+                    ? type
+                    : TypeComparer.ResolveGenericTypeBySymbol(
+                        type, methodGenericMap, context.SymbolTree, context.GlobalScope);
+
             for (var i = 0; i < parentMethod.Parameters.Count; i++)
             {
                 var childParam = methodSymbol.Parameters[i];
@@ -623,9 +696,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     continue;
                 }
 
-                var childType = context.ResolveTypeAnnotation(childParam.DeclaredType, state);
-                var parentType = context.ResolveMemberDeclaredType(
-                    parentParam.DeclaredType, receiverType, state, parentMethod);
+                var childType = context.ResolveTypeAnnotation(childParam.DeclaredType, childState);
+                var parentType = MapParentMethodGenerics(context.ResolveMemberDeclaredType(
+                    parentParam.DeclaredType, receiverType, state, parentMethod));
                 if (!TypeComparer.IsAssignableTo(parentType, childType, context.SymbolTree, context.GlobalScope))
                 {
                     CheckerHelpers.ReportError(
@@ -635,15 +708,37 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             if (methodSymbol.ReturnType is not null && parentMethod.ReturnType is not null)
             {
-                var childReturn = context.ResolveTypeAnnotation(methodSymbol.ReturnType, state, isReturnTypePosition: true);
-                var parentReturn = context.ResolveMemberDeclaredType(
-                    parentMethod.ReturnType, receiverType, state, parentMethod);
+                var childReturn = context.ResolveTypeAnnotation(methodSymbol.ReturnType, childState, isReturnTypePosition: true);
+                var parentReturn = MapParentMethodGenerics(context.ResolveMemberDeclaredType(
+                    parentMethod.ReturnType, receiverType, state, parentMethod));
+                if (methodSymbol.IsAsync)
+                {
+                    childReturn = PromiseOfSettled(childReturn, context);
+                }
+
+                if (parentMethod.IsAsync)
+                {
+                    parentReturn = PromiseOfSettled(parentReturn, context);
+                }
+
                 if (!TypeComparer.IsAssignableTo(childReturn, parentReturn, context.SymbolTree, context.GlobalScope))
                 {
                     CheckerHelpers.ReportError(
                         diagnostics, state, method, MessageCode.CheckerOverloadSignatureIncompatible, methodSymbol.Name);
                 }
             }
+        }
+
+        /// <summary>
+        /// An <c>async</c> method annotated <c>: R</c> is <c>Promise&lt;__Awaited&lt;R&gt;&gt;</c> to callers,
+        /// so that is the signature compared with an interface or base method.
+        /// </summary>
+        private static ICheckedType PromiseOfSettled(ICheckedType declaredReturn, CheckerRuleContext context)
+        {
+            var settled = UtilityTypeResolver.Settle(declaredReturn, context.GlobalScope);
+            var promise = CheckerHelpers.ResolveNamedType("Tyhp\\Promise", context.SymbolTree, context.GlobalScope);
+            var baseType = promise is GenericCheckedType generic ? generic.BaseType : promise;
+            return new GenericCheckedType(baseType, [settled]);
         }
 
         private static bool HasRequiredParameterBeyond(ObjectMethodSymbol methodSymbol, int inheritedCount)

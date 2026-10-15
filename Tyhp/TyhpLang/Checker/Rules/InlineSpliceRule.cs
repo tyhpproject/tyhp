@@ -290,7 +290,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 lazyNames,
                 eagerOrder,
                 needsRefHoist,
-                hasStatementSlot: true);
+                hasStatementSlot: true,
+                body: request.Body);
             if (reason == SpliceDeclineReason.None)
             {
                 return;
@@ -449,7 +450,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 SpliceAst.NormalizeName(param.Name),
                 param.IsRef,
                 param.DefaultValue,
-                isThis);
+                isThis,
+                param.IsVariadic);
 
         private static SpliceEngineContext CreateEngineContext(
             CheckerState state,

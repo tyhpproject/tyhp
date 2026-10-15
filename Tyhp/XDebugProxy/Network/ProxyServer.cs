@@ -119,8 +119,8 @@ namespace Tyhp.XDebugProxy.Network
                     + $"and XDebug {this._config.XDebugListenAddress}:{this.BoundXDebugPort}.");
 
                 await Task.WhenAll(
-                    this.AcceptIdeLoopAsync(linked.Token),
-                    this.AcceptXdebugLoopAsync(linked.Token)).ConfigureAwait(false);
+                    RunAcceptLoop(() => this.AcceptIdeLoop(linked.Token)),
+                    RunAcceptLoop(() => this.AcceptXdebugLoop(linked.Token))).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (linked.Token.IsCancellationRequested)
             {

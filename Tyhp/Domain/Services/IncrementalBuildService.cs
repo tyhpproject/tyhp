@@ -261,10 +261,6 @@ namespace Tyhp.Domain.Services
             }
             builder.AppendLine(String.Join('|', project.IncludePaths.OrderBy(p => p, StringComparer.Ordinal)));
             builder.AppendLine(String.Join('|', project.ExcludePaths.OrderBy(p => p, StringComparer.Ordinal)));
-            builder.AppendLine(project.Build.StructBacking);
-            builder.AppendLine(project.Build.DecimalBacking);
-            builder.AppendLine(project.Build.DecimalScale.ToString());
-            builder.AppendLine(project.Build.DecimalRounding);
             builder.AppendLine(project.Build.GenerateSourcemap.ToString());
             builder.AppendLine(project.Build.SourceMapIncludeContent.ToString());
             builder.AppendLine(project.Build.UpdateComposer.ToString());

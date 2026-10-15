@@ -232,7 +232,10 @@ namespace Tyhp.TyhpLang.Binder
             var blockScope = new CodeBlockScope(cbParent, blockSymbol);
             cbParent.AddCodeBlockChildScope(blockScope);
 
-            foreach (var child in stmtBlock.GetAllNotNull())
+            var blockChildren = stmtBlock.GetAllNotNull().ToList();
+            ScanFunctionOverloads(blockChildren);
+
+            foreach (var child in blockChildren)
             {
                 BindStatementBlock(child, blockScope);
             }
@@ -375,6 +378,8 @@ namespace Tyhp.TyhpLang.Binder
                 }
 
                 if (node.AstChildren == null) return;
+
+                ScanFunctionOverloads(node.AstChildren);
 
                 foreach (var child in node.AstChildren)
                 {

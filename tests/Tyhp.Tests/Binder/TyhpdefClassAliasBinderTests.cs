@@ -135,7 +135,7 @@ public class TyhpdefClassAliasBinderTests
             }
             """);
 
-        php.Should().Contain("new Guest");
+        php.Should().Contain("new \\Guest");
         php.Should().NotContain("new Ghost");
     }
 

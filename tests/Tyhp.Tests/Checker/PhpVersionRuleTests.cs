@@ -429,6 +429,26 @@ public class PhpVersionRuleTests
     }
 
     [Fact]
+    public void AttributeOnExtension_ParallelCompiles_EachReport4304Once()
+    {
+        Parallel.For(0, Environment.ProcessorCount, _ =>
+        {
+            var diagnostics = CompileAndCheck("""
+                <?tyhp
+                #[\Tyhp\Php(">=8.4")]
+                extension StringOps extends string {
+                    function length(): int {
+                        return \strlen($this);
+                    }
+                }
+                """, phpVersion: "8.2", requireNoBindErrors: false);
+
+            diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerPhpVersionAttributeInvalidTarget)
+                .Should().Be(1);
+        });
+    }
+
+    [Fact]
     public void AttributeOnTyhpdefExtension_Reports4304Once()
     {
         var diagnostics = CompileAndCheckFiles(

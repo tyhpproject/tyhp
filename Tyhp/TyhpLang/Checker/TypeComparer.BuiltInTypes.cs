@@ -586,6 +586,53 @@ namespace Tyhp.TyhpLang.Checker
                 && ReferenceEquals(returnParam, param);
         }
 
+        /// <summary>
+        /// Callable return covariance, plus the promise-executor shape: a <c>callable(): T</c>
+        /// is acceptable where <c>callable(): __Awaited&lt;T&gt;|Promise&lt;__Awaited&lt;T&gt;&gt;</c> is expected
+        /// (the runtime adopts whatever the executor returns, so a promise or a plain value both
+        /// settle with <c>__Awaited&lt;T&gt;</c>). This is deliberately not a general
+        /// <c>T</c> → <c>__Awaited&lt;T&gt;</c> assignability.
+        /// </summary>
+        private static bool AreCallableReturnsCompatible(
+            ICheckedType sourceReturn,
+            ICheckedType targetReturn,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            HashSet<(ICheckedType, ICheckedType)> visited) =>
+            IsAssignableToCore(sourceReturn, targetReturn, symbolTree, globalScope, visited)
+            || IsPromiseExecutorReturn(sourceReturn, targetReturn);
+
+        private static bool IsPromiseExecutorReturn(ICheckedType sourceReturn, ICheckedType targetReturn)
+        {
+            if (sourceReturn is not SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol sourceParam }
+                || targetReturn is not UnionCheckedType { Members.Count: 2 } union)
+            {
+                return false;
+            }
+
+            ICheckedType? awaitedMember = null;
+            ICheckedType? promiseMember = null;
+            foreach (var member in union.Members)
+            {
+                if (UtilityTypeResolver.TryGetDeferredAwaited(member, out _))
+                {
+                    awaitedMember = member;
+                }
+                else if (member is GenericCheckedType { TypeArguments.Count: 1 } promise
+                    && UtilityTypeResolver.IsPromiseClass(promise.BaseType))
+                {
+                    promiseMember = promise.TypeArguments[0];
+                }
+            }
+
+            return awaitedMember is not null
+                && promiseMember is not null
+                && UtilityTypeResolver.TryGetDeferredAwaited(awaitedMember, out var payload)
+                && payload is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol payloadParam }
+                && ReferenceEquals(payloadParam, sourceParam)
+                && string.Equals(awaitedMember.DisplayName, promiseMember.DisplayName, StringComparison.Ordinal);
+        }
+
         private static bool AreCallableTypesCompatible(
             CallableCheckedType source,
             CallableCheckedType target,
@@ -595,7 +642,7 @@ namespace Tyhp.TyhpLang.Checker
         {
             if (target.IsAnyArity)
             {
-                return IsAssignableToCore(
+                return AreCallableReturnsCompatible(
                     source.ReturnType, target.ReturnType, symbolTree, globalScope, visited);
             }
 
@@ -640,7 +687,8 @@ namespace Tyhp.TyhpLang.Checker
                 }
             }
 
-            return IsAssignableToCore(source.ReturnType, target.ReturnType, symbolTree, globalScope, visited);
+            return AreCallableReturnsCompatible(
+                source.ReturnType, target.ReturnType, symbolTree, globalScope, visited);
         }
 
         private static bool IsArrayLikeType(ICheckedType type) =>
@@ -766,24 +814,34 @@ namespace Tyhp.TyhpLang.Checker
                     ? type
                     : ResolveGenericTypeBySymbol(type, bindings, symbolTree, globalScope);
 
-            var paramTypes = new List<ICheckedType>(method.Parameters.Count);
-            foreach (var param in method.Parameters)
+            ICheckedType BuildFor(ObjectMethodSymbol signature)
             {
-                var resolved = param.DeclaredType is null
-                    ? CheckedTypes.Unresolved
-                    : SilentResolve(param.DeclaredType, state, false, true);
-                paramTypes.Add(Substitute(resolved));
+                var paramTypes = new List<ICheckedType>(signature.Parameters.Count);
+                foreach (var param in signature.Parameters)
+                {
+                    var resolved = param.DeclaredType is null
+                        ? CheckedTypes.Unresolved
+                        : SilentResolve(param.DeclaredType, state, false, true);
+                    paramTypes.Add(Substitute(resolved));
+                }
+
+                ICheckedType returnType = signature.ReturnType switch
+                {
+                    null => CheckedTypes.Mixed,
+                    TyhpReturnTypeGuardAst => CheckedTypes.Bool,
+                    var returnAst => Substitute(SilentResolve(returnAst, state, true, true)),
+                };
+
+                return CallableArityFacetBuilder.BuildFromParameterInfos(
+                    signature.Parameters, paramTypes, returnType);
             }
 
-            ICheckedType returnType = method.ReturnType switch
-            {
-                null => CheckedTypes.Mixed,
-                TyhpReturnTypeGuardAst => CheckedTypes.Bool,
-                var returnAst => Substitute(SilentResolve(returnAst, state, true, true)),
-            };
-
-            invokeShape = CallableArityFacetBuilder.BuildFromParameterInfos(
-                method.Parameters, paramTypes, returnType);
+            // An overloaded `__invoke` is callable through its declared signatures: one facet each,
+            // in declaration order, so the object satisfies a callable target when one signature does.
+            invokeShape = CallableOverloadSet.AppliesTo(method)
+                ? CallableOverloadSet.Combine(
+                    Rules.CheckerHelpers.EnumerateMethodSignatures(method).Select(BuildFor).ToList())
+                : BuildFor(method);
             return true;
         }
 
@@ -881,6 +939,17 @@ namespace Tyhp.TyhpLang.Checker
             return false;
         }
 
+        private static bool IsIterableKeyShorthand(ICheckedType keyType)
+        {
+            if (keyType is not UnionCheckedType union || union.Members.Count != 2)
+            {
+                return false;
+            }
+
+            return (IsBuiltInName(union.Members[0], "int") && IsBuiltInName(union.Members[1], "string"))
+                || (IsBuiltInName(union.Members[0], "string") && IsBuiltInName(union.Members[1], "int"));
+        }
+
         private static bool AreIterableGenericsCompatible(
             ICheckedType source,
             ICheckedType target,
@@ -898,8 +967,22 @@ namespace Tyhp.TyhpLang.Checker
                 return sourceGeneric.TypeArguments.Count == 0 || targetGeneric.TypeArguments.Count == 0;
             }
 
+            var traversableKeys = IsTraversableType(source, symbolTree, globalScope)
+                && !IsArrayLikeType(source);
             for (var i = 0; i < sourceGeneric.TypeArguments.Count; i++)
             {
+                // `\Traversable<mixed, V>` is what a raw `\Traversable` and the
+                // `\is_iterable` guard (`array|\Traversable`) expand to. One-argument
+                // `iterable<V>` normalizes its key to `int|string`. A Traversable may
+                // yield any key, so `mixed` keys still satisfy that shorthand.
+                if (i == 0
+                    && traversableKeys
+                    && IsMixedType(sourceGeneric.TypeArguments[0])
+                    && IsIterableKeyShorthand(targetGeneric.TypeArguments[0]))
+                {
+                    continue;
+                }
+
                 if (!IsAssignableToCore(
                         sourceGeneric.TypeArguments[i],
                         targetGeneric.TypeArguments[i],

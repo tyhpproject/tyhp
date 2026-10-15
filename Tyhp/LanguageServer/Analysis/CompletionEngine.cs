@@ -1593,7 +1593,7 @@ namespace Tyhp.LanguageServer.Analysis
             ProtocolRange replaceRange,
             TextEdit[]? additionalEdits = null)
         {
-            string detail = SymbolFormatter.FormatSignature(symbol);
+            string detail = SymbolFormatter.FormatCompletionDetail(symbol);
             string? doc = SymbolFormatter.FormatDocumentation(symbol);
             var item = new CompletionItem
             {

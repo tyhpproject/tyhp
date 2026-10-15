@@ -26,6 +26,30 @@ namespace Tyhp.Domain.Services
             return string.IsNullOrWhiteSpace(spelled) ? null : spelled;
         }
 
+        /// <summary>
+        /// Spells a raw <c>extends</c> class-name node (not an <see cref="ITypeExpression"/>), keeping
+        /// any generic arguments and qualifying the head from its bound symbol, or from
+        /// <paramref name="resolved"/> when the name node was never bound.
+        /// </summary>
+        public static string? SpellClassName(IClassName? className, IBaseSymbol? resolved = null)
+        {
+            if (className is null)
+            {
+                return null;
+            }
+
+            var written = className is PhpNameAst name
+                ? NameText(name)
+                : className.ValueString ?? className.Identifier ?? "";
+            if (string.IsNullOrWhiteSpace(written))
+            {
+                return null;
+            }
+
+            var spelled = AppendTypeArguments(SpellBoundHead(className.BoundSymbol ?? resolved, written), className);
+            return string.IsNullOrWhiteSpace(spelled) ? null : spelled;
+        }
+
         private static string SpellCore(ITypeExpression type) =>
             type switch
             {
@@ -149,7 +173,7 @@ namespace Tyhp.Domain.Services
                 joined = parts[0].Text;
             }
 
-            if (!expr.IsNullable || joined.Contains("null", StringComparison.OrdinalIgnoreCase))
+            if (!expr.IsNullable || HasTopLevelNullMember(joined))
             {
                 return joined;
             }
@@ -160,6 +184,49 @@ namespace Tyhp.Domain.Services
             }
 
             return joined + "|null";
+        }
+
+        /// <summary>
+        /// True when a spelled union has a top-level member that is exactly <c>null</c> (or
+        /// <c>?T</c>). A name that merely contains the letters <c>null</c> (<c>\PregMatchSetNullable</c>)
+        /// or a <c>null</c> nested inside generic arguments does not make the type nullable.
+        /// </summary>
+        private static bool HasTopLevelNullMember(string spelled)
+        {
+            var depth = 0;
+            var start = 0;
+            for (var i = 0; i <= spelled.Length; i++)
+            {
+                var atEnd = i == spelled.Length;
+                if (!atEnd)
+                {
+                    var c = spelled[i];
+                    if (c is '<' or '(' or '{' or '[')
+                    {
+                        depth++;
+                    }
+                    else if (c is '>' or ')' or '}' or ']')
+                    {
+                        depth--;
+                    }
+                }
+
+                if (!atEnd && !(spelled[i] == '|' && depth == 0))
+                {
+                    continue;
+                }
+
+                var member = spelled[start..i].Trim();
+                if (member.StartsWith('?')
+                    || string.Equals(member, "null", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                start = i + 1;
+            }
+
+            return false;
         }
 
         private static string SpellCallableShape(TyhpCallableShapeAst shape)

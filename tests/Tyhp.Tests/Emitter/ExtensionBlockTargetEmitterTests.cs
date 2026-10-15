@@ -189,7 +189,8 @@ public class ExtensionBlockTargetEmitterTests
         php.Should().Contain("function read(array $this_): mixed");
         php.Should().NotContain("function read(array &$this_)");
         php.Should().Contain("function bump(array &$this_): void");
-        php.Should().Contain("return \\StringExtensions::length('hello');");
+        // The literal receiver has no side effects, so the `return 5;` body splices into the call site.
+        php.Should().Contain("function demo(): int\n{\n    return 5;");
     }
 
     [Fact]

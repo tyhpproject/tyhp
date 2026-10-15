@@ -350,7 +350,9 @@ namespace Tyhp.Domain.Services
 
                     if (!isTopLevelFunction)
                     {
-                        AppendModifiers(sb, method.Modifiers);
+                        AppendModifiers(sb, method.IsAsync
+                            ? method.Modifiers?.Where(m => !string.Equals(m.Trim(), "async", StringComparison.Ordinal))
+                            : method.Modifiers);
                     }
                 }
 
@@ -848,6 +850,12 @@ namespace Tyhp.Domain.Services
                 {
                     sb.Append(" ?? ");
                     sb.Append(property.CoalesceValue);
+                }
+
+                if (isStruct && !string.IsNullOrEmpty(property.StructDefault))
+                {
+                    sb.Append(" = ");
+                    sb.Append(property.StructDefault);
                 }
 
                 // Structs have no hook grammar (tyhpStructProperty). Empty Hooks stays

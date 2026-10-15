@@ -211,7 +211,7 @@ Both lexers include `shared/PhpLexer.body.g4` (all of its modes) and `shared/Tyh
 
 - Shared Tyhp+tyhpdef, fully contextual `T_STRING` (no dedicated lexer token; parser predicates decide keyword vs name): `struct` (same pattern as `object`)
 - Shared Tyhp+tyhpdef, lookahead-contextual (reclassified in `NextToken`): `type`, `extension`, `async` (keyword only before `function` / `fn` / a member modifier / `{`), `operator` (keyword only before an operator token including `=` for `==`/`===` / `empty` / `convert`), `void` (keyword unless the next token is `(` or `<`, so `function void()` stays an identifier)
-- Shared Tyhp+tyhpdef, unconditional: `await`, `parent` (`parent` cannot use the `void` `(`-fallback — both `: parent(...)` ctor returns and `function parent()` are followed by `(`. Identifier uses go through `nameTokenValueGrammarAddon` / `semiReserved`)
+- Shared Tyhp+tyhpdef: `await` is `T_TYHP_AWAIT` except immediately after `function`, where it stays `T_STRING` so `function await` / `fallback function await` declare a free function. `await($x)` stays the operator. `parent` is unconditional (`parent` cannot use the `void` `(`-fallback — both `: parent(...)` ctor returns and `function parent()` are followed by `(`. Identifier uses go through `nameTokenValueGrammarAddon` / `semiReserved`)
 - Shared Tyhp+tyhpdef, other: `(decimal)` cast
 - tyhpdef-only, lookahead-contextual (reclassified in `NextToken`, so a real
   member/function named `partial`, `extern`, `omit`, `deprecated`, or `obsolete` still parses): `partial` (keyword only immediately
@@ -223,6 +223,8 @@ Both lexers include `shared/PhpLexer.body.g4` (all of its modes) and `shared/Tyh
 **`ST_TYHP_TAGLESS`** — used when `source.tagless` is enabled and the file starts with a literal open tag. `ConfigureTagless` lives on `TyhpLexer.GrammarMethods.cs` and is emitted onto `TyhpdefLexer` by `compile_grammar_emit_partials.py` (class rename only). `.tyhpdef` tagless files call it on `TyhpdefLexer` with language mode `"tyhpdef"`. The mode consumes optional `<?tyhp` (`TyhpLexer` only) or `<?tyhpdef` (both lexers), then switches to `ST_IN_SCRIPTING`. No path back to inline HTML; closing `?>` is rejected by the tagless **parser** entry rules (they omit `T_CLOSE_TAG`). If there is no open tag, ConfigureTagless starts directly in `ST_IN_SCRIPTING` so line/column tracking stays correct.
 
 Tyhp-only keyword rules (`internal`, `with`, `using`, `typeof`, `nameof`, `variable_exists`, `:=`, and the `<?tyhp` open tags) are written in `TyhpLexer.g4` and are not included by `TyhpdefLexer`.
+
+**Reserved words as `with` keys.** In `new T() with [class => 1, line => 2]` a key is an unquoted word followed by `=>`. `TyhpLexer.NextToken` tracks bracket depth and the arrays opened right after `with`; inside such an array a bare word in key position (right after `[` or `,` at that array's depth) that is followed by `=>` is re-typed to `T_STRING`, so reserved words (`class`, `list`, `array`, …) name fields. Elsewhere the same words keep their token types. The logic lives in `ReclassifyWithInitializerKey` in `TyhpLexer.GrammarMethods.cs` (default channel, `tyhp` mode only) and is mirrored onto `TyhpdefLexer`.
 
 Actions called from `.g4` (`prepareLess`, `doPreparedLess`, `streamLA`, `closeTagHandler`, …) are implemented in the Tyhp lexer partial and emitted onto `TyhpdefLexer` — edit the Tyhp partial, then regenerate.
 

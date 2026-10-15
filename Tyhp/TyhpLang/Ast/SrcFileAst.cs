@@ -4,7 +4,13 @@ namespace Tyhp.TyhpLang.Ast {
     public abstract class SrcFileAst : Base2Ast
     {
         public byte[] FileHash => [..(this.ValueString ?? "").Select(c => (byte)c)];
-        public string FileName => AstCacheService.GetRelativePath(this.Identifier);
+
+        // Snapshotted on first read. GetRelativePath follows Project.Singleton, which other
+        // threads may publish; recomputing on every read made binder and checker file names
+        // diverge and dropped extension/import matches.
+        private string? _fileName;
+
+        public string FileName => _fileName ??= AstCacheService.GetRelativePath(this.Identifier);
 
         protected static TType AbstractCreate<TType>(
             string fileName,

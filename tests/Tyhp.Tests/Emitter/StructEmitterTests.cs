@@ -108,6 +108,24 @@ public class StructEmitterTests
     }
 
     [Fact]
+    public void Emit_StructPropertyInParentConstructorArguments_UsesArrayAccess()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            type Outcome = struct {
+                int $code = 0;
+                string $text = '';
+            };
+            final class OutcomeException extends \RuntimeException {
+                public function __construct(Outcome $outcome): parent($outcome->text, $outcome->code) {}
+            }
+            """);
+
+        php.Should().Contain("parent::__construct($outcome['text'], $outcome['code']);");
+        php.Should().NotContain("$outcome->");
+    }
+
+    [Fact]
     public void Emit_ClassMemberStructNewWith_EmitsArrayNotObjectHelper()
     {
         var php = CompileAndEmit("""
@@ -502,7 +520,7 @@ public class StructEmitterTests
     }
 
     [Fact]
-    public void Emit_CustomStructBacking_EmitsBackingClassAndReportsMissingClass()
+    public void Emit_ClassNameStructBackingConfig_IsIgnoredAndStructsStayArrays()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -522,9 +540,10 @@ public class StructEmitterTests
             }
             """, project);
 
-        php.Should().Contain(@"new \App\MissingStructBacking(['x' => 0])");
-        php.Should().Contain(@"function make(): \App\MissingStructBacking");
-        diagnostics.Errors.Should().Contain(e => e.Code == MessageCode.EmitterStructBackingError);
+        php.Should().Contain("return ['x' => 0];");
+        php.Should().Contain("function make(): array");
+        php.Should().NotContain("MissingStructBacking");
+        diagnostics.Errors.Should().BeEmpty();
     }
 
     [Fact]
@@ -676,13 +695,5 @@ public class StructEmitterTests
 
         php.Should().Contain("['items' => [1, 2], 'count' => 1]");
         php.Should().NotMatchRegex(@",\s*,");
-    }
-
-    [Fact]
-    public void EmitContext_IsStructBackedByArray_DefaultsTrueWhenProjectNull()
-    {
-        var context = EmitContext.Create(null, new DiagnosticBag(), project: null);
-        context.IsStructBackedByArray().Should().BeTrue();
-        context.GetStructBacking().Should().Be("array");
     }
 }

@@ -180,12 +180,14 @@ namespace Tyhp.TyhpLang.Emitter
                 ?? methodSymbol;
             if (this._context.RequiresGenericVariantFor(spliceSymbol)
                 || this._context.RequiresGenericVariantFor(methodSymbol)
-                || this._context.HasForeignGenericRuntime(spliceSymbol)
-                || this._context.HasForeignGenericRuntime(methodSymbol))
+                || this._context.HasForeignGenericBinder(spliceSymbol)
+                || this._context.HasForeignGenericBinder(methodSymbol))
             {
                 // Mechanism D / foreign Generic::bind need the bound type at the call site.
                 // Splicing the body would leave the callee's type parameter unbound, and a
-                // stamped compiled-library member must go through Generic::bind.
+                // compiled-library member whose stamp is not `erased` must go through
+                // Generic::bind. An `erased` stamp (e.g. `array::mapped<TResult>`) reads no type
+                // argument at runtime, so its thin body splices like any other extension member.
                 return false;
             }
 
@@ -196,11 +198,13 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             var args = new List<IExpression?>();
+            var spread = new List<bool>();
             if (originalArgs is not null)
             {
                 foreach (var arg in originalArgs.GetAllNotNull())
                 {
                     args.Add(arg.Expression);
+                    spread.Add(arg.IsVariadic);
                 }
             }
 
@@ -213,6 +217,7 @@ namespace Tyhp.TyhpLang.Emitter
                 Parameters = SpliceAst.ParametersFromSymbol(spliceSymbol.Parameters, firstIsThis: true),
                 Receiver = receiver,
                 Arguments = args,
+                ArgumentIsSpread = spread,
                 HasPhpBacker = SpliceAst.MemberHasPhpBacker(spliceSymbol.DeclaringAstNode, extensionClass),
                 HasStatementSlot = !this._refHoistForbidden.Contains(callNode),
                 DeclaringClassFqn = spliceClass.FullyQualifiedName,
@@ -251,19 +256,32 @@ namespace Tyhp.TyhpLang.Emitter
                 return false;
             }
 
+            // Left operand's type first, then the right operand's (same order as the checker and
+            // `SelectStaticBinaryOperatorTarget`), so reversed forms such as
+            // `operator +(int $left, self $right)` declared on the right operand's type apply.
             ObjectOperatorOverloadMethodSymbol? form = null;
             ObjectDeclarationSymbol? owner = null;
-            var resolved = this.ResolveOperatorExpressionType(binary.Left);
-            if (resolved is ObjectDeclarationSymbol objectDecl && !objectDecl.IsStruct)
+            foreach (var owningOperand in new[] { binary.Left, binary.Right })
             {
-                this.TryFindBinaryFormOnTypeOrComposingClasses(
-                    objectDecl, op, binary.Left, binary.Right, out form, out var owningType, out _);
-                owner = owningType as ObjectDeclarationSymbol ?? objectDecl;
-            }
-            else if (resolved is BuiltInTypeSymbol builtin)
-            {
-                form = this.FindMatchingBinaryFormForBuiltin(builtin, op, binary.Left, binary.Right);
-                owner = form is null ? null : CallSiteSpliceEngine.OwnerOf(form);
+                var resolved = this.ResolveOperatorExpressionType(owningOperand);
+                if (resolved is ObjectDeclarationSymbol objectDecl && !objectDecl.IsStruct)
+                {
+                    this.TryFindBinaryFormOnTypeOrComposingClasses(
+                        objectDecl, op, binary.Left, binary.Right, out form, out var owningType, out _);
+                    owner = owningType as ObjectDeclarationSymbol ?? objectDecl;
+                }
+                else if (resolved is BuiltInTypeSymbol builtin)
+                {
+                    form = this.FindMatchingBinaryFormForBuiltin(builtin, op, binary.Left, binary.Right);
+                    owner = form is null ? null : CallSiteSpliceEngine.OwnerOf(form);
+                }
+
+                if (form is not null)
+                {
+                    break;
+                }
+
+                owner = null;
             }
 
             if (form is null

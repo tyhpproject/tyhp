@@ -116,6 +116,7 @@ Every node is a thin wrapper over a **fixed, serializable payload**:
 | `EndLine` / `EndColumn` / `EndIndex` | ints | Yes | From ANTLR `context.Stop` when present; `EndColumn` is **exclusive** (one past last char of stop token), matching `IDiagnostic.EndColumn`; default `-1` when unknown |
 | `DocComment` | string? | Yes | Attached at Create time from visitor docblock scan |
 | `BoundSymbol` | `IBaseSymbol?` | **No** | Set by Binder; recreated each bind |
+| `SelectedOverload` | `IBaseSymbol?` | **No** | Set by the Checker on a call's callee node (free-function name, method dereferenceable) to the declared source-overload signature selected for the call, when that is not the emitted declaration in `BoundSymbol`; read by the Emitter for argument-driven rewrites. Class member only (not on `IBase2Ast`) |
 | `OwningFile` | `SrcFileAst?` | **No** | Set by Binder recursively on `AstChildren` |
 
 Typed accessors on concrete classes are almost always:
@@ -498,6 +499,10 @@ Created when a visitor hits an unexpected alternative; implements `IExpression`,
 ### `EmittedPhpExprAst`
 
 Emitter-synthesized `IExpression` holding raw `PhpText` for cases that cannot be expressed as ordinary AST (e.g. anonymous-class `with` wrappers in `WithKeywordHelper`). Not produced by the parser. `PhpText` is not part of the binary schema.
+
+### `CallableWrapperAst`
+
+Emitter-synthesized `IExpression` (`Tyhp.TyhpLang.Emitter`, not the `Ast` namespace) that stands in for a first-class callable the checker planned a wrapper closure for (see the Emitter guide §6j). It holds a list of parts — verbatim PHP text, a checked type spelled at render time, or an expression rendered with the normal expression emitter — plus the callee's class FQN (used to rewrite `self::` in copied default values). Created only by `AliasConverter.TryRewriteCallableWrapper`; never produced by the parser and never serialized (the AST cache stores the pre-emit tree). It is a concrete `Base2Ast` subclass, so it takes part in the registry ordering of §13 (it sorts after every `Tyhp.TyhpLang.Ast.*` type; `EmittedPhpExprAst` stays id 0). The cache directory is keyed by the compiler build id, so adding it does not need a format-version bump.
 
 ### `TokenValueAst`
 

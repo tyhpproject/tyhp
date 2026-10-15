@@ -136,7 +136,7 @@ public class ConfigInterpolatorTests
     [InlineData("3.4.1-beta.1", "3", "4", "1", "-beta.1")]
     [InlineData("3.4.1+build.5", "3", "4", "1", "+build.5")]
     [InlineData("5.34.12.5.3.22", "5", "34", "12", ".5.3.22")]
-    [InlineData("805.1.0-beta.1", "805", "1", "0", "-beta.1")]
+    [InlineData("705.1.0-beta.1", "705", "1", "0", "-beta.1")]
     [InlineData("3.4", "3", "4", "0", "")]
     [InlineData("3.4-rc.1", "3", "4", "0", "-rc.1")]
     public void SplitComposerVersion_SeparatesNumericPartsAndSuffix(

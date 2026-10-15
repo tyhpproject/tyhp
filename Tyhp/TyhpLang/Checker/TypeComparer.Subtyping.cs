@@ -245,6 +245,14 @@ namespace Tyhp.TyhpLang.Checker
                 return true;
             }
 
+            // Emit adds \Tyhp\Contracts\{String,Bool,Int,Float,Decimal}Convertible (and the base
+            // \Tyhp\Contracts\Convertible) to a class that declares `operator convert(self): T`,
+            // so the checker sees the same interfaces without a written `implements`.
+            if (IsSynthesizedConvertibleInterface(child, parent, globalScope))
+            {
+                return true;
+            }
+
             // PHP auto-implements \UnitEnum on every enumeration and \BackedEnum
             // (extends \UnitEnum) on backed enumerations. No written `implements`
             // is required; listing those interfaces is a later diagnostic.
@@ -273,6 +281,42 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// True when <paramref name="parent"/> is a <c>\Tyhp\Contracts\*Convertible</c> contract that
+        /// emit synthesizes for <paramref name="child"/> because it declares a matching convert-to
+        /// operator (<c>operator convert(self $value): decimal</c> → <c>DecimalConvertible</c>).
+        /// </summary>
+        private static bool IsSynthesizedConvertibleInterface(
+            ObjectDeclarationSymbol child,
+            ObjectDeclarationSymbol parent,
+            GlobalScope globalScope)
+        {
+            if (parent.ObjectKind != PhpTypeDeclType.Interface || child.ObjectKind == PhpTypeDeclType.Interface)
+            {
+                return false;
+            }
+
+            var fqn = (string.IsNullOrEmpty(parent.FullyQualifiedName) ? parent.Name : parent.FullyQualifiedName)
+                .TrimStart('\\');
+            string? targetKey = fqn switch
+            {
+                "Tyhp\\Contracts\\StringConvertible" => FormatCheckedTypeKey("string"),
+                "Tyhp\\Contracts\\BoolConvertible" => FormatCheckedTypeKey("bool"),
+                "Tyhp\\Contracts\\IntConvertible" => FormatCheckedTypeKey("int"),
+                "Tyhp\\Contracts\\FloatConvertible" => FormatCheckedTypeKey("float"),
+                "Tyhp\\Contracts\\DecimalConvertible" => FormatCheckedTypeKey("decimal"),
+                _ => null,
+            };
+
+            if (targetKey is not null)
+            {
+                return ClassHasConvertToOverload(child, targetKey, globalScope);
+            }
+
+            return string.Equals(fqn, "Tyhp\\Contracts\\Convertible", StringComparison.OrdinalIgnoreCase)
+                && ClassHasAnyConvertToOverload(child, globalScope);
         }
 
         /// <summary>

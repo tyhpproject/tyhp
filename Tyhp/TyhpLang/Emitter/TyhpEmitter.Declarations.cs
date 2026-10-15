@@ -176,7 +176,8 @@ namespace Tyhp.TyhpLang.Emitter
                 {
                     // Overload signatures are compile-time-only; erase them and keep the implementation.
                     if (member is PhpMethodDeclAst method
-                        && OverloadSignatureHelper.IsClassMethodOverloadSignature(method, implementedMethodNames))
+                        && (OverloadSignatureHelper.IsClassMethodOverloadSignature(method, implementedMethodNames)
+                            || method.BoundSymbol is ObjectMethodSymbol { IsOverloadSignature: true }))
                     {
                         continue;
                     }
@@ -268,7 +269,7 @@ namespace Tyhp.TyhpLang.Emitter
                         this.EmitExtensionMethod(function, block);
                         break;
                     case TyhpOperatorOverloadAst overload:
-                        if (overload.IsShortSyntax)
+                        if (overload.IsShortSyntax && !SpliceAst.IsConvertOperator(overload))
                         {
                             continue;
                         }
@@ -333,7 +334,8 @@ namespace Tyhp.TyhpLang.Emitter
             // into a normal PhpFunctionDeclAst with a `return expr;` body, so they emit here as
             // ordinary `function` declarations. Anonymous PHP arrows (`fn($x) => …`) are a
             // different AST (`PhpInlineFunctionAst`) and keep arrow syntax in Expressions.
-            if (OverloadSignatureHelper.IsErasableFunctionOverloadSignature(functionDecl))
+            if (OverloadSignatureHelper.IsErasableFunctionOverloadSignature(functionDecl)
+                || functionDecl.BoundSymbol is FunctionDeclarationSymbol { IsOverloadSignature: true })
             {
                 return EmitItem.Empty(functionDecl, EmitType.RootStatement, parent);
             }
@@ -414,7 +416,10 @@ namespace Tyhp.TyhpLang.Emitter
             var inheritedConstantType = emitType == EmitType.ObjectConstantDeclaration && constDecl.Type is null
                 ? this.FindInheritedConstantPhpTypeHint(constDecl.Identifier)
                 : null;
+            // Typed class constants are PHP 8.3 syntax. Below 8.3 the checker still enforces the
+            // declared type; the emitted constant is untyped.
             var spelled = emitType == EmitType.RootStatement && constDecl.Type is null
+                || emitType == EmitType.ObjectConstantDeclaration && !this._context.IsPhpVersionAtLeast(8, 3)
                 ? ""
                 : this.SpellEmittedType(constDecl.Type, source, inheritedHint: inheritedConstantType);
             var type = string.IsNullOrWhiteSpace(spelled) ? "" : spelled + " ";
@@ -1104,7 +1109,7 @@ namespace Tyhp.TyhpLang.Emitter
             _ = captureThis;
             useParts.AddRange(this.BuildVariantCaptureNames());
             var useClause = useParts.Count > 0 ? " use (" + string.Join(", ", useParts) + ")" : "";
-            var innerReturn = this.SpellFunctionReturnPhpType(function);
+            var innerReturn = this.SpellAsyncInnerReturnPhpType(function.ReturnType, function, inheritedHint: null);
             if (IsEmptyPhpStatementBlock(function.Body))
             {
                 EmitItem.Line(
@@ -1138,7 +1143,13 @@ namespace Tyhp.TyhpLang.Emitter
 
             useParts.AddRange(this.BuildVariantCaptureNames());
             var useClause = useParts.Count > 0 ? " use (" + string.Join(", ", useParts) + ")" : "";
-            var innerReturn = this.SpellMethodReturnPhpType(method);
+            var innerReturn = string.Equals(method.Identifier, "__construct", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(method.Identifier, "__destruct", StringComparison.OrdinalIgnoreCase)
+                    ? this.SpellMethodReturnPhpType(method)
+                    : this.SpellAsyncInnerReturnPhpType(
+                        method.ReturnType,
+                        method,
+                        this.FindInheritedMethodPhpTypeHint(method.Identifier, parameterName: null));
             if (IsEmptyPhpStatementBlock(method.Body))
             {
                 EmitItem.Line(

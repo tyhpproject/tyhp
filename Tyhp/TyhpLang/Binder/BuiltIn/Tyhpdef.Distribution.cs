@@ -212,8 +212,7 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
         private static bool IsPhpExtensionTyhpdefPath(string path)
         {
             var normalized = path.Replace('\\', '/');
-            return normalized.Contains("/packages/php/", StringComparison.OrdinalIgnoreCase)
-                || normalized.Contains("/tyhpdef/php/", StringComparison.OrdinalIgnoreCase)
+            return normalized.Contains("/tyhpdef/php/", StringComparison.OrdinalIgnoreCase)
                 || normalized.Contains("/tyhp/php/", StringComparison.OrdinalIgnoreCase);
         }
 

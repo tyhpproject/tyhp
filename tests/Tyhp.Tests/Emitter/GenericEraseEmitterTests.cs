@@ -168,6 +168,31 @@ public class GenericEraseEmitterTests
     }
 
     [Fact]
+    public void Emit_ForeignGenericRuntime_KeepsNamedArgumentsThroughBind()
+    {
+        var php = CompileAndEmit(
+            """
+            <?tyhp
+            namespace App;
+            function make(): \Vendor\Box {
+                return new \Vendor\Box<int>(42, flags: [true]);
+            }
+            """,
+            """
+            <?tyhpdef
+            namespace Vendor;
+            #[\Tyhp\GenericRuntime(erased: false, factory: "new_Vendor_Box__tyhpGeneric", layouts: [1])]
+            class Box<T> {
+                public function __construct(T $v, bool $allowEmpty = false, array $flags = []): void;
+            }
+            """);
+
+        // The runtime forwards string keys to the factory by name, so the call site must keep
+        // the argument name rather than turning it into a positional slot.
+        php.Should().Contain("\\Tyhp\\Generic::bind(\\Vendor\\Box::class, \\Tyhp\\Type::int())(42, flags: [true])");
+    }
+
+    [Fact]
     public void Emit_ForeignGenericCallable_UsesGenericBind()
     {
         var php = CompileAndEmit(
@@ -189,6 +214,35 @@ public class GenericEraseEmitterTests
 
         php.Should().Contain("\\Tyhp\\Generic::bind($h->identity(...), \\Tyhp\\Type::string())($value)");
         php.Should().NotContain("identity__tyhpGeneric");
+    }
+
+    [Fact]
+    public void Emit_ForeignGenericCallable_TyhpdefStructTypeArgument_PassesRequiredKeys()
+    {
+        var php = CompileAndEmit(
+            """
+            <?tyhp
+            namespace App;
+            function run(\Vendor\Holder $h, string $json): \Vendor\Point {
+                return $h->decode<\Vendor\Point>($json);
+            }
+            """,
+            """
+            <?tyhpdef
+            namespace Vendor;
+            type Point = struct {
+                int $x;
+                ?int $y;
+                int $z = 3;
+            };
+            class Holder {
+                #[\Tyhp\GenericRuntime(erased: false, binder: "Holder::decode__tyhpGeneric", layouts: [1])]
+                public function decode<T extends struct>(string $json): T;
+            }
+            """);
+
+        php.Should().Contain("\\Tyhp\\Type::struct('Vendor\\\\Point'");
+        php.Should().Contain("], ['x'])");
     }
 
     [Fact]

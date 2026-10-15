@@ -465,7 +465,12 @@ public class ExtensionBlockTargetBinderTests
     private static ObjectMethodSymbol? ResolveExtensionMethod(GlobalScope global, string methodName, IBaseSymbol onType)
     {
         var resolver = new NameResolver(new SymbolTree(global), new DiagnosticBag());
-        return resolver.ResolveExtensionMethod(methodName, onType) as ObjectMethodSymbol;
+        // The call site is the file that declares the extension: a declared extension is in scope
+        // there without `use extension`.
+        var declaringFile = ((IBaseScope)global).GetAllChildScopes()
+            .OfType<FileScope>()
+            .FirstOrDefault(file => file.FileName.EndsWith("snippet.tyhp", StringComparison.Ordinal));
+        return resolver.ResolveExtensionMethod(methodName, onType, declaringFile) as ObjectMethodSymbol;
     }
 
     private static ObjectDeclarationSymbol FindTargetGroup(ObjectDeclarationSymbol extension)

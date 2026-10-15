@@ -25,19 +25,33 @@ namespace Tyhp.XDebugProxy.Network
             }
         }
 
-        private async Task AcceptIdeLoopAsync(CancellationToken cancellationToken)
+        /// <summary>
+        /// Dedicated thread. <see cref="TcpListener.AcceptTcpClientAsync"/> completions are
+        /// posted to the thread pool; a saturated pool delayed them past the test timeout
+        /// even though the TCP handshake had already succeeded.
+        /// </summary>
+        private static Task RunAcceptLoop(Action loop) =>
+            Task.Factory.StartNew(
+                loop,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+
+        private void AcceptIdeLoop(CancellationToken cancellationToken)
         {
             TcpListener listener = this._ideListener
                 ?? throw new InvalidOperationException("IDE listener is not started.");
+
+            using var wakeOnCancel = cancellationToken.Register(() => CloseListenerSocket(listener));
 
             while (!cancellationToken.IsCancellationRequested)
             {
                 TcpClient client;
                 try
                 {
-                    client = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+                    client = listener.AcceptTcpClient();
                 }
-                catch (Exception ex) when (ex is ObjectDisposedException or SocketException or OperationCanceledException)
+                catch (Exception ex) when (ex is ObjectDisposedException or SocketException or OperationCanceledException or InvalidOperationException)
                 {
                     if (ShouldStopAcceptLoop(ex, cancellationToken.IsCancellationRequested))
                     {
@@ -49,23 +63,33 @@ namespace Tyhp.XDebugProxy.Network
                     continue;
                 }
 
-                this.OnIdeAccepted(client);
+                try
+                {
+                    this.OnIdeAccepted(client);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    this.Log($"IDE connection was not admitted: {ex.Message}");
+                    TryClose(client);
+                }
             }
         }
 
-        private async Task AcceptXdebugLoopAsync(CancellationToken cancellationToken)
+        private void AcceptXdebugLoop(CancellationToken cancellationToken)
         {
             TcpListener listener = this._xdebugListener
                 ?? throw new InvalidOperationException("XDebug listener is not started.");
+
+            using var wakeOnCancel = cancellationToken.Register(() => CloseListenerSocket(listener));
 
             while (!cancellationToken.IsCancellationRequested)
             {
                 TcpClient client;
                 try
                 {
-                    client = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+                    client = listener.AcceptTcpClient();
                 }
-                catch (Exception ex) when (ex is ObjectDisposedException or SocketException or OperationCanceledException)
+                catch (Exception ex) when (ex is ObjectDisposedException or SocketException or OperationCanceledException or InvalidOperationException)
                 {
                     if (ShouldStopAcceptLoop(ex, cancellationToken.IsCancellationRequested))
                     {
@@ -77,7 +101,15 @@ namespace Tyhp.XDebugProxy.Network
                     continue;
                 }
 
-                this.TrackBackground(this.OnXdebugAcceptedAsync(client, cancellationToken));
+                try
+                {
+                    this.OnXdebugAccepted(client);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    this.Log($"XDebug connection was not admitted: {ex.Message}");
+                    TryClose(client);
+                }
             }
         }
 
@@ -159,6 +191,20 @@ namespace Tyhp.XDebugProxy.Network
                 await Task.WhenAll(snapshot).ConfigureAwait(false);
             }
             catch (Exception)
+            {
+            }
+        }
+
+        private static void CloseListenerSocket(TcpListener listener)
+        {
+            try
+            {
+                listener.Server.Close();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            catch (SocketException)
             {
             }
         }

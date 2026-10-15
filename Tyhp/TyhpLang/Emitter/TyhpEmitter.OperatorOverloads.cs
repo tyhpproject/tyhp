@@ -31,13 +31,14 @@ namespace Tyhp.TyhpLang.Emitter
             var indexByOp = new Dictionary<OverloadableOperator, int>();
             foreach (var overload in overloads)
             {
-                // Short `=>` Tyhp extension operators are erased; class-owned operators always emit.
-                if (isExtension && overload.IsShortSyntax)
+                // Short `=>` Tyhp extension operators are erased (their call sites splice the
+                // expression); class-owned operators and converts always emit.
+                var op = this.GetOperatorEnum(overload);
+                if (isExtension && overload.IsShortSyntax && op != OverloadableOperator.Convert)
                 {
                     continue;
                 }
 
-                var op = this.GetOperatorEnum(overload);
                 if (op == OverloadableOperator.Invalid)
                 {
                     continue;

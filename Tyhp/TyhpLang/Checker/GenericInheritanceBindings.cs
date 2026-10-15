@@ -31,9 +31,13 @@ namespace Tyhp.TyhpLang.Checker
         {
             bindings = null!;
             var type = receiverType;
-            while (type is NullableCheckedType nullable)
+            while (type is NullableCheckedType or StaticCheckedType)
             {
-                type = nullable.InnerType;
+                // `$this` / `static` receivers carry the enclosing class spelling (often the open
+                // generic), which is what binds inherited members to the class's own parameters.
+                type = type is NullableCheckedType nullable
+                    ? nullable.InnerType
+                    : ((StaticCheckedType)type).DeclaringType;
             }
 
             ObjectDeclarationSymbol? level;
@@ -58,6 +62,7 @@ namespace Tyhp.TyhpLang.Checker
 
             bindings = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
             var visited = new HashSet<ObjectDeclarationSymbol>();
+            var start = level;
 
             while (level is not null && visited.Add(level))
             {
@@ -74,7 +79,160 @@ namespace Tyhp.TyhpLang.Checker
                 level = parent;
             }
 
+            if (start is not null)
+            {
+                BindImplementedGenerics(start, bindings, state, symbolTree, globalScope, resolveType);
+            }
+
             return bindings.Count > 0;
+        }
+
+        /// <summary>
+        /// Projects <paramref name="actual"/> onto one of its generic ancestors: the type arguments
+        /// that <paramref name="target"/> receives through the <c>extends</c> / <c>implements</c>
+        /// chain of the actual type. For <c>final class CountTask implements Task&lt;int&gt;</c> and
+        /// target <c>Task</c> this yields <c>[int]</c>; for <c>class Box&lt;T&gt; implements
+        /// Task&lt;T&gt;</c> with <c>Box&lt;string&gt;</c> it yields <c>[string]</c>. Returns false
+        /// when <paramref name="target"/> is not an ancestor or is inherited without type arguments.
+        /// </summary>
+        public static bool TryGetAncestorTypeArguments(
+            ICheckedType actual,
+            ObjectDeclarationSymbol target,
+            CheckerState state,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType,
+            out IReadOnlyList<ICheckedType> arguments) =>
+            TryGetAncestorTypeArguments(
+                actual,
+                candidate => TypeComparer.SymbolsMatch(candidate, target),
+                state,
+                symbolTree,
+                globalScope,
+                resolveType,
+                out arguments);
+
+        /// <summary>
+        /// Same projection, selecting the ancestor by predicate (for contracts the caller knows by
+        /// name, such as <c>\Tyhp\Contracts\AsyncIterable</c>).
+        /// </summary>
+        public static bool TryGetAncestorTypeArguments(
+            ICheckedType actual,
+            Func<ObjectDeclarationSymbol, bool> isTarget,
+            CheckerState state,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType,
+            out IReadOnlyList<ICheckedType> arguments)
+        {
+            arguments = Array.Empty<ICheckedType>();
+            var type = actual;
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            ObjectDeclarationSymbol? level;
+            IReadOnlyList<ICheckedType> levelArguments;
+            if (type is GenericCheckedType { TypeArguments.Count: > 0 } generic
+                && generic.BaseType is SimpleCheckedType { ResolvedSymbol: ObjectDeclarationSymbol spelled })
+            {
+                level = spelled;
+                levelArguments = generic.TypeArguments;
+            }
+            else if (TryGetObjectDeclaration(type, out var bare))
+            {
+                level = bare;
+                levelArguments = Array.Empty<ICheckedType>();
+            }
+            else
+            {
+                return false;
+            }
+
+            if (isTarget(level))
+            {
+                return false;
+            }
+
+            var bindings = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
+            BindLevelParameters(level, levelArguments, bindings, state, symbolTree, globalScope, resolveType);
+            var visited = new HashSet<ObjectDeclarationSymbol> { level };
+            return TryFindAncestorArguments(
+                level, bindings, isTarget, visited, state, symbolTree, globalScope, resolveType, out arguments);
+        }
+
+        private static bool TryFindAncestorArguments(
+            ObjectDeclarationSymbol level,
+            Dictionary<GenericTypeParameterSymbol, ICheckedType> bindings,
+            Func<ObjectDeclarationSymbol, bool> isTarget,
+            HashSet<ObjectDeclarationSymbol> visited,
+            CheckerState state,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType,
+            out IReadOnlyList<ICheckedType> arguments)
+        {
+            arguments = Array.Empty<ICheckedType>();
+
+            var parent = TypeComparer.TryGetParentDeclaration(level, symbolTree, globalScope);
+            if (parent is not null && visited.Add(parent))
+            {
+                var extendsArguments = ResolveExtendsArguments(
+                    level, bindings, state, symbolTree, globalScope, resolveType);
+                if (isTarget(parent))
+                {
+                    arguments = extendsArguments;
+                    return extendsArguments.Count > 0;
+                }
+
+                var parentBindings = new Dictionary<GenericTypeParameterSymbol, ICheckedType>(bindings);
+                BindLevelParameters(parent, extendsArguments, parentBindings, state, symbolTree, globalScope, resolveType);
+                if (TryFindAncestorArguments(
+                        parent, parentBindings, isTarget, visited, state, symbolTree, globalScope, resolveType, out arguments))
+                {
+                    return true;
+                }
+            }
+
+            foreach (var className in EnumerateImplementsClassNames(level))
+            {
+                var scope = level.ContainingScope ?? globalScope;
+                var implemented = TypeComparer.ResolveClassNameSymbol(className, scope, symbolTree);
+                if (implemented is null || !visited.Add(implemented))
+                {
+                    continue;
+                }
+
+                var clauseBindings = BindClauseTypeArguments(
+                    className, implemented, level, bindings, state, symbolTree, globalScope, resolveType);
+                if (isTarget(implemented))
+                {
+                    var resolved = new List<ICheckedType>(implemented.GenericParameters.Count);
+                    foreach (var parameter in implemented.GenericParameters)
+                    {
+                        if (!clauseBindings.TryGetValue(parameter, out var bound))
+                        {
+                            resolved.Clear();
+                            break;
+                        }
+
+                        resolved.Add(bound);
+                    }
+
+                    arguments = resolved;
+                    return resolved.Count > 0;
+                }
+
+                if (TryFindAncestorArguments(
+                        implemented, clauseBindings, isTarget, visited, state, symbolTree, globalScope, resolveType, out arguments))
+                {
+                    return true;
+                }
+            }
+
+            arguments = Array.Empty<ICheckedType>();
+            return false;
         }
 
         /// <summary>
@@ -1153,6 +1311,52 @@ namespace Tyhp.TyhpLang.Checker
             (StructCheckedType)TypeComparer.ResolveGenericTypeBySymbol(
                 shape, bindings, symbolTree, globalScope);
 
+        private static void BindImplementedGenerics(
+            ObjectDeclarationSymbol start,
+            Dictionary<GenericTypeParameterSymbol, ICheckedType> bindings,
+            CheckerState state,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType)
+        {
+            var pending = new Queue<ObjectDeclarationSymbol>();
+            var seen = new HashSet<ObjectDeclarationSymbol>();
+            pending.Enqueue(start);
+            while (pending.Count > 0)
+            {
+                var level = pending.Dequeue();
+                if (!seen.Add(level))
+                {
+                    continue;
+                }
+
+                var parent = TypeComparer.TryGetParentDeclaration(level, symbolTree, globalScope);
+                if (parent is not null)
+                {
+                    pending.Enqueue(parent);
+                }
+
+                foreach (var className in EnumerateImplementsClassNames(level))
+                {
+                    var scope = level.ContainingScope ?? globalScope;
+                    var implemented = TypeComparer.ResolveClassNameSymbol(className, scope, symbolTree);
+                    if (implemented is null)
+                    {
+                        continue;
+                    }
+
+                    var clause = BindClauseTypeArguments(
+                        className, implemented, level, bindings, state, symbolTree, globalScope, resolveType);
+                    foreach (var pair in clause)
+                    {
+                        bindings.TryAdd(pair.Key, pair.Value);
+                    }
+
+                    pending.Enqueue(implemented);
+                }
+            }
+        }
+
         private static void BindLevelParameters(
             ObjectDeclarationSymbol level,
             IReadOnlyList<ICheckedType> arguments,
@@ -1180,18 +1384,78 @@ namespace Tyhp.TyhpLang.Checker
                     continue;
                 }
 
-                if (!applyDefaults || param.DefaultType is null || bindings.ContainsKey(param))
+                if (!applyDefaults || bindings.ContainsKey(param))
                 {
                     continue;
                 }
 
-                var defaultState = ForLevel(state, level);
-                var defaultType = resolveType(param.DefaultType, defaultState, false, true);
-                if (!TypeComparer.IsUnresolvedType(defaultType))
+                if (param.DefaultType is not null)
                 {
-                    bindings[param] = TypeComparer.ResolveGenericTypeBySymbol(
-                        defaultType, bindings, symbolTree, globalScope);
+                    var defaultState = ForLevel(state, level);
+                    var defaultType = resolveType(param.DefaultType, defaultState, false, true);
+                    if (!TypeComparer.IsUnresolvedType(defaultType))
+                    {
+                        bindings[param] = TypeComparer.ResolveGenericTypeBySymbol(
+                            defaultType, bindings, symbolTree, globalScope);
+                    }
+
+                    continue;
                 }
+
+                // A raw receiver exposes the widened bound. When the expected type is a
+                // generic use of this class or one of its ancestors, a bare `new` is still
+                // being inferred, so the parameter stays unbound for that check.
+                if (ExpectedTypeNamesRelatedGeneric(
+                        state.ExpectedExpressionType, level, symbolTree, globalScope))
+                {
+                    continue;
+                }
+
+                bindings[param] = TypeComparer.WidenRawGenericParameter(
+                    param, level.GenericParameters, symbolTree, globalScope);
+            }
+        }
+
+        private static bool ExpectedTypeNamesRelatedGeneric(
+            ICheckedType? expected,
+            ObjectDeclarationSymbol level,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            if (!ContextualNewInference.IsUsableExpectedType(expected))
+            {
+                return false;
+            }
+
+            return TypeNamesRelatedGeneric(expected!, level, symbolTree, globalScope);
+        }
+
+        private static bool TypeNamesRelatedGeneric(
+            ICheckedType type,
+            ObjectDeclarationSymbol level,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            switch (type)
+            {
+                case NullableCheckedType nullable:
+                    return TypeNamesRelatedGeneric(nullable.InnerType, level, symbolTree, globalScope);
+                case UnionCheckedType union:
+                    return union.Members.Any(member =>
+                        TypeNamesRelatedGeneric(member, level, symbolTree, globalScope));
+                case IntersectionCheckedType intersection:
+                    return intersection.Members.Any(member =>
+                        TypeNamesRelatedGeneric(member, level, symbolTree, globalScope));
+                case GenericCheckedType generic:
+                    return TypeNamesRelatedGeneric(generic.BaseType, level, symbolTree, globalScope)
+                        || generic.TypeArguments.Any(argument =>
+                            TypeNamesRelatedGeneric(argument, level, symbolTree, globalScope));
+                case SimpleCheckedType { ResolvedSymbol: ObjectDeclarationSymbol symbol }:
+                    return ReferenceEquals(symbol, level)
+                        || TypeComparer.ImplementsOrExtends(
+                            level, symbol, symbolTree, globalScope, new HashSet<ObjectDeclarationSymbol>());
+                default:
+                    return false;
             }
         }
 

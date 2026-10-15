@@ -18,6 +18,8 @@ namespace Tyhp.Domain.Services
         internal const string Async = "0.1";
         internal const string Decimal = "0.1";
         internal const string Lambda = "0.1";
+        internal const string Parallel = "0.1";
+        internal const string Io = "0.1";
 
         internal static readonly IReadOnlyDictionary<string, string> Bundled =
             new Dictionary<string, string>(StringComparer.Ordinal)
@@ -27,6 +29,8 @@ namespace Tyhp.Domain.Services
                 ["tyhp/async"] = Async,
                 ["tyhp/decimal"] = Decimal,
                 ["tyhp/lambda"] = Lambda,
+                ["tyhp/parallel"] = Parallel,
+                ["tyhp/io"] = Io,
             };
 
         internal static string ForPackage(string packageName)

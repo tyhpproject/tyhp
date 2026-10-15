@@ -359,9 +359,17 @@ namespace Tyhp.LanguageServer.Analysis
                     return [function];
                 }
 
-                var all = new List<BaseSymbol>(function.Overloads.Count + 1) { function };
-                all.AddRange(function.Overloads);
-                return all;
+                // A `.tyhp` overload set shows its declared signatures, not the implementation.
+                return Tyhp.TyhpLang.Checker.Rules.CheckerHelpers.EnumerateFunctionSignatures(function)
+                    .Cast<BaseSymbol>()
+                    .ToList();
+            }
+
+            if (callee is ObjectMethodSymbol { IsSourceOverloadSet: true } method)
+            {
+                return Tyhp.TyhpLang.Checker.Rules.CheckerHelpers.EnumerateMethodSignatures(method)
+                    .Cast<BaseSymbol>()
+                    .ToList();
             }
 
             return [callee];

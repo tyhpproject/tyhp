@@ -108,6 +108,7 @@ Binder/
 ├── SymbolTree.cs                 # GlobalScope wrapper + extension-method index + resolver factories
 ├── SymbolIdentifier.cs           # thin namespace-path + name carrier (used by SymbolTree)
 ├── Resolution/
+│   ├── ExtensionActivation.cs    # which extensions apply in a file (declared / `use extension` / `global use extension`); `IsConvertVisible` scopes extension `operator convert`
 │   ├── NameResolver.cs           # name/type/member/extension/self/parent resolution
 │   └── InScopeNameCandidates.cs  # candidate names for DidYouMean suggestions
 ├── Scopes/                       # GlobalScope, FileScope, Namespace*, Object*, Method*, CodeBlock*, …
@@ -194,6 +195,8 @@ On construction, if a declaring AST node is provided, **`declaringNode.BoundSymb
 | `_childSymbolIndex` | ordinal ignore-case | class-likes, methods, properties, variables, `use`, etc. |
 
 `FindChildSymbolByName` checks constants → class-likes → functions. That prevents `HASH_HMAC` colliding with `hash_hmac`, and prefers class `Decimal` over function `decimal` when both exist.
+
+**The `decimal` keyword** is a type spelling of `\Tyhp\Decimal`. `NameResolver` resolves the lowercase name `decimal` in type position to that global class whenever a built-in `Decimal` symbol is found, even in a namespaced file that has no `use Tyhp\Decimal;`; without the class (package not installed) the name stays the unresolved `decimal` primitive.
 
 **Operator overloads** (`SymbolType.ObjectOperatorOverload`) bypass by-name uniqueness: multiple overloads share a name and are found by enumeration + signature matching later.
 
@@ -331,7 +334,7 @@ Anonymous classes use `IObjectDeclarationScopeParent.AddObjectDeclarationChildSc
 `BindObjectBody`:
 
 - Injects `self`/`static`/`parent` builtins into the object scope (`Types.PopulateObject`)
-- Skips class method **overload signatures** (`OverloadSignatureHelper`) — only implementations bind
+- Class method **overload signatures** (`OverloadSignatureHelper.ScanMethods`) bind as `ObjectMethodSymbol`s owned by the registered declaration (`BindMethodOverloadSet`)
 - Methods → instance or static method scope + parameter vars + body
 - Properties, object consts, enum cases, operators, object type aliases, nested named structs (`type Name = struct { }`), trait uses
 
@@ -387,6 +390,7 @@ Variable lookup during later resolution **stops** at function/method/anonymous-f
 - Pass 2 resolves the block target to an `ObjectDeclarationSymbol` or a `BuiltInTypeSymbol` and stores it on `ExtensionBlockTargetSymbol`. A `TypeAliasSymbol` or `ObjectTypeAliasSymbol` is followed through `ObjectShapeSupport.GetAliasedType` (same alias body other alias sites read) and that body is resolved again, so `type Str = string` and `type Maybe = ?string` both store the `string` builtin. The written target node stays the alias; `$this`'s declared type is that node, and the checker expands it (`?string` stays nullable). A union target, including an alias of a union, is a legal checker target. Pass 2 still stores that union's first resolved member on `ExtensionBlockTargetSymbol`; method applicability uses the whole union. An alias whose body is not a class or builtin is not TYHP3016 — the name was found — and is left for the checker. Each operator in that header or group is appended to the target's `ExtensionContributedOperators`; `ExtensionTargetSymbol` is the same symbol. `self` in a member signature or operand type resolves to that target. A targeted method synthesizes a `$this` receiver (first `ParameterInfo`, plus a `$this` variable in the method scope) whose type is the block target. `ResolveExtensionMethod` matches that first parameter against the receiver, and when the synthesized type does not re-resolve from `GlobalScope` it matches `ExtensionBlockTargetSymbol` on the header or nested group. `static` and `parent` still follow the enclosing object (`FindEnclosingObjectScope` skips target-group scopes).
 - An unresolvable block target reports `ExtensionOperatorTargetNotFound` (TYHP3016) on that type and is not contributed. A non-instantiable builtin (`void`, `never`, `null`, `mixed`, `resource`, `true`, `false`) that is the target of an operator in the same header or group reports `ExtensionOperatorTargetNotInstantiable` (TYHP3025) on that type; those operators are not contributed. A block target on a symbol that is not an extension or a target group, or a per-operator target type outside an extension, reports `ExtensionOperatorTargetNotAllowed` (TYHP3015) on that type.
 - Inline tyhpdef class-body `extension fn` / `extension operator` → bind-only synthetic class `__TyhpInlineExt_{OwnerName}` via `GetOrCreateSyntheticInlineExtensionScope`, linked with `SyntheticInlineExtension` / `InlineExtensionReceiverClass`. The scope is auto-activated (`IsCompilerGenerated`) and **never emitted as PHP**. Class-body `extension fn` prepends an implicit `$this` parameter typed as the enclosing tyhpdef type. Those members do not use a block target.
+- Repeating a tyhpdef standalone extension `fn name(...) => expr;` with the same name inside one extension block declares overloads: `BindExtensionMethodDecl` binds the later mappings as `ObjectMethodSymbol.Overloads` of the first (their static scope and body are still bound) instead of reporting `BinderDuplicateSymbolDeclaration`. Overload choice per call is the ordinary arity-plus-score selection. Repeating a name in live Tyhp source is still a duplicate; bodyless `function` overload signatures are the Tyhp-source form.
 
 #### Structs
 
@@ -552,7 +556,9 @@ Prefer `DiagnosticBag.AddError` / `AddErrorFromAst` with `MessageCode` binder/ty
 
 ### Overload signatures
 
-Tyhp function/method overload signatures without bodies are compile-time-only: binder skips them via `OverloadSignatureHelper`; implementations bind normally. Short methods/functions already desugared to bodies bind as normal declarations. Extension members use the same skip (`IsExtensionFunctionOverloadSignature`); signatures are then attached to the implementation's `ObjectMethodSymbol.Overloads` so call-site selection can see them.
+`.tyhp` function/method overload signatures are real overloads (`TyhpBinder.Overloads.cs`). `BindTopStatementList` / `BindStatementBlockChildren` / `BindCodeBlockChildren` call `ScanFunctionOverloads`, `BindObjectBody` calls `ScanMethods`; both skip tyhpdef context. The registered declaration (the implementation, or the last signature of an interface/abstract run) gets `OverloadRole` (`SourceOverloadRole.Implementation` / `LastSignature`); each signature binds through the normal declaration path with `overloadOwner` set (it gets a parameter scope, `ContainingScope`, FQN and `OverloadRole.Signature`, but is not registered as a member) and is added to `registered.Overloads`. `EmittedSymbol` (`OverloadOwner ?? this`) is what call sites bind to. Binder diagnostics: 3031 missing implementation, 3032 not adjacent, 3033 lone signature (warning), 3034 duplicate signature, 3035 async/static/abstract/final/visibility mismatch, 3036 constructor/destructor sets. Short methods/functions already desugared to bodies bind as normal declarations. Extension members keep the older path (`IsExtensionFunctionOverloadSignature`): signatures are attached to the implementation's `Overloads`, and the implementation stays visible.
+
+Language-server surfaces show the declared signatures of a source set, never the implementation's: signature help (`SignatureHelpEngine.CollectMethodSignatures`), hover (`SymbolFormatter.FormatHover` lists `SymbolFormatter.GetDeclaredOverloads(symbol)`, one signature per line; hovering a single overload signature shows just that one), and completion detail (`SymbolFormatter.FormatCompletionDetail`: first signature plus `(+N overloads)`). `GetDeclaredOverloads` is null for tyhpdef and extension sets, which keep showing the first declaration.
 
 ### AST grammar addons
 
@@ -566,6 +572,7 @@ Generics, `async`, and `internal` often arrive via `AstGrammarAddons` (`"identif
 |--------|-------|------|
 | `NameResolver` | `Resolution/` | Pass 2 and checker/emitter lookups |
 | `InScopeNameCandidates` | `Resolution/` | DidYouMean for unresolved types/properties/params |
+| `ExtensionActivation` | `Resolution/` | Checker and emitter share it: an extension's `operator convert` applies only where the extension is active (declaring file, `use extension`, `global use extension`); class-owned converts always apply |
 | `SymbolTree` | Binder root | Checker entry; extension index; batch resolver |
 | `TyhpdefSymbolRegistrar` | Binder root | Ordered tyhpdef bind + FQN→package map |
 | `BuiltIn.Tyhpdef.GetSourceFiles` | `BuiltIn/` | Discover/parse tyhpdefs (cached ASTs) |

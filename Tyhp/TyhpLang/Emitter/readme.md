@@ -253,7 +253,7 @@ The following require **Story 11** (`PLACEHOLDER_STORY_11` markers in emitter co
 |---------|----------|
 | Property accessors (PHP &lt; 8.4) | `AliasConverter.cs` |
 | User-defined operator overload rewriting | `AliasConverter.cs` |
-| Struct emission (construction, `with`, clone, custom backing) | `StructEmissionHelper.cs` / `AliasConverter.cs` |
+| Struct emission (construction, `with`, clone) | `StructEmissionHelper.cs` / `AliasConverter.cs` |
 | Async/await → Promise/Fiber | `AliasConverter.cs`, `TyhpEmitter.Declarations.cs` |
 | Disposable → scope-based auto-dispose | `AliasConverter.cs` |
 | Function overload dispatch | `AliasConverter.cs` |

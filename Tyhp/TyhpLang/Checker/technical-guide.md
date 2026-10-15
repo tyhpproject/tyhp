@@ -200,6 +200,7 @@ Tyhp/TyhpLang/Checker/
 ├── StructBagLiteralChecker.cs     # Named/positional bag literals vs struct shapes
 ├── CallableSignatureReflection.cs # Story 16.5 — params + return from a callable type
 ├── FunctionOverloadSelector.cs    # Story 16.5 — same-arity tyhpdef overload pick (functions + methods)
+├── CallableWrapperFacts.cs        # CallableWrapperPlan side table: checker plan → emitter wrapper rewrite
 ├── TyhpdefConstIntLiteral.cs      # Story 21.8 — tyhpdef `const int NAME ?? N` as literal N
 ├── ClosureProducerInference.cs    # Story 21.6 Phase 4 — Closure TCallableShape/TThis/TScope wrap
 ├── ClosureBindSupport.cs          # Story 21.6 Phase 5 — bind/bindTo/call leftover-scope + non-rebindable
@@ -236,7 +237,8 @@ Tyhp/TyhpLang/Checker/
 |------|----------------|
 | `TypeComparer.cs` | Public API façade, template-string budget thread-static state |
 | `TypeComparer.Assignability.cs` | `IsAssignableToCore` |
-| `TypeComparer.ConvertAssignability.cs` | `IsAssignableViaOperatorConvert` (call/return/`new` only) |
+| `TypeComparer.ConvertAssignability.cs` | `IsAssignableViaOperatorConvert` (call/return/`new` only), `UseConvertSite` (ambient call-site file for extension-convert scoping) |
+| `TypeComparer.ConvertibleSources.cs` | `EnumerateConvertibleSources` — the types that convert to one target (`ConvertibleSource`, `ConvertibleSourceKind`) |
 | `TypeComparer.Subtyping.cs` | `IsSubtypeOfCore`, inheritance walk |
 | `TypeComparer.BuiltInTypes.cs` | `iterable`, `callable`, array-like, gradual array rules |
 | `TypeComparer.Generics.cs` | Substitution by name or by symbol identity; expands deferred `__CallableReturnType` / `__CallableParametersStruct` / `__CallableParametersTuple` / `__CallableParametersRest` after `TCallable` is bound (Rest keeps its wrapper so call-site unpack can see it) |
@@ -252,6 +254,7 @@ Tyhp/TyhpLang/Checker/
 | `TypeInferrer.Expressions.cs` | Scalars, vars, ops, ternary, new, closures, match, … |
 | `TypeInferrer.Closure.cs` | Closure producer wrap (`TCallableShape` / `TThis` / `TScope`) for literals, FCC, `fromCallable` |
 | `TypeInferrer.Dereferenceables.cs` | Calls, members, array access (`array`/`string`/`ArrayAccess<TKey,TValue>` via `GenericInheritanceBindings.TryGetArrayAccessTypes`; `ArrayAccessShape<T>` per-key via `__IndexValueType`; `InferIndexValue` shared with `list()` destructure), generics at call sites |
+| `TypeInferrer.CallableWrappers.cs` | `CallableWrapperPlan` construction for first-class callables whose parameters accept convertible types (single signature, source overload set, generic callee, `$object(...)`), the widened callable shape, TYHP4376 |
 | `TypeInferrer.TypeExpressions.cs` | Annotation AST → `ICheckedType` |
 | `TypeInferrer.Operators.cs` | Native numeric / binary operator result types |
 | `TypeInferrer.OperatorOverloads.cs` | Operator-overload return-type lookup (Story 11 §8) |
@@ -264,21 +267,21 @@ Tyhp/TyhpLang/Checker/
 | `DeclarationRule` | Namespaces, classes, functions, methods, properties; owns scope setup; property-hook shape (duplicate / invalid name / `&set` / get parameters), modifier + visibility (TYHP4154 / TYHP4004), final-override (TYHP4166), `&get` version gate (TYHP4167, skipped on tyhpdef declarations), TYHP8015 if a tyhpdef hook body still reaches the checker, TYHP4326 when a user `.tyhp` type lists `\Traversable` in `extends`/`implements` (only `\Iterator` / `\IteratorAggregate` may extend it), TYHP4337 when a user `.tyhp` type lists `\UnitEnum` / `\BackedEnum` (only the engine `\BackedEnum` may extend `\UnitEnum`), and TYHP4338 when a user enum redeclares `cases` / `from` / `tryFrom`. Tyhpdef harvest shells are skipped structurally, not by `#[\Tyhp\Php]` |
 | `TypeAnnotationRule` | Required annotations / typed locals. TYHP4016 wraps the subject in backticks: `$name` for a variable, parameter, or property (`FormatTypeRequiredName` keeps a single `$` when the AST name already includes it), and `return type` for a missing function or method return type |
 | `ControlFlowRule` | if/loops/try/return/throw/ternary/match conditions; duplicate catch type (TYHP4124 warning) labels the first catch type |
-| `TypeCompatibilityRule` | Assignments, calls, `new`, member access, arrays; `new` on a type alias is TYHP4069 (TYHP4347 when the alias is, or renames/generic-wraps, an object shape); `new T()` requires `T extends __New<Shape>` (TYHP4355) and checks args against the shape constructor (TYHP4357); `new $cls()` on `__ClassName<Shape>` without `__New` is TYHP4356 (`__ClassName<__New<Shape>>` uses the same 4357 ctor check); `__New<T>` where T is not a shape alias is TYHP4351; failing `__New` constructability is TYHP4352/4353/4354; **mixed use-site** (TYHP4160); **Unresolved receiver** member/call/index (TYHP4197, suppressed when the receiver subtree already has an error); call/ctor arity (TYHP4142/4143); unresolved method on a closed member receiver (scalars / `\Closure` / structs, TYHP4101) or on a shape-only receiver; `$x->__construct()` on a shape-typed value is TYHP4359; unresolved free-function call (TYHP4182); type-alias factory type arguments (TYHP4186); `fromCallable` private-method visibility (TYHP4025); `bind`/`bindTo`/`call` leftover-scope / non-rebindable (TYHP4334 / TYHP4336); array access on non-array/string/ArrayAccess (TYHP4093); ArrayAccess struct/array `TKey` (TYHP4330); ArrayAccessShape wide key (TYHP4331) / append (TYHP4332); homogeneous `$obj[] =` uses `offsetSet`'s first parameter (WeakMap `TKey extends object` rejects null; `ArrayAccess::offsetSet(null or TKey, …)` allows append); int-alias structs skip homogeneous ArrayAccess checks so `$args[0]` is the field; bare `array` / `array<V>` index keys are `int\|string` (`CheckedTypes.PhpArrayKey`); `array<int, V>` still rejects string keys; string offset keys stay `int`; `list()` / `[]` destructure on array, string, or ArrayAccess (`ArrayAccessDestructureSupport`; TYHP4094 otherwise; spread TYHP4095) |
+| `TypeCompatibilityRule` | Assignments, calls, `new`, member access, arrays; `new Name()` where `Name` is not a declared, imported, aliased, or built-in class is TYHP4197 at the class name (`new $cls`, `new class {}`, and `new self/static/parent` are not checked); `new` on a type alias is TYHP4069 (TYHP4347 when the alias is, or renames/generic-wraps, an object shape); `new T()` requires `T extends __New<Shape>` (TYHP4355) and checks args against the shape constructor (TYHP4357); `new $cls()` on `__ClassName<Shape>` without `__New` is TYHP4356 (`__ClassName<__New<Shape>>` uses the same 4357 ctor check); `__New<T>` where T is not a shape alias is TYHP4351; failing `__New` constructability is TYHP4352/4353/4354; **mixed use-site** (TYHP4160); **Unresolved receiver** member/call/index (TYHP4197, suppressed when the receiver subtree already has an error); call/ctor arity (TYHP4142/4143); undeclared member on a closed member receiver (scalars / `\Closure` / structs), on a fully-resolved class / interface / bare `object` without a magic accessor, or on a shape-only receiver (TYHP4101); a plain `$var = expr` applies the assignment after `expr` is checked (`CheckDeferredVariableAssignment`), so `$b = $b->next()` reads `$b` under its pre-assignment narrowing; `$x->__construct()` on a shape-typed value is TYHP4359; unresolved free-function call (TYHP4182); type-alias factory type arguments (TYHP4186); `fromCallable` private-method visibility (TYHP4025); `bind`/`bindTo`/`call` leftover-scope / non-rebindable (TYHP4334 / TYHP4336); array access on non-array/string/ArrayAccess (TYHP4093); ArrayAccess struct/array `TKey` (TYHP4330); ArrayAccessShape wide key (TYHP4331) / append (TYHP4332); homogeneous `$obj[] =` uses `offsetSet`'s first parameter (WeakMap `TKey extends object` rejects null; `ArrayAccess::offsetSet(null or TKey, …)` allows append); int-alias structs skip homogeneous ArrayAccess checks so `$args[0]` is the field; bare `array` / `array<V>` index keys are `int\|string` (`CheckedTypes.PhpArrayKey`); `array<int, V>` still rejects string keys; string offset keys stay `int`; `list()` / `[]` destructure on array, string, or ArrayAccess (`ArrayAccessDestructureSupport`; TYHP4094 otherwise; spread TYHP4095) |
 | `TypeDeclarationValidationRule` | Illegal type-expression shapes; duplicate union/intersection members (TYHP4053) label the first member |
 | `NullSafetyRule` | Definite assignment / non-null use sites |
 | `TypeNarrowingRule` | Smart casts (static helper, not `ICheckerRule`) |
 | `ClosureRule` + `ClosureParameterInference` | Closures / contextual params |
 | `UnsetTrackingRule` | `unset` vs definite assignment / `AllowUnset` |
-| `StructRule` / `WithKeywordRule` | Anonymous `TyhpStructDeclAst` (incl. ObjectGenerics / constraints) and `with` forms (member substitution on generic structs). Named `type Name = struct { };` aliases are `ObjectDeclarationSymbol` with `IsStruct`; `DeclarationRule` checks the alias body under that struct's generic scope. |
+| `StructRule` / `WithKeywordRule` | Anonymous `TyhpStructDeclAst` (incl. ObjectGenerics / constraints) and `with` forms (member substitution on generic structs). Named `type Name = struct { };` aliases are `ObjectDeclarationSymbol` with `IsStruct`; `DeclarationRule` checks the alias body under that struct's generic scope. Anonymous shapes are `StructCheckedType`; `StructPropertyInfo.StringKeyAlias` carries a string key alias for the emitter. `clone` accepts a struct operand, and `NullSafetyRule` records the types of `isset`/`empty` operand chains (`RecordProbeOperandTypes`) even though it skips traversing them, so the emitter can rewrite them. |
 | `AsyncRule` / `DisposableRule` | await / disposables / emit flags |
-| `CompileTimeRule` | `nameof` / `typeof` / `default` / `variable_exists`. `typeof` takes a `typeExpr` (`TyhpTypeofAst.TypeExpression`); the checker resolves that annotation (aliases included — not mixed) and flags Mechanism D / GenericObject when it names those generic parameters (same as `default`). `TypeInferrer` types `typeof(...)` as `\Tyhp\Type`. `nameof(T)` still accepts in-scope class or method generics via `IsInScopeGenericParameter`. |
+| `CompileTimeRule` | `nameof` / `typeof` / `default` / `variable_exists`. `typeof` takes a `typeExpr` (`TyhpTypeofAst.TypeExpression`); the checker resolves that annotation (aliases included — not mixed) and flags Mechanism D / GenericObject when it names those generic parameters (same as `default`). `TypeInferrer` types `typeof(...)` as `\Tyhp\Type`. `nameof(T)` still accepts in-scope class or method generics via `IsInScopeGenericParameter`. `typeof(Class)` binds the written class name to its declaration (so the emitter spells it for a class in another namespace or behind an import alias). Because the rule suppresses child traversal, `typeof` and `nameof` call `MarkImportNames` on their operand so the imports they use are not reported unused. `nameof` resolves names from the declaring file or namespace-block scope when there is no enclosing callable (top-level statements). |
 | `ImportRule` | Unused / duplicate imports (TYHP4130 / TYHP4131; 4131 warning labels the first `use`); redundant local `use` of a `global use` symbol (TYHP4169). Heritage `extends`/`implements` names are marked from `DeclarationRule.CheckObjectType` (`MarkHeritageImportNames`) because that shell suppresses child traversal |
 | `ExternTypeUseRule` | `.tyhp` use of a tyhpdef `extern` name (TYHP4307): type, function, or const. Parameter/return/catch/call-argument sites that skip `CheckNode` call `ExternTypeUse` from `DeclarationRule` / `ControlFlowRule` / `TypeCompatibilityRule` / `ClosureRule`. Inheritance of an extern type is binder TYHP3026/3027, not 4307. |
 | `ExtensionRule` | Extension decls / imports. Empty `extension { }` is TYHP4172. A header `extends Type` and nested `extends` groups are exclusive (TYHP4362 / TYHP4363). Members with neither are TYHP4147. Target shape, unused binders, method-generic shadowing, intra-extension overlap, `static::` / `parent::`, and `&$this` are TYHP4364–TYHP4370. Child walk is suppressed; the rule checks members itself and calls `InlineSpliceRule.CheckMemberDeclaration`. Included standalone tyhpdef extensions (absent from `ParsedFiles`) are checked by this same rule from `CheckBoundTyhpdefThinMappings` |
 | `InlineSpliceRule` | Splice-engine checker: written-param `&` contract (TYHP4174; block-target `&$this` is TYHP4369 / TYHP4370 instead), splice cycles (TYHP4175), `#[\Tyhp\Optimize\Inline]` on an extension member (TYHP4176), reserved `$__tyhpInlineTemp*` (TYHP4177), spliced-body accessibility (TYHP4179), erased-member unspliceable call sites (TYHP4181). Class methods are invoked from `DeclarationRule.CheckMethod` (they bypass `CheckNode`). TYHP4180 lives in `ReferenceTrackingRule`. |
 | `PhpVersionRule` | `declare(php=…)` / `#[\Tyhp\Php]` gates (TYHP4300–4306); 4302 only for nested unsatisfiable constraints; TYHP8016 when `#[\Tyhp\Php]` is on a tyhpdef property hook |
-| `RestrictedFeatureRule` | `eval` / include / variable-variables / `compact` / `extract`; undeclared instance-property **writes** (TYHP4134) unless the receiver type is exactly the global engine class `\stdClass` (not a subclass, not a leftover `#[\AllowDynamicProperties]` stamp, not a generic parameter constrained to `\stdClass`). Composite receivers — nullable wrap, union, intersection, and generic-parameter constraints — are walked inside this rule (not via `CheckerHelpers.TryGetObjectDeclaration`). A union reports if any object arm would; an intersection allows the write when any arm declares the property. Unknown / mixed / unconstrained type-parameter receivers stay unchecked. Undeclared **reads** on a typed object stay gradual; an Unresolved receiver read/write/call/index is TYHP4197 |
+| `RestrictedFeatureRule` | `eval` / include / variable-variables / `compact` / `extract`; undeclared instance-property **writes** (TYHP4134) unless the receiver type is exactly the global engine class `\stdClass` (not a subclass, not a leftover `#[\AllowDynamicProperties]` stamp, not a generic parameter constrained to `\stdClass`). Composite receivers — nullable wrap, union, intersection, and generic-parameter constraints — are walked inside this rule (not via `CheckerHelpers.TryGetObjectDeclaration`). A union reports if any object arm would; an intersection allows the write when any arm declares the property. Unknown / mixed / unconstrained type-parameter receivers stay unchecked. Undeclared **reads** on a known class / interface / `object` are TYHP4101 in `TypeCompatibilityRule`; an Unresolved receiver read/write/call/index is TYHP4197 |
 | Others | Overloads, attributes, deprecation, operator overloads, references, code quality |
 
 ---
@@ -327,12 +330,23 @@ fields:
 #### Merge vs absorb
 
 - `Merge(branch)` — join two paths (treats *this* and *branch* as alternate
-  paths). Assignment becomes definite only if both paths assigned. Locals
-  union `EffectiveType` into `DeclaredType` and clear `NarrowedType`. Property
+  paths). Assignment becomes definite only if both paths assigned. A local
+  whose two sides share the same `DeclaredType` keeps it, and the union of
+  both `EffectiveType`s becomes its `NarrowedType` (cleared when it equals the
+  declared type). Assignments are checked against `DeclaredType`
+  (`TypeCompatibilityRule.ResolveAssignmentTargetType`), so a join must never
+  shrink it: `Res|false $r` narrowed to `Res` by `while ($r !== false)` stays
+  assignable from `Res|false` after an if/else inside the loop. Only when the
+  two sides' declared types differ (e.g. an inferred local first assigned in
+  each branch) does the union of `EffectiveType`s become the new
+  `DeclaredType`, with `NarrowedType` cleared. Property
   `NarrowedType` is the union of both sides when both recorded a refinement
   (so `if ($p === null) { $p = new T(); }` is non-null on the join); otherwise
   it is cleared. Index/member narrowing is kept only when both sides agree
   (`TypeComparer.AreTypesEqual`).
+- After that join, a `while` / `do` with no `break` in its body applies the
+  condition's negative narrowing to the continuation (`while (!\is_int($m)) { $m = 1; }`
+  leaves `$m` as `int`). A `break` skips that step because the condition may still hold.
 - `AbsorbJoinedVariables(joined)` — copy an already-joined result over *this*
   without counting the pre-branch map as a third path. **Required** for
   if/else (join then⋈else first, then absorb).
@@ -611,6 +625,22 @@ Order and special cases matter (see comments in
     `void`/`never`; `array`/`iterable` **covariant**). Matching bases with
     incompatible args return false — do not fall through to declaration-only
     `ImplementsOrExtends` (that would accept `Box<string>` as `Box<int>`).
+    **Raw generics:** a generic class named without type arguments (`Box`) is
+    `Box<mixed>` when it is the source of an assignment to an instantiation of
+    the same declaration (`TryInstantiateRawGenericWithMixed`), so `Box` →
+    `Box<int>` is rejected while `Box<int>` → `Box` and `Box` → `Box<mixed>`
+    are accepted. A parameter declared `T extends X` widens to its bound
+    instead of `mixed` (`Fiber` → `Fiber<mixed, callable>`); the target's own
+    argument is never used as a fallback. Bounds are resolved eagerly by
+    `TyhpChecker.ResolveObjectGenericBounds` before any file is checked, so
+    tyhpdef / PHP-stub classes, forward references and cross-file bounds all
+    have a `ResolvedConstraint`. A bound that mentions the declaration's own
+    parameters (`T extends Node<T>`) erases them to `mixed`;
+    `GenericTypeArgumentValidator.TryResolveBoundOnce` keeps self-referential
+    and mutually recursive bounds from recursing. Bare `\Closure` is the one
+    gradual exception: it is assignable to any `\Closure<…>`. A redundant
+    `instanceof` guard (`Promise<T> $p` + `$p instanceof Promise`) keeps the
+    precise instantiation (`NarrowType`); a guard on `mixed` yields the raw class.
     **`__New`:** same-base `__New<A>` vs `__New<B>` uses constructability
     (`SourceSatisfiesNewConstraint`) instead of generic invariance. A class
     assigns to `__New<S>` when it matches `S` as an instance and its public
@@ -656,10 +686,16 @@ uses the same composing-class enumeration with an agree-on-resolved-return polic
 
 **Use-site enforcement (beyond assignability):** unnarrowed `mixed` / `?mixed`
 is rejected by `CheckerHelpers.ReportMixedRequiresNarrowing` (TYHP4160) when used
-in type-specific operations — member access, calls/invoke, indexing, arithmetic /
-bitwise / concat (including compound assigns other than `=` / `??=`), logical
-operands, unary numeric/`!`, and foreach. Comparison, `instanceof`/`is`, coalesce,
-and casts are allowed (they enable narrowing or are assertions). Unary `clone` on
+in type-specific operations — member access, calls/invoke, indexing, `::` /
+`::class` on a value receiver (`$m::class`), array spread (`[...$m]`), arithmetic /
+bitwise / concat (including compound assigns other than `=` / `??=`), relational
+operators (`<`, `<=`, `>`, `>=`, `<=>`), logical operands, unary numeric/`!`, and
+foreach. Equality (`==` / `!=` / `===` / `!==`), `instanceof`/`is`, coalesce, and
+casts are allowed (they enable narrowing or are assertions). The receiver of a member
+access is checked even inside an existence probe: `$m->p ?? 1` and `$m->p ??= 1`
+dereference `$m`, so `$m` must be narrowed. `print` applies the same stringable check
+as `echo` (`mixed` is not stringable). A constant declared `mixed` reads as `mixed`
+(`TypeInferrer.TypeOfConstant`), not as the literal type of its initializer. Unary `clone` on
 `mixed` uses TYHP4073. Keyword call forms `clone(...)` (ArgumentList operand) are
 validated against the ExtCore `clone` stub for arity / named args / argument types,
 but the **result type** is the type of the cloned object argument (same as unary
@@ -777,15 +813,26 @@ Notable behaviors encoded in comments:
 - Parenthesized expressions must unwrap or conditions type as unresolved.
 - `default(Class)` infers **null** (emitter produces `null`), not the class
   type — otherwise null safety is defeated.
+- **Elvis `a ?: b`** types as the truthy part of `a` unioned with `b`
+  (`RemoveFalsyFromType`): `null`, `false`, and the falsy literals `0`, `0.0`,
+  `''`, `'0'` are dropped, and `bool` becomes `true`. So
+  `string|false ?: 'x'` is `string|'x'` and `?T ?: T` is `T`. When nothing
+  truthy remains on the left, the result is just `b`. A full ternary
+  `c ? a : b` is the union of its arms.
 - `typeof(...)` types as `\Tyhp\Type`. The argument is a type expression (`typeof(int|string)`, `typeof(Optional<int>)`, `typeof(?int)`, `typeof(T)`); `typeof($x)` does not parse.
+- The language constants `true`, `false` and `null` keep their literal type as the base of a member call (`true->not()`): `InferNameBaseType` shares a helper with `InferNamedConstant`, so a scalar extension on `bool` resolves and the call types as its declared return type.
 - **Array literals** (`PhpArrayAst` / short-syntax `PhpArrayPairListAst`):
-  `InferArrayLiteral` unions widened element/key types. List shorthand
-  normalizes to `array<int|string, V>`; maps keep `array<K,V>`. Empty `[]` is
+  `InferArrayLiteral` unions widened element/key types. An entry without a key
+  contributes PHP's implicit `int` key, so `[1, 2]` is `array<int, int>` and
+  `['a', 'k' => 1]` is `array<int|string, string|int>`; maps keep `array<K,V>`.
+  A spread contributes its source's key type. Empty `[]` is
   `array<never, never>` (not one-arg `array<never>` → `array<int|string, never>`)
   so covariant key/value assignability accepts any `array<…>` target, including
   narrowed keys like `array<string, T>`. Duplicate constant keys on a parsed
-  `[…]` / `array(…)` pair list are TYHP4092; the primary span is the later pair
-  and `declared here` labels the first. Trailing-comma skip slots are not keys.
+  `[…]` / `array(…)` pair list are TYHP4092, including a literal inside `return`,
+  `echo`, `if`, or `yield` (`CheckCompileTimeConstructsInTree`). The primary span
+  is the later pair and `declared here` labels the first. Trailing-comma skip slots
+  are not keys.
 - **Array append/keyed write (`$arr[] = $v`, `$arr[$k] = $v`)** on an *open* array
   local (bare `array $x`, inferred `$x = []` / `array<never, never>`, or unresolved
   `array<TKey, TValue>` — including a bare `array $x` **parameter**, since refining
@@ -953,10 +1000,13 @@ Notable behaviors encoded in comments:
   substitutes the extension or group parameters into the method's return
   type, whether the call is chained or stored. On a `MyClass<string>`
   receiver, a return of `T` infers as `string`, and a bare `self` return
-  infers as the substituted target `MyClass<string>`. A receiver that does
-  not supply a matching type argument — a raw `MyClass`, or a generic
-  application whose other arguments do not match the target — leaves the
-  parameter unsubstituted. Non-generic targets, including scalar `self`
+  infers as the substituted target `MyClass<string>`. The match is
+  all-or-nothing for concrete arguments (`TryMatchBlockTarget`): a raw `MyClass`,
+  or `Pair<int, int>` against `extends<TRight> Pair<string, TRight>`, leaves
+  `T` / `TRight` unsubstituted. A pattern argument that still contains a block
+  type parameter (a callable shape, `__CallableReturnType<T>`) is inferred, so
+  `Closure::compose` still binds `TThisReturn`. Argument-driven inference uses
+  that same match for the synthesized `$this` parameter. Non-generic targets, including scalar `self`
   (`extends string`), keep the return type already resolved above.
   `CheckCall` treats
   `self::` / `parent::` / `static::` as instance-method forwarding
@@ -975,8 +1025,21 @@ Notable behaviors encoded in comments:
   receiver is a closed member
   receiver (`IsClosedMemberReceiver`: scalar pseudo-object `string` / `int` /
   `float` / `bool` / `array` / `\Closure`, plus structs / `struct` shapes)
-  and the member is missing or `hide`d. Ordinary class receivers stay gradual
-  (`__call`, missing trait, uncompiled dependency). Structs cannot grow PHP
+  and the member is missing or `hide`d. A class / interface receiver or bare
+  `object` also reports TYHP4101 when the member exists nowhere on it
+  (`TypeCompatibilityRule.IsUndeclaredMemberOnKnownType`, properties,
+  instance methods and static methods). The verdict is withheld whenever the
+  checker cannot see the whole hierarchy — an unresolved `extends` /
+  `implements` / `use`, a compiler-generated declaration or extension backer —
+  and for the engine `\stdClass` (properties), enums, traits, a type whose
+  hierarchy declares the matching magic accessor (`__get`, `__call`,
+  `__callStatic`), and dynamic member names (`->{$expr}`, `->$name`). Bare
+  `object` has no members until it is narrowed to a class;
+  `\property_exists($v, 'name')` / `\method_exists($v, 'name')` with a literal
+  name proves that member on `$v` for the guarded branch
+  (`TypeNarrowingRule.TryApplyMemberExistsNarrowing`, stored as a
+  `$v->?name` / `$v->?name()` member-access narrowing key and cleared when
+  `$v` is reassigned). Structs cannot grow PHP
   instance methods (`__call`) or dynamic properties, so `$m->nope()` /
   `$m->doesNotExist` on a named struct is a compile error the same way
   `$s->missing()` on `string` is.
@@ -1008,8 +1071,29 @@ Notable behaviors encoded in comments:
   Unary `-` on an integer or float literal infers the negated literal (`-1`
   is not `1`, `-1.5` is not `1.5`) so `parse_url($u, -1)` does not pick the
   `1 $component` overload, and a signed float literal type
-  (`scalarTypeNegativeDNumber`) binds distinctly from its positive
+  (  `scalarTypeNegativeDNumber`) binds distinctly from its positive
   counterpart.
+- **Generic bindings from an implementing class:** `CallableGenericInference.CollectGenericBindings`
+  takes an optional `AncestorProjection`. When a generic parameter pattern (`Task<T>`) meets a class
+  that is not the pattern's base, the actual type is projected onto the pattern's base through the
+  class's `extends` / `implements` chain (`GenericInheritanceBindings.TryGetAncestorTypeArguments`,
+  which binds each level's own type parameters), so `first(new CountTask())` with
+  `CountTask implements Task<int>` binds `T = int`. The projection also applies to callable returns
+  and array element/key positions. `TypeInferrer.BuildAncestorProjection` supplies it from
+  `TryInferGenericBindings`.
+- **Partial explicit type arguments:** `ApplyCallSiteGenericSubstitution` binds the leading generics
+  the call site wrote. Inference still runs for the rest unless
+  `HasCompleteCallSiteTypeArguments` says every callee generic is bound. Generics that remain
+  unbound after inference take their declared default (`CompletePartialCallSiteGenerics`), resolved
+  with the callee's own generics in scope, so `each<string, int>($items, …)` leaves `TKey` bound from
+  `$items` or `int|string`.
+- **Static receivers and imports at script top level:** a static call receiver is resolved by
+  `CheckerHelpers.ResolveInstanceofTargetType` (and `TypeInferrer.ResolveClassReceiverType` for
+  inferred bases). Outside any callable or class the fallback scope is the declaring file's
+  namespace block or file scope (`TypeInferrer.TryGetDeclaringFileResolutionScope(ast, globalScope, …)`),
+  not the global scope, so `use Lib\File; File::count();` in a top-level statement sees the file's
+  imports. A name the binder already bound to its `use` declaration is re-resolved through the
+  same path rather than typed as the import symbol.
 
 ### 7.4 Type annotations
 
@@ -1037,7 +1121,16 @@ Relative types:
 - **`self` / `parent`:** resolve via the enclosing / declaring object. For dereferenceable bases
   (`parent::$prop`, `parent::$prop::get()`), `parent` uses
   `TypeComparer.TryGetParentDeclaration` when `ExtendsType` is null — raw
-  `extends` is usually an `IClassName`, not an `ITypeExpression`.
+  `extends` is usually an `IClassName`, not an `ITypeExpression`. When the parent is
+  generic, the `parent` receiver carries the child's `extends` type arguments
+  (`class Child<U> extends Base<U>` → `Base<U>`), and a `$this` / `static` receiver is read
+  through its enclosing class spelling, so inherited members bind the base's parameters to
+  the child's own (`GenericInheritanceBindings.TryBuild`). A raw receiver outside that class
+  binds each of its type parameters to the widened bound (`mixed`, or the `extends` bound), and
+  implemented generic interfaces are bound from the `implements` clause so an implementation is
+  checked against the substituted interface signature. A generic method override
+  is compared with the base method after mapping the base method's type parameters onto the
+  override's by position; the override's own parameters shadow same-named class parameters.
   `Owner::$prop::get()` types as the property type; `::set(...)` as void.
 - **Parameterized `self<…>` / `parent<…>`:** allowed. Resolution uses `ResolveRelativeType` as the
   base (not binder `ResolveType` alone), so call-site factories like `: self<T>` preserve method
@@ -1148,6 +1241,8 @@ Relative types:
   `nameof(fn ($x) => $x->a->b)` is accepted when the fn is a single-parameter arrow whose body
   is a PropertyPath-style chain (last segment; TYHP4321 otherwise) — see `CompileTimeRule` /
   `NameofTypeInferrer`.
+- **Async closures:** `InferClosure` types an `async function` / `async fn` as `callable(…): Promise<T>` (`WrapIfAsyncCall`, which leaves a declared Promise-like return alone), matching a named `async` function, so a call through a variable, `array_map`, and generic callable parameters see the Promise.
+- **`Expression<callable(T): R>` for callable parameters:** `TypeCompatibilityRule.Calls` accepts an `Expression<TCallableShape>` argument for a `callable(T): R` parameter whose shape matches (`ExpressionTreeSupport.TryMapToCallable`); the emitter extracts `->callable`. Generic binding for an inline `fn` passed to such a parameter (or to a plain `callable` / `Expression<callable>` parameter) maps the declared type to the callable shape first; when the shape's return type is an open generic (`R`), `TryInferArrowCallableForOpenReturn` infers the arrow body under the argument types already bound and binds `R` to that body type (`InferClosure` itself never types bodies).
 - **Story 16 — `Expression<TCallableShape>`:** the same contextual mapping is applied via
   `ExpressionTreeSupport.TryMapToCallable`, which reads the single class type argument
   (`TCallableShape extends callable`) rather than treating extra type arguments as
@@ -1158,8 +1253,15 @@ Relative types:
   composed only of supported expression kinds (TYHP4322 — no assignment / await / yield /
   match / nested fn / free function calls / throw / include, …), and
   definitely-assigned outer captures (TYHP4324). `instanceof` / `is` are allowed (RHS is a
-  type name, builtin, or captured class-name variable). Forwarded `Expression` values and `null` for
-  nullable parameters still pass via assignability. Helpers live in `ExpressionTreeSupport.cs`
+  type name, builtin, or captured class-name variable). Constants in a body are numeric
+  literals, string literals without interpolation (`PhpEncapsListAst` made only of
+  `PhpEncapsStringAst` parts; interpolation is TYHP4322 "string interpolation"), and the names
+  `true` / `false` / `null` (`ExpressionTreeSupport.IsConstantStringLiteral` /
+  `IsLiteralConstantName`). First-class callables (`f(...)`), shell-command strings, and array literals are rejected by name; every TYHP4322 message names a readable kind (`DescribeUnsupported`) rather than an AST type. Forwarded `Expression` values and `null` for
+  nullable parameters still pass via assignability. An argument that already is an
+  `Expression` of a different shape reports the ordinary argument mismatch
+  (`CheckerIncompatibleArgumentType`, TYHP4010) from `TypeCompatibilityRule.Calls.cs`, not
+  TYHP4323. Helpers live in `ExpressionTreeSupport.cs`
   (not a Transformers layer). At call sites, `ResolveCalleeParameterType` keeps PropertyPath /
   Expression wrappers that still mention unbound method generics (`select<R>(Expression<callable(T): R>)`)
   instead of collapsing the whole type to mixed; it substitutes those method parameters with
@@ -1176,6 +1278,13 @@ Relative types:
   `ResolveDeclaredTypeOnReceiver` (declaring-class `ObjectGenerics` + receiver substitution),
   so chaining off `select<R>(Expression<callable(T): R>)` (`->select(...)->sortBy(...)`) does not
   report TYHP3003 on the class parameter `T` when the return type is inferred at the call site.
+  A callee's declared types are resolved in the **callee's own type-parameter scope**, never the
+  caller's: `ResolveDeclaredTypeOnReceiver` runs the member in a forked state whose
+  `ObjectGenerics` are the declaring class's and whose `FunctionGenerics` are only the member's
+  own method generics, and `ResolveFunctionDeclaredType` runs a free function in its own
+  `GenericParameters` with no `ObjectGenerics`. A caller's same-named `T` therefore cannot shadow
+  the callee's `T` by name before the by-symbol receiver substitution runs (constructor, method,
+  static and function parameters/returns, and the constraint checks that read them).
 
 ### 7.6 Operators
 
@@ -1191,6 +1300,26 @@ tyhpdef forms for declared return truth). Operator parameter types that are `typ
 example PECL decimal `DecimalValue = Decimal|NumericString|int`) expand before matching, so
 `$left + $right` both `\Decimal\Decimal` selects `operator +(self, DecimalValue)`. Binary ops, unary ops (`+`/`-`/`~`/`!`/`++`/`--`), and
 compound assigns (`+=`, `>>=`, …) all go through this path before falling back to native promotion.
+
+**Union and class operands:** an operand typed as a union is decomposed into one
+`OperatorOperandMember` per arm (`DescribeOperatorOperandMembers`, nullability unwrapped); a form
+matches only when its parameter type accepts **every** arm, so `float|int|string` selects
+`operator +(self, float|int|string)` while a union with an unaccepted arm still reports TYHP4029.
+A class operand also matches a named parameter type it extends or implements
+(`TypeComparer.ImplementsOrExtends`, passed to the resolver as `isSubtypeOf`) — for example a class
+implementing `\Tyhp\Contracts\DecimalConvertible` selects the `DecimalConvertible` member of
+`\Tyhp\DecimalCoercible`. `ImplementsOrExtends` also reports the synthesized `*Convertible`
+interfaces (`StringConvertible`, `BoolConvertible`, `IntConvertible`, `FloatConvertible`,
+`DecimalConvertible`, and the umbrella `Convertible`) for a class that declares the matching
+`operator convert(self): T`, mirroring what the emitter adds to the class's `implements` list.
+
+**Null elements and nullable targets:** array-literal inference widens `null` elements to the nominal
+builtin `null`; a `NullableCheckedType` target accepts it, so `array<string, ?int> $m = ['k' => null]`
+checks.
+
+**Stringable symbol-name brands:** `__ClassName<T>` / `__InterfaceName<T>` and the other symbol-name
+utility types are strings at run time; `CheckerHelpers.IsStringableType` judges them by their
+erasure, so `echo \get_class($e)` is legal.
 
 **Object operands without a matching form:** PHP throws `TypeError` for arithmetic / bitwise /
 unary `+` `-` `~` `++` `--` on objects, and for concat of objects that are not `\Stringable`.
@@ -1239,7 +1368,11 @@ Unary `yield` / `yield from` are handled in `InferUnary` before overload lookup
 arm. See §7.2 for TSend / TReturn / null rules.
 
 Value-producing casts (`InferCastType`) type `(int)` / `(bool)` / `(string)` /
-`(float)` / `(decimal)` / `(array)` as the matching builtin. `(object)` matches PHP:
+`(float)` / `(array)` as the matching builtin. `(decimal)` is typed `\Tyhp\Decimal`
+(`CheckerHelpers.ResolveDecimalCastType`; the `decimal` primitive only when that class is
+not loaded), and `CodeQualityRule.CheckRedundantCast` reports TYHP4008 when the operand
+has no path to `Decimal` (`TypeComparer.IsAssignableToOrViaOperatorConvert`; each arm of a
+union must have one; a nullable operand does not). `(object)` matches PHP:
 an operand that is already an object is untouched (`InferObjectCastType` returns the
 operand's own type unchanged — no new instance, same class), so casting an already
 `object`-typed, `\stdClass`-typed, user-class-typed, or all-object-union value is an
@@ -1349,7 +1482,7 @@ that same declaration (`\Override`, `\Deprecated`, `\NoDiscard`,
 unused-return is still TYHP4165. Userland attributes still get TYHP4127.
 `output.phpVersion` **&lt; 8.5** ignores the skip (property `#[\Override]` remains
 4127 even with this attribute). Unbound Core names (isolated tests without the
-ExtCore stub) are treated as engine classes; declarations under `runtime/packages/php/`, `/packages/php/`, or the resolved runtime-src `php` package are engine sources too. A user `.tyhp` class that reuses a
+ExtCore stub) are treated as engine classes; declarations under `runtime/packages/php/`, `/packages/tyhpdef/php/`, or the resolved runtime-src `tyhpdef/php` package are engine sources too. A user `.tyhp` class that reuses a
 Core name is not. `\Tyhp\AllowUnset` / `\Tyhp\Php` are not Core and are not
 skipped. Covered by `AttributeRuleTests.cs`.
 
@@ -1618,6 +1751,26 @@ resolved via `GenericInheritanceBindings.TryGetTraversableIterationTypes`
 types like `Generator<TKey,TValue,TSend,TReturn>` and
 `SplPriorityQueue<TValue,TPriority>` do not mis-bind from their own parameter
 positions. Other generics still fall back to positional first/last.
+`\Traversable<mixed, V>` (including the `\is_iterable` guard `array|\Traversable`)
+is assignable to one-argument `iterable<V>` (`iterable<int|string, V>`). Its key
+is `mixed`; that shorthand still accepts it.
+
+Async foreach (`foreach (await $x as …)`): `ControlFlowRule.ClassifyAsyncForeach` accepts
+the `AsyncIterable` / `AsyncIterator` interface types by name and any class whose
+`extends`/`implements` chain reaches `Tyhp\Contracts\AsyncIterable<T>`
+(`TryGetNominalAsyncIterableTypes`, via `GenericInheritanceBindings.TryGetAncestorTypeArguments`).
+The value type is the last type argument; when the class's `getAsyncIterator()` returns an
+`AsyncKeyValueIterator<TKey, TValue>` the key is `TKey`, otherwise it is `int`.
+
+`using (...)` blocks (`DisposableRule.CheckUsingBlock`): every resource expression is checked and
+typed in the block's own state; a resource variable (`Handle $h = …` or `$h = …`) is declared in
+that state with its annotated type (checked against the resource type) or the resource's type, so
+the body and later resources see it. A body that returns or throws on every path marks the
+enclosing function as returning on all paths.
+
+The disposable contracts are looked up by their fully qualified names (`\Tyhp\Contracts\IsDisposable`; `\Tyhp\Contracts\AsyncIsDisposable` ships in `tyhp/async`). `:=` and `using await` accept a class that implements either contract, `using` accepts `IsDisposable` only, and any other resource type reports `CheckerDisposableRequiresInterface`. A contract whose package is not loaded cannot be implemented; when neither is loaded nothing is judged. `using await` outside an async function (and outside a top-level awaitable scope) reports TYHP4028.
+
+`foreach` checks its iterable expression (`CheckNode`) before typing it, because `ControlFlowRule` suppresses child traversal; without it an import used only inside `foreach (await Foo::bar() as …)` is reported unused.
 
 **Class constants (Tyhp / tyhpdef):** `CheckClassConstants` requires a type on
 the original class/interface/trait/enum declaration (TYHP4194) or infers it
@@ -1681,8 +1834,12 @@ Static helper (not registered as `ICheckerRule`). Entry:
 Supports:
 
 - Unwrap parentheses and logical `!` (flips polarity).
-- Branch bodies: `&&` in positive / `||` in negative (De Morgan); other
-  combinations do not narrow a branch. Separately, short-circuit *operand*
+- Branch bodies: `&&` in positive / `||` in negative (De Morgan) narrow each operand.
+  `||` in positive and `&&` in negative describe two alternative paths (left holds /
+  left fails and right holds), so `ApplyAlternativePathNarrowing` narrows on forked
+  states and gives each variable the union of what the two paths prove —
+  `\is_int($m) || $m === null` leaves `$m` as `?int`; a variable one path leaves
+  unchanged is not narrowed. Separately, short-circuit *operand*
   checking applies the left's positive narrowing to the right of `&&` and the
   left's negative narrowing to the right of `||` (`TypeCompatibilityRule.CheckBinaryOp`).
 - `is` / `instanceof` (variables, `$this->prop`, enclosing-class `self::$prop` /
@@ -1753,7 +1910,10 @@ static properties. `UnsetTrackingRule` implements Prop-init #8.
 ### 8.5 Code quality (`CodeQualityRule`)
 
 Always-true/false conditions (TYHP4204) apply to `if` / `while` / `do` / the last
-`for` test / ternary. `match` subjects are skipped: `match (true) { $cond => … }`
+`for` test / ternary. A loop condition that reads a property or static member is
+not reported when the body contains a call (`while ($this->running) { $this->stop(); }`):
+the call can write the member. A literal `while (true)` still warns.
+`match` subjects are skipped: `match (true) { $cond => … }`
 is a value comparison, not an `if (true)`. Arm reachability runs from
 `TypeInferrer.InferMatch` (so `return match (…)` still reports — ControlFlowRule
 does not `CheckNode` a returned match). When a match arm statically always
@@ -1892,6 +2052,9 @@ Two mechanisms in the **current checker API** (names match code /
 
 `RecordGenericCallTargetsIn` records call sites with explicit type arguments
 so the emitter can route to `__tyhpGeneric` even under suppressed subtrees.
+`RecordCalleeForVariantRouting` also records a call that passes an inline
+`async function` / `async fn` argument (`HasAsyncInlineFunctionArgument`), so the emitter
+can bind the closure's awaited return type as the runtime type argument.
 
 > Design note: Emit is Mechanism D (Closure binder + curried call sites). API
 > names like `RequiresGenericVariant` / `__tyhpGeneric` are shared D+C ABI
@@ -1920,6 +2083,60 @@ until call-site substitution; `ExpandAfterSubstitution` then rebuilds the
 shape. `ApplyInferredBindings` treats it like the callable-signature
 utilities so `clone($object, $withProperties)` can infer `T` from `$object`
 and check the bag. Unbound `__Properties<T>` erases to `array`.
+
+`__Awaited<T>` (`UtilityBehavior.Awaited`) unwraps only the real `\Tyhp\Promise`
+class (`UtilityTypeResolver.IsPromiseClass` compares the resolved declaration's
+FQN; a user class that merely has "Promise" in its name is left alone). The
+unwrap is repeated (`Promise<Promise<int>>` → `int`) and applied member-wise to
+unions and under a nullable; a bare `Promise` and a `Promise<void>` settle to
+`mixed` and `void`, and `mixed` stays `mixed`. While `T` is an unbound type
+parameter the result stays a deferred `GenericCheckedType` wrapper
+(`TryUnwrapAwaited` returns false), so the wrapper survives in a generic
+signature. Promise layers above the open leaf are still removed
+(`__Awaited<Promise<T>>` is `__Awaited<T>`), and unions distribute
+(`__Awaited<Promise<T>|int>` is `__Awaited<T>|int`) — `NormalizeAwaited`.
+`ExpandAfterSubstitution` (called from `SubstituteType`) re-expands it
+once `T` is bound — by argument inference or by an explicit type argument such as
+`Promise::run<User>(…)` — and `CollectGenericBindings` skips the pattern like
+the callable-signature utilities, so the callback argument alone fills `T`.
+A still-deferred `__Awaited<T>` is an opaque type: only `__Awaited<T>` itself
+(and `never`) is assignable to it, and it is assignable only to itself, `mixed`
+and its own supertypes. `mixed` (the unknown type) and a bare `T` are rejected
+(`T` may be `Promise<X>`, whose awaited type is `X`), so a body cannot
+`return $value;` of type `T`/`mixed` from `: __Awaited<T>`. The checked way to
+produce one is narrowing a value with `$value is __Awaited<T>`. Once `T` is
+bound the type is the resolved one and ordinary assignability applies.
+Annotation spelling and runtime reification erase the wrapper to the settled
+type (see the Emitter guide).
+
+**Awaited-bound type parameters and settled returns.** A type parameter whose
+bound is `__Awaited<X>` (`GenericTypeParameterSymbol.IsAwaitedBound`; the
+bound is a `PhpBuiltinTypeAst`, possibly inside a Simple `PhpTypeExpressionAst`)
+holds only an already-awaited type. `TryUnwrapAwaited` returns such a `T` as its
+own awaited type, so `__Awaited<T>` normalizes to `T`, `T` and `__Awaited<T>`
+are mutually assignable, and `await Promise<T>` yields `T`.
+`GenericTypeArgumentValidator.ValidateUserConstraint` enforces the bound with
+`UtilityTypeResolver.IsSettledType` (TYHP4373): a Promise, a union with a
+Promise member, or an open parameter that is neither awaited-bound nor
+constrained to a settled type that cannot hold a Promise (unconstrained, or
+bounded by `mixed`/`object`) is rejected. A concrete `mixed` or `object`
+argument is accepted (`__Awaited<mixed>` is `mixed`). This is why `class Promise<TReturn extends __Awaited<void|mixed>>`
+rejects `Promise<Promise<int>>` and `Promise<T>` for an unconstrained `T`.
+
+In every async callable (function, method, closure, arrow, interface/abstract
+method, tyhpdef signature) the declared return `R` is read as `__Awaited<R>`:
+`TypeGuardValidation.ApplyAsyncReturnScope` sets `CheckerState.IsAsyncReturnScope`
+/ `AsyncReturnOwner` (reset per callable scope, unlike `IsInAsyncContext`) and
+settles `ExpectedReturnType` through `UtilityTypeResolver.Settle`.
+`ControlFlowRule.CheckReturn` settles the returned type in that scope (a body
+that returns a Promise is recorded with `AsyncReturnFacts.MarkReturnsPromise` so
+the emitter leaves the inner closure untyped), and `TypeInferrer.WrapIfAsyncCall`
+types a call as `Promise<Settle(R)>`, so an explicit `Promise<int>` return
+settles with `int` and an explicit `__Awaited<…>` is not wrapped twice.
+`TypeComparer.AreCallableReturnsCompatible` adds one narrow rule on top of
+assignability: a `callable(): T` is accepted where
+`callable(): __Awaited<T>|Promise<__Awaited<T>>` is expected (the Promise
+executor shape). `mixed` is still not assignable to `__Awaited<T>`.
 
 `__New<T>` (`UtilityBehavior.New`, registered in `StructUtilityTypes`) stays a
 `GenericCheckedType` wrapper. `T` must be an object-shape alias (TYHP4351 for
@@ -2060,11 +2277,33 @@ At a call site, `ValidateArgumentTypes` fills `TCallable` from the sibling
 callback argument. Those bindings are applied *only* to parameter types that
 carry a deferred callable-signature utility
 (`TypeCompatibilityRule.ApplyInferredBindings`), and the inference itself runs
-lazily on first such parameter. Ordinary generic parameters keep the gradual
-mixed policy: inference binds from argument values, so
+lazily on first such parameter. Ordinary generic parameters are not
+substituted with inferred bindings: inference binds from argument values, so
 `run<TValue>(callable(TValue): TValue $cb, TValue $seed)` called with `1` binds
 `TValue` to the literal type `1`, and feeding that back into a parameter would
-demand a callback returning exactly `1`. Laziness also matters for ordering —
+demand a callback returning exactly `1`. Instead, a parameter that still mentions
+an unbound callee generic keeps its outer shape with the unbound parameters
+replaced by placeholders (`mixed` in covariant positions, `never` in callable
+parameter positions — `TypeCompatibilityRule.PreserveShapeForUnboundCalleeGenerics`),
+so `array<TKey, TValue>` still rejects `5`, `callable(T): T` rejects a
+non-callable, and `Box<T>` rejects an unrelated class. Three argument kinds stay
+fully gradual (`mixed`): inline closure literals (they are typed contextually from
+the parameter), by-reference parameters (the callee writes the value, so the
+declared shape is not a requirement on the caller's variable), and utility,
+parameter-pack and object-shape parameters. A `mixed` argument binds a callee
+generic to `mixed` like any other argument (so `T extends int` then fails
+TYHP4035). A bare `T` receiving a nullable argument binds the nullable type
+(`T = ?int`; `CallableGenericInference.CollectGenericBindings`), so the result keeps its
+nullability and `T extends int|string` rejects `?int`; `?T` binds the non-null part.
+A literal argument widens (`'plain'` → `string`, `1` → `int`, `true` → `bool`) so
+`boxOf('plain')` is `Box<string>`. Several elements of `array<Cell<T>>` or a
+variadic `Cell<T> ...` merge: `Cell<int>` and `Cell<string>` bind `T` to
+`int|string`. A union argument such as `null|T|Box<T>` must accept every member
+once `T` is bound; a member that matches no arm is TYHP4010. A type parameter
+that arguments do not bind is taken from the expected type of the call, then
+from its declared default. If neither exists, the call is TYHP4377.
+Type parameters are compared by declaring symbol, never by name, so a
+caller's `T` and a callee's `T` are different types. Laziness also matters for ordering —
 inferring up front would type closure arguments before the closure branch
 supplies their contextual parameter types.
 
@@ -2080,7 +2319,14 @@ shape (`HasIntegerKeyAliases`) so a `CallableArgs2` value selects Tuple rather
 than the named bag. An exact integer-literal match (including a tyhpdef
 `const int NAME ?? N` whose start value is `N`) scores above a plain `int`
 parameter so `parse_url($u, \PHP_URL_HOST)` selects `1 $component` rather than
-the `int` catch-all. Untyped `array` arguments still use
+the `int` catch-all. A bitwise `|`, `&`, `^`, or `~` of those known integers is
+folded and matches a positive literal parameter when every bit of the literal is
+set (`\json_encode($v, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES)` selects
+`4194304 $flags` and returns `string`). The literal whose mask has the most bits
+wins. Two masks with the same bit count fall through to the `int` signature, so
+`pathinfo($p, \PATHINFO_DIRNAME | \PATHINFO_BASENAME)` stays on the combined
+return. A bare integer still has to equal the literal. The same fold accepts the
+argument against that literal parameter (`IntegerFlagBitsCoverParameter`). Untyped `array` arguments still use
 `\call_user_func_array_unsafe`. Hand-written `CallableArgs*` structs remain as
 examples; the arity ladder is gone from the builtins. Named structs are
 structurally assignable to matching synthetic bags (and to other named structs
@@ -2160,8 +2406,12 @@ normalizes to an `int|string` key and admits both.
 7. **Diagnostics** — prefer `CheckerHelpers.ReportError(context, …)` /
    `context.ReportError` so max-errors-per-file applies; direct
    `diagnostics.AddError` bypasses the cap (used in some helpers).
-8. **Unresolved vs mixed** — use unresolved for recovery; do not invent a
-   user-visible `unknown` type. Assignability Unresolved ↔ T stays open.
+8. **Unresolved vs mixed** — `Unresolved` is the recovery type for a
+   subexpression that already produced a diagnostic or could not be resolved; it
+   is never a user-visible type and is distinct from `mixed`
+   (`mixed` is "any value, narrow before use"; `Unresolved` is "the checker gave
+   up here"). Assignability Unresolved ↔ T stays open so one error does not
+   cascade.
    Member access / call / index (including `?->`, `$fn()`, `::` on a value,
    and `list()` / `[]` destructure) on an Unresolved receiver is TYHP4197 unless
    that subtree already has an error. `mixed` stays TYHP4160.
@@ -2177,7 +2427,7 @@ normalizes to an `int|string` key and admits both.
 | Helper | When to use |
 |--------|-------------|
 | `CheckerHelpers.ResolveFreeFunction` | Call-site free function symbols |
-| `CheckerHelpers.ResolveFreeConstant` | Call-site free constant names (`\PHP_URL_HOST`); binder often leaves `BoundSymbol` null |
+| `CheckerHelpers.ResolveFreeConstant` | Call-site free constant names (`\PHP_URL_HOST`); binder often leaves `BoundSymbol` null. Resolves from the enclosing callable / object scope, else the declaring file or namespace-block scope (top-level script statements have no enclosing scope and the global scope holds no `use` imports), and binds the constant symbol on the name so the emitter spells it from the global root (`use const A\B\C` is always rooted, never namespace-relative) |
 | `CheckerHelpers.SelectFunctionOverloadForCall` | Arity-based tyhpdef overload pick (too-few / too-many bounds). A call that includes `...$xs` prefers a trailing-variadic signature over the primary when the known prefix fits, so `max($a, $b, ...$rest)` is not left on `max(array<T>)`. |
 | `CheckerHelpers.SelectMethodOverloadForCall` | Same arity pick for `ObjectMethodSymbol.Overloads` |
 | `CheckerHelpers.TryResolveInstanceOrExtensionMethod` | Own members, then in-scope extensions; canonicalizes builtin receivers before `ResolveExtensionMethod`. `staticOnly` skips instance members unless `allowInstanceForwarding` (`self`/`parent`/`static` `::` calls). Named-class `Foo::instanceMethod()` stays static-only |
@@ -2314,6 +2564,13 @@ normalizes to an `int|string` key and admits both.
    public dictionaries) before deciding whether the call needs the
    union-aware path at all — otherwise a non-first-member receiver calling
    through the alias would silently fail to resolve.
+   The call-site scope (`CheckerHelpers.GetCallSiteScope`) for a statement outside any callable or
+   object is the checked file's scope (`NameResolver.FindCallSiteScopeForFile`, its namespace block
+   when namespaced), so a file's `use extension` `hide` / `as` adaptations apply to top-level
+   statements. A project-source extension is active in the file that declares it, in files that
+   `use extension` it, and everywhere only through `global use extension`
+   (`CheckerHelpers.IsExtensionActive`). A `true` / `false` receiver (singleton `true` / `false`
+   types) looks up extensions as `bool` (`CanonicalExtensionReceiverSymbol`).
    An intersection, `void`, `never`, `mixed`, `_`, a
    type parameter, or an `object { … }` shape is TYHP4364. Two groups in the
    same extension that can both match one receiver and declare the same method
@@ -2383,6 +2640,34 @@ normalizes to an `int|string` key and admits both.
     be applied to entire override families afterward.
 
 ---
+
+### Source overload sets (`.tyhp` bodyless signatures)
+
+- **Call surface:** `CheckerHelpers.EnumerateFunctionSignatures` / `EnumerateMethodSignatures` yield what callers may use: only the declared signatures for a set whose registered declaration is the implementation (`SourceOverloadRole.Implementation`); the earlier signatures then the registered last signature for an interface/abstract run (`LastSignature`); otherwise primary then `Overloads` (tyhpdef sets, extensions).
+- **Selection (two-pass, `SourceOverloadSelector.TryPick`):** `FunctionOverloadSelector.Select` / `SelectMethod` delegate source sets to `SourceOverloadSelector`. A candidate *applies* when named arguments, positional, variadic rest, spread, required-parameter coverage, per-candidate generic inference (literal bindings widened) and closure literals (parameter count, explicit parameter/return annotations) all line up.
+  - **Pass 1 (exact):** the **first** signature in declaration order whose every argument is assignable to its parameter *as written*. A conversion-only signature declared earlier never beats it.
+  - **Pass 2 (conversion):** only when pass 1 finds nothing. Each signature is tried again, now also accepting an argument that reaches its parameter through the implicit `operator convert` an ordinary call applies (`TryConvertArgument` → `TypeComparer.IsAssignableViaOperatorConvert`: class-owned and extension convert-to / convert-from, convert-to-scalar, `operator convert hide`; one concrete target type, `?T` unwrapped). A signature that applies this way gets a *conversion profile* — per call argument, the type key it is converted to (`TypeComparer.TryGetConvertTargetKey`) or null when passed as written. Signature A *dominates* B when A converts a strict subset of B's arguments and agrees with B on every argument A converts. The undominated signatures decide: all with the same profile → the first declared is selected; otherwise the call is **ambiguous** (`FunctionOverloadSelector.FindAmbiguousOverloads` → `CheckerOverloadAmbiguous`, TYHP4375, listing the undominated signatures; the first is still returned so inference continues).
+  - No signature in either pass → `CheckerOverloadNoMatch` (TYHP4374) listing the candidates, then arity fallback. `CheckCall` (function, method, `$obj(...)` on `__invoke`) and `TypeInferrer` both go through the same selector and set `BoundSymbol = selected.EmittedSymbol`.
+- **Callable values:** a reference to a source set (`foo(...)`, `$obj->m(...)`, `C::m(...)`, `$obj->__invoke(...)`) is typed by `TypeInferrer.InferCallableFromFunction` / `InferCallableFromMethod` through `CallableOverloadSet` (`AppliesTo` = a source set with more than one declared signature, `Combine`, `IsOverloadSet`, `Select`, `Describe`): an `IntersectionCheckedType` with `IsOverloadSet = true` holding one callable facet per declared signature in declaration order (the implementation is hidden; the value is still wrapped as `\Closure<shape, …>`). Unlike the arity-sibling intersections of `CallableArityFacetBuilder`, calling an overload-set value picks the **first** facet that accepts the arguments (`SourceOverloadSelector.FacetAccepts`: arity, defaults, named/spread, per-argument assignability, closure literals) in `TypeInferrer.TryGetCallableReturnType` and `TypeCompatibilityRule.ValidateCallableFacetArguments`; none accepting reports TYHP4374 (`callable`, with the facets listed). Assigning the value to a `callable(...)` type needs one satisfying facet (the intersection-source rule in `TypeComparer.Assignability`). An overloaded `__invoke` is handled the same way for `$obj(...)` (selection plus TYHP4374 in the `__invoke` branch of `TypeCompatibilityRule.Calls`) and for an object assigned to a callable type (`TypeComparer.TryBuildInvokeCallableType`). Calling an overload-set **value** (`$fn(...)`) is exact-only against the facets — `FacetAccepts` applies no implicit `operator convert` — because the emitter cannot rewrite the arguments of `$fn(...)`. The *value* itself is widened at creation instead: when a parameter position has a convertible source, the reference `foo(...)` is a wrapper closure and its facets accept those types (see *First-class callable wrappers* below). `$obj->__invoke(...)` and `$obj(...)` calls are method calls and use the two-pass selection above. Extension and tyhpdef sets are not overload-set values (primary signature). Emission is unaffected: call sites and first-class callables bind to the one emitted implementation.
+- **Closure arguments:** `SourceOverloadSelector.ArgumentAccepted` accepts an inline `fn` for a `callable` parameter, for an `Expression<callable(…): R>` / `PropertyPath<…>` parameter (matched on the callable shape from `ExpressionTreeSupport.TryMapToCallable` / `PropertyPathSupport.TryMapToCallable`; the emitter builds the tree), and for closure-holder types such as `\Closure`. The call's callee node records the selected declared signature in `Base2Ast.SelectedOverload` (null unless the selection is a signature that is not the emitted declaration; for `$obj(...)` on an `__invoke` object, which has no bound symbol, always the selected `__invoke`) beside `BoundSymbol = EmittedSymbol`, so argument-driven emission — including the pass-2 implicit-convert rewrite — reads that signature's parameter types.
+- **Tyhpdef sets** keep arity-then-score selection; when the top-scored candidate cannot accept the call (`SourceOverloadSelector.Accepts`), the best-scoring candidate that can is used instead.
+- **Validation:** `DeclarationRule.Overloads` (`ValidateMethodOverloadSet` / `ValidateFunctionOverloadSet`) reports TYHP4118 for each signature that is not compatible with the implementation (arity; parameters assignable signature→implementation; return assignable either way; generics of both erased). Only `Implementation` sets are validated; an override of an abstract/interface set is checked against **every** signature (`CheckMethodOverride`). Signature declarations register parameters and constraints (`CheckMethodOverloadSignature`) but have no body. `OverloadRule` (old tyhpdef rule) skips source sets.
+- **Async:** the implicit `__Awaited` wrapping applies per signature (each signature is an `async` callable returning `Promise<Settle(R)>`).
+
+### Implicit `operator convert` scoping and first-class callable wrappers
+
+**Convert scoping.** An `operator convert` contributed by an `extension` (convert-from on the target, convert-to from the source) applies only where the extension is active: the declaring file, a file-level `use extension`, or `global use extension` (`ExtensionActivation.IsConvertVisible`). Class-owned converts are always visible. The checker sets the ambient call-site file per source file with `using TypeComparer.UseConvertSite(srcFile)` in the `TyhpChecker` per-file loop; `TypeComparer.IsAssignableViaOperatorConvert`, `EnumerateConvertibleSources` and the emitter's `AliasConverter` (via its own site) all read the same predicate, so check and emit agree. Code that runs without a site (deferred checks, the LSP, tyhpdef thin-mapping checks) sees every extension convert — permissive, never stricter than the build. Binary and unary extension operators use the same activation rule (`ExtensionActivation.IsOperatorVisible` from `CheckerState.CurrentFileName` in `TypeInferrer.OperatorOverloads` and from the operand's file in `AliasConverter`). A file that does not activate the extension reports TYHP4029 for those operands.
+
+**Convertible sources.** `TypeComparer.EnumerateConvertibleSources(target, globalScope, resolveSourceType)` is the target-driven view of `IsAssignableViaOperatorConvert`: the types that convert to one concrete target (`?T` counts as `T`; a multi-member union, `mixed` or an unresolved type gives none). Each `ConvertibleSource` carries its `Kind` (`ConvertFrom` = `Target::__from`, `ConvertTo` = a source-class `__to…`), `SourceType`, the `Overload`, the `Owner` class and the `TargetKey` it converts to.
+
+**Wrapper plan.** A first-class callable `f(...)`, `$o->m(...)`, `C::m(...)` or `$invokable(...)` whose parameter has a convertible source is *not* a native PHP first-class callable: the emitter rewrites it to a closure whose parameter accepts the source types and converts them before calling the callee. `TypeInferrer.InferFirstClassCallable` builds a `CallableWrapperPlan` (`TypeInferrer.CallableWrappers.cs`) per call node and stores it in the `CallableWrapperFacts` side table (a `ConditionalWeakTable` keyed by the `PhpCallAst`, cleared and re-recorded on every visit); the emitter reads the same table, so checker and emitter always agree on which callables are wrapped. The plan holds the callee, its call-site parameters, per-parameter `ConvertibleParameterPlan` (`Target`, `Sources`, `WidenedType`), the declared wrapper parameter types (`WrapperParameterTypes`, null where a type mentions a type parameter), the wrapper return type (the callee's declared type; none for `static`/`self`-relative returns the closure cannot declare, async or generator callees, and types that mention a type parameter), and the flags `IsExtensionMethod`, `IsGenericCallee`, `IsInvokeCall` and `OverloadSetType`. A plan exists only when some parameter converts (an extension-method callable always has one: it has no native form).
+  - **Which parameters.** By-reference and variadic parameters are never widened; a parameter whose type mentions a generic parameter is not widened (other parameters of a generic callee are).
+  - **Widened value type.** The value's callable shape is built from the widened parameter types (`BuildWidenedCallableShape`: the declared type unioned with the sources, `?T` stays nullable), so a call through the value type-checks the way the wrapper behaves at runtime and hover shows the widened type. Only first-class-callable *values* are widened — a declared `callable(...)` type, a plain closure, a string callable or an object assigned to a callable type keep their exact types (TYHP4374 still fires for an argument with no convertible source).
+  - **Overload sets** (`BuildOverloadSetWrapperPlan`). The wrapper calls the single emitted implementation, whose parameter at a position is the union of the signatures' types, so conversion is decided *per position* across the declared signatures: a type some signature accepts as written at that position is never converted (the exact match wins, as in pass 1 of an ordinary call); any other type that converts to a signature's parameter is converted to it, and that signature's facet accepts it; a type that would convert to *different* target types (`ConvertibleSource.TargetKey`) in different signatures is reported as `CheckerOverloadCallableAmbiguousConversion` (TYHP4376) at the call node and left unwidened. The value type is `CallableOverloadSet.Combine` of the per-signature facets, each widened by its own sources. Because positions are decided independently, a call through the value the compiler accepts is dispatched by the implementation on the converted values exactly as a direct call would; a call it cannot widen (an argument that only a direct call's whole-signature pass 2 would accept) is rejected with TYHP4374 rather than accepted and failing at runtime.
+  - **Generic callees.** The wrapper cannot be the `\Closure` that `\Tyhp\Generic::bind` inspects, so the emitter registers it with `\Tyhp\Generic::wrapCallable(native f(...), static fn(\Closure $__fccTarget): \Closure => wrapper)`; see the emitter guide.
+  - **`$object(...)`.** `InferFirstClassCallable` plans the object's `__invoke` (`IsInvokeCall`); an extension `__invoke` is not wrapped.
+  - **Diagnostics.** TYHP4376 is reported through `ReportDiagnostic` from the inferrer; the diagnostic bag de-duplicates the repeated visits by identity.
+  - **Limits.** The wrapper is one extra frame, and `ReflectionFunction::isAnonymous()` is true for it. An argument whose static type is `mixed` or unresolved passes the checker for any facet and, if it is neither accepted as written nor a convertible source, fails in the callee with a `TypeError` — the same as any callable value. A call through an overload-set value that only a direct call's whole-signature second pass would accept (a type exactly accepted at one position by another signature) is rejected with TYHP4374.
 
 ## 13. Interactions with Binder, Emitter, diagnostics
 
@@ -2492,7 +2777,7 @@ result fields when `Check` completes.
     redirect to a temp file and read it (unrelated to checker logic, but common
     when iterating on checker tests).
 
-12. **Editing emitted `runtime/packages/*/src` to paper over checker bugs** —
+12. **Editing emitted `tyhp-runtime-src/packages/tyhp/*/src` to paper over checker bugs** —
     fix Tyhp/tyhpdefs instead (workspace runtime-package rule).
 
 ---

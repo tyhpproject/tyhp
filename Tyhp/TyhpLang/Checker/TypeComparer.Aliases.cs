@@ -297,13 +297,13 @@ namespace Tyhp.TyhpLang.Checker
                 ICheckedType result = new ObjectShapeCheckedType(shape, alias, typeArguments, members);
                 if (typeArguments.Count > 0 && genericParameters.Count > 0)
                 {
-                    var substitutions = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
+                    var substitutions = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
                     for (var i = 0; i < Math.Min(genericParameters.Count, typeArguments.Count); i++)
                     {
-                        substitutions[genericParameters[i].Name] = typeArguments[i];
+                        substitutions[genericParameters[i]] = typeArguments[i];
                     }
 
-                    result = ResolveGenericType(result, substitutions, symbolTree, globalScope);
+                    result = ResolveGenericTypeBySymbol(result, substitutions, symbolTree, globalScope);
                 }
 
                 visiting.Remove(alias);
@@ -314,13 +314,13 @@ namespace Tyhp.TyhpLang.Checker
 
             if (typeArguments.Count > 0 && genericParameters.Count > 0)
             {
-                var substitutions = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
+                var substitutions = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
                 for (var i = 0; i < Math.Min(genericParameters.Count, typeArguments.Count); i++)
                 {
-                    substitutions[genericParameters[i].Name] = typeArguments[i];
+                    substitutions[genericParameters[i]] = typeArguments[i];
                 }
 
-                resolved = ResolveGenericType(resolved, substitutions, symbolTree, globalScope);
+                resolved = ResolveGenericTypeBySymbol(resolved, substitutions, symbolTree, globalScope);
             }
 
             var expanded = ExpandTypeAliasesCore(resolved, symbolTree, globalScope, resolveAliasBody, visiting);

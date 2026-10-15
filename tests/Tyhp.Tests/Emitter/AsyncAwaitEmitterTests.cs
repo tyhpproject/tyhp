@@ -100,6 +100,30 @@ public class AsyncAwaitEmitterTests
     }
 
     [Fact]
+    public void Emit_AsyncBlockWithNestedBlocks_IndentsEachLineOneLevel()
+    {
+        var php = EmitOnly("""
+            <?tyhp
+            function wrap(bool $done): mixed {
+                return async {
+                    if ($done) {
+                        return false;
+                    }
+                    return true;
+                };
+            }
+            """).Replace("\r\n", "\n");
+
+        php.Should().Contain(
+            "    return \\Tyhp\\Promise::_async(function () use ($done) {\n"
+            + "        if ($done) {\n"
+            + "            return false;\n"
+            + "        }\n"
+            + "        return true;\n"
+            + "    });");
+    }
+
+    [Fact]
     public void Emit_EmptyAsyncBlock_EmitsPromiseAsync()
     {
         var php = EmitOnly("""

@@ -1145,6 +1145,31 @@ public class Phase6RuleTests
     }
 
     [Fact]
+    public void Check_ImportUsedOnlyInLocalVariableGenericTypeArg_NotUnused()
+    {
+        var diagnostics = CompileAndCheckFiles(
+            ("Widget.tyhp", """
+                <?tyhp
+                namespace Lib;
+                class Widget {}
+                interface Task<T> {}
+                """),
+            ("Uses.tyhp", """
+                <?tyhp
+                namespace App;
+                use Lib\Widget;
+                use Lib\Task;
+                function demo(): void {
+                    array<string, Widget> $items = [];
+                    array<string, Task<int>> $tasks = [];
+                    echo \count($items) + \count($tasks);
+                }
+                """));
+
+        diagnostics.Warnings.Should().NotContain(d => d.Code == MessageCode.CheckerUnusedImport);
+    }
+
+    [Fact]
     public void Check_ImportUsedOnlyInClosureParameterType_NotUnused()
     {
         var diagnostics = CompileAndCheckFiles(

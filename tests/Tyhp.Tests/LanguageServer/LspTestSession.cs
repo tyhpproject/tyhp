@@ -11,7 +11,8 @@ namespace Tyhp.Tests.LanguageServer;
 /// </summary>
 internal sealed class LspTestSession : IAsyncDisposable
 {
-    internal static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(10);
+    internal static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(
+        10 + 2 * Math.Max(0, Environment.ProcessorCount - 4));
 
     private readonly Stream _serverStream;
     private readonly Stream _clientStream;

@@ -1,6 +1,7 @@
 using Tyhp.Config;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Checker;
 using Tyhp.TyhpLang.Checker.Rules;
 using Tyhp.TyhpLang.Enum;
 using Tyhp.TyhpLang.Parser;
@@ -183,15 +184,13 @@ namespace Tyhp.TyhpLang.Emitter
             var innerBody = body.Trim();
             if (innerBody.StartsWith("{", StringComparison.Ordinal) && innerBody.EndsWith("}", StringComparison.Ordinal))
             {
-                innerBody = innerBody[1..^1].Trim();
+                innerBody = innerBody[1..^1];
             }
 
-            var innerBodyIndented = string.IsNullOrEmpty(innerBody)
-                ? ""
-                : string.Join(
-                    "\n",
-                    innerBody.Replace("\r\n", "\n").Split('\n').Select(l =>
-                        string.IsNullOrEmpty(l) ? "" : "    " + l));
+            var innerLines = DedentLines(innerBody);
+            var innerBodyIndented = string.Join(
+                "\n",
+                innerLines.Select(l => l.Length == 0 ? "" : "    " + l));
 
             if (string.IsNullOrEmpty(innerBodyIndented))
             {
@@ -201,6 +200,25 @@ namespace Tyhp.TyhpLang.Emitter
             return "\\Tyhp\\Promise::_async(function ()" + useClause + " {\n"
                 + innerBodyIndented
                 + "\n})";
+        }
+
+        private static List<string> DedentLines(string text)
+        {
+            var lines = text.Replace("\r\n", "\n").Split('\n')
+                .SkipWhile(string.IsNullOrWhiteSpace)
+                .Reverse()
+                .SkipWhile(string.IsNullOrWhiteSpace)
+                .Reverse()
+                .ToList();
+            if (lines.Count == 0)
+            {
+                return lines;
+            }
+
+            var common = lines
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .Min(l => l.Length - l.TrimStart(' ').Length);
+            return lines.Select(l => l.Length >= common ? l[common..] : "").ToList();
         }
 
         private static List<string> CollectAsyncBlockUseParts(TyhpAsyncBlockAst block)
@@ -411,10 +429,17 @@ namespace Tyhp.TyhpLang.Emitter
                 // preserves the capture semantics of the original `async fn` (both the outer
                 // parameters and any free variables referenced in the body). A `function() use (…)`
                 // desugaring would silently drop those free variables.
-                return $"{staticPrefix}fn{refPrefix}({paramsText}): \\Tyhp\\Promise => \\Tyhp\\Promise::_async(fn() => {bodyExpr})";
+                var arrowReturn = this.FormatAsyncInlineFunctionReturnType(inlineFn);
+                if (arrowReturn is ": void" or ": never")
+                {
+                    // A PHP arrow function cannot declare `void`.
+                    arrowReturn = "";
+                }
+
+                return $"{staticPrefix}fn{refPrefix}({paramsText}): \\Tyhp\\Promise => \\Tyhp\\Promise::_async(fn(){arrowReturn} => {bodyExpr})";
             }
 
-            var originalReturn = this.FormatInlineFunctionReturnType(inlineFn);
+            var originalReturn = this.FormatAsyncInlineFunctionReturnType(inlineFn);
 
             var useParts = this.CollectInlineFunctionUseParts(inlineFn);
             // Capture parameters into the inner _async closure (like named async functions).
@@ -461,6 +486,35 @@ namespace Tyhp.TyhpLang.Emitter
                     + "\n    });";
 
             return $"{staticPrefix}{functionKeyword}({paramsText}){outerUse}: \\Tyhp\\Promise {{\n    {outerBody}\n}}";
+        }
+
+        /// <summary>
+        /// Return-type suffix of the inner closure an <c>async</c> closure / arrow hands to
+        /// <c>\Tyhp\Promise::_async</c>: the settled type <c>__Awaited&lt;R&gt;</c> of the authored (or
+        /// contextually inferred) <c>R</c>, empty when a <c>return</c> supplies a promise.
+        /// </summary>
+        private string FormatAsyncInlineFunctionReturnType(PhpInlineFunctionAst inlineFn)
+        {
+            if (AsyncReturnFacts.ReturnsPromise(inlineFn))
+            {
+                return PhpTypeAttributeSupport.TryGetHint(inlineFn, out var hint) ? ": " + hint : "";
+            }
+
+            if (inlineFn.ReturnType != null)
+            {
+                return this.SpellAsyncInnerReturnPhpType(inlineFn.ReturnType, inlineFn, inheritedHint: null);
+            }
+
+            if (!this._context.TryGetInferredClosureSignature(inlineFn, out var inferred)
+                || inferred?.ReturnType is null)
+            {
+                return this.SpellInlineFunctionReturnPhpType(inlineFn, "");
+            }
+
+            UtilityTypeResolver.TryUnwrapAwaited(inferred.ReturnType, out var settled);
+            var spelled = this.BuildCheckedTypeExpression(settled);
+            var suffix = ShouldOmitInferredPhpTypehint(spelled) ? "" : ": " + spelled;
+            return this.SpellInlineFunctionReturnPhpType(inlineFn, suffix);
         }
 
         private string FormatInlineFunctionModifiersStrippingAsync(TokenValueListAst? modifiers)

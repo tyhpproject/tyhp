@@ -54,6 +54,26 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         /// </summary>
         public List<ObjectMethodSymbol> Overloads { get; } = new();
 
+        /// <summary>
+        /// Role inside a <c>.tyhp</c> overload set. <see cref="SourceOverloadRole.Implementation"/>
+        /// hides this symbol's own signature from callers; <see cref="SourceOverloadRole.Signature"/>
+        /// marks an overload signature, which is compile-time only (erased at emit).
+        /// </summary>
+        public SourceOverloadRole OverloadRole { get; internal set; }
+
+        /// <summary>For a <see cref="SourceOverloadRole.Signature"/>, the registered declaration of the set.</summary>
+        public ObjectMethodSymbol? OverloadOwner { get; internal set; }
+
+        /// <summary>True for a bodyless <c>.tyhp</c> overload signature.</summary>
+        public bool IsOverloadSignature => this.OverloadRole == SourceOverloadRole.Signature;
+
+        /// <summary>True when this symbol heads a <c>.tyhp</c> overload set.</summary>
+        public bool IsSourceOverloadSet =>
+            this.OverloadRole is SourceOverloadRole.Implementation or SourceOverloadRole.LastSignature;
+
+        /// <summary>The symbol that is emitted for this one: the set's registered declaration, or itself.</summary>
+        public ObjectMethodSymbol EmittedSymbol => this.OverloadOwner ?? this;
+
         public virtual bool CanBeStatic => true;
         public virtual bool CanBeInstance => true;
 

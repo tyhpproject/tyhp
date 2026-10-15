@@ -136,7 +136,7 @@ namespace Tyhp.TyhpLang.Checker
                 return CheckedTypes.String;
             }
 
-            var scope = GetResolutionScope(state, globalScope);
+            var scope = GetResolutionScope(state, globalScope, nameAst);
             var resolver = new NameResolver(symbolTree, new Domain.Diagnostics.DiagnosticBag());
             var name = nameAst.ValueString ?? string.Empty;
             var segments = name.TrimStart('\\').Split('\\', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -438,7 +438,7 @@ namespace Tyhp.TyhpLang.Checker
                     return CheckedTypes.FromSymbol(obj);
 
                 case PhpNameAst name:
-                    var scope = GetResolutionScope(state, globalScope);
+                    var scope = GetResolutionScope(state, globalScope, name);
                     var resolver = new NameResolver(symbolTree, new Domain.Diagnostics.DiagnosticBag());
                     var nameText = name.ValueString ?? string.Empty;
                     var segments = nameText.TrimStart('\\').Split('\\', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -493,8 +493,16 @@ namespace Tyhp.TyhpLang.Checker
             return Matches(state.FunctionGenerics) || Matches(state.ObjectGenerics);
         }
 
-        private static IBaseScope GetResolutionScope(CheckerState state, GlobalScope globalScope)
+        private static IBaseScope GetResolutionScope(
+            CheckerState state,
+            GlobalScope globalScope,
+            IBase2Ast? node = null)
         {
+            if (state.NameResolutionScope is { } overrideScope)
+            {
+                return overrideScope;
+            }
+
             if (state.EnclosingFunction?.ContainingScope is IBaseScope functionScope)
             {
                 return functionScope;
@@ -503,6 +511,14 @@ namespace Tyhp.TyhpLang.Checker
             if (state.EnclosingObject?.ContainingScope is IBaseScope objectScope)
             {
                 return objectScope;
+            }
+
+            // Top-level script statements have no enclosing callable or object; their `use`
+            // imports live on the declaring file's namespace block / file scope, not on global.
+            if (node is not null
+                && TypeInferrer.TryGetDeclaringFileResolutionScope(node, globalScope, out var declaringScope))
+            {
+                return declaringScope;
             }
 
             return globalScope;

@@ -14,7 +14,11 @@ namespace Tyhp.TyhpLang.Checker
     /// </summary>
     public static partial class TypeComparer
     {
-        private static readonly DiagnosticBag SilentDiagnostics = new();
+        /// <summary>
+        /// A fresh sink per use. A process-wide bag accumulated every silent resolution for
+        /// the life of the process and was shared by every concurrent check.
+        /// </summary>
+        private static DiagnosticBag SilentDiagnostics => new();
 
         // 0 means the default 256. Stored per thread so one checker's budget
         // cannot replace another's while tests run in parallel.
@@ -219,6 +223,18 @@ namespace Tyhp.TyhpLang.Checker
             if (ReferenceEquals(left, right))
             {
                 return true;
+            }
+
+            // Type parameters are identified by their declaring symbol, never by spelling: a
+            // callee's `T` and a caller's `T` are unrelated, so name equality must not make them
+            // interchangeable (that would launder a `mixed` argument through the callee's `T`).
+            // The same declaring AST node is the same parameter (re-bound copies of one declaration).
+            if (left is GenericTypeParameterSymbol || right is GenericTypeParameterSymbol)
+            {
+                return left is GenericTypeParameterSymbol l
+                    && right is GenericTypeParameterSymbol r
+                    && l.DeclaringAstNode is not null
+                    && ReferenceEquals(l.DeclaringAstNode, r.DeclaringAstNode);
             }
 
             var leftFqn = NormalizeFqn(left);

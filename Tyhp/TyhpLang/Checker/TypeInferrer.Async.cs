@@ -18,9 +18,16 @@ namespace Tyhp.TyhpLang.Checker
             blockState.IsInSwitchContext = false;
             blockState.HasReturnedOnAllPaths = false;
             blockState.ExpectedClosureType = null;
+            blockState.IsAsyncReturnScope = true;
+            blockState.AsyncReturnOwner = block;
             blockState.ExpectedReturnType =
                 TryUnwrapPromiseLike(state.ExpectedReturnType)
                 ?? TryUnwrapPromiseLike(state.ExpectedClosureType);
+            if (blockState.ExpectedReturnType is not null)
+            {
+                blockState.ExpectedReturnType = UtilityTypeResolver.Settle(
+                    blockState.ExpectedReturnType, _globalScope);
+            }
 
             ClosureRule.PrepareAsyncBlockCaptures(block.Body, blockState, state);
 
@@ -34,7 +41,7 @@ namespace Tyhp.TyhpLang.Checker
             var inner = blockState.ExpectedReturnType
                 ?? UnionReturnedTypes(block.Body)
                 ?? CheckedTypes.Void;
-            return WrapAsPromise(inner);
+            return WrapAsPromise(UtilityTypeResolver.Settle(inner, _globalScope));
         }
 
         private static ICheckedType? TryUnwrapPromiseLike(ICheckedType? type)
@@ -70,18 +77,19 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
-        /// Named <c>async</c> functions/methods declare the unwrapped value type; a call (without
-        /// <c>await</c>) yields <c>Promise&lt;T&gt;</c>. Skip wrapping when the declared return is
-        /// already Promise-like (<c>Promise&lt;T&gt;</c> / <c>self&lt;T&gt;</c>).
+        /// An <c>async</c> callable's declared return type <c>R</c> is implicitly
+        /// <c>__Awaited&lt;R&gt;</c>, so a call (without <c>await</c>) yields
+        /// <c>Promise&lt;__Awaited&lt;R&gt;&gt;</c> — including when <c>R</c> is written as
+        /// <c>Promise&lt;X&gt;</c> (the call is then <c>Promise&lt;X&gt;</c>, never a nested promise).
         /// </summary>
         private ICheckedType WrapIfAsyncCall(ICheckedType declaredReturn, bool isAsync)
         {
-            if (!isAsync || TryUnwrapPromiseLike(declaredReturn) is not null)
+            if (!isAsync)
             {
                 return declaredReturn;
             }
 
-            return WrapAsPromise(declaredReturn);
+            return WrapAsPromise(UtilityTypeResolver.Settle(declaredReturn, _globalScope));
         }
 
         private ICheckedType? UnionReturnedTypes(IBase2Ast? body)

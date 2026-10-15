@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.FileSystemGlobbing;
 using Tyhp.Config;
 using Tyhp.Domain.Diagnostics;
@@ -12,16 +11,6 @@ namespace Tyhp.CLI.IntegrityChecks
     /// </summary>
     public sealed class ConfigurationCheck : IIntegrityCheck
     {
-        private static readonly Regex StructBackingClassName = new(
-            @"^\\?[A-Za-z_][A-Za-z0-9_]*(?:\\[A-Za-z_][A-Za-z0-9_]*)*$",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
-        private static readonly HashSet<string> ValidDecimalBackings = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "bcmath",
-            "gmp",
-        };
-
         private readonly Project _project;
 
         public ConfigurationCheck(Project project)
@@ -124,32 +113,6 @@ namespace Tyhp.CLI.IntegrityChecks
                     configuredPhpVersion ?? this._project.Output.PhpVersion));
             }
 
-            var structBacking = this._project.GetConfigValue("build:structBacking")
-                ?? this._project.Build.StructBacking;
-            if (!IsValidStructBacking(structBacking))
-            {
-                errors.Add(Message.Localize("CLI_IntegrityConfigStructBackingInvalid", structBacking));
-            }
-            else
-            {
-                details.Add(Message.Localize("CLI_IntegrityConfigStructBacking", structBacking));
-            }
-
-            var configuredDecimalBacking = this._project.GetConfigValue("build:decimalBacking");
-            if (!string.IsNullOrWhiteSpace(configuredDecimalBacking)
-                && !ValidDecimalBackings.Contains(configuredDecimalBacking))
-            {
-                errors.Add(Message.Localize(
-                    "CLI_IntegrityConfigDecimalBackingInvalid",
-                    configuredDecimalBacking));
-            }
-            else
-            {
-                details.Add(Message.Localize(
-                    "CLI_IntegrityConfigDecimalBacking",
-                    configuredDecimalBacking ?? this._project.Build.DecimalBacking));
-            }
-
             ct.ThrowIfCancellationRequested();
 
             if (this._project.IncludePaths.Count > 0)
@@ -210,21 +173,6 @@ namespace Tyhp.CLI.IntegrityChecks
                     errors.Add(Message.Localize("CLI_IntegrityConfigGlobInvalid", kind, pattern, ex.Message));
                 }
             }
-        }
-
-        private static bool IsValidStructBacking(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return false;
-            }
-
-            if (string.Equals(value, "array", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            return StructBackingClassName.IsMatch(value);
         }
     }
 }

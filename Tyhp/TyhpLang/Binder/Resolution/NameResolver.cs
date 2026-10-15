@@ -905,6 +905,30 @@ namespace Tyhp.TyhpLang.Binder.Resolution
             return PreferNamespaceScope(currentNamespaceName) ?? _globalScope;
         }
 
+        /// <summary>
+        /// Call-site scope for a statement outside any function, method, or class, identified by the
+        /// file being checked rather than an AST node: that file's namespace block (or file scope),
+        /// so its file-local <c>use extension</c> <c>hide</c> / <c>as</c> adaptations apply.
+        /// Falls back to <see cref="FindCallSiteScope(IBase2Ast?, IBaseScope?, string?)"/> with no node
+        /// when the file is unknown.
+        /// </summary>
+        public IBaseScope FindCallSiteScopeForFile(string? fileName, string? currentNamespaceName)
+        {
+            if (!string.IsNullOrEmpty(fileName))
+            {
+                foreach (var child in ((IBaseScope)_globalScope).GetAllChildScopes())
+                {
+                    if (child is FileScope fileScope
+                        && FileScopeMatchesOwningFile(fileScope, fileName, fileName))
+                    {
+                        return PreferNamespaceBlockForFile(fileScope, currentNamespaceName);
+                    }
+                }
+            }
+
+            return FindCallSiteScope(node: null, lexicalScope: null, currentNamespaceName);
+        }
+
         private FileScope? FindFileScopeForNode(IBase2Ast? node)
         {
             var owningFile = node as SrcFileAst ?? node?.OwningFile;
@@ -1160,13 +1184,6 @@ namespace Tyhp.TyhpLang.Binder.Resolution
             }
 
             if (owner.IsCompilerGenerated)
-            {
-                return true;
-            }
-
-            var source = owner.SourceFile ?? "";
-            if (source.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase)
-                && !source.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -1498,6 +1515,18 @@ namespace Tyhp.TyhpLang.Binder.Resolution
             simpleResult ??= AcceptIf(
                 ResolveRelativeName(new[] { typeName }, fromScope),
                 IsTypePositionSymbol);
+
+            // The `decimal` type keyword names `\Tyhp\Decimal` whenever that class is loaded
+            // (tyhp/decimal), regardless of imports. Without the class, the keyword keeps
+            // binding to the float-backed built-in placeholder.
+            if (simpleResult is BuiltInTypeSymbol { Name: "Decimal" }
+                && ResolveQualifiedName(new[] { "Tyhp", "Decimal" }) is ObjectDeclarationSymbol
+                {
+                    ObjectKind: PhpTypeDeclType.Class
+                } decimalClass)
+            {
+                simpleResult = decimalClass;
+            }
 
             if (simpleResult != null)
             {

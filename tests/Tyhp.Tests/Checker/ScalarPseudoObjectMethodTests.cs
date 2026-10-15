@@ -150,7 +150,7 @@ public class ScalarPseudoObjectMethodTests
     }
 
     [Fact]
-    public void Check_UndefinedMethodOnClass_DoesNotReport4101()
+    public void Check_UndefinedMethodOnClass_Reports4101()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
@@ -160,8 +160,9 @@ public class ScalarPseudoObjectMethodTests
             }
             """);
 
-        diagnostics.Errors.Should().NotContain(d =>
-            d.Code == MessageCode.CheckerSymbolNameNotFound);
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerSymbolNameNotFound
+            && HasParam(d, "thisMethodDoesNotExistAtAll"));
     }
 
     [Fact]
@@ -276,6 +277,57 @@ public class ScalarPseudoObjectMethodTests
         diagnostics.Errors.Should().Contain(d =>
             d.Code == MessageCode.CheckerSymbolNameNotFound
             && HasParam(d, "shout"));
+    }
+
+    [Fact]
+    public void Check_TopLevelStatement_HonorsLocalHide()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            use extension \Tyhp\StringExtensions {
+                StringExtensions::toLower hide;
+            }
+            string $name = "Hello";
+            $x = $name->toLower();
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerSymbolNameNotFound
+            && HasParam(d, "toLower"));
+    }
+
+    [Fact]
+    public void Check_TopLevelStatement_HonorsLocalAlias()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            use extension \Tyhp\StringExtensions {
+                StringExtensions::toUpper as shoutUp;
+            }
+            string $name = "Hello";
+            $x = $name->shoutUp();
+            """);
+
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerSymbolNameNotFound);
+    }
+
+    [Fact]
+    public void Check_TopLevelStatementInNamespace_HonorsLocalHide()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            namespace App;
+            use extension \Tyhp\StringExtensions {
+                StringExtensions::toLower hide;
+            }
+            string $name = "Hello";
+            $x = $name->toLower();
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerSymbolNameNotFound
+            && HasParam(d, "toLower"));
     }
 
     private static bool HasParam(IDiagnostic diagnostic, string substring)

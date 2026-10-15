@@ -30,6 +30,29 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 : CheckedTypes.Mixed;
         }
 
+        /// <summary>
+        /// An <c>async</c> callable's declared return type <c>R</c> is implicitly
+        /// <c>__Awaited&lt;R&gt;</c>: the body returns the settled value (or a promise that
+        /// settles with it). Marks the state as an async return scope and settles the expectation.
+        /// </summary>
+        public static void ApplyAsyncReturnScope(
+            CheckerState callableState,
+            IBase2Ast owner,
+            bool isAsync,
+            bool isGenerator,
+            CheckerRuleContext context)
+        {
+            if (!isAsync || isGenerator || callableState.ExpectedReturnType is null)
+            {
+                return;
+            }
+
+            callableState.IsAsyncReturnScope = true;
+            callableState.AsyncReturnOwner = owner;
+            callableState.ExpectedReturnType = UtilityTypeResolver.Settle(
+                callableState.ExpectedReturnType, context.GlobalScope);
+        }
+
         public static void ValidateGuardParameter(
             TyhpReturnTypeGuardAst guard,
             PhpParameterListAst? parameterList,

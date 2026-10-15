@@ -121,9 +121,9 @@ table. Run the gate via `dotnet test --filter MessageConsistencyGateTests`.
 | Compilation pipeline services | `Tyhp/Domain/Services/` (e.g. `CompilationService.cs`, `AstCacheService.cs`) |
 | Parser (ANTLR) | `Tyhp/TyhpLang/Parser/`, grammars `Tyhp/TyhpLang/Grammar/` (`TyhpLexer.g4`, `TyhpParser.g4`, `PhpParser.g4`) |
 | AST / Visitor / Binder / Checker / Emitter | `Tyhp/TyhpLang/{Ast,Visitor,Binder,Checker,Emitter}/` |
-| Tyhp runtime (written in Tyhp, compiled to PHP) | `runtime/packages/{core,decimal,async,lambda}/` (`tyhp_src/` → `src/`) |
-| Bundled PHP-extension tyhpdefs | `runtime/packages/php/` (`_tyhpdef/` Layer 1, `_tyhpdef/overlays/stubs/` Layer 2, `_tyhpdef/overlays/*.tyhpdef` Layer 3) + `runtime/packages/php-ext-*`; load only via vendor `tyhpdef/php` / `tyhpdef/php-ext-*` or explicit `tyhp.json` includes |
-| Scalar / callable extension methods | `runtime/packages/core/_tyhpdef/extensions/` (tyhpdefs) and `runtime/packages/core/tyhp_src/*Extensions.tyhp` (multi-statement bodies) |
+| Tyhp runtime (written in Tyhp, compiled to PHP) | `tyhp-runtime-src/packages/tyhp/{core,decimal,async,lambda,parallel,io}/` (`tyhp_src/` → `src/`) |
+| Bundled PHP-extension tyhpdefs | `tyhp-runtime-src/packages/tyhpdef/php/` (`_tyhpdef/` Layer 1, `_tyhpdef/overlays/stubs/` Layer 2, `_tyhpdef/overlays/*.tyhpdef` Layer 3) + `tyhp-runtime-src/packages/tyhpdef/php-ext-*`; load only via vendor `tyhpdef/php` / `tyhpdef/php-ext-*` or explicit `tyhp.json` includes |
+| Scalar / callable extension methods | `tyhp-runtime-src/packages/tyhp/core/_tyhpdef/extensions/` (tyhpdefs) and `tyhp-runtime-src/packages/tyhp/core/tyhp_src/*Extensions.tyhp` (multi-statement bodies) |
 | Tests / conformance fixtures | `tests/` (see §5) |
 | Project config | `tyhp.json` per project |
 | Documentation site content | [tyhp-docs-src](https://github.com/tyhpproject/tyhp-docs-src) `content/` (built by `php generate_docs.php` in that repo; published to tyhplang.com) |
@@ -171,13 +171,13 @@ Use these exact keys; do not invent synonyms in story docs.
   (`php -d error_reporting=-1 -d display_errors=1`), and stderr classification. These cases are not
   golden PHP dumps; they fail on non-zero exit or stderr matching Warning / Notice / Deprecated /
   Fatal / Parse error.
-- The .NET test project lives under `tests/Tyhp.Tests/`; PHP runtime tests accompany `runtime/packages/*`.
+- The .NET test project lives under `tests/Tyhp.Tests/`; PHP runtime tests accompany `tyhp-runtime-src/packages/tyhp/*`.
 - Each story's "Golden Fixtures / Tests (Acceptance)" subsection states its fixture obligations uniformly.
 
 ### Runtime self-host conformance ("compiler builds its own runtime")
 
-The Tyhp runtime is maintained as **dual sources**: Tyhp source (`runtime/packages/*/tyhp_src/`) and the committed
-compiled PHP (`runtime/packages/*/src/`). To catch drift between the two, the conformance suite includes a
+The Tyhp runtime is maintained as **dual sources**: Tyhp source (`tyhp-runtime-src/packages/tyhp/*/tyhp_src/`) and the committed
+compiled PHP (`tyhp-runtime-src/packages/tyhp/*/src/`). To catch drift between the two, the conformance suite includes a
 **runtime self-host check**: recompile the Tyhp runtime sources with the current compiler and **diff** the result
 against the committed PHP. A clean diff is the "compiler builds its own runtime" milestone. Any runtime-affecting
 story must keep this check green (see its acceptance subsection).
@@ -218,7 +218,7 @@ restating synthetic names or the full runtime surface in story plans.
 
 | Concern | Location |
 |---------|----------|
-| Contract version (runtime) | `extra.tyhp.interopContractVersion` in each `runtime/packages/*/composer.json` |
+| Contract version (runtime) | `extra.tyhp.interopContractVersion` in each `tyhp-runtime-src/packages/tyhp/*/composer.json` |
 | Ambient tyhpdef packages (Story 21.10) | `extra.tyhp.require` — object of Composer package name → constraint (same shape as `require`). Ambient for consumers; any package name is allowed. Duplicate those pins in the package’s `require-dev`. |
 | Tyhpdef package load spec | `extra.tyhp.package` — object of `include` / `exclude` / `overlay` globs (relative to that `composer.json`) and optional `source.tagless`. Presence as a JSON object is the sentinel that this package contributes tyhpdefs. `extra.tyhp` without `package` is plugin/interop-only. |
 | Plugin host (Story 21.10) | `tyhp/core` `composer.json` `"type": "composer-plugin"` plus `extra.class`. Composer 2 only activates plugins of type `composer-plugin` or `composer-installer`; source and dist manifests must match. |

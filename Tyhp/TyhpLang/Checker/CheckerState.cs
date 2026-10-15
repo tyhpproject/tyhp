@@ -1,5 +1,6 @@
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
+using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Enum;
@@ -40,6 +41,8 @@ namespace Tyhp.TyhpLang.Checker
             IsTypeGuardFunction = source.IsTypeGuardFunction;
             ScopeType = source.ScopeType;
             IsInAsyncContext = source.IsInAsyncContext;
+            IsAsyncReturnScope = source.IsAsyncReturnScope;
+            AsyncReturnOwner = source.AsyncReturnOwner;
             IsInGeneratorContext = source.IsInGeneratorContext;
             GeneratorInference = source.GeneratorInference;
             IsInLoopContext = source.IsInLoopContext;
@@ -151,6 +154,17 @@ namespace Tyhp.TyhpLang.Checker
         public bool IsExistenceProbeContext { get; set; }
 
         public bool IsInAsyncContext { get; set; }
+
+        /// <summary>
+        /// True while checking the body of an <c>async</c> function, method, closure, arrow, or
+        /// <c>async { }</c> block itself (not a nested synchronous callable). Its
+        /// <see cref="ExpectedReturnType"/> is the settled type <c>__Awaited&lt;R&gt;</c>, and a
+        /// <c>return</c> may supply that type or any promise that settles with it.
+        /// </summary>
+        public bool IsAsyncReturnScope { get; set; }
+
+        /// <summary>The async callable (or <c>async { }</c> block) <see cref="IsAsyncReturnScope"/> belongs to.</summary>
+        public IBase2Ast? AsyncReturnOwner { get; set; }
 
         /// <summary>
         /// True when <see cref="await"/> is allowed at file/namespace scope so the emitter can wrap
@@ -364,6 +378,8 @@ namespace Tyhp.TyhpLang.Checker
                     // A return inside a nested callable belongs to that callable, not to a
                     // finally the callable was written in.
                     child.IsInsideFinally = false;
+                    child.IsAsyncReturnScope = false;
+                    child.AsyncReturnOwner = null;
                     child.ExpectedExpressionType = null;
                     child.GeneratorInference = null;
                     child.TrackArrayAccessShapeOffsetGetCoverage = false;
@@ -1065,6 +1081,27 @@ namespace Tyhp.TyhpLang.Checker
             return false;
         }
 
+        /// <summary>
+        /// Records whether <paramref name="name"/> currently holds an <c>async</c> closure.
+        /// A later plain assignment that is not an async closure clears it.
+        /// </summary>
+        public void NoteAsyncClosureAssignment(
+            string name,
+            bool holdsAsyncClosure,
+            Ast.Interfaces.ITypeExpression? returnType)
+        {
+            ThrowIfLocked();
+            var location = FindVariableLocation(name);
+            if (location is null)
+            {
+                return;
+            }
+
+            var variable = BindLocally(location.Value.scope, location.Value.variable, name);
+            variable.HoldsAsyncClosure = holdsAsyncClosure;
+            variable.AsyncClosureReturn = holdsAsyncClosure ? returnType : null;
+        }
+
         public void AssignVariable(string name, ICheckedType type, DiagnosticBag diagnostics)
         {
             ThrowIfLocked();
@@ -1278,8 +1315,17 @@ namespace Tyhp.TyhpLang.Checker
         private static VariableState MergeVariable(VariableState left, VariableState right)
         {
             var merged = left.Clone();
-            merged.DeclaredType = CheckedTypes.UnionTypes(left.EffectiveType, right.EffectiveType);
-            merged.NarrowedType = null;
+            var joinedType = CheckedTypes.UnionTypes(left.EffectiveType, right.EffectiveType);
+            if (left.DeclaredType is { } declared && CheckedTypes.AreTypesEqual(declared, right.DeclaredType))
+            {
+                // Assignments are checked against DeclaredType, so the join may only refine reads.
+                merged.NarrowedType = CheckedTypes.AreTypesEqual(joinedType, declared) ? null : joinedType;
+            }
+            else
+            {
+                merged.DeclaredType = joinedType;
+                merged.NarrowedType = null;
+            }
             merged.IsDefinitelyAssigned = left.IsDefinitelyAssigned && right.IsDefinitelyAssigned;
             merged.IsPossiblyNull = left.IsPossiblyNull || right.IsPossiblyNull;
             // Assigned on every joined path ⇒ defined; otherwise keep the OR of undefined flags.
@@ -1288,6 +1334,10 @@ namespace Tyhp.TyhpLang.Checker
                 : left.IsPossiblyUndefined || right.IsPossiblyUndefined;
             merged.IsDisposable = left.IsDisposable || right.IsDisposable;
             merged.IsReference = left.IsReference || right.IsReference;
+            merged.HoldsAsyncClosure = left.HoldsAsyncClosure
+                && right.HoldsAsyncClosure
+                && ReferenceEquals(left.AsyncClosureReturn, right.AsyncClosureReturn);
+            merged.AsyncClosureReturn = merged.HoldsAsyncClosure ? left.AsyncClosureReturn : null;
             return merged;
         }
 

@@ -202,8 +202,34 @@ namespace Tyhp.TyhpLang.Checker
                 properties[member.Name] = new StructPropertyInfo(
                     resolveType(declaredType, propState, false, true),
                     isReadonly,
-                    TryGetIntegerKeyAlias(property));
+                    TryGetIntegerKeyAlias(property),
+                    StringKeyAlias: TryGetStringKeyAlias(property));
             }
+        }
+
+        /// <summary>
+        /// PHP string array key for <c>string 'Reply-To' as $replyTo</c>-style struct properties;
+        /// otherwise null.
+        /// </summary>
+        internal static string? TryGetStringKeyAlias(ObjectPropertySymbol property)
+            => property.DeclaringAstNode is TyhpStructPropertyAst { IsNumericAlias: false } structProp
+                ? UnquoteStringAlias(structProp.AliasOf)
+                : null;
+
+        internal static string? UnquoteStringAlias(string? alias)
+        {
+            if (string.IsNullOrEmpty(alias))
+            {
+                return null;
+            }
+
+            if (alias.Length >= 2
+                && ((alias[0] == '\'' && alias[^1] == '\'') || (alias[0] == '"' && alias[^1] == '"')))
+            {
+                return alias[1..^1].Replace("\\'", "'").Replace("\\\\", "\\");
+            }
+
+            return alias;
         }
 
         /// <summary>

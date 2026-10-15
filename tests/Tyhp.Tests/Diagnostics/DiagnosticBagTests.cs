@@ -1,5 +1,11 @@
+using System.Reflection;
+using Microsoft.Extensions.Configuration;
+using Tyhp.Config;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
+using Tyhp.Domain.Services;
+using Tyhp.Tests.TestHelpers;
+using Tyhp.TyhpLang.Checker;
 
 namespace Tyhp.Tests.Diagnostics;
 
@@ -135,6 +141,86 @@ public class DiagnosticBagTests
         bag.AddInfo(MessageCode.ParserUnknownError, "a.tyhp", 1, 0);
 
         bag.InfoCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void Project_DoesNotAssignDefaultSuppressedWarnings()
+    {
+        var before = DiagnosticBag.DefaultSuppressedWarnings;
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["suppressWarnings:0"] = "TYHP4204",
+            })
+            .Build();
+
+        var project = new Project(configuration);
+
+        DiagnosticBag.DefaultSuppressedWarnings.Should().BeSameAs(before);
+        project.SuppressedWarnings.Should().Contain(MessageCode.CheckerConditionAlwaysTrueFalse);
+    }
+
+    [Fact]
+    public void ProjectSingleton_IsNotVisibleOnAnotherThread()
+    {
+        Project? seen = new Project(new ConfigurationBuilder().Build());
+        using var started = new ManualResetEventSlim(false);
+        using var release = new ManualResetEventSlim(false);
+        var reader = new Thread(() =>
+        {
+            started.Set();
+            release.Wait();
+            seen = Project.Singleton;
+        });
+        reader.Start();
+        started.Wait();
+
+        var previous = Project.Singleton;
+        Project.Singleton = new Project(new ConfigurationBuilder().Build());
+        try
+        {
+            release.Set();
+            reader.Join();
+            seen.Should().BeNull();
+        }
+        finally
+        {
+            Project.Singleton = previous;
+        }
+    }
+
+    [Fact]
+    public void SilentDiagnosticSinks_AreNotProcessWide()
+    {
+        AssertFreshBag(typeof(TypeComparer), "SilentDiagnostics");
+        AssertFreshBag(typeof(UtilityTypeResolver), "ExpandDiagnostics");
+        AssertFreshBag(typeof(MagicUtilityTypeResolver), "SilentDiagnostics");
+        AssertFreshBag(typeof(SymbolNameExistenceVerifier), "SilentDiagnostics");
+        AssertFreshBag(typeof(ClosureProducerInference), "SilentBag");
+    }
+
+    [Fact]
+    public void IsolatedCompilation_DoesNotKeepASharedCompilationService()
+    {
+        typeof(IsolatedCompilation)
+            .GetFields(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)
+            .Should()
+            .NotContain(field => field.FieldType == typeof(CompilationService));
+    }
+
+    private static void AssertFreshBag(Type owner, string name)
+    {
+        const BindingFlags flags = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public;
+        FieldInfo? field = owner.GetField(name, flags);
+        field.Should().BeNull($"{owner.Name}.{name} must not be one shared DiagnosticBag");
+
+        PropertyInfo? property = owner.GetProperty(name, flags);
+        property.Should().NotBeNull();
+        object? first = property!.GetValue(null);
+        object? second = property.GetValue(null);
+        first.Should().BeAssignableTo<DiagnosticBag>();
+        second.Should().BeAssignableTo<DiagnosticBag>();
+        ReferenceEquals(first, second).Should().BeFalse();
     }
 }
 

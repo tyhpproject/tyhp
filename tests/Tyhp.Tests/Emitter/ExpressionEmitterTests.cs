@@ -273,6 +273,32 @@ public class ExpressionEmitterTests
         php.Should().NotContain("$e = fn");
     }
 
+    [Theory]
+    [InlineData("'Ada'", "ConstantExpression('Ada', 'string')")]
+    [InlineData("\"Ada\"", "ConstantExpression(\"Ada\", 'string')")]
+    [InlineData("'it\\'s'", "ConstantExpression('it\\'s', 'string')")]
+    [InlineData("true", "ConstantExpression(true, 'true')")]
+    [InlineData("false", "ConstantExpression(false, 'false')")]
+    [InlineData("null", "ConstantExpression(null, 'null')")]
+    [InlineData("1.5", "ConstantExpression(1.5, '1.5')")]
+    [InlineData("18", "ConstantExpression(18, '18')")]
+    public void Emit_LiteralInBody_EmitsConstantExpressionWithBaseType(string literal, string expected)
+    {
+        var php = CompileAndEmit($$"""
+            <?tyhp
+            class User {
+                public mixed $value;
+            }
+            function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
+            function demo(): void {
+                take(fn ($u) => $u->value === {{literal}});
+            }
+            """);
+
+        php.Should().Contain(@"new \Tyhp\Expression\" + expected);
+        php.Should().Contain(@"new \Tyhp\Expression\BinaryExpression(");
+    }
+
     private static string CompileAndEmit(string tyhp)
         => CompileAndEmitWithPackages(tyhp).Php;
 

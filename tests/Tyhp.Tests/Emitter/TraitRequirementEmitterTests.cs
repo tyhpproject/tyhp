@@ -31,10 +31,16 @@ class Entity
         var filePath = Path.Combine(tempDir, "traits.tyhp");
         File.WriteAllText(filePath, tyhp);
 
+        // The traits under test instantiate `\DateTime`, which the minimal PHP stubs do not declare.
+        var stubPath = Path.Combine(tempDir, "datetime.tyhpdef");
+        File.WriteAllText(stubPath, "<?tyhpdef\nclass DateTime {\n}\n");
+
         try
         {
             using var compilationService = new CompilationService();
-            var result = compilationService.ParseFiles([filePath], IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
+            var result = compilationService.ParseFiles(
+                [filePath],
+                IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4", tyhpdefIncludePaths: [stubPath]));
 
             // Filter out infrastructure errors from tyhpdef packages (not our test's concern).
             // Also ignore BinderUnresolvedParameterType for `self\Alias` / `Class\Alias` refs —

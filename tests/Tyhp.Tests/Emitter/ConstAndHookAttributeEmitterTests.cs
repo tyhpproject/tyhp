@@ -198,6 +198,24 @@ public class ConstAndHookAttributeEmitterTests
         stripped.Should().OnlyContain(d => d.Message.Contains("8.2"));
     }
 
+    [Theory]
+    [InlineData("8.2", "public const LIMIT = 4;")]
+    [InlineData("8.3", "public const int LIMIT = 4;")]
+    public void Emit_TypedClassConstant_KeepsTypeFromPhp83(string phpVersion, string expected)
+    {
+        var result = CompileAndEmit("""
+            <?tyhp
+
+            namespace Probe;
+
+            final class Widget {
+                public const int LIMIT = 4;
+            }
+            """, phpVersion);
+
+        result.Php.Should().Contain(expected);
+    }
+
     [Fact]
     public void Emit_ClassConstantAttribute_UnchangedOnPhp84()
     {

@@ -6,6 +6,7 @@ using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Checker;
 using Tyhp.TyhpLang.Enum;
 using Tyhp.TyhpLang.Parser;
 
@@ -34,8 +35,7 @@ namespace Tyhp.TyhpLang.Emitter
     }
 
     /// <summary>
-    /// Rewrites compile-time struct construction/access into PHP associative array operations
-    /// (or a configured custom backing class).
+    /// Rewrites compile-time struct construction/access into PHP associative array operations.
     /// </summary>
     internal static class StructEmissionHelper
     {
@@ -72,21 +72,21 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         /// <summary>
-        /// <c>clone $s</c> on an array-backed struct is a no-op (PHP arrays copy on assignment).
+        /// <c>clone $s</c> on a struct is a no-op (PHP arrays copy on assignment).
         /// </summary>
         public static bool TryRewriteStructClone(
             PhpUnaryOpAst unary,
             Func<IExpression?, ObjectDeclarationSymbol?> resolveStructType,
-            bool isArrayBacked,
+            Func<IExpression?, StructCheckedType?>? resolveAnonymousShape,
             out IBase2Ast rewritten)
         {
             rewritten = unary;
 
-            if (!isArrayBacked
-                || !unary.IsPrefix
+            if (!unary.IsPrefix
                 || !IsCloneOperator(unary.Operator)
                 || unary.Operand is null
-                || resolveStructType(unary.Operand) is not { IsStruct: true })
+                || (resolveStructType(unary.Operand) is not { IsStruct: true }
+                    && resolveAnonymousShape?.Invoke(unary.Operand) is null))
             {
                 return false;
             }
@@ -96,7 +96,34 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         /// <summary>
-        /// Rewrites array-backed struct <c>with</c> forms.
+        /// PHP array key for <paramref name="memberName"/> on an anonymous struct type
+        /// (<c>struct { … }</c> in type position): the integer or string alias when declared,
+        /// otherwise the member name. Null when the shape has no such property.
+        /// </summary>
+        public static StructArrayKey? ResolveAnonymousStructKey(StructCheckedType shape, string? memberName)
+        {
+            if (string.IsNullOrWhiteSpace(memberName))
+            {
+                return null;
+            }
+
+            var lookupKey = memberName.StartsWith('$') ? memberName : "$" + memberName;
+            if (!shape.Properties.TryGetValue(lookupKey, out var info)
+                && !shape.Properties.TryGetValue(memberName, out info))
+            {
+                return null;
+            }
+
+            if (info.IntegerKeyAlias is int integerKey)
+            {
+                return new StructArrayKey(integerKey.ToString(CultureInfo.InvariantCulture), IsInteger: true);
+            }
+
+            return new StructArrayKey(info.StringKeyAlias ?? NormalizePropertyKey(lookupKey), IsInteger: false);
+        }
+
+        /// <summary>
+        /// Rewrites struct <c>with</c> forms.
         /// <c>new Struct() with [...]</c> folds defaults and overrides into a single array
         /// literal at emit time; <c>$s with</c> / <c>clone $s with</c> keep a runtime
         /// <c>\array_replace($base, [...])</c> because the base value is not known statically.
@@ -105,13 +132,13 @@ namespace Tyhp.TyhpLang.Emitter
             PhpBinaryOpAst binary,
             Func<PhpNewAst, ObjectDeclarationSymbol?> resolveStructFromNew,
             Func<IExpression?, ObjectDeclarationSymbol?> resolveStructType,
-            bool isArrayBacked,
+            Func<IExpression?, StructCheckedType?>? resolveAnonymousShape,
+            Func<IExpression, IExpression>? transformDefault,
             out IBase2Ast rewritten)
         {
             rewritten = binary;
 
-            if (!isArrayBacked
-                || !IsWithOperator(binary.Operator)
+            if (!IsWithOperator(binary.Operator)
                 || binary.Right is not PhpArrayPairListAst pairList)
             {
                 return false;
@@ -120,7 +147,7 @@ namespace Tyhp.TyhpLang.Emitter
             if (binary.Left is PhpNewAst newExpr
                 && resolveStructFromNew(newExpr) is { IsStruct: true } newStruct)
             {
-                var defaults = CreateDefaultsArray(newStruct, binary);
+                var defaults = CreateDefaultsArray(newStruct, binary, transformDefault);
                 var overrides = CreateArrayFromWithList(pairList, newStruct, binary);
                 rewritten = MergeArrayPairs(defaults, overrides, binary);
                 return true;
@@ -134,12 +161,28 @@ namespace Tyhp.TyhpLang.Emitter
                 baseExpr = unary.Operand;
             }
 
-            if (baseExpr is null || resolveStructType(baseExpr) is not { IsStruct: true } baseStruct)
+            if (baseExpr is null)
             {
                 return false;
             }
 
-            var runtimeOverrides = CreateArrayFromWithList(pairList, baseStruct, binary);
+            PhpArrayAst runtimeOverrides;
+            if (resolveStructType(baseExpr) is { IsStruct: true } baseStruct)
+            {
+                runtimeOverrides = CreateArrayFromWithList(pairList, baseStruct, binary);
+            }
+            else if (resolveAnonymousShape?.Invoke(baseExpr) is { } baseShape)
+            {
+                runtimeOverrides = CreateArrayFromWithList(
+                    pairList,
+                    memberName => ResolveAnonymousStructKey(baseShape, memberName),
+                    binary);
+            }
+            else
+            {
+                return false;
+            }
+
             rewritten = CreateArrayReplaceCall(baseExpr, runtimeOverrides, binary);
             return true;
         }
@@ -147,9 +190,7 @@ namespace Tyhp.TyhpLang.Emitter
         public static bool TryRewriteStructNew(
             PhpNewAst newExpr,
             Func<PhpNewAst, ObjectDeclarationSymbol?> resolveStruct,
-            EmitContext context,
-            Func<string, ObjectDeclarationSymbol?> resolveBackingClass,
-            ref bool reportedBackingError,
+            Func<IExpression, IExpression>? transformDefault,
             out IBase2Ast rewritten)
         {
             rewritten = newExpr;
@@ -159,69 +200,24 @@ namespace Tyhp.TyhpLang.Emitter
                 return false;
             }
 
-            var defaults = CreateDefaultsArray(structDecl, newExpr);
-
-            if (context.IsStructBackedByArray())
-            {
-                rewritten = defaults;
-                return true;
-            }
-
-            rewritten = CreateCustomBackingConstruction(
-                defaults,
-                newExpr,
-                context,
-                resolveBackingClass,
-                ref reportedBackingError);
+            rewritten = CreateDefaultsArray(structDecl, newExpr, transformDefault);
             return true;
         }
 
         /// <summary>
-        /// Builds <c>new \BackingClass([...defaults...])</c> for a non-array <c>build.structBacking</c>.
-        /// Reports <see cref="MessageCode.EmitterStructBackingError"/> once when the class cannot be resolved.
+        /// The struct's folded default array. <paramref name="transformDefault"/> rewrites a default
+        /// value expression the way the surrounding emit walk would have (declaration defaults are
+        /// never walked in place), so <c>Inner $inner = new Inner();</c> becomes Inner's own
+        /// defaults array instead of a bare <c>new Inner()</c>.
         /// </summary>
-        public static PhpNewAst CreateCustomBackingConstruction(
-            PhpArrayAst defaults,
+        public static PhpArrayAst CreateDefaultsArray(
+            ObjectDeclarationSymbol structDecl,
             Base2Ast context,
-            EmitContext emitContext,
-            Func<string, ObjectDeclarationSymbol?> resolveBackingClass,
-            ref bool reportedBackingError)
-        {
-            var backingName = NormalizeBackingClassName(emitContext.GetStructBacking());
-            var resolved = resolveBackingClass(backingName);
-            if (resolved is null && !reportedBackingError)
-            {
-                reportedBackingError = true;
-                var fileName = context.OwningFile?.Identifier
-                    ?? emitContext.CurrentSourceFile?.Identifier
-                    ?? "";
-                emitContext.Diagnostics.AddErrorFromAst(
-                    MessageCode.EmitterStructBackingError,
-                    context,
-                    fileName,
-                    backingName);
-            }
-
-            var fqn = resolved?.FullyQualifiedName ?? backingName;
-            if (!fqn.StartsWith('\\'))
-            {
-                fqn = "\\" + fqn;
-            }
-
-            var args = PhpArgumentListAst.Create(
-                [PhpArgumentAst.CreateFromContext(defaults, context)],
-                context);
-            return PhpNewAst.CreateFromContext(
-                PhpNameAst.CreateFromContext(fqn, context),
-                args,
-                context);
-        }
-
-        public static PhpArrayAst CreateDefaultsArray(ObjectDeclarationSymbol structDecl, Base2Ast context)
+            Func<IExpression, IExpression>? transformDefault = null)
         {
             var pairs = EnumerateStructHierarchy(structDecl)
                 .SelectMany(decl => decl.Members.Values.OfType<ObjectPropertySymbol>())
-                .Select(property => CreateDefaultPair(property, context))
+                .Select(property => CreateDefaultPair(property, context, transformDefault))
                 .Where(pair => pair is not null)
                 .Cast<PhpArrayPairAst>()
                 .ToList();
@@ -298,9 +294,18 @@ namespace Tyhp.TyhpLang.Emitter
             PhpArrayPairListAst pairList,
             ObjectDeclarationSymbol structDecl,
             Base2Ast context)
+            => CreateArrayFromWithList(
+                pairList,
+                memberName => ResolveStructPropertyKey(structDecl, memberName),
+                context);
+
+        private static PhpArrayAst CreateArrayFromWithList(
+            PhpArrayPairListAst pairList,
+            Func<string, StructArrayKey?> resolveKey,
+            Base2Ast context)
         {
             var pairs = pairList.GetAllExcludingSkippedSlots()
-                .Select(pair => NormalizeArrayPair(pair, structDecl, context))
+                .Select(pair => NormalizeArrayPair(pair, resolveKey, context))
                 .ToList();
 
             return CreateArrayFromPairs(pairs, context);
@@ -314,7 +319,7 @@ namespace Tyhp.TyhpLang.Emitter
 
         private static PhpArrayPairAst NormalizeArrayPair(
             PhpArrayPairAst pair,
-            ObjectDeclarationSymbol structDecl,
+            Func<string, StructArrayKey?> resolveKey,
             Base2Ast context)
         {
             if (pair.KeyExpr is null)
@@ -326,7 +331,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             // A `with` key written as the property/alias name must resolve to the backing array
             // key (aliased properties store under their alias, not the member name).
-            var resolvedKey = ResolveStructPropertyKey(structDecl, keyText)
+            var resolvedKey = resolveKey(keyText)
                 ?? new StructArrayKey(keyText, IsInteger: false);
             return PhpArrayPairAst.CreateFromContext(
                 resolvedKey.ToScalarAst(context),
@@ -335,7 +340,10 @@ namespace Tyhp.TyhpLang.Emitter
                 context);
         }
 
-        private static PhpArrayPairAst? CreateDefaultPair(ObjectPropertySymbol property, Base2Ast context)
+        private static PhpArrayPairAst? CreateDefaultPair(
+            ObjectPropertySymbol property,
+            Base2Ast context,
+            Func<IExpression, IExpression>? transformDefault)
         {
             // Optional nullable properties without a default are omitted from default construction
             // (they "may or may not be present" in the array).
@@ -347,7 +355,7 @@ namespace Tyhp.TyhpLang.Emitter
             var key = GetStructArrayKey(property);
             return PhpArrayPairAst.CreateFromContext(
                 key.ToScalarAst(context),
-                defaultValue,
+                transformDefault?.Invoke(defaultValue) ?? defaultValue,
                 isExpansion: false,
                 context);
         }
@@ -527,17 +535,6 @@ namespace Tyhp.TyhpLang.Emitter
 
         private static string NormalizePropertyKey(string propertyName) =>
             propertyName.StartsWith('$') ? propertyName[1..] : propertyName;
-
-        public static string NormalizeBackingClassName(string backing)
-        {
-            var trimmed = backing.Trim();
-            if (trimmed.Length == 0)
-            {
-                return trimmed;
-            }
-
-            return trimmed.StartsWith('\\') ? trimmed : "\\" + trimmed.TrimStart('\\');
-        }
 
         public static ObjectDeclarationSymbol? ResolveStructFromNamedType(
             PhpNamedTypeAst namedType,

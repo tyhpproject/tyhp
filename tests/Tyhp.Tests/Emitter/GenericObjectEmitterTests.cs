@@ -281,6 +281,26 @@ public class GenericObjectEmitterTests
     }
 
     [Fact]
+    public void Emit_NestedGenericProperty_UsesDeclaredParameterName()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace Probe;
+
+            class Promise<TReturn> {
+                public function __construct(public TReturn $value): void {}
+            }
+
+            class Deferred<T> {
+                public function __construct(public Promise<T> $promise): void {}
+            }
+            """);
+
+        php.Should().Contain("new \\Tyhp\\NamedType('TReturn'");
+        php.Should().NotContain("new \\Tyhp\\NamedType('TValue'");
+    }
+
+    [Fact]
     public void Emit_CallSiteNewWithTypeArgs_RoutesThroughTheGeneratedFactory()
     {
         var php = CompileAndEmit("""

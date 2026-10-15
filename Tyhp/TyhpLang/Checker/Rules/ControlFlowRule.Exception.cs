@@ -29,6 +29,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             var exprForType = isAwait ? UnwrapAwait(iterableExpr) : iterableExpr;
+
+            // ControlFlowRule owns the loop and suppresses child traversal, so the iterable is
+            // never walked by the other rules unless it is checked here: call arguments, import
+            // usage (TYHP4130) for `Imported::call()`, null safety, and so on.
+            context.CheckNode(exprForType, loopState);
             var iterableType = context.ResolveExpressionType(exprForType, loopState);
             if (!isAwait && IsAsyncIterableType(iterableType))
             {

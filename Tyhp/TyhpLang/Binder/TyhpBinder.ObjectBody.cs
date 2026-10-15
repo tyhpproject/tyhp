@@ -48,20 +48,33 @@ namespace Tyhp.TyhpLang.Binder
             if (objDecl.Body == null) return;
 
             var members = objDecl.Body.GetAllNotNull().ToList();
-            var implementedMethodNames = OverloadSignatureHelper.CollectImplementedMethodNames(members);
+            // tyhpdef bodies repeat a method name to declare PHP overloads; those bind through
+            // TryAddTyhpdefMethodOverload, not through the .tyhp signature-set rules.
+            var overloadScan = IsTyhpdefContext(objDecl)
+                ? new OverloadSignatureHelper.OverloadScan()
+                : OverloadSignatureHelper.ScanMethods(
+                    members, symbol.ObjectKind == PhpTypeDeclType.Interface);
+            ReportOverloadStructureIssues(overloadScan);
 
             foreach (var member in members)
             {
                 switch (member)
                 {
                     case PhpMethodDeclAst methodDecl:
-                        // Overload signatures are compile-time-only; only the implementation binds.
-                        if (OverloadSignatureHelper.IsClassMethodOverloadSignature(methodDecl, implementedMethodNames))
+                        // Overload signatures are compile-time-only: the declaration that ends a
+                        // set binds its signatures (BindMethodOverloadSet); signatures that are
+                        // not part of a valid set were reported and are not bound.
+                        if (overloadScan.IsSignatureNode(methodDecl))
                         {
                             break;
                         }
 
-                        BindMethodDecl(methodDecl, objScope);
+                        var boundMethod = BindMethodDecl(methodDecl, objScope);
+                        if (boundMethod is not null && overloadScan.Sets.TryGetValue(methodDecl, out var overloadPlan))
+                        {
+                            BindMethodOverloadSet(overloadPlan, boundMethod, objScope);
+                        }
+
                         break;
 
                     case PhpPropertyDeclAst propDecl:
@@ -132,10 +145,15 @@ namespace Tyhp.TyhpLang.Binder
             }
         }
 
-        private void BindMethodDecl(PhpMethodDeclAst methodDecl, ObjectDeclarationScope objScope)
+        private ObjectMethodSymbol? BindMethodDecl(
+            PhpMethodDeclAst methodDecl,
+            ObjectDeclarationScope objScope,
+            ObjectMethodSymbol? overloadOwner = null)
         {
-            // Class overload signatures are filtered by IsClassMethodOverloadSignature before this
-            // method is called. Short methods (`fn name(...) => expr;`) are already desugared to a
+            // Overload signatures are not bound on their own: BindObjectBody binds the declaration
+            // of the set and then calls this with `overloadOwner` for each signature, which builds
+            // the symbol and parameter scope but does not register a second member of that name.
+            // Short methods (`fn name(...) => expr;`) are already desugared to a
             // normal body at visit time and bind like any other method.
 
             // Tyhpdef methods may be `function php_name as tyhpName(...)` — the visitor stores the
@@ -171,7 +189,7 @@ namespace Tyhp.TyhpLang.Binder
                     illegalAttributeTarget: false,
                     out var phpConstraints))
             {
-                return;
+                return null;
             }
 
             ObjectMethodSymbol methodSymbol = symbolType switch
@@ -216,7 +234,14 @@ namespace Tyhp.TyhpLang.Binder
                 }
             }
 
-            if (!objScope.TryAddChildSymbol(methodSymbol, out var existing))
+            if (overloadOwner is not null)
+            {
+                methodSymbol.ContainingScope = objScope;
+                methodSymbol.FullyQualifiedName = overloadOwner.FullyQualifiedName;
+                methodSymbol.OverloadRole = SourceOverloadRole.Signature;
+                methodSymbol.OverloadOwner = overloadOwner;
+            }
+            else if (!objScope.TryAddChildSymbol(methodSymbol, out var existing))
             {
                 if (!TryAddTyhpdefMethodOverload(objScope, methodSymbol))
                 {
@@ -250,6 +275,8 @@ namespace Tyhp.TyhpLang.Binder
                     methodSymbol.IsGenerator = BodyContainsYield(methodDecl.Body);
                 }
             }
+
+            return methodSymbol;
         }
 
         private void BindPropertyDecl(PhpPropertyDeclAst propDecl, ObjectDeclarationScope objScope)

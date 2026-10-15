@@ -414,7 +414,7 @@ public class GeneratorInferenceTests
             }
 
             function consume(): void {
-                \Generator<int|string, int, mixed, null> $g = foo();
+                \Generator<int, int, mixed, null> $g = foo();
             }
             """);
 

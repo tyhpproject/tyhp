@@ -834,34 +834,56 @@ namespace Tyhp.Domain.Services
         /// <summary>
         /// Maps each on-disk runtime package's Composer <c>name</c> (e.g. <c>tyhp/core</c>) to its
         /// absolute directory under the resolved runtime packages root, or an empty map when that
-        /// root cannot be located (the build then proceeds without path repositories).
+        /// root cannot be located (the build then proceeds without path repositories). Compiled
+        /// <c>tyhp/*</c> packages are read from <c>{root}/tyhp/*</c> and <c>tyhpdef/*</c> packages
+        /// (<c>php</c>, <c>php-ext-*</c>) from <c>{root}/tyhpdef/*</c>.
         /// </summary>
         private static Dictionary<string, string> BuildRuntimePackagePathMap()
+            => BuildRuntimePackagePathMap(TryResolveRuntimePackagesRoot());
+
+        /// <summary>
+        /// Same mapping for an explicit runtime packages root (tests).
+        /// </summary>
+        internal static Dictionary<string, string> BuildRuntimePackagePathMap(string? runtimePackagesRoot)
         {
             var map = new Dictionary<string, string>(StringComparer.Ordinal);
-            var runtimePackagesRoot = TryResolveRuntimePackagesRoot();
             if (runtimePackagesRoot == null)
             {
                 return map;
             }
 
-            foreach (var packageDirectory in Directory.EnumerateDirectories(runtimePackagesRoot))
+            foreach (var groupDirectoryName in RuntimePackageGroupDirectories)
             {
-                var manifestPath = Path.Combine(packageDirectory, "composer.json");
-                if (!File.Exists(manifestPath))
+                var groupDirectory = Path.Combine(runtimePackagesRoot, groupDirectoryName);
+                if (!Directory.Exists(groupDirectory))
                 {
                     continue;
                 }
 
-                var packageName = ReadComposerPackageName(manifestPath);
-                if (!string.IsNullOrWhiteSpace(packageName) && !map.ContainsKey(packageName!))
+                foreach (var packageDirectory in Directory.EnumerateDirectories(groupDirectory))
                 {
-                    map[packageName!] = Path.GetFullPath(packageDirectory);
+                    var manifestPath = Path.Combine(packageDirectory, "composer.json");
+                    if (!File.Exists(manifestPath))
+                    {
+                        continue;
+                    }
+
+                    var packageName = ReadComposerPackageName(manifestPath);
+                    if (!string.IsNullOrWhiteSpace(packageName) && !map.ContainsKey(packageName!))
+                    {
+                        map[packageName!] = Path.GetFullPath(packageDirectory);
+                    }
                 }
             }
 
             return map;
         }
+
+        /// <summary>
+        /// Subdirectories of the runtime packages root that hold package directories:
+        /// compiled <c>tyhp/*</c> runtimes and <c>tyhpdef/*</c> definition packages.
+        /// </summary>
+        internal static readonly string[] RuntimePackageGroupDirectories = ["tyhp", "tyhpdef"];
 
         private static string? ReadComposerPackageName(string manifestPath)
         {
@@ -1032,10 +1054,12 @@ namespace Tyhp.Domain.Services
         internal const string CompilerPackageName = "tyhp/compiler";
 
         /// <summary>
-        /// Fallback when <c>runtime/packages/compiler/composer.json</c> cannot be read (published
-        /// CLI without the in-tree packages). Must match that package's <c>version</c>.
+        /// Fallback when the in-tree <c>tyhp/compiler</c> <c>composer.json</c> cannot be read
+        /// (published CLI without the in-tree packages). It is this CLI's own release version
+        /// (<c>tyhp.csproj</c> <c>Version</c>, without build metadata), which is also the GitHub
+        /// release tag the shim downloads; the package's <c>composer.json</c> <c>version</c> is kept equal to it.
         /// </summary>
-        internal const string CompilerPackageVersionFallback = "805.1.0-beta.1";
+        internal static string CompilerPackageVersionFallback => new Message.VersionHelper().GetAssemblyVersion();
 
         /// <summary>
         /// Composer version of <c>tyhp/compiler</c> as the package versions itself (compiler tag,

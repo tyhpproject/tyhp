@@ -946,18 +946,6 @@ namespace Tyhp.TyhpLang.Emitter
                 return null;
             }
 
-            if (TryGetCallSiteTypeArguments(dereferenceable.Base) is not { Count: > 0 })
-            {
-                // `$h->zero()` without type arguments is the wrapper, which already delegates
-                // into the binder with nulls. Do not rewrite that call.
-                return null;
-            }
-
-            if (!this.GenericRuntimeLayoutIsSupported(callee, call))
-            {
-                return null;
-            }
-
             var genericParams = callee switch
             {
                 ObjectMethodSymbol method => method.GenericParameters,
@@ -965,14 +953,33 @@ namespace Tyhp.TyhpLang.Emitter
                 _ => (IReadOnlyList<GenericTypeParameterSymbol>)Array.Empty<GenericTypeParameterSymbol>(),
             };
 
+            var typeArgs = TryGetCallSiteTypeArguments(dereferenceable.Base);
+            IReadOnlyList<string>? asyncInferredArgs = null;
+            if (typeArgs is not { Count: > 0 })
+            {
+                // `$h->zero()` without type arguments is the wrapper, which already delegates
+                // into the binder with nulls (or `fromCallableReturn($param)`). Only an `async`
+                // closure argument forces the call here: the wrapper would read `\Tyhp\Promise`
+                // from its PHP return type instead of the awaited type.
+                asyncInferredArgs = this.TryBuildAsyncCallableReturnTypeArguments(callee, genericParams, call);
+                if (asyncInferredArgs is null)
+                {
+                    return null;
+                }
+            }
+
+            if (!this.GenericRuntimeLayoutIsSupported(callee, call))
+            {
+                return null;
+            }
+
             var nameNode = FindCalleeNameNode(dereferenceable.Base);
             if (nameNode is null)
             {
                 return null;
             }
 
-            var typeArgs = TryGetCallSiteTypeArguments(dereferenceable.Base);
-            var leadingArgs = this.BuildVariantTypeArguments(genericParams, typeArgs);
+            var leadingArgs = asyncInferredArgs ?? this.BuildVariantTypeArguments(genericParams, typeArgs);
             var typeArgsList = string.Join(", ", leadingArgs);
             var declaredArgs = this.FormatArgumentList(call.Arguments);
 
@@ -1044,6 +1051,121 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             return parts;
+        }
+
+        /// <summary>
+        /// Type arguments for a call with no <c>&lt;T&gt;</c> list whose arguments include an
+        /// <c>async</c> closure or arrow function literal, or null when the call should keep using
+        /// the declared-name wrapper.
+        ///
+        /// The wrapper binds a generic read from <c>callable(): T</c> through
+        /// <c>Type::fromCallableReturn($param)</c>, which reflects the callable's PHP return type.
+        /// An <c>async</c> closure is emitted returning <c>\Tyhp\Promise</c>, so the wrapper would
+        /// bind <c>T</c> to <c>Promise</c> while the checker inferred the awaited type. Here each
+        /// generic read from a <c>callable(): T</c> parameter takes the declared return type of the
+        /// closure literal passed for it (null when the literal declares none, which the binder
+        /// settles to the generic's default). When such a parameter receives anything other than a
+        /// closure literal its type cannot be spelled statically, so the call stays on the wrapper.
+        /// </summary>
+        private IReadOnlyList<string>? TryBuildAsyncCallableReturnTypeArguments(
+            IBaseSymbol callee,
+            IReadOnlyList<GenericTypeParameterSymbol> genericParams,
+            PhpCallAst call)
+        {
+            if (genericParams.Count == 0 || call.Arguments is null)
+            {
+                return null;
+            }
+
+            var declared = callee switch
+            {
+                ObjectMethodSymbol method => method.Parameters,
+                FunctionDeclarationSymbol function => function.Parameters,
+                _ => null,
+            };
+            if (declared is null)
+            {
+                return null;
+            }
+
+            var arguments = call.Arguments.GetAllNotNull().ToList();
+            if (arguments.Any(a => a.IsVariadic))
+            {
+                return null;
+            }
+
+            var parts = new List<string>(genericParams.Count);
+            var boundFromAsync = false;
+            foreach (var generic in genericParams)
+            {
+                var part = "null";
+                for (var index = 0; index < declared.Count; index++)
+                {
+                    var parameter = declared[index];
+                    if (parameter.DeclaredType is null
+                        || !TryGetCallableReturnLastTypeArgument(parameter.DeclaredType, out var returnArg)
+                        || returnArg is null
+                        || !string.Equals(
+                            Checker.Rules.CheckerHelpers.SoleTypeName(returnArg),
+                            generic.Name,
+                            StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    var argumentExpression = FindArgumentForParameter(arguments, declared, index)?.Expression;
+                    if (argumentExpression is PhpInlineFunctionAst closure)
+                    {
+                        if (closure.ReturnType is { } closureReturn)
+                        {
+                            part = this.BuildRuntimeTypeExpression(closureReturn, preferCtorLocals: false);
+                        }
+
+                        boundFromAsync |= this.IsAsyncInlineFunction(closure);
+                        break;
+                    }
+
+                    if (argumentExpression is not null
+                        && Checker.AsyncClosureArgumentFacts.TryGet(argumentExpression, out var awaitedReturn))
+                    {
+                        if (awaitedReturn is not null)
+                        {
+                            part = this.BuildRuntimeTypeExpression(awaitedReturn, preferCtorLocals: false);
+                        }
+
+                        boundFromAsync = true;
+                        break;
+                    }
+
+                    return null;
+                }
+
+                parts.Add(part);
+            }
+
+            return boundFromAsync ? parts : null;
+        }
+
+        /// <summary>
+        /// The argument bound to the declared parameter at <paramref name="parameterIndex"/>: a named
+        /// argument matching its name, else the positional argument at that index.
+        /// </summary>
+        private static PhpArgumentAst? FindArgumentForParameter(
+            IReadOnlyList<PhpArgumentAst> arguments,
+            IReadOnlyList<ParameterInfo> declared,
+            int parameterIndex)
+        {
+            var parameterName = declared[parameterIndex].Name.TrimStart('$');
+            var named = arguments.FirstOrDefault(a =>
+                a.Name is { } name
+                && string.Equals(name.ValueString?.TrimStart('$'), parameterName, StringComparison.Ordinal));
+            if (named is not null)
+            {
+                return named;
+            }
+
+            var positional = arguments.Where(a => a.Name is null).ToList();
+            return parameterIndex < positional.Count ? positional[parameterIndex] : null;
         }
 
         /// <summary>

@@ -29,6 +29,11 @@ namespace Tyhp.TyhpLang.Parser {
         private int _prepareLessColumn = -1;
         private readonly HashSet<IToken> _reclassifyCandidates = new();
 
+        // `x with [key => value, …]` key tracking (see ReclassifyWithInitializerKey).
+        private readonly Stack<int> _withInitializerDepths = new();
+        private int _withBracketDepth;
+        private int _previousDefaultTokenType = -1;
+
         private List<int> shouldPopList = new List<int>();
 
         [ThreadStatic]
@@ -165,6 +170,9 @@ namespace Tyhp.TyhpLang.Parser {
             this._prepareLessColumn = -1;
             this._languageMode = "";
             this._reclassifyCandidates.Clear();
+            this._withInitializerDepths.Clear();
+            this._withBracketDepth = 0;
+            this._previousDefaultTokenType = -1;
             this.ApplyTaglessStartMode();
         }
 
@@ -266,7 +274,133 @@ namespace Tyhp.TyhpLang.Parser {
                 }
             }
 
+            if (token is CommonToken withKeyToken)
+            {
+                this.ReclassifyWithInitializerKey(withKeyToken);
+            }
+
             return token ?? throw new Exception("unexpected null token");
+        }
+
+        /// <summary>
+        /// Records the previous default-channel token, then, inside the array literal that
+        /// follows <c>with</c>, retokenizes a reserved word used as a bare key
+        /// (<c>with [class =&gt; 'X', function =&gt; 'f']</c>) as <c>T_STRING</c>. Only a word
+        /// in key position (right after the opening <c>[</c> or a <c>,</c> of that array) and
+        /// followed by <c>=&gt;</c> changes. The previous-token record is what lets
+        /// <c>function await</c> stay an identifier; the key retokenizing is tyhp-only.
+        /// </summary>
+        private void ReclassifyWithInitializerKey(CommonToken token)
+        {
+            if (token.Channel != TokenConstants.DefaultChannel)
+            {
+                return;
+            }
+
+            int type = token.Type;
+            int previous = this._previousDefaultTokenType;
+            this._previousDefaultTokenType = type;
+
+            if (this._languageMode != "tyhp")
+            {
+                return;
+            }
+
+            switch (type)
+            {
+                case TyhpdefLexer.T_OPEN_SQUARE_BRACE:
+                    this._withBracketDepth++;
+                    if (previous == TyhpdefLexer.T_TYHP_WITH)
+                    {
+                        this._withInitializerDepths.Push(this._withBracketDepth);
+                    }
+
+                    return;
+                case TyhpdefLexer.T_OPEN_ROUND_BRACE:
+                case TyhpdefLexer.T_OPEN_CURLY_BRACE:
+                case TyhpdefLexer.T_DOLLAR_OPEN_CURLY_BRACES:
+                case TyhpdefLexer.T_ATTRIBUTE:
+                    this._withBracketDepth++;
+                    return;
+                case TyhpdefLexer.T_CLOSE_SQUARE_BRACE:
+                case TyhpdefLexer.T_CLOSE_ROUND_BRACE:
+                case TyhpdefLexer.T_CLOSE_CURLY_BRACE:
+                    if (this._withInitializerDepths.Count > 0
+                        && this._withInitializerDepths.Peek() == this._withBracketDepth)
+                    {
+                        this._withInitializerDepths.Pop();
+                    }
+
+                    if (this._withBracketDepth > 0)
+                    {
+                        this._withBracketDepth--;
+                    }
+
+                    return;
+            }
+
+            if (type == TyhpdefLexer.T_STRING
+                || this._withInitializerDepths.Count == 0
+                || this._withInitializerDepths.Peek() != this._withBracketDepth
+                || (previous != TyhpdefLexer.T_OPEN_SQUARE_BRACE && previous != TyhpdefLexer.T_SYM_COMMA)
+                || !IsBareWord(token.Text))
+            {
+                return;
+            }
+
+            if (this.PeekNextDefaultChannelTokenType() == TyhpdefLexer.T_DOUBLE_ARROW)
+            {
+                token.Type = TyhpdefLexer.T_STRING;
+                this._previousDefaultTokenType = TyhpdefLexer.T_STRING;
+            }
+        }
+
+        private static bool IsBareWord(string? text)
+        {
+            if (string.IsNullOrEmpty(text) || !(char.IsAsciiLetter(text[0]) || text[0] == '_'))
+            {
+                return false;
+            }
+
+            foreach (char c in text)
+            {
+                if (!(char.IsAsciiLetterOrDigit(c) || c == '_'))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Type of the next default-channel token, lexing ahead into the pending queue (hidden-channel
+        /// whitespace and comments are skipped). Returns -1 at end of input.
+        /// </summary>
+        private int PeekNextDefaultChannelTokenType()
+        {
+            while (true)
+            {
+                foreach (IToken queued in this._pendingTokensQueue)
+                {
+                    if (queued.Channel == TokenConstants.DefaultChannel)
+                    {
+                        return queued.Type;
+                    }
+
+                    if (queued.Type == TokenConstants.EOF)
+                    {
+                        return -1;
+                    }
+                }
+
+                IToken lexed = this.LexBaseToken();
+                this._pendingTokensQueue.Enqueue(lexed);
+                if (lexed.Type == TokenConstants.EOF)
+                {
+                    return -1;
+                }
+            }
         }
 
         public bool checkShouldPop(bool clear = true, bool doPop = true) {
@@ -683,7 +817,13 @@ namespace Tyhp.TyhpLang.Parser {
 
             if (EqualsKeyword(text, "await"))
             {
-                token.Type = TyhpdefLexer.T_TYHP_AWAIT;
+                // `function await` declares a free function (PHP allows the name).
+                // Every other use, including `await($x)`, is the await operator.
+                if (this._previousDefaultTokenType != TyhpdefLexer.T_FUNCTION)
+                {
+                    token.Type = TyhpdefLexer.T_TYHP_AWAIT;
+                }
+
                 return;
             }
 

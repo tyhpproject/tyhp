@@ -239,6 +239,8 @@ namespace Tyhp.TyhpLang.Checker
                     0);
             }
 
+            ResolveObjectGenericBounds();
+
             foreach (var srcFile in astTrees)
             {
                 // Unsatisfied (but valid) file-level declare(php=…) skips bind; skip check
@@ -249,6 +251,8 @@ namespace Tyhp.TyhpLang.Checker
                     continue;
                 }
 
+                // Extension `operator convert` applies per file (declared / `use extension`).
+                using var convertSite = TypeComparer.UseConvertSite(srcFile);
                 var state = CreateInitialState(srcFile);
                 foreach (var child in srcFile.AstChildren)
                 {
@@ -268,6 +272,35 @@ namespace Tyhp.TyhpLang.Checker
 
             _nativeTypeTests = NativeTypeTestAttributeSupport.IndexAndValidate(
                 _globalScope, _ruleContext, _diagnostics);
+        }
+
+        /// <summary>
+        /// Resolves the <c>extends X</c> bound of every class-like type parameter before any file is
+        /// walked, so <see cref="TypeComparer"/> can widen a raw generic (<c>Fiber</c>) to its real
+        /// bound regardless of declaration order, file order, or whether the declaration is a
+        /// source class (<c>DeclarationRule</c>) or a tyhpdef / PHP-stub class that the walk never
+        /// visits. Cycles (<c>T extends Box&lt;T&gt;</c>, mutually recursive generics) are cut by
+        /// <see cref="GenericConstraintResolver"/>'s visiting set.
+        /// </summary>
+        private void ResolveObjectGenericBounds()
+        {
+            foreach (var obj in EnumerateObjectDeclarations(_globalScope))
+            {
+                if (!obj.GenericParameters.Any(p => p.Constraint is not null && p.ResolvedConstraint is null))
+                {
+                    continue;
+                }
+
+                var state = new CheckerState
+                {
+                    ScopeType = ScopeType.ObjectTypeDeclaration,
+                    CurrentFileName = obj.SourceFile ?? "",
+                    EnclosingObject = obj,
+                    ObjectGenerics = obj.GenericParameters,
+                    EnclosingObjectType = CheckedTypes.FromSymbol(obj),
+                };
+                GenericConstraintResolver.ResolveAll(obj.GenericParameters, state, _ruleContext);
+            }
         }
 
         /// <summary>

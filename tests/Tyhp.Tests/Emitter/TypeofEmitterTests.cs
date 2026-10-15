@@ -81,7 +81,7 @@ public class TypeofEmitterTests
     }
 
     [Fact]
-    public void Emit_BoundClassName_ReturnsShortName()
+    public void Emit_BoundClassName_ReturnsFullyQualifiedName()
     {
         var php = CompileAndEmit("""
             <?tyhp
@@ -90,8 +90,8 @@ public class TypeofEmitterTests
             function f(): void { $t = typeof(User); }
             """);
 
-        php.Should().Contain("Tyhp\\Type::fromClassName('User'::class)");
-        php.Should().NotContain("Tyhp\\Type::fromClassName('\\App\\Models\\User'::class");
+        php.Should().Contain("Tyhp\\Type::fromClassName(\\App\\Models\\User::class)");
+        php.Should().NotContain("'User'::class");
         php.Should().NotContain("typeof(");
     }
 

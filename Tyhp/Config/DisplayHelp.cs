@@ -625,7 +625,7 @@ namespace Tyhp.Config
                 $"{executable} generate_tyhpdef --validate ./tyhpdef/",
                 "CLI_GenerateTyhpdefHelpExampleValidate");
             HelpFormatting.Example(
-                $"{executable} generate_tyhpdef --audit-stubs=../tyhp-runtime-src/packages/php/_tyhpdef --out=stub-audit.md",
+                $"{executable} generate_tyhpdef --audit-stubs=../tyhp-runtime-src/packages/tyhpdef/php/_tyhpdef --out=stub-audit.md",
                 "CLI_GenerateTyhpdefHelpExampleAuditStubs");
             HelpFormatting.Example($"{executable} generate_tyhpdef --help", "CLI_GenerateTyhpdefHelpExampleHelp");
         }

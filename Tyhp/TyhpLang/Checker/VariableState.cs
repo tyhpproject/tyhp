@@ -31,6 +31,15 @@ namespace Tyhp.TyhpLang.Checker
         /// <summary>True when the type was inferred from context rather than explicitly annotated.</summary>
         public bool IsInferred { get; set; }
 
+        /// <summary>
+        /// The last straight-line value assigned to this variable is an <c>async</c> closure.
+        /// <see cref="AsyncClosureReturn"/> is that closure's declared return type, or null when
+        /// it declares none.
+        /// </summary>
+        public bool HoldsAsyncClosure { get; set; }
+
+        public Ast.Interfaces.ITypeExpression? AsyncClosureReturn { get; set; }
+
         /// <summary>True after the variable is read in an expression context.</summary>
         public bool IsRead { get; set; }
 
@@ -90,6 +99,8 @@ namespace Tyhp.TyhpLang.Checker
                 IsParameter = IsParameter,
                 IsReference = IsReference,
                 IsInferred = IsInferred,
+                HoldsAsyncClosure = HoldsAsyncClosure,
+                AsyncClosureReturn = AsyncClosureReturn,
                 IsRead = IsRead,
                 ReferenceGroup = ReferenceGroup,
                 DeclaringBlockScope = DeclaringBlockScope,

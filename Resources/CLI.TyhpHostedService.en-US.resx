@@ -281,7 +281,7 @@
     <comment>Checker invalid operator for type</comment>
   </data>
   <data name="ERROR_TYHP4030" xml:space="preserve">
-    <value>Disposable assignment `:=` requires type implementing `IsDisposable`</value>
+    <value>Resource of `:=`, `using` or `using await` requires a type implementing `IsDisposable`</value>
     <comment>Checker disposable requires interface</comment>
   </data>
   <data name="ERROR_TYHP4031" xml:space="preserve">
@@ -1516,6 +1516,26 @@ declare(php="&gt;=8.3") {
     <value>The name `{0}` cannot be used as a `{1}`</value>
     <comment>Checker — PHP 8.6 reserved name (let, is, namespace, readonly function, or _)</comment>
   </data>
+  <data name="ERROR_TYHP4373" xml:space="preserve">
+    <value>Type argument `{0}` for `{1}` must be an already-awaited type (not a promise, a union with a promise member, or a type parameter that could hold one, such as an unconstrained one or one bounded by `mixed`); use a settled type, or constrain the type parameter with `extends __Awaited&lt;…&gt;`</value>
+    <comment>Checker — type argument for an `extends __Awaited&lt;…&gt;` parameter is not settled</comment>
+  </data>
+  <data name="ERROR_TYHP4374" xml:space="preserve">
+    <value>No overload of `{0}` matches this call. Overloads: {1}</value>
+    <comment>Checker overload no match. {0} is the callee name, {1} the overload signatures separated by semicolons</comment>
+  </data>
+  <data name="ERROR_TYHP4375" xml:space="preserve">
+    <value>The call to `{0}` is ambiguous: no overload accepts the arguments as written, and more than one accepts them only through implicit conversion to different types. Overloads: {1}. Convert an argument explicitly (for example with a cast) to choose one</value>
+    <comment>Checker overload ambiguous. {0} is the callee name, {1} the candidate overload signatures separated by semicolons</comment>
+  </data>
+  <data name="ERROR_TYHP4376" xml:space="preserve">
+    <value>The first-class callable `{0}(...)` cannot convert a `{1}` argument at position {2}: no overload accepts it as written, and the overloads convert it to different types (`{3}`). Call the overload directly, or pass an argument that one overload accepts</value>
+    <comment>Checker overload callable ambiguous conversion. {0} is the callee name, {1} the source type, {2} the 1-based parameter position, {3} the target types separated by commas</comment>
+  </data>
+  <data name="ERROR_TYHP4377" xml:space="preserve">
+    <value>Cannot infer type argument `{0}` for `{1}`. Specify it explicitly</value>
+    <comment>Checker — a generic call left type parameter {0} of {1} unbound, with no expected type and no default</comment>
+  </data>
   <data name="WARNING_TYHP4500" xml:space="preserve">
     <value>`{0}` is deprecated{1}</value>
     <comment>Checker deprecated usage. {1} is empty, or ": {message}" when #[\Deprecated] $message is a string literal.</comment>
@@ -1649,6 +1669,30 @@ declare(php="&gt;=8.3") {
     <value>Type alias `{0}` cannot be a PHP function name</value>
     <comment>File-level aliases emit as functions; reserved PHP function/construct names are invalid. {0} is the alias name</comment>
   </data>
+  <data name="ERROR_TYHP3031" xml:space="preserve">
+    <value>Overload signature `{0}` has no implementation; overload signatures must be followed directly by a declaration with a body</value>
+    <comment>Binder overload missing implementation. {0} is the function or method name</comment>
+  </data>
+  <data name="ERROR_TYHP3032" xml:space="preserve">
+    <value>Overload signature `{0}` must be declared directly before its implementation, with no other declarations in between</value>
+    <comment>Binder overload not adjacent to its implementation. {0} is the function or method name</comment>
+  </data>
+  <data name="WARNING_TYHP3033" xml:space="preserve">
+    <value>`{0}` has a single overload signature; declare at least two overloads, or remove it and use the implementation's own signature</value>
+    <comment>Binder lone overload signature. {0} is the function or method name</comment>
+  </data>
+  <data name="ERROR_TYHP3034" xml:space="preserve">
+    <value>Overload signature `{0}` has the same parameters and return type as an earlier overload</value>
+    <comment>Binder duplicate overload signature. {0} is the function or method name</comment>
+  </data>
+  <data name="ERROR_TYHP3035" xml:space="preserve">
+    <value>Overload signature `{0}` must use the same modifiers (static, visibility, async, abstract, final) as the rest of its overload set</value>
+    <comment>Binder overload modifier mismatch. {0} is the function or method name</comment>
+  </data>
+  <data name="ERROR_TYHP3036" xml:space="preserve">
+    <value>Overload signatures are not supported on constructors or destructors (`{0}`); declare separate factory methods or use optional parameters</value>
+    <comment>Binder overload constructor not supported. {0} is the method name</comment>
+  </data>
   <data name="ERROR_TYHP1001" xml:space="preserve">
     <value>Unknown parser error: {0}</value>
     <comment>Lexer/Parser unknown error</comment>
@@ -1752,10 +1796,6 @@ declare(php="&gt;=8.3") {
   <data name="ERROR_TYHP5014" xml:space="preserve">
     <value>TyhpLib runtime is required but not configured for `{0}`</value>
     <comment>Emitter missing runtime</comment>
-  </data>
-  <data name="ERROR_TYHP5015" xml:space="preserve">
-    <value>Configured struct backing class `{0}` is not found</value>
-    <comment>Emitter struct backing class not found</comment>
   </data>
   <data name="ERROR_TYHP5016" xml:space="preserve">
     <value>Disposable variable of type `{0}` does not implement `IsDisposable`</value>
@@ -3134,7 +3174,7 @@ This is non-fatal. If mappings look wrong in a debugger, report the generated an
     <comment>Build help tyhp.json checker.* summary</comment>
   </data>
   <data name="CLI_BuildHelpConfigBuild" xml:space="preserve">
-    <value>Build knobs (e.g. generateSourcemap, structBacking, decimalBacking, allowEval, profile, optimize)</value>
+    <value>Build knobs (e.g. generateSourcemap, allowEval, profile, optimize)</value>
     <comment>Build help tyhp.json build.* summary</comment>
   </data>
   <data name="CLI_BuildHelpConfigStrictMode" xml:space="preserve">
@@ -4277,22 +4317,6 @@ xdebug.idekey = tyhp</value>
     <value>output.phpVersion: {0}</value>
     <comment>Config check: PHP version</comment>
   </data>
-  <data name="CLI_IntegrityConfigStructBackingInvalid" xml:space="preserve">
-    <value>build.structBacking '{0}' must be 'array' or a class name</value>
-    <comment>Config check: bad structBacking</comment>
-  </data>
-  <data name="CLI_IntegrityConfigStructBacking" xml:space="preserve">
-    <value>build.structBacking: {0}</value>
-    <comment>Config check: structBacking</comment>
-  </data>
-  <data name="CLI_IntegrityConfigDecimalBackingInvalid" xml:space="preserve">
-    <value>build.decimalBacking '{0}' must be 'bcmath' or 'gmp'</value>
-    <comment>Config check: bad decimalBacking</comment>
-  </data>
-  <data name="CLI_IntegrityConfigDecimalBacking" xml:space="preserve">
-    <value>build.decimalBacking: {0}</value>
-    <comment>Config check: decimalBacking</comment>
-  </data>
   <data name="CLI_IntegrityConfigNoSourceFiles" xml:space="preserve">
     <value>No .tyhp source files match the configured include/exclude patterns</value>
     <comment>Config check: no sources</comment>
@@ -4700,6 +4724,10 @@ xdebug.idekey = tyhp</value>
   <data name="ERROR_TYHP6009" xml:space="preserve">
     <value>Cannot expand `{0}` in `{1}`: {2}</value>
     <comment>tyhp.json interpolation failed</comment>
+  </data>
+  <data name="WARNING_TYHP6010" xml:space="preserve">
+    <value>`build.structBacking` is `{0}`; structs are always PHP arrays, so the setting is ignored. Remove it from tyhp.json</value>
+    <comment>Retired build.structBacking option set to a class name. {0} = configured value</comment>
   </data>
   <data name="ERROR_TYHP7000" xml:space="preserve">
     <value>Unknown install target `{0}`; known targets: `{1}`</value>
@@ -5912,7 +5940,7 @@ Fix: Mark the function as `async`: `async function fetchData(): Promise&lt;strin
     <comment>Long-form explanation for TYHP4029 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP4030" xml:space="preserve">
-    <value>The disposable assignment operator `:=` is used with a type that does not implement the `IsDisposable` interface.
+    <value>A resource bound with `:=`, `using` or `using await` has a type that does not implement the `IsDisposable` interface.
 
 ```tyhp
 &lt;?tyhp

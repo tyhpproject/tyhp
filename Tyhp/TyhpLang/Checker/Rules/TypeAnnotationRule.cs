@@ -111,10 +111,15 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (typedVar.TypeExpression is not null)
             {
                 context.CheckNode(typedVar.TypeExpression, state);
+
+                // Generic type arguments (`array<string, Task<int>> $x`) hang off grammar addons,
+                // which the child walk above does not enter.
+                context.MarkImportNames(typedVar.TypeExpression, state);
                 declaredType = context.ResolveTypeAnnotation(typedVar.TypeExpression, state);
             }
 
             var previousExpected = state.ExpectedExpressionType;
+            var previousExpectedClosure = state.ExpectedClosureType;
             if (ContextualNewInference.IsUsableExpectedType(declaredType))
             {
                 state.ExpectedExpressionType = declaredType;
@@ -166,6 +171,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (typedVar.AssignedExpression is not null)
             {
                 var sourceType = context.ResolveExpressionType(typedVar.AssignedExpression, state);
+
+                // The annotation's callable shape contextualizes only this initializer (including
+                // typing it just above); leaving it on the scope would give a later untyped
+                // closure that return type.
+                state.ExpectedClosureType = previousExpectedClosure;
                 if (declaredType is not null
                     && GeneratorBodyInference.TryHandleYieldSendAssignment(
                         typedVar.AssignedExpression, declaredType, state))

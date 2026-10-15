@@ -20,7 +20,10 @@ namespace Tyhp.TyhpLang.Binder
         {
             var currentScope = parentScope;
 
-            foreach (var stmt in stmtList.GetAllNotNull())
+            var statements = stmtList.GetAllNotNull().ToList();
+            ScanFunctionOverloads(statements.Cast<IBase2Ast?>());
+
+            foreach (var stmt in statements)
             {
                 // Inactive file-level `declare(php=…);` skips the file's declarations silently.
                 // Still bind declare statements so other directives (and 4301) are recorded.
@@ -384,7 +387,8 @@ namespace Tyhp.TyhpLang.Binder
 
         private void BindFunctionDecl(PhpFunctionDeclAst funcDecl, IBaseScope parentScope)
         {
-            // Skip bodyless overload signatures only. Named short-function implementations
+            // Overload signatures are bound by the implementation that follows them
+            // (BindFunctionOverloadSet), never on their own. Named short-function implementations
             // (`fn name(...) => expr;`) also arrive via the short-function grammar alt but already
             // have a desugared body and must be bound like normal functions.
             if (OverloadSignatureHelper.IsErasableFunctionOverloadSignature(funcDecl))
@@ -392,6 +396,18 @@ namespace Tyhp.TyhpLang.Binder
                 return;
             }
 
+            var bound = BindFunctionDeclCore(funcDecl, parentScope, overloadOwner: null);
+            if (bound is not null && _overloadScan.Sets.TryGetValue(funcDecl, out var plan))
+            {
+                BindFunctionOverloadSet(plan, bound, parentScope);
+            }
+        }
+
+        private FunctionDeclarationSymbol? BindFunctionDeclCore(
+            PhpFunctionDeclAst funcDecl,
+            IBaseScope parentScope,
+            FunctionDeclarationSymbol? overloadOwner)
+        {
             var identifier = funcDecl.Identifier;
             if (string.IsNullOrEmpty(identifier))
             {
@@ -400,7 +416,7 @@ namespace Tyhp.TyhpLang.Binder
                     funcDecl,
                     _currentFileName,
                     "Function declaration has no identifier — skipping binding.");
-                return;
+                return null;
             }
 
             if (!ShouldRegisterPhpVersionGatedDeclaration(
@@ -411,7 +427,7 @@ namespace Tyhp.TyhpLang.Binder
                     illegalAttributeTarget: false,
                     out var phpConstraints))
             {
-                return;
+                return null;
             }
 
             var modifiers = ConvertModifiers(null);
@@ -434,7 +450,7 @@ namespace Tyhp.TyhpLang.Binder
             {
                 case FileScope fileScope:
                 {
-                    if (!fileScope.TryAddChildSymbol(symbol, out var existing))
+                    if (overloadOwner is null && !fileScope.TryAddChildSymbol(symbol, out var existing))
                     {
                         ReportFunctionDeclarationConflict(funcDecl, existing, symbol.Name);
                     }
@@ -447,7 +463,7 @@ namespace Tyhp.TyhpLang.Binder
 
                 case NamespaceBlockScope nsBlockScope:
                 {
-                    if (!nsBlockScope.TryAddChildSymbol(symbol, out var existing))
+                    if (overloadOwner is null && !nsBlockScope.TryAddChildSymbol(symbol, out var existing))
                     {
                         ReportFunctionDeclarationConflict(funcDecl, existing, symbol.Name);
                     }
@@ -474,8 +490,20 @@ namespace Tyhp.TyhpLang.Binder
                 default:
                     _diagnostics.AddErrorFromAst(MessageCode.BinderUnknownError, funcDecl, _currentFileName,
                         $"Unexpected parent scope type '{parentScope.GetType().Name}' for function declaration");
-                    break;
+                    return null;
             }
+
+            if (overloadOwner is not null)
+            {
+                symbol.OverloadRole = SourceOverloadRole.Signature;
+                symbol.OverloadOwner = overloadOwner;
+                if (symbol.ContainingScope is null)
+                {
+                    symbol.ContainingScope = parentScope;
+                }
+            }
+
+            return symbol;
         }
 
         private void BindImportDeclList(PhpImportDeclListAst importList, IBaseScope parentScope)
@@ -1406,17 +1434,21 @@ namespace Tyhp.TyhpLang.Binder
                 parentScope);
             structShape.BoundSymbol = typeAlias.BoundSymbol;
 
-            if (parentScope is ObjectDeclarationScope
-                && typeAlias.BoundSymbol is ObjectDeclarationSymbol nested)
+            if (typeAlias.BoundSymbol is not ObjectDeclarationSymbol bound)
+            {
+                return;
+            }
+
+            if (parentScope is ObjectDeclarationScope)
             {
                 var modifiers = ConvertModifiers(typeAlias.Modifiers);
                 if (modifiers != MemberModifier.None)
                 {
-                    nested.Visibility = modifiers;
+                    bound.Visibility = modifiers;
                 }
-
-                ApplyInternal(nested, typeAlias, nested.Visibility);
             }
+
+            ApplyInternal(bound, typeAlias, bound.Visibility);
         }
 
         private void BindNamedStruct(

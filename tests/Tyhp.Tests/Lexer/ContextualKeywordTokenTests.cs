@@ -24,6 +24,56 @@ public class ContextualKeywordTokenTests
     }
 
     [Fact]
+    public void Lex_FunctionNamedAwait_IsTString()
+    {
+        var tokens = LexDefaultChannel("""
+            <?tyhp
+            fallback function await(mixed $value): mixed { return $value; }
+            """);
+
+        tokens.Should().Contain(t => t.Type == TyhpLexer.T_STRING && t.Text.Equals("await", StringComparison.OrdinalIgnoreCase));
+        tokens.Should().NotContain(t => t.Type == TyhpLexer.T_TYHP_AWAIT);
+    }
+
+    [Fact]
+    public void Lex_AwaitExpression_IsKeyword()
+    {
+        var tokens = LexDefaultChannel("""
+            <?tyhp
+            function load(mixed $value): mixed {
+                return await $value;
+            }
+            """);
+
+        tokens.Should().Contain(t => t.Type == TyhpLexer.T_TYHP_AWAIT && t.Text.Equals("await", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Lex_AwaitCallSyntax_IsKeyword()
+    {
+        var tokens = LexDefaultChannel("""
+            <?tyhp
+            function load(mixed $value): mixed {
+                return await($value);
+            }
+            """);
+
+        tokens.Should().Contain(t => t.Type == TyhpLexer.T_TYHP_AWAIT && t.Text.Equals("await", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Lex_TyhpdefFunctionNamedAwait_IsTString()
+    {
+        var tokens = LexDefaultChannel("""
+            <?tyhpdef
+            fallback function await(mixed $value): mixed;
+            """);
+
+        tokens.Should().Contain(t => t.Type == TyhpLexer.T_STRING && t.Text.Equals("await", StringComparison.OrdinalIgnoreCase));
+        tokens.Should().NotContain(t => t.Type == TyhpLexer.T_TYHP_AWAIT);
+    }
+
+    [Fact]
     public void Lex_MethodNamedAsync_IsTString()
     {
         var tokens = LexDefaultChannel("""

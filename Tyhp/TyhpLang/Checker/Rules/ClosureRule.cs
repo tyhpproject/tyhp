@@ -86,6 +86,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 }
             }
 
+            TypeGuardValidation.ApplyAsyncReturnScope(
+                closureState, closure, IsAsyncClosure(closure), closureState.IsInGeneratorContext, context);
+
             if (closure.Body is not null)
             {
                 context.CheckStatementBlock(closure.Body, closureState);
@@ -173,7 +176,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
         }
 
-        private static bool IsAsyncClosure(PhpInlineFunctionAst closure)
+        internal static bool IsAsyncClosure(PhpInlineFunctionAst closure)
         {
             if (closure.AstGrammarAddons.ContainsKey("isAsync"))
             {

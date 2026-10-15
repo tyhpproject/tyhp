@@ -7,7 +7,7 @@ bin/
 obj/
 TestResults/
 
-# Package sources live in tyhp-runtime-src. This repo does not ship packages/compiler/bin.
+# Package sources live in tyhp-runtime-src. This repo does not ship packages/tyhp/compiler/bin.
 
 # Compiler / publish output
 build/

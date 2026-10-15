@@ -346,10 +346,10 @@ public class UnresolvedReceiverTests
     }
 
     [Fact]
-    public void Check_CoalesceAssignLeftMixedMember_DoesNotReport4160()
+    public void Check_CoalesceAssignLeftMixedMember_Reports4160Once()
     {
-        // Same existence-probe suppression as the Unresolved `??=` case above, for `mixed`'s own
-        // TYHP4160 use-site check.
+        // Unlike an Unresolved receiver (recovery type), a `mixed` receiver is a real value that
+        // is dereferenced by the probe, so it must be narrowed first — reported once.
         var diagnostics = CompileAndCheck("""
             <?tyhp
             function demo(mixed $m): void {
@@ -357,7 +357,7 @@ public class UnresolvedReceiverTests
             }
             """);
 
-        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerMixedRequiresNarrowing);
+        diagnostics.Errors.Count(d => d.Code == MessageCode.CheckerMixedRequiresNarrowing).Should().Be(1);
     }
 
     [Fact]

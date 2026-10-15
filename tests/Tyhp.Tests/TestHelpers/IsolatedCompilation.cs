@@ -25,7 +25,6 @@ public static class IsolatedCompilation
 
     private static readonly object SharedStubGate = new();
     private static string? _sharedStubPath;
-    private static readonly CompilationService SharedCompilation = new();
 
     /// <param name="includeMinimalPhpStubs">
     /// When true (default), prepends <see cref="SyntheticPhpStubs.MinimalPhp"/> even if
@@ -115,7 +114,7 @@ public static class IsolatedCompilation
         try
         {
             var projectPath = extraDir ?? Path.GetDirectoryName(SharedMinimalPhpStubPath)!;
-            return SharedCompilation.ParseFiles(
+            return ParseIsolated(
                 new Dictionary<string, string>(StringComparer.Ordinal) { [fileName] = tyhp },
                 CreateOptions(
                     projectPath,
@@ -145,7 +144,7 @@ public static class IsolatedCompilation
         Action<CompilationOptions>? configure = null,
         bool includeMinimalPhpStubs = true)
     {
-        return SharedCompilation.ParseFiles(
+        return ParseIsolated(
             files,
             CreateOptions(
                 Path.GetDirectoryName(SharedMinimalPhpStubPath)!,
@@ -211,7 +210,25 @@ public static class IsolatedCompilation
             o.SuppressedWarnings = MissingPackageWarnings;
         });
         options.SuppressedWarnings = MergeMissingPackageWarnings(options.SuppressedWarnings);
-        return SharedCompilation.ParseFiles([userFile], options);
+        return ParseIsolated([userFile], options);
+    }
+
+    /// <summary>
+    /// A new <see cref="CompilationService"/> per call. One shared service reused its
+    /// thread-local ANTLR lexer and parser across unrelated tests on the same pool thread.
+    /// </summary>
+    private static CompilationResult ParseIsolated(IEnumerable<string> filePaths, CompilationOptions options)
+    {
+        using var compilation = new CompilationService();
+        return compilation.ParseFiles(filePaths, options);
+    }
+
+    private static CompilationResult ParseIsolated(
+        IReadOnlyDictionary<string, string> files,
+        CompilationOptions options)
+    {
+        using var compilation = new CompilationService();
+        return compilation.ParseFiles(files, options);
     }
 
     private static string SharedMinimalPhpStubPath

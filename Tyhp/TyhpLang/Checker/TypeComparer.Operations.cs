@@ -348,6 +348,15 @@ namespace Tyhp.TyhpLang.Checker
                 }
             }
 
+            // A redundant guard keeps the precise type: `Promise<T> $p` + `$p instanceof Promise`
+            // stays `Promise<T>` rather than falling back to the raw (argument-less) class.
+            if (OpenGenericDeclaration(narrowTo) is not null
+                && !ReferenceEquals(current, narrowTo)
+                && IsSubtypeOf(current, narrowTo, symbolTree, globalScope))
+            {
+                return current;
+            }
+
             if (IsSubtypeOf(narrowTo, current, symbolTree, globalScope))
             {
                 return narrowTo;

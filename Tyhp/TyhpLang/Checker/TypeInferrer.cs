@@ -19,6 +19,7 @@ namespace Tyhp.TyhpLang.Checker
         private readonly GlobalScope _globalScope;
         private readonly DiagnosticBag _diagnostics;
         private readonly TyhpChecker _checker;
+        private readonly HashSet<PhpCallAst> _reportedMissingGenerics = new(ReferenceEqualityComparer.Instance);
 
         public TypeInferrer(
             SymbolTree symbolTree,
@@ -194,7 +195,13 @@ namespace Tyhp.TyhpLang.Checker
         /// Namespace blocks are siblings of <see cref="FileScope"/> under global (not children),
         /// linked via <see cref="Binder.Symbols.NamespaceBlockSymbol.OwningFileScope"/>.
         /// </summary>
-        private bool TryGetDeclaringFileResolutionScope(IBase2Ast ast, out IBaseScope declaringScope)
+        private bool TryGetDeclaringFileResolutionScope(IBase2Ast ast, out IBaseScope declaringScope) =>
+            TryGetDeclaringFileResolutionScope(ast, _globalScope, out declaringScope);
+
+        internal static bool TryGetDeclaringFileResolutionScope(
+            IBase2Ast ast,
+            GlobalScope globalScope,
+            out IBaseScope declaringScope)
         {
             declaringScope = null!;
             var owningFile = ast.OwningFile;
@@ -211,7 +218,7 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             FileScope? matchingFile = null;
-            foreach (var child in ((IBaseScope)_globalScope).GetAllChildScopes())
+            foreach (var child in ((IBaseScope)globalScope).GetAllChildScopes())
             {
                 if (child is FileScope fileScope
                     && FileScopeMatchesOwningFile(fileScope, fileName, absolutePath))
@@ -227,7 +234,7 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             // Prefer the namespace block for this file — that is where per-file `use` imports live.
-            foreach (var child in ((IBaseScope)_globalScope).GetAllChildScopes())
+            foreach (var child in ((IBaseScope)globalScope).GetAllChildScopes())
             {
                 if (child is not NamespaceScope nsScope)
                 {

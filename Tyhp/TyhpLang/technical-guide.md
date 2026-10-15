@@ -190,13 +190,15 @@ Static constants and helpers for **compiler-generated PHP identifiers** that mus
 
 ### `OverloadSignatureHelper.cs`
 
-Identifies **compile-time-only overload signatures** that binder skips and emitter erases, leaving a single implementation:
+Groups **bodyless same-name signatures and their implementation** into overload sets. A set is `OverloadSetPlan` (signatures in declaration order + the registered declaration); `OverloadScan` collects the plans, the signature nodes it claimed, and structure issues.
 
-1. **Top-level functions** — bodyless + grammar addon `isOverloadSignature` (`IsErasableFunctionOverloadSignature`). Named short functions get a desugared body at visit time and are **not** overload signatures.
-2. **Class methods** — no dedicated grammar; structural detection: bodyless, non-abstract, and a same-named method **with a body** exists in the type (`CollectImplementedMethodNames` + `IsClassMethodOverloadSignature`). Abstract/interface methods stay.
-3. **Extension functions** — bodyless `function name(...): T;` in an `extension` body when a same-named member with a body exists (`CollectImplementedExtensionFunctionNames` + `IsExtensionFunctionOverloadSignature`). Binder attaches those signatures to the implementation's `Overloads`.
+1. **Top-level / block-level functions** — `ScanFunctions(siblings)`: a run of bodyless signatures (`IsErasableFunctionOverloadSignature`) directly followed by the implementation. Named short functions get a desugared body at visit time and are **not** signatures.
+2. **Class methods** — `ScanMethods(members, inInterface)`: adjacent same-named bodyless methods followed by one method with a body form a concrete set (registered = implementation). In an interface or abstract run of two or more bodyless methods the **last** signature is registered and the earlier ones are its overloads (`RegisteredIsImplementation = false`).
+3. **Structure issues** — `MissingImplementation` (3031), `NotAdjacent` (3032: an implementation exists but not directly after the signatures).
+4. **Extension functions** — unchanged: `IsExtensionFunctionOverloadSignature` / `CollectImplementedExtensionFunctionNames`; the binder attaches the signatures to the implementation's `Overloads` (implementation stays visible).
+5. `Fingerprint(declaration)` — structural parameter-type + return-type spelling used for duplicate detection (3034); it includes callable parameter/return types.
 
-**Used by:** `TyhpBinder.TopStatements` / `TyhpBinder.ObjectBody` / `TyhpBinder.Extensions`, `TyhpEmitter.Declarations`, `ExtensionRule`.
+**Used by:** `TyhpBinder.Overloads` / `.TopStatements` / `.ObjectBody` / `.CodeBlocks` / `.Extensions`, `TyhpEmitter.Declarations`, `ExtensionRule`. Skipped entirely in tyhpdef context (tyhpdef overloads bind through `TryAddTyhpdefMethodOverload` / `TryAddTyhpdefFunctionOverload`).
 
 ### `StaticValueTypeHelper.cs`
 

@@ -308,6 +308,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             var returnTypeAst = function.ReturnType ?? methodSymbol?.ReturnType;
             funcState.ExpectedReturnType = TypeGuardValidation.ResolveExpectedReturnType(
                 returnTypeAst, funcState, context);
+            TypeGuardValidation.ApplyAsyncReturnScope(
+                funcState, function, methodSymbol?.IsAsync == true, methodSymbol?.IsGenerator == true, context);
             // ExtensionRule suppresses child traversal, so the return type is never CheckNode'd —
             // still count import usage for TYHP4130.
             context.MarkImportNames(returnTypeAst, state);

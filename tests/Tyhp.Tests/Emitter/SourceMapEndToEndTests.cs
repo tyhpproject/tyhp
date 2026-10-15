@@ -152,23 +152,26 @@ public class SourceMapEndToEndTests
             .WithTyhpFile("src/User.tyhp", TyhpSource);
 
         var built = project.BuildProject();
-        var previousSingleton = Project.Singleton;
-        Project.Singleton = null;
-        try
+        lock (Project.SingletonGate)
         {
-            var buildResult = new BuildAction(built).Start(CancellationToken.None) ?? new CompilationResult();
-            buildResult.Diagnostics.Errors.Should().BeEmpty();
+            var previousSingleton = Project.Singleton;
+            Project.Singleton = null;
+            try
+            {
+                var buildResult = new BuildAction(built).Start(CancellationToken.None) ?? new CompilationResult();
+                buildResult.Diagnostics.Errors.Should().BeEmpty();
 
-            var mapPath = Path.Combine(project.ProjectDirectory, "build", "App", "Models", "User.php.map");
-            using var document = JsonDocument.Parse(File.ReadAllText(mapPath));
-            JsonElement root = document.RootElement;
-            root.GetProperty("sourceRoot").GetString().Should().Be("src/");
-            root.GetProperty("sources").EnumerateArray().Select(e => e.GetString())
-                .Should().Equal("User.tyhp");
-        }
-        finally
-        {
-            Project.Singleton = previousSingleton;
+                var mapPath = Path.Combine(project.ProjectDirectory, "build", "App", "Models", "User.php.map");
+                using var document = JsonDocument.Parse(File.ReadAllText(mapPath));
+                JsonElement root = document.RootElement;
+                root.GetProperty("sourceRoot").GetString().Should().Be("src/");
+                root.GetProperty("sources").EnumerateArray().Select(e => e.GetString())
+                    .Should().Equal("User.tyhp");
+            }
+            finally
+            {
+                Project.Singleton = previousSingleton;
+            }
         }
     }
 

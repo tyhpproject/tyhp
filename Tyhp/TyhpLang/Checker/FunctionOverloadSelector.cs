@@ -17,6 +17,9 @@ namespace Tyhp.TyhpLang.Checker
     /// Omitted optionals are scored as the implementation's default value so a literal-typed
     /// default (<c>0 $format = 0</c>) wins over the <c>int</c> catch-all when the call omits
     /// that argument, including zero-argument calls such as <c>wordCount()</c>.
+    /// A bitwise <c>|</c>/<c>&amp;</c>/<c>^</c>/<c>~</c> of known integer constants matches a
+    /// positive integer-literal parameter when every bit of that literal is set; the literal
+    /// with the most of those bits wins, and two equal matches fall through to <c>int</c>.
     /// </summary>
     internal static class FunctionOverloadSelector
     {
@@ -39,6 +42,13 @@ namespace Tyhp.TyhpLang.Checker
                 PhpCallAst,
                 Dictionary<GenericTypeParameterSymbol, ICheckedType>?> InferBindings
             { get; init; }
+
+            /// <summary>
+            /// Resolves a type annotation written at the call site (a closure argument's
+            /// parameter or return type). Used only to match closure arguments against
+            /// <c>.tyhp</c> overload signatures; without it closures are matched on parameter count.
+            /// </summary>
+            public Func<ITypeExpression, ICheckedType>? ResolveCallSiteType { get; init; }
         }
 
         internal sealed class MethodContext
@@ -60,6 +70,76 @@ namespace Tyhp.TyhpLang.Checker
                 PhpCallAst,
                 Dictionary<GenericTypeParameterSymbol, ICheckedType>?> InferBindings
             { get; init; }
+
+            /// <inheritdoc cref="Context.ResolveCallSiteType"/>
+            public Func<ITypeExpression, ICheckedType>? ResolveCallSiteType { get; init; }
+        }
+
+        /// <summary>
+        /// True when <paramref name="primary"/> heads a <c>.tyhp</c> overload set and none of its
+        /// overload signatures accepts the call.
+        /// </summary>
+        public static bool HasNoApplicableOverload(
+            FunctionDeclarationSymbol primary,
+            PhpCallAst call,
+            Context typeContext)
+        {
+            if (!SourceOverloadSelector.IsSourceSet(primary))
+            {
+                return false;
+            }
+
+            SourceOverloadSelector.SelectFunction(primary, call, typeContext, out var matched);
+            return !matched;
+        }
+
+        /// <inheritdoc cref="HasNoApplicableOverload(FunctionDeclarationSymbol, PhpCallAst, Context)"/>
+        public static bool HasNoApplicableOverload(
+            ObjectMethodSymbol primary,
+            PhpCallAst call,
+            MethodContext typeContext)
+        {
+            if (!SourceOverloadSelector.IsSourceSet(primary))
+            {
+                return false;
+            }
+
+            SourceOverloadSelector.SelectMethod(primary, call, typeContext, out var matched);
+            return !matched;
+        }
+
+        /// <summary>
+        /// The signatures of a <c>.tyhp</c> overload set that a call needing implicit
+        /// <c>operator convert</c> cannot choose between (none accepts it as written, and the
+        /// undominated ones convert arguments to different types); null otherwise.
+        /// </summary>
+        public static IReadOnlyList<FunctionDeclarationSymbol>? FindAmbiguousOverloads(
+            FunctionDeclarationSymbol primary,
+            PhpCallAst call,
+            Context typeContext)
+        {
+            if (!SourceOverloadSelector.IsSourceSet(primary))
+            {
+                return null;
+            }
+
+            SourceOverloadSelector.SelectFunction(primary, call, typeContext, out _, out var ambiguous);
+            return ambiguous;
+        }
+
+        /// <inheritdoc cref="FindAmbiguousOverloads(FunctionDeclarationSymbol, PhpCallAst, Context)"/>
+        public static IReadOnlyList<ObjectMethodSymbol>? FindAmbiguousOverloads(
+            ObjectMethodSymbol primary,
+            PhpCallAst call,
+            MethodContext typeContext)
+        {
+            if (!SourceOverloadSelector.IsSourceSet(primary))
+            {
+                return null;
+            }
+
+            SourceOverloadSelector.SelectMethod(primary, call, typeContext, out _, out var ambiguous);
+            return ambiguous;
         }
 
         public static FunctionDeclarationSymbol Select(
@@ -67,6 +147,11 @@ namespace Tyhp.TyhpLang.Checker
             PhpCallAst? call,
             Context? typeContext)
         {
+            if (SourceOverloadSelector.IsSourceSet(primary))
+            {
+                return SourceOverloadSelector.SelectFunction(primary, call, typeContext, out _);
+            }
+
             var aritySelected = CheckerHelpers.SelectFunctionOverloadForCall(primary, call?.Arguments);
             if (primary.Overloads.Count == 0 || call is null || typeContext is null)
             {
@@ -96,15 +181,25 @@ namespace Tyhp.TyhpLang.Checker
                 return arityMatches.Count == 1 ? arityMatches[0] : aritySelected;
             }
 
-            FunctionDeclarationSymbol? best = null;
-            var bestScore = int.MinValue;
+            var scored = new List<(FunctionDeclarationSymbol Candidate, ArgumentScore Score)>();
             foreach (var candidate in arityMatches)
             {
-                var score = Score(candidate, primary, call, args, typeContext);
-                if (score > bestScore)
+                scored.Add((candidate, Score(candidate, primary, call, args, typeContext)));
+            }
+
+            var best = PickScored(scored);
+
+            // A scored winner that cannot accept the call (a closure passed where it declares
+            // `null`, say) yields to the best-scoring signature that can.
+            if (best is not null && !SourceOverloadSelector.Accepts(best, call, typeContext))
+            {
+                foreach (var (candidate, _) in scored.OrderByDescending(s => s.Score.Value))
                 {
-                    bestScore = score;
-                    best = candidate;
+                    if (!ReferenceEquals(candidate, best)
+                        && SourceOverloadSelector.Accepts(candidate, call, typeContext))
+                    {
+                        return candidate;
+                    }
                 }
             }
 
@@ -122,6 +217,11 @@ namespace Tyhp.TyhpLang.Checker
             PhpCallAst? call,
             MethodContext? typeContext)
         {
+            if (SourceOverloadSelector.IsSourceSet(primary))
+            {
+                return SourceOverloadSelector.SelectMethod(primary, call, typeContext, out _);
+            }
+
             var aritySelected = CheckerHelpers.SelectMethodOverloadForCall(primary, call?.Arguments);
             if (primary.Overloads.Count == 0 || call is null || typeContext is null)
             {
@@ -150,22 +250,125 @@ namespace Tyhp.TyhpLang.Checker
                 return arityMatches.Count == 1 ? arityMatches[0] : aritySelected;
             }
 
-            ObjectMethodSymbol? best = null;
-            var bestScore = int.MinValue;
+            var scored = new List<(ObjectMethodSymbol Candidate, ArgumentScore Score)>();
             foreach (var candidate in arityMatches)
             {
-                var score = ScoreMethod(candidate, primary, call, args, typeContext);
-                if (score > bestScore)
+                scored.Add((candidate, ScoreMethod(candidate, primary, call, args, typeContext)));
+            }
+
+            var best = PickScored(scored);
+
+            // A scored winner that cannot accept the call (a closure passed where it declares
+            // `null`, say) yields to the best-scoring signature that can.
+            if (best is not null && !SourceOverloadSelector.Accepts(best, call, typeContext))
+            {
+                foreach (var (candidate, _) in scored.OrderByDescending(s => s.Score.Value))
                 {
-                    bestScore = score;
-                    best = candidate;
+                    if (!ReferenceEquals(candidate, best)
+                        && SourceOverloadSelector.Accepts(candidate, call, typeContext))
+                    {
+                        return candidate;
+                    }
                 }
             }
 
             return best ?? aritySelected;
         }
 
-        private static int Score(
+        /// <summary>
+        /// One argument/parameter contribution. <see cref="BitContains"/> is set when the
+        /// points came from a bitmask superset rather than an exact literal or ordinary
+        /// assignability, so a tie between two masks can fall through to <c>int</c>.
+        /// </summary>
+        private readonly struct ArgumentScore
+        {
+            public int Value { get; init; }
+
+            public bool BitContains { get; init; }
+
+            public static ArgumentScore From(int value) => new() { Value = value };
+
+            public ArgumentScore Add(int value) => new()
+            {
+                Value = Value + value,
+                BitContains = BitContains,
+            };
+
+            public ArgumentScore Add(ArgumentScore other) => new()
+            {
+                Value = Value + other.Value,
+                BitContains = BitContains || other.BitContains,
+            };
+        }
+
+        /// <summary>
+        /// Highest score wins. When several bitmask matches tie, and a signature that did
+        /// not rely on a bitmask scored lower, that wider signature is used instead.
+        /// An exact literal tied with a bitmask of the same score keeps the exact literal.
+        /// </summary>
+        private static TSymbol? PickScored<TSymbol>(
+            List<(TSymbol Candidate, ArgumentScore Score)> scored)
+            where TSymbol : class
+        {
+            if (scored.Count == 0)
+            {
+                return null;
+            }
+
+            var bestValue = int.MinValue;
+            foreach (var entry in scored)
+            {
+                if (entry.Score.Value > bestValue)
+                {
+                    bestValue = entry.Score.Value;
+                }
+            }
+
+            var winners = new List<(TSymbol Candidate, ArgumentScore Score)>();
+            foreach (var entry in scored)
+            {
+                if (entry.Score.Value == bestValue)
+                {
+                    winners.Add(entry);
+                }
+            }
+
+            if (winners.Count > 1 && winners.TrueForAll(winner => winner.Score.BitContains))
+            {
+                TSymbol? fallback = null;
+                var fallbackScore = int.MinValue;
+                foreach (var entry in scored)
+                {
+                    if (entry.Score.BitContains || entry.Score.Value >= bestValue)
+                    {
+                        continue;
+                    }
+
+                    if (entry.Score.Value > fallbackScore)
+                    {
+                        fallbackScore = entry.Score.Value;
+                        fallback = entry.Candidate;
+                    }
+                }
+
+                if (fallback is not null)
+                {
+                    return fallback;
+                }
+            }
+
+            foreach (var winner in winners)
+            {
+                if (!winner.Score.BitContains)
+                {
+                    return winner.Candidate;
+                }
+            }
+
+            return winners[0].Candidate;
+        }
+
+        private static ArgumentScore Score(
             FunctionDeclarationSymbol candidate,
             FunctionDeclarationSymbol implementation,
             PhpCallAst call,
@@ -178,7 +381,7 @@ namespace Tyhp.TyhpLang.Checker
                 bindings = context.InferBindings(candidate, call);
             }
 
-            var score = 0;
+            var score = default(ArgumentScore);
             var positionalIndex = 0;
             var parameters = candidate.Parameters;
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -191,11 +394,11 @@ namespace Tyhp.TyhpLang.Checker
             // arity set if Slice `TMin` was unread as 0.
             if (restIndex < 0 && parameters.Count == args.Count)
             {
-                score += 80;
+                score = score.Add(80);
             }
             else if (restIndex >= 0 && args.Count <= restIndex)
             {
-                score -= 40;
+                score = score.Add(-40);
             }
 
             foreach (var arg in args)
@@ -239,20 +442,20 @@ namespace Tyhp.TyhpLang.Checker
 
                 if (UtilityTypeResolver.TryGetCallableParametersRest(expected, out _))
                 {
-                    score += 10;
+                    score = score.Add(10);
                     break;
                 }
 
-                score += ScoreValue(
+                score = score.Add(ScoreValue(
                     arg.Expression,
                     expected,
                     context.State,
                     context.SymbolTree,
                     context.GlobalScope,
-                    context.InferArgumentType);
+                    context.InferArgumentType));
             }
 
-            score += ScoreOmittedOptionals(
+            score = score.Add(ScoreOmittedOptionals(
                 parameters,
                 implementation.Parameters,
                 usedNames,
@@ -272,19 +475,19 @@ namespace Tyhp.TyhpLang.Checker
                 context.State,
                 context.SymbolTree,
                 context.GlobalScope,
-                context.InferArgumentType);
+                context.InferArgumentType));
 
             // Prefer the type-guard return so `\is_callable($x)` uses the overlay that
             // narrows, not the catch-all `: bool`, when omitted-default scoring ties.
             if (candidate.ReturnType is TyhpReturnTypeGuardAst)
             {
-                score += 5;
+                score = score.Add(5);
             }
 
             return score;
         }
 
-        private static int ScoreMethod(
+        private static ArgumentScore ScoreMethod(
             ObjectMethodSymbol candidate,
             ObjectMethodSymbol implementation,
             PhpCallAst call,
@@ -297,7 +500,7 @@ namespace Tyhp.TyhpLang.Checker
                 bindings = context.InferBindings(candidate, call);
             }
 
-            var score = 0;
+            var score = default(ArgumentScore);
             var positionalIndex = 0;
             var parameters = CheckerHelpers.GetCallSiteParameters(candidate);
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -350,20 +553,20 @@ namespace Tyhp.TyhpLang.Checker
 
                 if (UtilityTypeResolver.TryGetCallableParametersRest(expected, out _))
                 {
-                    score += 10;
+                    score = score.Add(10);
                     break;
                 }
 
-                score += ScoreValue(
+                score = score.Add(ScoreValue(
                     arg.Expression,
                     expected,
                     context.State,
                     context.SymbolTree,
                     context.GlobalScope,
-                    context.InferArgumentType);
+                    context.InferArgumentType));
             }
 
-            score += ScoreOmittedOptionals(
+            score = score.Add(ScoreOmittedOptionals(
                 parameters,
                 CheckerHelpers.GetCallSiteParameters(implementation),
                 usedNames,
@@ -385,7 +588,7 @@ namespace Tyhp.TyhpLang.Checker
                 context.State,
                 context.SymbolTree,
                 context.GlobalScope,
-                context.InferArgumentType);
+                context.InferArgumentType));
 
             return score;
         }
@@ -396,7 +599,7 @@ namespace Tyhp.TyhpLang.Checker
         /// <c>wordCount()</c> is scored as if the implementation's <c>$format = 0</c> were
         /// passed — selecting <c>0 $format = 0</c> over the <c>int</c> catch-all.
         /// </summary>
-        private static int ScoreOmittedOptionals(
+        private static ArgumentScore ScoreOmittedOptionals(
             IReadOnlyList<ParameterInfo> candidateParams,
             IReadOnlyList<ParameterInfo> implementationParams,
             HashSet<string> usedNames,
@@ -406,7 +609,7 @@ namespace Tyhp.TyhpLang.Checker
             GlobalScope globalScope,
             Func<IExpression, ICheckedType> inferArgumentType)
         {
-            var score = 0;
+            var score = default(ArgumentScore);
             for (var i = 0; i < candidateParams.Count; i++)
             {
                 var param = candidateParams[i];
@@ -430,13 +633,13 @@ namespace Tyhp.TyhpLang.Checker
                     continue;
                 }
 
-                score += ScoreValue(
+                score = score.Add(ScoreValue(
                     defaultExpr,
                     expected,
                     state,
                     symbolTree,
                     globalScope,
-                    inferArgumentType);
+                    inferArgumentType));
             }
 
             return score;
@@ -511,7 +714,7 @@ namespace Tyhp.TyhpLang.Checker
             return expected;
         }
 
-        private static int ScoreValue(
+        private static ArgumentScore ScoreValue(
             IExpression expression,
             ICheckedType expected,
             CheckerState state,
@@ -523,11 +726,19 @@ namespace Tyhp.TyhpLang.Checker
             var bagScore = ScoreBagLiteral(expression, expected);
             if (bagScore is not null)
             {
-                return bagScore.Value;
+                return ArgumentScore.From(bagScore.Value);
             }
 
             var actual = UnwrapNullable(inferArgumentType(expression));
-            if (TryGetScoringIntLiteral(expression, state, symbolTree, globalScope, out var scoringLiteral))
+            var fromBitwise = false;
+            if (TryFoldIntegerExpression(
+                    expression, state, symbolTree, globalScope, out var folded, out fromBitwise))
+            {
+                actual = new LiteralCheckedType(
+                    folded,
+                    new SimpleCheckedType(new BuiltInTypeSymbol("int")));
+            }
+            else if (TryGetScoringIntLiteral(expression, state, symbolTree, globalScope, out var scoringLiteral))
             {
                 actual = UnwrapNullable(scoringLiteral);
             }
@@ -536,12 +747,27 @@ namespace Tyhp.TyhpLang.Checker
                 && TyhpdefConstIntLiteral.TryGetIntegerLiteralValue(expected, out var expectedInt)
                 && actualInt == expectedInt)
             {
-                return 50;
+                return ArgumentScore.From(50);
+            }
+
+            // A bitwise combination of known ints is not the literal itself. It still
+            // selects a positive literal parameter when every bit of that literal is set
+            // (`JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES` → `4194304 $flags`).
+            // More bits score higher. A tie between two such masks is dropped later so
+            // the plain `int` signature wins.
+            if (fromBitwise
+                && TyhpdefConstIntLiteral.TryGetIntegerLiteralValue(expected, out var mask)
+                && mask > 0
+                && TyhpdefConstIntLiteral.TryGetIntegerLiteralValue(actual, out var combined)
+                && (combined & mask) == mask)
+            {
+                var bits = System.Numerics.BitOperations.PopCount(unchecked((ulong)mask));
+                return new ArgumentScore { Value = 30 + bits, BitContains = true };
             }
 
             if (TypeComparer.AreTypesEqual(actual, expected))
             {
-                return 50;
+                return ArgumentScore.From(50);
             }
             var actualShape = TypeComparer.TryGetStructShapeForAssignability(
                 actual, symbolTree, globalScope);
@@ -551,25 +777,50 @@ namespace Tyhp.TyhpLang.Checker
             {
                 if (actualShape.HasIntegerKeyAliases == expectedShape.HasIntegerKeyAliases)
                 {
-                    return 80;
+                    return ArgumentScore.From(80);
                 }
 
-                return -80;
+                return ArgumentScore.From(-80);
             }
 
             if (ClosureBindSupport.IsStaticScopeSentinel(actual)
                 && ClosureBindSupport.IsStaticScopeSentinel(expected))
             {
-                return 100;
+                return ArgumentScore.From(100);
             }
 
             if (SymbolNameTypeAssignability.IsAssignableTo(
                     actual, expected, symbolTree, globalScope, state))
             {
-                return 10;
+                return ArgumentScore.From(10);
             }
 
-            return -20;
+            return ArgumentScore.From(-20);
+        }
+
+        /// <summary>
+        /// True when <paramref name="expression"/> is a bitwise combination of known
+        /// integers and every bit of a positive integer-literal <paramref name="expected"/>
+        /// is set. Used so the selected literal overload is accepted as an argument,
+        /// not only preferred while scoring.
+        /// </summary>
+        internal static bool IntegerFlagBitsCoverParameter(
+            IExpression expression,
+            ICheckedType expected,
+            CheckerState state,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            expected = UnwrapNullable(expected);
+            if (!TyhpdefConstIntLiteral.TryGetIntegerLiteralValue(expected, out var mask) || mask <= 0)
+            {
+                return false;
+            }
+
+            return TryFoldIntegerExpression(
+                    expression, state, symbolTree, globalScope, out var actual, out var fromBitwise)
+                && fromBitwise
+                && (actual & mask) == mask;
         }
 
         private static ICheckedType UnwrapNullable(ICheckedType type) =>
@@ -596,6 +847,88 @@ namespace Tyhp.TyhpLang.Checker
                 StructBagLiteralChecker.LiteralShape.Other => 0,
                 _ => null,
             };
+        }
+
+        private static bool TryFoldIntegerExpression(
+            IExpression? expression,
+            CheckerState state,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            out long value,
+            out bool fromBitwise)
+        {
+            value = 0;
+            fromBitwise = false;
+            while (expression is PhpDereferenceableExpressionAst { Expression: IExpression inner })
+            {
+                expression = inner;
+            }
+
+            if (expression is null)
+            {
+                return false;
+            }
+
+            if (expression is PhpUnaryOpAst { Operand: { } unaryOperand })
+            {
+                var op = expression is PhpUnaryOpAst unary ? unary.Operator?.ValueString : null;
+                if (op is "~" or "+" or "-")
+                {
+                    if (!TryFoldIntegerExpression(
+                            unaryOperand, state, symbolTree, globalScope, out var innerValue, out var innerBitwise))
+                    {
+                        return false;
+                    }
+
+                    value = op switch
+                    {
+                        "~" => ~innerValue,
+                        "-" => -innerValue,
+                        _ => innerValue,
+                    };
+                    fromBitwise = op == "~" || innerBitwise;
+                    return true;
+                }
+            }
+
+            if (expression is PhpBinaryOpAst { Left: { } left, Right: { } right } binary)
+            {
+                var op = PhpBinaryOperatorExtensions.FromToken(
+                    binary.Operator?.TokenValue ?? 0,
+                    binary.Operator?.ValueString);
+                if (op is PhpBinaryOperator.BitwiseOr
+                    or PhpBinaryOperator.BitwiseAnd
+                    or PhpBinaryOperator.BitwiseXor)
+                {
+                    if (!TryFoldIntegerExpression(left, state, symbolTree, globalScope, out var leftValue, out _)
+                        || !TryFoldIntegerExpression(right, state, symbolTree, globalScope, out var rightValue, out _))
+                    {
+                        return false;
+                    }
+
+                    value = op switch
+                    {
+                        PhpBinaryOperator.BitwiseOr => leftValue | rightValue,
+                        PhpBinaryOperator.BitwiseAnd => leftValue & rightValue,
+                        _ => leftValue ^ rightValue,
+                    };
+                    fromBitwise = true;
+                    return true;
+                }
+            }
+
+            if (TyhpdefConstIntLiteral.TryGetIntegerFromExpression(expression, out value))
+            {
+                return true;
+            }
+
+            if (TryGetScoringIntLiteral(expression, state, symbolTree, globalScope, out var literal)
+                && TyhpdefConstIntLiteral.TryGetIntegerLiteralValue(literal, out value))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private static bool TryGetScoringIntLiteral(

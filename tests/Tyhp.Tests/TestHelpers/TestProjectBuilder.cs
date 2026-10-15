@@ -117,15 +117,18 @@ public sealed class TestProjectBuilder : IDisposable
         // or relative-path fallbacks resolve against the test runner's CWD instead of
         // ProjectDirectory.
         var previousSingleton = Project.Singleton;
-        Project.Singleton = project;
-        try
+        lock (Project.SingletonGate)
         {
-            var action = new BuildAction(project);
-            return action.Start(cancellationToken) ?? new CompilationResult();
-        }
-        finally
-        {
-            Project.Singleton = previousSingleton;
+            Project.Singleton = project;
+            try
+            {
+                var action = new BuildAction(project);
+                return action.Start(cancellationToken) ?? new CompilationResult();
+            }
+            finally
+            {
+                Project.Singleton = previousSingleton;
+            }
         }
     }
 

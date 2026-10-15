@@ -317,13 +317,20 @@ namespace Tyhp.TyhpLang.Emitter
 
                 case PhpScalarAst:
                 case PhpMagicConstantAst:
+                case PhpEncapsListAst encapsLiteral when ExpressionTreeSupport.IsConstantStringLiteral(encapsLiteral):
+                case PhpEncapsStringAst:
+                case PhpNameAst literalName when ExpressionTreeSupport.IsLiteralConstantName(literalName):
                     return NewExpressionNode(
                         @"\Tyhp\Expression\ConstantExpression",
                         [
                             expression,
                             PhpScalarAst.CreateStringFromContext(
                                 context,
-                                LookupTypeSpelling(expression, expressionTypes, formatClassFqn)),
+                                // The checker types a string literal as its own text; that text is already
+                                // the constant's value, so the type slot names the base type instead.
+                                expression is PhpEncapsListAst or PhpEncapsStringAst
+                                    ? "string"
+                                    : LookupTypeSpelling(expression, expressionTypes, formatClassFqn)),
                         ],
                         context);
 
@@ -1014,6 +1021,19 @@ namespace Tyhp.TyhpLang.Emitter
             if (right is PhpVariableAst)
             {
                 return right;
+            }
+
+            // `$x is ?T`: the parser wraps `T` in a `?` marker. The target keeps the nullable
+            // spelling (`'?string'`, `'?' . Foo::class`) so a translator sees the null case.
+            if (CheckerHelpers.IsNullableInstanceofMarker(right, out var nullableOperand)
+                && nullableOperand is IExpression nullableInner)
+            {
+                return SpellInstanceofTarget(nullableInner, formatClassFqn, context) switch
+                {
+                    PhpScalarAst { ValueString: { } targetText } => PhpScalarAst.CreateStringFromContext(context, "?" + targetText),
+                    EmittedPhpExprAst emitted => EmittedPhpExprAst.Create("'?' . " + emitted.PhpText, context),
+                    var other => other,
+                };
             }
 
             if (right is PhpNameAst { BoundSymbol: ObjectDeclarationSymbol obj })

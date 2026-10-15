@@ -168,6 +168,11 @@ namespace Tyhp.Domain.Services
                     {
                         yield return generic.Constraint;
                     }
+
+                    if (!string.IsNullOrWhiteSpace(generic.Default))
+                    {
+                        yield return generic.Default;
+                    }
                 }
             }
 
@@ -478,6 +483,12 @@ namespace Tyhp.Domain.Services
         /// Not emitted on structs (those use real <c>=</c> defaults via <c>tyhpStructProperty</c>).
         /// </summary>
         public string? CoalesceValue { get; init; }
+
+        /// <summary>
+        /// Struct field default, emitted as <c>= &lt;value&gt;</c>. A struct field with a
+        /// default is an optional key. Only emitted on structs.
+        /// </summary>
+        public string? StructDefault { get; init; }
 
         public string? DocComment { get; set; }
 

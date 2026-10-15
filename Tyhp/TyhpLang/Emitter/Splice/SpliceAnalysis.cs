@@ -245,12 +245,27 @@ namespace Tyhp.TyhpLang.Emitter.Splice
             IReadOnlyList<SpliceParameter> parameters,
             out Dictionary<string, int> eagerCounts,
             out HashSet<string> lazyNames,
-            out List<string> eagerOrder)
+            out List<string> eagerOrder) =>
+            CollectUses(body, parameters, out eagerCounts, out lazyNames, out eagerOrder, out _);
+
+        /// <summary>
+        /// As above, also reporting how many times each name is used past a short-circuit
+        /// (lazyCounts). A name with one eager use and further lazy uses is still repeated in
+        /// the body, so a non-simple argument for it must be bound once.
+        /// </summary>
+        public static void CollectUses(
+            IExpression body,
+            IReadOnlyList<SpliceParameter> parameters,
+            out Dictionary<string, int> eagerCounts,
+            out HashSet<string> lazyNames,
+            out List<string> eagerOrder,
+            out Dictionary<string, int> lazyCounts)
         {
             eagerCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             lazyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             eagerOrder = [];
-            WalkUses(body, parameters, eagerCounts, lazyNames, eagerOrder, shadowed: [], lazy: false);
+            lazyCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            WalkUses(body, parameters, eagerCounts, lazyNames, eagerOrder, lazyCounts, shadowed: [], lazy: false);
         }
 
         private static void WalkUses(
@@ -259,6 +274,7 @@ namespace Tyhp.TyhpLang.Emitter.Splice
             Dictionary<string, int> eagerCounts,
             HashSet<string> lazyNames,
             List<string> eagerOrder,
+            Dictionary<string, int> lazyCounts,
             HashSet<string> shadowed,
             bool lazy)
         {
@@ -273,7 +289,7 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                 AddNestedParameterNames(node, nestedShadow);
                 foreach (var child in node.AstChildren)
                 {
-                    WalkUses(child, parameters, eagerCounts, lazyNames, eagerOrder, nestedShadow, lazy);
+                    WalkUses(child, parameters, eagerCounts, lazyNames, eagerOrder, lazyCounts, nestedShadow, lazy);
                 }
 
                 return;
@@ -290,6 +306,7 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                     if (lazy)
                     {
                         lazyNames.Add(key);
+                        lazyCounts[key] = lazyCounts.GetValueOrDefault(key) + 1;
                     }
                     else
                     {
@@ -306,21 +323,127 @@ namespace Tyhp.TyhpLang.Emitter.Splice
             switch (node)
             {
                 case PhpBinaryOpAst binary when SpliceAst.IsShortCircuitOperator(binary.Operator):
-                    WalkUses(binary.Left, parameters, eagerCounts, lazyNames, eagerOrder, shadowed, lazy);
-                    WalkUses(binary.Right, parameters, eagerCounts, lazyNames, eagerOrder, shadowed, lazy: true);
+                    WalkUses(binary.Left, parameters, eagerCounts, lazyNames, eagerOrder, lazyCounts, shadowed, lazy);
+                    WalkUses(binary.Right, parameters, eagerCounts, lazyNames, eagerOrder, lazyCounts, shadowed, lazy: true);
                     return;
 
                 case PhpTernaryOpAst ternary:
-                    WalkUses(ternary.Condition, parameters, eagerCounts, lazyNames, eagerOrder, shadowed, lazy);
-                    WalkUses(ternary.TrueExpr, parameters, eagerCounts, lazyNames, eagerOrder, shadowed, lazy: true);
-                    WalkUses(ternary.FalseExpr, parameters, eagerCounts, lazyNames, eagerOrder, shadowed, lazy: true);
+                    WalkUses(ternary.Condition, parameters, eagerCounts, lazyNames, eagerOrder, lazyCounts, shadowed, lazy);
+                    WalkUses(ternary.TrueExpr, parameters, eagerCounts, lazyNames, eagerOrder, lazyCounts, shadowed, lazy: true);
+                    WalkUses(ternary.FalseExpr, parameters, eagerCounts, lazyNames, eagerOrder, lazyCounts, shadowed, lazy: true);
                     return;
             }
 
             foreach (var child in node.AstChildren)
             {
-                WalkUses(child, parameters, eagerCounts, lazyNames, eagerOrder, shadowed, lazy);
+                WalkUses(child, parameters, eagerCounts, lazyNames, eagerOrder, lazyCounts, shadowed, lazy);
             }
+        }
+
+        /// <summary>
+        /// The first use of <paramref name="name"/> in evaluation order that is not behind a
+        /// short-circuit: the one place a once-bound temp can be assigned unconditionally.
+        /// </summary>
+        public static PhpVariableAst? FindFirstEagerUse(IBase2Ast? node, string name) =>
+            FindFirstUse(node, name, eagerOnly: true, lazy: false);
+
+        /// <summary>
+        /// True when a read of <paramref name="name"/> behind a short circuit comes before its
+        /// first read that always runs. A temp bound at the always-run read would be read before
+        /// it is assigned.
+        /// </summary>
+        public static bool HasLazyUseBeforeFirstEagerUse(IBase2Ast? node, string name) =>
+            FindFirstEagerUse(node, name) is { } eager
+            && FindFirstUse(node, name, eagerOnly: false, lazy: false) is { } first
+            && !ReferenceEquals(first, eager);
+
+        private static PhpVariableAst? FindFirstUse(IBase2Ast? node, string name, bool eagerOnly, bool lazy)
+        {
+            if (node is null)
+            {
+                return null;
+            }
+
+            if (node is PhpVariableAst variable)
+            {
+                return (!eagerOnly || !lazy)
+                    && SpliceAst.NamesEqual(CheckerHelpers.GetVariableName(variable), name)
+                    ? variable
+                    : null;
+            }
+
+            switch (node)
+            {
+                case PhpBinaryOpAst binary when SpliceAst.IsShortCircuitOperator(binary.Operator):
+                    return FindFirstUse(binary.Left, name, eagerOnly, lazy)
+                        ?? FindFirstUse(binary.Right, name, eagerOnly, lazy: true);
+
+                case PhpTernaryOpAst ternary:
+                    return FindFirstUse(ternary.Condition, name, eagerOnly, lazy)
+                        ?? FindFirstUse(ternary.TrueExpr, name, eagerOnly, lazy: true)
+                        ?? FindFirstUse(ternary.FalseExpr, name, eagerOnly, lazy: true);
+            }
+
+            foreach (var child in node.AstChildren)
+            {
+                if (FindFirstUse(child, name, eagerOnly, lazy) is { } found)
+                {
+                    return found;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// True when a value that the splice engine hoists into a by-value temp is read behind a
+        /// short circuit before the read that binds the temp. The engine and the checker both
+        /// use this so an unspliceable call is reported instead of reading an unassigned temp.
+        /// </summary>
+        private static bool HoistWouldReadTempBeforeBind(
+            IReadOnlyList<SpliceParameter> parameters,
+            IExpression? receiver,
+            IReadOnlyList<IExpression?> arguments,
+            IReadOnlyList<bool>? argumentIsSpread,
+            IBase2Ast body)
+        {
+            foreach (var param in parameters)
+            {
+                var key = SpliceAst.NormalizeName(param.Name);
+                if (!HasLazyUseBeforeFirstEagerUse(body, key))
+                {
+                    continue;
+                }
+
+                if (param.IsVariadic)
+                {
+                    var variadic = VariadicArgumentsFor(param, parameters, arguments, argumentIsSpread);
+                    if (!param.IsByReference && !variadic.All(v => SpliceAst.IsSimpleArgument(v.Expression)))
+                    {
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                var arg = ArgumentFor(param, parameters, receiver, arguments);
+                if (arg is null)
+                {
+                    continue;
+                }
+
+                var hookedByRef = IsByRefHookedRead(arg);
+                var hoisted = !(SpliceAst.IsSimpleArgument(arg) && !IsByValueHookedRead(arg) && !hookedByRef);
+                if (hoisted && !param.IsByReference && !hookedByRef)
+                {
+                    return true;
+                }
+            }
+
+            return !parameters.Any(p => p.IsThis)
+                && receiver is not null
+                && !SpliceAst.IsSimpleArgument(receiver)
+                && HasLazyUseBeforeFirstEagerUse(body, "this");
         }
 
         public static SpliceDeclineReason EvaluateFidelity(
@@ -331,20 +454,50 @@ namespace Tyhp.TyhpLang.Emitter.Splice
             HashSet<string> lazyNames,
             List<string> eagerOrder,
             bool needsRefHoist,
-            bool hasStatementSlot)
+            bool hasStatementSlot,
+            IReadOnlyList<bool>? argumentIsSpread = null,
+            IBase2Ast? body = null)
         {
+            if (body is not null
+                && HoistWouldReadTempBeforeBind(parameters, receiver, arguments, argumentIsSpread, body))
+            {
+                return SpliceDeclineReason.ShortCircuitLazyArgument;
+            }
+
             var expectedOrder = new List<string>();
             foreach (var param in parameters)
             {
                 var key = SpliceAst.NormalizeName(param.Name);
-                var arg = ArgumentFor(param, parameters, receiver, arguments)
-                    ?? param.DefaultValue;
-                if (arg is null && param.DefaultValue is null && !param.IsThis)
+                IExpression? arg;
+                bool isSimple;
+                bool orderInsensitive;
+                if (param.IsVariadic)
                 {
-                    continue;
+                    var variadic = VariadicArgumentsFor(param, parameters, arguments, argumentIsSpread);
+                    if (variadic.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    // Every packed argument is evaluated in order inside the one spliced call, so
+                    // the group counts as a single slot; simple only if each member is.
+                    arg = variadic[0].Expression;
+                    isSimple = variadic.All(v => SpliceAst.IsSimpleArgument(v.Expression));
+                    orderInsensitive = variadic.All(v => IsOrderInsensitive(v.Expression));
+                }
+                else
+                {
+                    arg = ArgumentFor(param, parameters, receiver, arguments)
+                        ?? param.DefaultValue;
+                    if (arg is null && param.DefaultValue is null && !param.IsThis)
+                    {
+                        continue;
+                    }
+
+                    isSimple = SpliceAst.IsSimpleArgument(arg);
+                    orderInsensitive = IsOrderInsensitive(arg);
                 }
 
-                var isSimple = SpliceAst.IsSimpleArgument(arg);
                 if (!eagerCounts.ContainsKey(key))
                 {
                     if (lazyNames.Contains(key) && !isSimple)
@@ -360,7 +513,7 @@ namespace Tyhp.TyhpLang.Emitter.Splice
                     continue;
                 }
 
-                if (!isSimple)
+                if (!orderInsensitive)
                 {
                     expectedOrder.Add(key);
                 }
@@ -381,6 +534,53 @@ namespace Tyhp.TyhpLang.Emitter.Splice
             }
 
             return SpliceDeclineReason.None;
+        }
+
+        /// <summary>
+        /// True when evaluating the argument cannot be observed relative to its siblings: a simple
+        /// argument, or a closure / arrow function literal (creating one only captures variables,
+        /// so `$list->mapped(fn ...)` still splices when the callee reads the callback before the
+        /// receiver, as `\array_map($callback, $this)` does).
+        /// </summary>
+        private static bool IsOrderInsensitive(IExpression? argument) =>
+            SpliceAst.IsSimpleArgument(argument) || SpliceAst.UnwrapParens(argument) is PhpInlineFunctionAst;
+
+        /// <summary>
+        /// The call-site arguments a variadic parameter receives: every argument from the
+        /// parameter's own position onward. Empty when the call passes none.
+        /// </summary>
+        public static List<(IExpression Expression, bool IsSpread)> VariadicArgumentsFor(
+            SpliceParameter param,
+            IReadOnlyList<SpliceParameter> parameters,
+            IReadOnlyList<IExpression?> arguments,
+            IReadOnlyList<bool>? argumentIsSpread)
+        {
+            var result = new List<(IExpression, bool)>();
+            var index = 0;
+            foreach (var p in parameters)
+            {
+                if (p.IsThis)
+                {
+                    continue;
+                }
+
+                if (SpliceAst.NamesEqual(p.Name, param.Name))
+                {
+                    break;
+                }
+
+                index++;
+            }
+
+            for (var i = index; i < arguments.Count; i++)
+            {
+                if (arguments[i] is { } expression)
+                {
+                    result.Add((expression, argumentIsSpread is not null && i < argumentIsSpread.Count && argumentIsSpread[i]));
+                }
+            }
+
+            return result;
         }
 
         public static IExpression? ArgumentFor(

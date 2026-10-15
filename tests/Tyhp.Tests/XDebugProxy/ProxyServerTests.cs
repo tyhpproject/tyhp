@@ -16,7 +16,8 @@ public class ProxyServerTests
 {
     // Real loopback TCP. Class-level xUnit parallelization (see AssemblyInfo.cs) can stall a
     // single accept/pair under load; PairAsync retries once on timeout instead of raising this.
-    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(
+        20 + 5 * Math.Max(0, Environment.ProcessorCount - 4));
 
     private const int TyhpDbgpLine = 42;
     private const int PhpDbgpLine = 67;

@@ -68,6 +68,59 @@ public class TyhpCodeTyhpdefGeneratorTests
     }
 
     [Fact]
+    public void Library_ExtensionMembers_KeepConstantExpressionDefaultsAndOverloads()
+    {
+        using var project = new TestProjectBuilder();
+        project
+            .WithTyhpJson("""
+                {
+                    "type": "library",
+                    "include": ["**/*.tyhp"],
+                    "tyhpdefInclude": ["stubs.tyhpdef"],
+                    "output": { "path": "build/" }
+                }
+                """)
+            .WithTyhpFile("stubs.tyhpdef", """
+                <?tyhpdef
+                const int ENT_QUOTES ?? 3;
+                const int ENT_SUBSTITUTE ?? 8;
+                const int ENT_HTML401 ?? 0;
+                function htmlspecialchars(string $string, int $flags = 11): string;
+                function str_word_count(string $string, int $format = 0): array<int, string>|int;
+                """)
+            .WithTyhpFile("strs.tyhp", """
+                <?tyhp
+                namespace Lib;
+                extension Strs extends string {
+                    fn htmlEncode(int $flags = \ENT_QUOTES | \ENT_SUBSTITUTE | \ENT_HTML401): string => \htmlspecialchars($this, $flags);
+
+                    fn wordCount(int $format = 0): array<int, string>|int => \str_word_count($this, $format);
+
+                    function pick(0 $flags = 0): int;
+                    function pick(1 $flags): string;
+                    function pick(int $flags = 0): int|string {
+                        return $flags === 0 ? 1 : 'x';
+                    }
+                }
+                """);
+
+        var result = project.RunBuild();
+        result.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", result.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
+
+        var def = File.ReadAllText(Path.Combine(project.ProjectDirectory, "package.tyhpdef"));
+        def.Should().Contain("int $flags = \\ENT_QUOTES | \\ENT_SUBSTITUTE | \\ENT_HTML401");
+        def.Should().Contain("fn pick(0 $flags = 0): int => ");
+        def.Should().Contain("fn pick(1 $flags): string => ");
+        def.Should().Contain("fn pick(int $flags = 0): int|string => ");
+
+        var parsed = ParserTestHelper.ParseTyhpdefContent(def);
+        parsed.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", parsed.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}"))
+            + "\n--- generated ---\n" + def);
+    }
+
+    [Fact]
     public void Library_ExtensionMapsHelperMethodSharingPhpBuiltinName_KeepsClassMember()
     {
         using var project = new TestProjectBuilder();
@@ -644,7 +697,7 @@ public class TyhpCodeTyhpdefGeneratorTests
                 extension Combo {
                     extends<T> \Lib\Box<T> {
                         operator convert (T $value) {
-                            return new Box($value);
+                            return new Box<T>($value);
                         }
                         operator convert (self $value): T {
                             return $value->value;
@@ -1037,6 +1090,251 @@ public class TyhpCodeTyhpdefGeneratorTests
         def.Should().NotContain("\\Lib\\TStruct");
         def.Should().NotContain("\\Lib\\__IndexKeys");
         def.Should().NotContain("\\Lib\\Widget");
+
+        var parsed = ParserTestHelper.ParseTyhpdefContent(def);
+        parsed.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", parsed.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}"))
+            + "\n--- generated ---\n" + def);
+    }
+
+    [Fact]
+    public void Library_KeepsGenericParameterDefaults()
+    {
+        using var project = new TestProjectBuilder();
+        project
+            .WithTyhpJson("""
+                {
+                    "type": "library",
+                    "include": ["**/*.tyhp"],
+                    "output": { "path": "build/" }
+                }
+                """)
+            .WithTyhpFile("other.tyhp", """
+                <?tyhp
+                namespace Other;
+                class Widget {
+                }
+                """)
+            .WithTyhpFile("api.tyhp", """
+                <?tyhp
+                namespace Lib;
+                use Other\Widget;
+                interface Task<T extends void|mixed = mixed> {
+                    public function run(): T;
+                }
+                final class Box<TKey extends int|string = int|string, TValue = Widget> {
+                    public static function make<TItem = string>(TItem $item): TItem {
+                        return $item;
+                    }
+                }
+                """);
+
+        var result = project.RunBuild();
+        result.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", result.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
+
+        var def = File.ReadAllText(Path.Combine(project.ProjectDirectory, "package.tyhpdef"));
+        def.Should().Contain("interface Task<T extends void|mixed = mixed>");
+        def.Should().Contain("class Box<TKey extends int|string = int|string, TValue = \\Other\\Widget>");
+        def.Should().Contain("function make<TItem = string>(TItem $item): TItem");
+
+        var parsed = ParserTestHelper.ParseTyhpdefContent(def);
+        parsed.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", parsed.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}"))
+            + "\n--- generated ---\n" + def);
+    }
+
+    [Fact]
+    public void Library_KeepsStructFieldDefaults_AndOmitsInternalStructs()
+    {
+        using var project = new TestProjectBuilder();
+        project
+            .WithTyhpJson("""
+                {
+                    "type": "library",
+                    "include": ["**/*.tyhp"],
+                    "output": { "path": "build/" }
+                }
+                """)
+            .WithTyhpFile("shapes.tyhp", """
+                <?tyhp
+                namespace Lib;
+                type Report = struct {
+                    string $name;
+                    string $label = '';
+                    int $count = 0;
+                    ?Report $parent = null;
+                    array<int, string> $tags = [];
+                };
+                internal type Frame = struct {
+                    string $op = '';
+                };
+                final class Api {
+                    public static function report(): Report {
+                        return new Report() with ['name' => 'x'];
+                    }
+                    internal static function frame(): Frame {
+                        return new Frame();
+                    }
+                }
+                """);
+
+        var result = project.RunBuild();
+        result.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", result.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
+
+        var def = File.ReadAllText(Path.Combine(project.ProjectDirectory, "package.tyhpdef"));
+        def.Should().Contain("string $name;");
+        def.Should().Contain("string $label = '';");
+        def.Should().Contain("int $count = 0;");
+        def.Should().Contain("?\\Lib\\Report $parent = null;");
+        def.Should().Contain("array<int, string> $tags = [];");
+        def.Should().NotContain("type Frame");
+
+        var parsed = ParserTestHelper.ParseTyhpdefContent(def);
+        parsed.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", parsed.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}"))
+            + "\n--- generated ---\n" + def);
+    }
+
+    [Fact]
+    public void Library_OmitsMembersAndClassesTaggedInternalInDocblock()
+    {
+        using var project = new TestProjectBuilder();
+        project
+            .WithTyhpJson("""
+                {
+                    "type": "library",
+                    "include": ["**/*.tyhp"],
+                    "output": { "path": "build/" }
+                }
+                """)
+            .WithTyhpFile("api.tyhp", """
+                <?tyhp
+                namespace Lib;
+
+                /**
+                 * Plumbing shared by the builders.
+                 *
+                 * @internal
+                 */
+                final class Support {
+                    public static function help(): int { return 1; }
+                }
+
+                final class Token {
+                    /**
+                     * Transitions the token.
+                     *
+                     * @internal Only the source should call this.
+                     */
+                    public function cancel(): void {}
+
+                    /** Public, documented API. */
+                    public function isCancelled(): bool { return false; }
+
+                    /** @internal For tests. */
+                    public static function reset(): void {}
+                }
+                """);
+
+        var result = project.RunBuild();
+        result.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", result.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
+
+        var def = File.ReadAllText(Path.Combine(project.ProjectDirectory, "package.tyhpdef"));
+        def.Should().Contain("class Token");
+        def.Should().Contain("function isCancelled");
+        def.Should().NotContain("function cancel");
+        def.Should().NotContain("function reset");
+        def.Should().NotContain("Support");
+    }
+
+    [Fact]
+    public void Library_KeepsStructExtendsClause()
+    {
+        using var project = new TestProjectBuilder();
+        project
+            .WithTyhpJson("""
+                {
+                    "type": "library",
+                    "include": ["**/*.tyhp"],
+                    "output": { "path": "build/" }
+                }
+                """)
+            .WithTyhpFile("shapes.tyhp", """
+                <?tyhp
+                namespace Lib\Nodes;
+                type Node = struct {
+                    string $kind = '';
+                };
+                type Leaf = struct extends Node {
+                    int $value = 0;
+                };
+                type Pair<T> = struct {
+                    T $item;
+                };
+                type NamedPair<T> = struct extends Pair<T> {
+                    string $name = '';
+                };
+                final class Api {
+                    public static function leaf(): Leaf {
+                        return new Leaf();
+                    }
+                    public static function pair(): NamedPair<int> {
+                        return new NamedPair<int>() with ['item' => 1];
+                    }
+                }
+                """);
+
+        var result = project.RunBuild();
+        result.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", result.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
+
+        var def = File.ReadAllText(Path.Combine(project.ProjectDirectory, "package.tyhpdef"));
+        def.Should().Contain("type Leaf = struct extends \\Lib\\Nodes\\Node {");
+        def.Should().Contain("type NamedPair<T> = struct extends \\Lib\\Nodes\\Pair<T> {");
+        def.Should().Contain("type Node = struct {");
+
+        var parsed = ParserTestHelper.ParseTyhpdefContent(def);
+        parsed.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", parsed.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}"))
+            + "\n--- generated ---\n" + def);
+    }
+
+    [Fact]
+    public void Library_KeepsReadonlyOnPromotedAndDeclaredProperties()
+    {
+        using var project = new TestProjectBuilder();
+        project
+            .WithTyhpJson("""
+                {
+                    "type": "library",
+                    "include": ["**/*.tyhp"],
+                    "output": { "path": "build/" }
+                }
+                """)
+            .WithTyhpFile("response.tyhp", """
+                <?tyhp
+                namespace Lib;
+                final class Response {
+                    public readonly string $url;
+                    public int $attempts = 0;
+                    public function __construct(public readonly int $status, string $url) {
+                        $this->url = $url;
+                    }
+                }
+                """);
+
+        var result = project.RunBuild();
+        result.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", result.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
+
+        var def = File.ReadAllText(Path.Combine(project.ProjectDirectory, "package.tyhpdef"));
+        def.Should().Contain("readonly public int $status;");
+        def.Should().Contain("readonly public string $url;");
+        def.Should().Contain("public int $attempts");
+        def.Should().NotContain("readonly public int $attempts");
 
         var parsed = ParserTestHelper.ParseTyhpdefContent(def);
         parsed.Diagnostics.Errors.Should().BeEmpty(

@@ -421,6 +421,11 @@ namespace Tyhp.Domain.Services
                     yield return (extracted.Name, OwnerKindHint.Either);
                 }
 
+                foreach (var extracted in TyhpdefTrackBExternPass.ExtractNames(property.StructDefault, skip))
+                {
+                    yield return (extracted.Name, OwnerKindHint.Either);
+                }
+
                 foreach (var name in CollectFromAttributes(property.Attributes, skip))
                 {
                     yield return name;
@@ -607,8 +612,9 @@ namespace Tyhp.Domain.Services
         }
 
         /// <summary>
-        /// A generic parameter's <c>extends</c> bound (<c>T extends \Foreign\Base</c>) is emitted
-        /// text just like a parameter or return type, so it must be classified the same way.
+        /// A generic parameter's <c>extends</c> bound (<c>T extends \Foreign\Base</c>) and default
+        /// (<c>T = \Foreign\Base</c>) are emitted text just like a parameter or return type, so
+        /// they must be classified the same way.
         /// </summary>
         private static IEnumerable<(string Name, OwnerKindHint Hint)> CollectFromGenericParameters(
             IEnumerable<TyhpdefGenericParameter>? parameters,
@@ -617,6 +623,11 @@ namespace Tyhp.Domain.Services
             foreach (var parameter in parameters ?? [])
             {
                 foreach (var extracted in TyhpdefTrackBExternPass.ExtractNames(parameter.Constraint, skip))
+                {
+                    yield return (extracted.Name, OwnerKindHint.Type);
+                }
+
+                foreach (var extracted in TyhpdefTrackBExternPass.ExtractNames(parameter.Default, skip))
                 {
                     yield return (extracted.Name, OwnerKindHint.Type);
                 }

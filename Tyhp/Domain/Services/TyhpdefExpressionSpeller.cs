@@ -108,7 +108,12 @@ namespace Tyhp.Domain.Services
         private string? SpellBinary(PhpBinaryOpAst binary)
         {
             var op = binary.Operator?.ValueString ?? "";
-            var left = this.ParenthesizeIfNested(binary.Left);
+            // `(a | b) | c` parses identically to `a | b | c` (left-associative), so a left
+            // operand with the same operator needs no parentheses.
+            var left = binary.Left is PhpBinaryOpAst leftBinary
+                && string.Equals(leftBinary.Operator?.ValueString, op, StringComparison.Ordinal)
+                    ? this.Spell(binary.Left)
+                    : this.ParenthesizeIfNested(binary.Left);
             var right = this.ParenthesizeIfNested(binary.Right);
             if (left is null || right is null)
             {

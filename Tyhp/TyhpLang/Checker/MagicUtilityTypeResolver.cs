@@ -29,7 +29,7 @@ namespace Tyhp.TyhpLang.Checker
     /// </remarks>
     internal static class MagicUtilityTypeResolver
     {
-        private static readonly DiagnosticBag SilentDiagnostics = new();
+        private static DiagnosticBag SilentDiagnostics => new();
 
         public static bool IsMagicBehavior(UtilityBehavior behavior) =>
             behavior is UtilityBehavior.SuperType

@@ -36,7 +36,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     CheckAssignmentInCondition(ifAst.Condition, state, diagnostics);
                     break;
                 case PhpLoopAst loop when loop.LoopType is PhpLoopType.While or PhpLoopType.DoWhile:
-                    CheckConditionQuality(loop.Condition, state, context, diagnostics);
+                    CheckConditionQuality(
+                        loop.Condition, state, context, diagnostics, BodyContainsCall(loop.Body));
                     CheckAssignmentInCondition(loop.Condition, state, diagnostics);
                     break;
                 case PhpLoopAst loop when loop.LoopType == PhpLoopType.For:
@@ -47,7 +48,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     if (tests.Count > 0)
                     {
                         var last = tests[^1];
-                        CheckConditionQuality(last, state, context, diagnostics);
+                        CheckConditionQuality(
+                            last, state, context, diagnostics, BodyContainsCall(loop.Body));
                         CheckAssignmentInCondition(last, state, diagnostics);
                     }
                     break;
@@ -103,9 +105,18 @@ namespace Tyhp.TyhpLang.Checker.Rules
             IExpression? condition,
             CheckerState state,
             CheckerRuleContext context,
-            DiagnosticBag diagnostics)
+            DiagnosticBag diagnostics,
+            bool bodyMayMutateProperties = false)
         {
             if (condition is null)
+            {
+                return;
+            }
+
+            // A property read narrowed to a literal (`$this->running = true`) is not a
+            // constant loop condition when the body calls something: the call can write
+            // the property. A literal `true` / `false` condition still warns.
+            if (bodyMayMutateProperties && ReadsMutableMember(condition))
             {
                 return;
             }
@@ -277,11 +288,46 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             var castType = InferCastType(unary.Operator, operandType, context);
+
+            // `(decimal) $x` is `\Tyhp\Decimal`'s convert-from / convert-to contract: an operand
+            // that is neither assignable to Decimal (which includes its `operator convert(T)`
+            // forms) nor already convertible is rejected here instead of failing at runtime.
+            if (castType is SimpleCheckedType { ResolvedSymbol: Binder.Symbols.ObjectDeclarationSymbol { Name: "Decimal" } }
+                && !CanCastTo(operandType, castType, context))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    unary,
+                    MessageCode.CheckerTypeMismatch,
+                    operandType.DisplayName,
+                    castType.DisplayName);
+                return;
+            }
+
             if (string.Equals(operandType.DisplayName, castType.DisplayName, StringComparison.OrdinalIgnoreCase)
                 || (context.IsAssignable(operandType, castType) && context.IsAssignable(castType, operandType)))
             {
                 CheckerHelpers.ReportWarning(
                     diagnostics, state, unary, MessageCode.CheckerRedundantCast, castType.DisplayName);
+            }
+        }
+
+        /// <summary>
+        /// True when every member of <paramref name="operandType"/> is the target itself or reaches
+        /// it through a declared <c>operator convert</c>; <c>null</c> never converts.
+        /// </summary>
+        private static bool CanCastTo(ICheckedType operandType, ICheckedType targetType, CheckerRuleContext context)
+        {
+            switch (operandType)
+            {
+                case UnionCheckedType union:
+                    return union.Members.All(member => CanCastTo(member, targetType, context));
+                case NullableCheckedType:
+                    return false;
+                default:
+                    return TypeComparer.IsAssignableToOrViaOperatorConvert(
+                        operandType, targetType, context.SymbolTree, context.GlobalScope);
             }
         }
 
@@ -491,6 +537,45 @@ namespace Tyhp.TyhpLang.Checker.Rules
             return false;
         }
 
+        private static bool BodyContainsCall(IBase2Ast? body) =>
+            body is not null && ContainsCall(body);
+
+        private static bool ContainsCall(IBase2Ast node)
+        {
+            if (node is PhpDereferenceableAst { Suffix: PhpCallAst } or PhpNewAst)
+            {
+                return true;
+            }
+
+            foreach (var child in node.AstChildren)
+            {
+                if (child is not null && ContainsCall(child))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// True when the condition's value is a property or static member (including
+        /// <c>$this->running === true</c>). A call in the loop body can change that member.
+        /// </summary>
+        private static bool ReadsMutableMember(IExpression expression)
+        {
+            expression = UnwrapParentheses(expression);
+            return expression switch
+            {
+                PhpDereferenceableAst { Suffix: PhpInstanceMemberAccessAst or PhpStaticMemberAccessAst } => true,
+                PhpBinaryOpAst binary =>
+                    (binary.Left is IExpression left && ReadsMutableMember(left))
+                    || (binary.Right is IExpression right && ReadsMutableMember(right)),
+                PhpUnaryOpAst { Operand: IExpression operand } => ReadsMutableMember(operand),
+                _ => false,
+            };
+        }
+
         private static bool HasSuppressingParentheses(IExpression expression) =>
             expression is PhpUnaryOpAst { Operator.ValueString: "(" };
 
@@ -657,7 +742,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     "bool" => CheckedTypes.Bool,
                     "string" => CheckedTypes.String,
                     "float" => CheckedTypes.Float,
-                    "decimal" => CheckedTypes.FromSymbol(new Binder.Symbols.BuiltInTypeSymbol("decimal")),
+                    "decimal" => CheckerHelpers.ResolveDecimalCastType(context.SymbolTree, context.GlobalScope),
                     "array" => CheckedTypes.FromSymbol(new Binder.Symbols.BuiltInTypeSymbol("array")),
                     "object" => InferObjectCastType(operand, context),
                     _ => CheckedTypes.Unresolved,
@@ -671,7 +756,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 TyhpParser.T_BOOL_CAST => CheckedTypes.Bool,
                 TyhpParser.T_STRING_CAST => CheckedTypes.String,
                 TyhpParser.T_DOUBLE_CAST => CheckedTypes.Float,
-                TyhpParser.T_DECIMAL_CAST => CheckedTypes.FromSymbol(new Binder.Symbols.BuiltInTypeSymbol("decimal")),
+                TyhpParser.T_DECIMAL_CAST => CheckerHelpers.ResolveDecimalCastType(context.SymbolTree, context.GlobalScope),
                 TyhpParser.T_ARRAY_CAST => CheckedTypes.FromSymbol(new Binder.Symbols.BuiltInTypeSymbol("array")),
                 // Must match TypeInferrer: (object) on an already-object operand is a no-op
                 // (identity) — PHP never re-wraps an existing object in a new \stdClass. Only a

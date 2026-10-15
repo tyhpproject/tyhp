@@ -28,7 +28,16 @@ namespace Tyhp.LanguageServer.Analysis
             var builder = new StringBuilder();
             builder.Append(KindLabel(symbol));
             builder.Append("\n```tyhp\n");
-            builder.Append(FormatSignature(symbol, inferredType));
+            IReadOnlyList<BaseSymbol>? overloads = GetDeclaredOverloads(symbol);
+            if (overloads is not null)
+            {
+                builder.Append(string.Join("\n", overloads.Select(overload => FormatSignature(overload))));
+            }
+            else
+            {
+                builder.Append(FormatSignature(symbol, inferredType));
+            }
+
             builder.Append("\n```");
 
             string? declaredNote = FormatDeclaredTypeNote(symbol, inferredType);
@@ -45,7 +54,9 @@ namespace Tyhp.LanguageServer.Analysis
                 builder.Append(container);
             }
 
-            string? doc = FormatDocComment(symbol.DocComment);
+            string? doc = FormatDocComment(
+                symbol.DocComment ?? overloads?.Select(static overload => overload.DocComment)
+                    .FirstOrDefault(static comment => !string.IsNullOrWhiteSpace(comment)));
             if (!string.IsNullOrEmpty(doc))
             {
                 builder.Append("\n\n");
@@ -85,11 +96,50 @@ namespace Tyhp.LanguageServer.Analysis
             return builder.ToString();
         }
 
+        /// <summary>
+        /// The declared signatures of a <c>.tyhp</c> function or method overload set, in declaration
+        /// order — what callers can use. The implementation's own signature is not part of it. Null
+        /// for any other symbol (including a single overload signature, which shows itself, and
+        /// tyhpdef/extension sets).
+        /// </summary>
+        internal static IReadOnlyList<BaseSymbol>? GetDeclaredOverloads(BaseSymbol symbol)
+        {
+            return symbol switch
+            {
+                FunctionDeclarationSymbol { IsSourceOverloadSet: true, Overloads.Count: > 0 } function
+                    => Tyhp.TyhpLang.Checker.Rules.CheckerHelpers.EnumerateFunctionSignatures(function)
+                        .Cast<BaseSymbol>().ToList(),
+                ObjectMethodSymbol { IsSourceOverloadSet: true, Overloads.Count: > 0 } method
+                    => Tyhp.TyhpLang.Checker.Rules.CheckerHelpers.EnumerateMethodSignatures(method)
+                        .Cast<BaseSymbol>().ToList(),
+                _ => null,
+            };
+        }
+
+        /// <summary>
+        /// One-line signature for completion lists: the first declared signature of an overload set
+        /// followed by the number of further overloads; otherwise <see cref="FormatSignature"/>.
+        /// </summary>
+        public static string FormatCompletionDetail(BaseSymbol symbol)
+        {
+            ArgumentNullException.ThrowIfNull(symbol);
+            IReadOnlyList<BaseSymbol>? overloads = GetDeclaredOverloads(symbol);
+            if (overloads is null || overloads.Count == 0)
+            {
+                return FormatSignature(symbol);
+            }
+
+            string first = FormatSignature(overloads[0]);
+            return overloads.Count == 1 ? first : first + " (+" + (overloads.Count - 1) + " overloads)";
+        }
+
         /// <summary>Plain-text doc comment for completion documentation, or null.</summary>
         public static string? FormatDocumentation(BaseSymbol symbol)
         {
             ArgumentNullException.ThrowIfNull(symbol);
-            return FormatDocComment(symbol.DocComment);
+            return FormatDocComment(
+                symbol.DocComment ?? GetDeclaredOverloads(symbol)?.Select(static overload => overload.DocComment)
+                    .FirstOrDefault(static comment => !string.IsNullOrWhiteSpace(comment)));
         }
 
         /// <summary>Tyhp signature for <paramref name="symbol"/>.</summary>

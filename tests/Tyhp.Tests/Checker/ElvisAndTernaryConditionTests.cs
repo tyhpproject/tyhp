@@ -194,6 +194,70 @@ public class ElvisAndTernaryConditionTests
             $"Elvis's own result (string) used as an if condition still requires bool: {Describe(errors)}");
     }
 
+    [Fact]
+    public void Check_ElvisDropsFalseFromLeft_ResultAssignableToString()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            function next(): string|false { return false; }
+            function demo(): string {
+                return \trim(next() ?: 'fallback');
+            }
+            """);
+
+        errors.Should().NotContain(
+            d => d.Code == MessageCode.CheckerIncompatibleArgumentType,
+            $"`string|false ?: 'fallback'` is `string`: {Describe(errors)}");
+    }
+
+    [Fact]
+    public void Check_ElvisDropsNullFromLeft_ResultAssignableToNonNullable()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            class Res {}
+            function demo(?Res $maybe, Res $fallback): Res {
+                Res $r = $maybe ?: $fallback;
+                return $r;
+            }
+            """);
+
+        errors.Should().NotContain(
+            d => d.Code == MessageCode.CheckerTypeMismatch,
+            $"`?Res ?: Res` is `Res`: {Describe(errors)}");
+    }
+
+    [Fact]
+    public void Check_ElvisOnBoolLeft_IsTrueOrRight()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            function demo(bool $flag): true|int {
+                return $flag ?: 0;
+            }
+            """);
+
+        errors.Should().NotContain(
+            d => d.Code == MessageCode.CheckerIncompatibleReturnType,
+            $"`bool ?: 0` is `true|int`: {Describe(errors)}");
+    }
+
+    [Fact]
+    public void Check_ElvisKeepsRightOperandType()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            function next(): string|false { return false; }
+            function demo(): string {
+                return next() ?: false;
+            }
+            """);
+
+        errors.Should().Contain(
+            d => d.Code == MessageCode.CheckerIncompatibleReturnType,
+            $"a `false` right operand is still part of the result: {Describe(errors)}");
+    }
+
     private static string Describe(IReadOnlyList<IDiagnostic> errors) =>
         string.Join("; ", errors.Select(e => $"{e.Code}: {e.Message}"));
 

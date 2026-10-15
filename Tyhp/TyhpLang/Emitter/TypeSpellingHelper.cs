@@ -27,6 +27,26 @@ namespace Tyhp.TyhpLang.Emitter
             => Spell(typeExpression, typeAliasMap, erasingParams: null, resolvingAliases: null, scope, namespacePrefix);
 
         /// <summary>
+        /// PHP typehint spelling of the settled type <c>__Awaited&lt;R&gt;</c> for an authored return
+        /// type <c>R</c>: <c>Promise&lt;X&gt;</c> spells <c>X</c> (repeatedly, member-wise over unions),
+        /// anything else spells as written. This is the return type of the closure an
+        /// <c>async</c> callable hands to <c>\Tyhp\Promise::_async</c>.
+        /// </summary>
+        public static string SpellSettled(
+            ITypeExpression? typeExpression,
+            IReadOnlyDictionary<string, string>? typeAliasMap = null,
+            IBaseScope? scope = null,
+            string? namespacePrefix = null)
+            => SpellAwaitedTypeArgument(
+                typeExpression,
+                typeAliasMap,
+                erasingParams: null,
+                resolvingAliases: null,
+                scope,
+                namespacePrefix,
+                preserveGenericParameters: false);
+
+        /// <summary>
         /// PHP typehint spelling from a checker <see cref="ICheckedType"/>, using the same erasure
         /// rules as <see cref="Spell"/> (generics → constraint/`mixed`, structs → <c>array</c>,
         /// symbol-name brands → <c>string</c>, unions collapse on <c>mixed</c>, …). Used when the
@@ -78,7 +98,7 @@ namespace Tyhp.TyhpLang.Emitter
                     typeExpr, typeAliasMap, erasingParams, resolvingAliases, scope, namespacePrefix, preserveGenericParameters),
                 PhpNamedTypeAst namedType => SpellNamedType(
                     namedType, typeAliasMap, erasingParams, resolvingAliases, scope, namespacePrefix, preserveGenericParameters),
-                PhpBuiltinTypeAst builtinType => SpellBuiltinType(builtinType, typeAliasMap),
+                PhpBuiltinTypeAst builtinType => SpellBuiltinType(builtinType, typeAliasMap, preserveGenericParameters),
                 TyhpObjectShapeAst => "object",
                 TyhpCallableShapeAst => "callable",
                 TyhpStructShapeAst => "array",
@@ -218,29 +238,13 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (StructEmissionHelper.ResolveStructFromNamedType(namedType, scope) is not null)
             {
-                // Prefer the rewritten name when AliasConverter has already swapped a struct type
-                // for a custom backing class (BoundSymbol cleared, Name is the backing FQN).
-                var rewrittenName = namedType.Name switch
-                {
-                    PhpNameAst n => n.ValueString ?? "",
-                    _ => "",
-                };
-                if (!string.IsNullOrWhiteSpace(rewrittenName)
-                    && rewrittenName.Contains('\\')
-                    && namedType.BoundSymbol is null)
-                {
-                    var rewritten = rewrittenName.StartsWith('\\') ? rewrittenName : "\\" + rewrittenName;
-                    return MaybeAppendPhpDocTypeArguments(
-                        rewritten, namedType, typeAliasMap, erasingParams, resolvingAliases, scope, namespacePrefix, preserveGenericParameters);
-                }
-
                 return "array";
             }
 
             if (namedType.BoundSymbol is BuiltInTypeSymbol builtIn)
             {
                 return MaybeAppendPhpDocTypeArguments(
-                    SpellBuiltinName(builtIn.Name, typeAliasMap),
+                    SpellBuiltinName(builtIn.Name, typeAliasMap, preserveGenericParameters),
                     namedType,
                     typeAliasMap,
                     erasingParams,
@@ -556,9 +560,21 @@ namespace Tyhp.TyhpLang.Emitter
                         preserveGenericParameters);
                     return true;
 
+                case UtilityBehavior.Awaited:
+                    // The PHP value is what the promise settles with, never the `\Tyhp\Promise`
+                    // wrapper itself, so a written `Promise<X>` spells as `X`.
+                    spelling = SpellAwaitedTypeArgument(
+                        GetFirstGenericTypeArgument(addonHost),
+                        typeAliasMap,
+                        erasingParams,
+                        resolvingAliases,
+                        scope,
+                        namespacePrefix,
+                        preserveGenericParameters);
+                    return true;
+
                 case UtilityBehavior.NonNullable:
                 case UtilityBehavior.AsNotNullable:
-                case UtilityBehavior.Awaited:
                 case UtilityBehavior.AsReadOnly:
                 case UtilityBehavior.FunctionReturnType:
                     spelling = SpellUtilityTypeArgument(
@@ -651,6 +667,81 @@ namespace Tyhp.TyhpLang.Emitter
                     return false;
             }
         }
+
+        /// <summary>
+        /// Spells the argument of <c>__Awaited&lt;…&gt;</c>: <c>\Tyhp\Promise&lt;X&gt;</c> becomes <c>X</c>
+        /// (repeatedly), unions unwrap member-wise, anything else spells as written.
+        /// </summary>
+        private static string SpellAwaitedTypeArgument(
+            ITypeExpression? typeArgExpr,
+            IReadOnlyDictionary<string, string>? typeAliasMap,
+            HashSet<GenericTypeParameterSymbol>? erasingParams,
+            HashSet<IBaseSymbol>? resolvingAliases,
+            IBaseScope? scope,
+            string? namespacePrefix,
+            bool preserveGenericParameters)
+        {
+            switch (typeArgExpr)
+            {
+                case PhpTypeExpressionAst { TypeKind: PhpTypeKind.Union } union when !union.IsStatic:
+                {
+                    var parts = new List<string>();
+                    foreach (var member in union.Types?.GetAllNotNull() ?? [])
+                    {
+                        var spelled = SpellAwaitedTypeArgument(
+                            member, typeAliasMap, erasingParams, resolvingAliases, scope, namespacePrefix,
+                            preserveGenericParameters);
+                        if (!string.IsNullOrWhiteSpace(spelled))
+                        {
+                            parts.Add(spelled);
+                        }
+                    }
+
+                    if (union.IsNullable)
+                    {
+                        parts.Add("null");
+                    }
+
+                    if (parts.Count == 0 || parts.Contains("mixed"))
+                    {
+                        return "mixed";
+                    }
+
+                    return ComposePhpUnionParts(parts);
+                }
+
+                case PhpTypeExpressionAst { TypeKind: PhpTypeKind.Simple, IsStatic: false } single
+                    when single.Types?.GetAllNotNull().ToList() is { Count: 1 } members:
+                {
+                    var inner = SpellAwaitedTypeArgument(
+                        members[0], typeAliasMap, erasingParams, resolvingAliases, scope, namespacePrefix,
+                        preserveGenericParameters);
+                    return single.IsNullable && inner != "mixed" && inner != "void" && !inner.StartsWith('?')
+                        ? ComposePhpUnionParts([inner, "null"])
+                        : inner;
+                }
+
+                case PhpNamedTypeAst named when IsPromiseTypeSymbol(
+                    named.BoundSymbol ?? (named.Name as PhpNameAst)?.BoundSymbol):
+                    // A bare `Promise` (no argument) settles with `mixed`.
+                    return SpellAwaitedTypeArgument(
+                        GetFirstGenericTypeArgument(named),
+                        typeAliasMap, erasingParams, resolvingAliases, scope, namespacePrefix,
+                        preserveGenericParameters);
+
+                default:
+                    return SpellUtilityTypeArgument(
+                        typeArgExpr, typeAliasMap, erasingParams, resolvingAliases, scope, namespacePrefix,
+                        preserveGenericParameters);
+            }
+        }
+
+        private static bool IsPromiseTypeSymbol(IBaseSymbol? symbol) =>
+            symbol is ObjectDeclarationSymbol declaration
+            && string.Equals(
+                declaration.FullyQualifiedName?.TrimStart('\\'),
+                "Tyhp\\Promise",
+                StringComparison.OrdinalIgnoreCase);
 
         private static string SpellUtilityTypeArgument(
             ITypeExpression? typeArgExpr,
@@ -1388,20 +1479,28 @@ namespace Tyhp.TyhpLang.Emitter
 
         private static string SpellBuiltinType(
             PhpBuiltinTypeAst builtinType,
-            IReadOnlyDictionary<string, string>? typeAliasMap)
+            IReadOnlyDictionary<string, string>? typeAliasMap,
+            bool forPhpDoc)
         {
             var name = builtinType.Identifier ?? "";
 
-            return SpellBuiltinName(name, typeAliasMap);
+            return SpellBuiltinName(name, typeAliasMap, forPhpDoc);
         }
 
         private static string SpellBuiltinName(
             string name,
-            IReadOnlyDictionary<string, string>? typeAliasMap)
+            IReadOnlyDictionary<string, string>? typeAliasMap,
+            bool forPhpDoc = false)
         {
             if (string.Equals(name, "decimal", StringComparison.OrdinalIgnoreCase))
             {
                 return @"\Tyhp\Decimal";
+            }
+
+            // PHP has no `resource` type declaration; a native hint would name a class.
+            if (!forPhpDoc && string.Equals(name, "resource", StringComparison.OrdinalIgnoreCase))
+            {
+                return "mixed";
             }
 
             if (string.Equals(name, "struct", StringComparison.OrdinalIgnoreCase))
@@ -1890,8 +1989,14 @@ namespace Tyhp.TyhpLang.Emitter
                         return true;
                     }
 
+                    // `__Awaited<Promise<X>>` is the settled value, so spell `X`. An open type
+                    // parameter cannot be unwrapped and erases like any other `T`.
+                    var spelledArg = behavior == UtilityBehavior.Awaited
+                        && UtilityTypeResolver.TryUnwrapAwaited(typeArgs[0], out var settled)
+                            ? settled
+                            : typeArgs[0];
                     spelling = SpellCheckedType(
-                        typeArgs[0],
+                        spelledArg,
                         typeAliasMap,
                         erasingParams,
                         resolvingAliases,

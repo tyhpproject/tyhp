@@ -77,6 +77,16 @@ namespace Tyhp.TyhpLang.Checker
                     ApplyConditionNarrowing(logical.Right, branchState, context, symbolTree, globalScope, positive: false);
                     return;
                 }
+
+                // `a || b` holding (or `a && b` failing) means one of two paths ran: `a` held, or
+                // `a` did not and `b` held. Each variable narrows to the union of what the two
+                // paths prove, so `\is_int($m) || $m === null` leaves `$m` as `?int`.
+                if ((positive && IsLogicalOr(logicalOp)) || (!positive && IsLogicalAnd(logicalOp)))
+                {
+                    ApplyAlternativePathNarrowing(
+                        logical, branchState, context, symbolTree, globalScope, firstPathPositive: positive);
+                    return;
+                }
             }
 
             if (TryApplyInstanceofNarrowing(condition, branchState, context, symbolTree, globalScope, positive))
@@ -100,7 +110,56 @@ namespace Tyhp.TyhpLang.Checker
                 return;
             }
 
+            // Records the proven member; any declared type guard on the callee still applies.
+            TryApplyMemberExistsNarrowing(condition, branchState, positive);
+
             TryApplyTypeGuardCallNarrowing(condition, branchState, context, symbolTree, globalScope, positive);
+        }
+
+        /// <summary>
+        /// Narrows variables by the join of two alternative paths. Path 1: the left operand has the
+        /// outcome <paramref name="firstPathPositive"/>. Path 2: the left operand has the opposite
+        /// outcome and the right operand has <paramref name="firstPathPositive"/>. A variable is
+        /// narrowed only when it ends up narrower than its current type on both paths.
+        /// </summary>
+        private static void ApplyAlternativePathNarrowing(
+            PhpBinaryOpAst logical,
+            CheckerState branchState,
+            INarrowingResolution context,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            bool firstPathPositive)
+        {
+            var first = branchState.Fork();
+            ApplyConditionNarrowing(
+                logical.Left, first, context, symbolTree, globalScope, positive: firstPathPositive);
+
+            var second = branchState.Fork();
+            ApplyConditionNarrowing(
+                logical.Left, second, context, symbolTree, globalScope, positive: !firstPathPositive);
+            ApplyConditionNarrowing(
+                logical.Right, second, context, symbolTree, globalScope, positive: firstPathPositive);
+
+            foreach (var (name, current) in branchState.GetAllVariablesInScope())
+            {
+                if (first.LookupVariable(name) is not { } firstVar
+                    || second.LookupVariable(name) is not { } secondVar)
+                {
+                    continue;
+                }
+
+                var joined = CheckedTypes.UnionTypes(firstVar.EffectiveType, secondVar.EffectiveType);
+                if (CheckedTypes.AreTypesEqual(joined, current.EffectiveType))
+                {
+                    continue;
+                }
+
+                branchState.NarrowVariable(name, joined);
+                if (branchState.LookupVariable(name) is { } narrowedVar)
+                {
+                    narrowedVar.IsPossiblyNull = firstVar.IsPossiblyNull || secondVar.IsPossiblyNull;
+                }
+            }
         }
 
         public static void ResetNarrowingOnAssignment(string variableName, CheckerState state)
@@ -771,7 +830,7 @@ namespace Tyhp.TyhpLang.Checker
             SymbolTree symbolTree,
             GlobalScope globalScope)
         {
-            Dictionary<string, ICheckedType>? substitutions = null;
+            Dictionary<GenericTypeParameterSymbol, ICheckedType>? substitutions = null;
             if (genericParameters.Count > 0)
             {
                 var typeArgs = TryGetCallSiteGenericTypeArguments(condition, call)
@@ -779,7 +838,7 @@ namespace Tyhp.TyhpLang.Checker
                     .ToList()
                     ?? [];
 
-                substitutions = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
+                substitutions = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
                 var unbound = new List<GenericTypeParameterSymbol>();
                 for (var i = 0; i < genericParameters.Count; i++)
                 {
@@ -787,7 +846,7 @@ namespace Tyhp.TyhpLang.Checker
                     if (i < typeArgs.Count)
                     {
                         // Call-site args resolve in the caller's scope (e.g. class generic TValue).
-                        substitutions[param.Name] =
+                        substitutions[param] =
                             context.ResolveTypeAnnotation(typeArgs[i], branchState);
                         continue;
                     }
@@ -806,9 +865,9 @@ namespace Tyhp.TyhpLang.Checker
                 {
                     foreach (var pair in inferred)
                     {
-                        if (!substitutions.ContainsKey(pair.Key.Name))
+                        if (!substitutions.ContainsKey(pair.Key))
                         {
-                            substitutions[pair.Key.Name] = pair.Value;
+                            substitutions[pair.Key] = pair.Value;
                             unbound.Remove(pair.Key);
                         }
                     }
@@ -828,13 +887,13 @@ namespace Tyhp.TyhpLang.Checker
                     var defaultType = context.ResolveTypeAnnotation(param.DefaultType, defaultState);
                     if (substitutions.Count > 0)
                     {
-                        defaultType = TypeComparer.ResolveGenericType(
+                        defaultType = TypeComparer.ResolveGenericTypeBySymbol(
                             defaultType, substitutions, symbolTree, globalScope);
                     }
 
                     if (!TypeComparer.IsUnresolvedType(defaultType))
                     {
-                        substitutions[param.Name] = defaultType;
+                        substitutions[param] = defaultType;
                     }
                 }
 
@@ -861,7 +920,7 @@ namespace Tyhp.TyhpLang.Checker
                 return guardType;
             }
 
-            return TypeComparer.ResolveGenericType(guardType, substitutions, symbolTree, globalScope);
+            return TypeComparer.ResolveGenericTypeBySymbol(guardType, substitutions, symbolTree, globalScope);
         }
 
         /// <summary>
@@ -1604,6 +1663,69 @@ namespace Tyhp.TyhpLang.Checker
             var opText = binary.Operator?.ValueString;
             return string.Equals(opText, "instanceof", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(opText, "is", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Key under which a <c>\property_exists($v, 'name')</c> / <c>\method_exists($v, 'name')</c>
+        /// guard records that <c>$v-&gt;name</c> / <c>$v-&gt;name()</c> exists. The <c>?</c> keeps the
+        /// key apart from property-type narrowing; it still starts with <c>$v-&gt;</c>, so
+        /// reassigning <c>$v</c> clears it.
+        /// </summary>
+        internal static string? BuildProvenMemberKey(PhpVariableAst variable, string memberName, bool isMethod)
+        {
+            if (CheckerHelpers.IsThisVariable(variable)
+                || CheckerHelpers.GetVariableName(variable) is not { } varName)
+            {
+                return null;
+            }
+
+            return "$" + varName + "->?" + memberName + (isMethod ? "()" : string.Empty);
+        }
+
+        private static bool TryGetStaticStringLiteral(IExpression expression, out string value)
+        {
+            switch (expression)
+            {
+                case PhpScalarAst { ScalarType: PhpScalarType.String, ValueString: { } text }:
+                    value = text;
+                    return true;
+                case PhpEncapsListAst encaps when PhpStringLiteralHelper.TryGetStaticLiteral(encaps, out var literal):
+                    value = literal;
+                    return true;
+                default:
+                    value = string.Empty;
+                    return false;
+            }
+        }
+
+        private static bool TryApplyMemberExistsNarrowing(
+            IExpression condition,
+            CheckerState branchState,
+            bool positive)
+        {
+            if (!positive || !TryGetGuardFunctionCall(condition, out var call, out var functionName))
+            {
+                return false;
+            }
+
+            var isProperty = string.Equals(functionName, "property_exists", StringComparison.OrdinalIgnoreCase);
+            var isMethod = string.Equals(functionName, "method_exists", StringComparison.OrdinalIgnoreCase);
+            if (!isProperty && !isMethod)
+            {
+                return false;
+            }
+
+            var args = GetCallArguments(call);
+            if (args.Count != 2
+                || AsSimpleVariable(args[0]) is not { } variable
+                || !TryGetStaticStringLiteral(args[1], out var memberName)
+                || BuildProvenMemberKey(variable, memberName, isMethod) is not { } key)
+            {
+                return false;
+            }
+
+            branchState.NarrowMemberAccess(key, CheckedTypes.Mixed);
+            return true;
         }
 
         private static List<IExpression> GetCallArguments(PhpCallAst call) =>

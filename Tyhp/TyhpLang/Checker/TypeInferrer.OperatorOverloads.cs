@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using Tyhp.TyhpLang.Binder.Resolution;
+using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Emitter;
@@ -55,17 +58,15 @@ namespace Tyhp.TyhpLang.Checker
                 return false;
             }
 
-            DescribeOperatorOperand(left, out var leftSymbol, out var leftName);
-            DescribeOperatorOperand(right, out var rightSymbol, out var rightName);
+            var leftMembers = DescribeOperatorOperandMembers(left);
+            var rightMembers = DescribeOperatorOperandMembers(right);
 
             // Left-first, then right — mirrors AliasConverter.SelectStaticBinaryOperatorTarget.
             if (TrySelectBinaryFormOnOwningType(
                     op,
-                    leftSymbol,
-                    leftSymbol,
-                    leftName,
-                    rightSymbol,
-                    rightName,
+                    SingleMemberSymbol(leftMembers),
+                    leftMembers,
+                    rightMembers,
                     state,
                     out var form,
                     out var owning))
@@ -76,11 +77,9 @@ namespace Tyhp.TyhpLang.Checker
 
             if (TrySelectBinaryFormOnOwningType(
                     op,
-                    rightSymbol,
-                    leftSymbol,
-                    leftName,
-                    rightSymbol,
-                    rightName,
+                    SingleMemberSymbol(rightMembers),
+                    leftMembers,
+                    rightMembers,
                     state,
                     out form,
                     out owning))
@@ -113,7 +112,7 @@ namespace Tyhp.TyhpLang.Checker
                 return false;
             }
 
-            DescribeOperatorOperand(operand, out var operandSymbol, out var operandName);
+            DescribeOperatorOperand(operand, _globalScope, out var operandSymbol, out var operandName);
             if (!TrySelectUnaryFormOnOwningType(
                     op, operandSymbol, operandName, state, out var form, out var owning))
             {
@@ -127,10 +126,8 @@ namespace Tyhp.TyhpLang.Checker
         private bool TrySelectBinaryFormOnOwningType(
             OverloadableOperator op,
             IBaseSymbol? owningOperandSymbol,
-            IBaseSymbol? leftSymbol,
-            string leftName,
-            IBaseSymbol? rightSymbol,
-            string rightName,
+            IReadOnlyList<OperatorOperandMember> leftMembers,
+            IReadOnlyList<OperatorOperandMember> rightMembers,
             CheckerState state,
             out ObjectOperatorOverloadMethodSymbol? form,
             out IBaseSymbol? owningType)
@@ -140,7 +137,7 @@ namespace Tyhp.TyhpLang.Checker
 
             if (owningOperandSymbol is ObjectDeclarationSymbol objectDecl && !objectDecl.IsStruct)
             {
-                form = FindMatchingBinaryForm(objectDecl, op, leftSymbol, leftName, rightSymbol, rightName);
+                form = FindMatchingBinaryForm(objectDecl, op, leftMembers, rightMembers, state);
                 if (form is not null)
                 {
                     owningType = objectDecl;
@@ -153,7 +150,7 @@ namespace Tyhp.TyhpLang.Checker
                 // objects) rather than picking a lying first-match type.
                 if (objectDecl.ObjectKind == PhpTypeDeclType.Trait
                     && TrySelectAgreedComposingBinaryForm(
-                        objectDecl, op, leftSymbol, leftName, rightSymbol, rightName, state,
+                        objectDecl, op, leftMembers, rightMembers, state,
                         out form, out owningType))
                 {
                     return true;
@@ -167,13 +164,13 @@ namespace Tyhp.TyhpLang.Checker
                 // Prefer the GlobalScope singleton so extension-contributed operators are visible.
                 var scopeBuiltin = TypeComparer.ResolveBuiltIn(builtin.Name, _globalScope) ?? builtin;
                 form = OperatorOverloadResolver.SelectMatchingBinaryForm(
-                    scopeBuiltin.ExtensionContributedOperators.Where(m => m.Operator == op),
+                    scopeBuiltin.ExtensionContributedOperators.Where(
+                        m => m.Operator == op && IsActiveExtensionOperator(m, state)),
                     op,
-                    leftSymbol,
-                    leftName,
-                    rightSymbol,
-                    rightName,
-                    scopeBuiltin);
+                    leftMembers,
+                    rightMembers,
+                    scopeBuiltin,
+                    IsClassSubtypeOf);
                 if (form is null)
                 {
                     return false;
@@ -199,7 +196,7 @@ namespace Tyhp.TyhpLang.Checker
 
             if (operandSymbol is ObjectDeclarationSymbol objectDecl && !objectDecl.IsStruct)
             {
-                form = FindMatchingUnaryForm(objectDecl, op, operandSymbol, operandName);
+                form = FindMatchingUnaryForm(objectDecl, op, operandSymbol, operandName, state);
                 if (form is not null)
                 {
                     owningType = objectDecl;
@@ -221,7 +218,8 @@ namespace Tyhp.TyhpLang.Checker
             {
                 var scopeBuiltin = TypeComparer.ResolveBuiltIn(builtin.Name, _globalScope) ?? builtin;
                 form = OperatorOverloadResolver.SelectMatchingUnaryForm(
-                    scopeBuiltin.ExtensionContributedOperators.Where(m => m.Operator == op),
+                    scopeBuiltin.ExtensionContributedOperators.Where(
+                        m => m.Operator == op && IsActiveExtensionOperator(m, state)),
                     op,
                     operandSymbol,
                     operandName,
@@ -241,10 +239,9 @@ namespace Tyhp.TyhpLang.Checker
         private ObjectOperatorOverloadMethodSymbol? FindMatchingBinaryForm(
             ObjectDeclarationSymbol typeSymbol,
             OverloadableOperator op,
-            IBaseSymbol? leftSymbol,
-            string leftName,
-            IBaseSymbol? rightSymbol,
-            string rightName)
+            IReadOnlyList<OperatorOperandMember> leftMembers,
+            IReadOnlyList<OperatorOperandMember> rightMembers,
+            CheckerState state)
         {
             // Include native-passthrough tyhpdef forms for inference (emit leaves them as PHP ops,
             // but the declared return type is still the checker truth).
@@ -252,31 +249,39 @@ namespace Tyhp.TyhpLang.Checker
                 TypeComparer.EnumerateClassOperatorOverloads(typeSymbol, _globalScope)
                     .Where(m => m.Operator == op),
                 op,
-                leftSymbol,
-                leftName,
-                rightSymbol,
-                rightName,
-                typeSymbol);
+                leftMembers,
+                rightMembers,
+                typeSymbol,
+                IsClassSubtypeOf);
             if (classMatch != null)
             {
                 return classMatch;
             }
 
             return OperatorOverloadResolver.SelectMatchingBinaryForm(
-                typeSymbol.ExtensionContributedOperators.Where(m => m.Operator == op),
+                typeSymbol.ExtensionContributedOperators.Where(
+                    m => m.Operator == op && IsActiveExtensionOperator(m, state)),
                 op,
-                leftSymbol,
-                leftName,
-                rightSymbol,
-                rightName,
-                typeSymbol);
+                leftMembers,
+                rightMembers,
+                typeSymbol,
+                IsClassSubtypeOf);
         }
+
+        /// <summary>
+        /// True when <paramref name="child"/> is, extends, or implements <paramref name="parent"/>
+        /// (the operand-to-parameter relation used when matching operator overload forms).
+        /// </summary>
+        private bool IsClassSubtypeOf(ObjectDeclarationSymbol child, ObjectDeclarationSymbol parent)
+            => TypeComparer.ImplementsOrExtends(
+                child, parent, _symbolTree, _globalScope, new HashSet<ObjectDeclarationSymbol>());
 
         private ObjectOperatorOverloadMethodSymbol? FindMatchingUnaryForm(
             ObjectDeclarationSymbol typeSymbol,
             OverloadableOperator op,
             IBaseSymbol? operandSymbol,
-            string operandName)
+            string operandName,
+            CheckerState state)
         {
             var classMatch = OperatorOverloadResolver.SelectMatchingUnaryForm(
                 TypeComparer.EnumerateClassOperatorOverloads(typeSymbol, _globalScope)
@@ -291,12 +296,18 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             return OperatorOverloadResolver.SelectMatchingUnaryForm(
-                typeSymbol.ExtensionContributedOperators.Where(m => m.Operator == op),
+                typeSymbol.ExtensionContributedOperators.Where(
+                    m => m.Operator == op && IsActiveExtensionOperator(m, state)),
                 op,
                 operandSymbol,
                 operandName,
                 typeSymbol);
         }
+
+        private bool IsActiveExtensionOperator(
+            ObjectOperatorOverloadMethodSymbol method,
+            CheckerState state) =>
+            ExtensionActivation.IsOperatorVisible(method, state.CurrentFileName, _globalScope);
 
         /// <summary>
         /// When a trait has no matching binary form, probe classes/enums that <c>use</c> it.
@@ -307,10 +318,8 @@ namespace Tyhp.TyhpLang.Checker
         private bool TrySelectAgreedComposingBinaryForm(
             ObjectDeclarationSymbol trait,
             OverloadableOperator op,
-            IBaseSymbol? leftSymbol,
-            string leftName,
-            IBaseSymbol? rightSymbol,
-            string rightName,
+            IReadOnlyList<OperatorOperandMember> leftMembers,
+            IReadOnlyList<OperatorOperandMember> rightMembers,
             CheckerState state,
             out ObjectOperatorOverloadMethodSymbol? form,
             out IBaseSymbol? owningType)
@@ -325,14 +334,10 @@ namespace Tyhp.TyhpLang.Checker
             foreach (var composing in TypeComparer.EnumerateObjectsUsingTrait(
                          trait, _symbolTree, _globalScope))
             {
-                var left = leftSymbol;
-                var leftN = leftName;
-                var right = rightSymbol;
-                var rightN = rightName;
-                RemapTraitOperandToComposing(trait, composing, ref left, ref leftN);
-                RemapTraitOperandToComposing(trait, composing, ref right, ref rightN);
+                var left = RemapTraitMembersToComposing(trait, composing, leftMembers);
+                var right = RemapTraitMembersToComposing(trait, composing, rightMembers);
 
-                var match = FindMatchingBinaryForm(composing, op, left, leftN, right, rightN);
+                var match = FindMatchingBinaryForm(composing, op, left, right, state);
                 if (match is null)
                 {
                     continue;
@@ -364,6 +369,23 @@ namespace Tyhp.TyhpLang.Checker
             return true;
         }
 
+        private static IReadOnlyList<OperatorOperandMember> RemapTraitMembersToComposing(
+            ObjectDeclarationSymbol trait,
+            ObjectDeclarationSymbol composing,
+            IReadOnlyList<OperatorOperandMember> members)
+        {
+            var remapped = new List<OperatorOperandMember>(members.Count);
+            foreach (var member in members)
+            {
+                var symbol = member.Symbol;
+                var name = member.Name;
+                RemapTraitOperandToComposing(trait, composing, ref symbol, ref name);
+                remapped.Add(new OperatorOperandMember(symbol, name));
+            }
+
+            return remapped;
+        }
+
         /// <summary>
         /// Unary counterpart of <see cref="TrySelectAgreedComposingBinaryForm"/>.
         /// </summary>
@@ -390,7 +412,7 @@ namespace Tyhp.TyhpLang.Checker
                 var name = operandName;
                 RemapTraitOperandToComposing(trait, composing, ref operand, ref name);
 
-                var match = FindMatchingUnaryForm(composing, op, operand, name);
+                var match = FindMatchingUnaryForm(composing, op, operand, name, state);
                 if (match is null)
                 {
                     continue;
@@ -509,8 +531,44 @@ namespace Tyhp.TyhpLang.Checker
             return ResolveTypeExpression(form.ReturnType, resolveState, isReturnTypePosition: true);
         }
 
-        private void DescribeOperatorOperand(
+        private static IBaseSymbol? SingleMemberSymbol(IReadOnlyList<OperatorOperandMember> members)
+            => members.Count == 1 ? members[0].Symbol : null;
+
+        /// <summary>
+        /// Describes an operator operand as one member per union arm (a single member for any other
+        /// type), so an overload parameter must accept every arm of a union operand.
+        /// </summary>
+        private IReadOnlyList<OperatorOperandMember> DescribeOperatorOperandMembers(ICheckedType type)
+            => DescribeOperatorOperandMembers(type, _globalScope);
+
+        /// <summary>
+        /// Static form of <see cref="DescribeOperatorOperandMembers(ICheckedType)"/> shared with the
+        /// emitter's operator selection.
+        /// </summary>
+        internal static IReadOnlyList<OperatorOperandMember> DescribeOperatorOperandMembers(
             ICheckedType type,
+            GlobalScope globalScope)
+        {
+            var unwrapped = type is NullableCheckedType nullable ? nullable.InnerType : type;
+            if (unwrapped is UnionCheckedType union && union.Members.Count > 0)
+            {
+                var members = new List<OperatorOperandMember>(union.Members.Count);
+                foreach (var arm in union.Members)
+                {
+                    DescribeOperatorOperand(arm, globalScope, out var armSymbol, out var armName);
+                    members.Add(new OperatorOperandMember(armSymbol, armName));
+                }
+
+                return members;
+            }
+
+            DescribeOperatorOperand(type, globalScope, out var symbol, out var name);
+            return [new OperatorOperandMember(symbol, name)];
+        }
+
+        private static void DescribeOperatorOperand(
+            ICheckedType type,
+            GlobalScope globalScope,
             out IBaseSymbol? symbol,
             out string name)
         {
@@ -535,7 +593,7 @@ namespace Tyhp.TyhpLang.Checker
 
             if (TypeComparer.TryGetBuiltInName(unwrapped, out var builtinName))
             {
-                symbol = TypeComparer.ResolveBuiltIn(builtinName, _globalScope)
+                symbol = TypeComparer.ResolveBuiltIn(builtinName, globalScope)
                     ?? new BuiltInTypeSymbol(builtinName);
                 name = builtinName;
                 return;

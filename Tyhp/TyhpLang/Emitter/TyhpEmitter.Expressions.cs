@@ -60,6 +60,7 @@ namespace Tyhp.TyhpLang.Emitter
                 PhpExpressionListAst list => this.FormatExpressionList(list),
                 PhpArrayPairListAst arrayList => this.BuildArrayPairList(arrayList),
                 EmittedPhpExprAst emitted => emitted.PhpText,
+                CallableWrapperAst wrapper => this.BuildCallableWrapper(wrapper),
                 _ => this.BuildExpressionFallback(expression),
             };
         }
@@ -67,7 +68,6 @@ namespace Tyhp.TyhpLang.Emitter
         private string TrackAndBuildName(PhpNameAst name, bool forceFqnForBoundSymbol = false)
         {
             var text = name.ValueString ?? "";
-
             // A reference to a declared class/interface/enum/trait may carry a BoundSymbol from
             // the checker (Prop-init #17). Emit a root-anchored FQN when the written form is
             // absolute, relative-qualified, or a use-aliased short name that would otherwise
@@ -281,13 +281,91 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             var quote = encapsList.StringType == PhpStringType.SingleQuoted ? "'" : "\"";
-            var parts = partList.Select(p => p switch
+            var parts = new List<string>(partList.Count);
+            // (isExpression, text): literal segments keep their authored escapes.
+            var segments = new List<(bool IsExpression, string Text)>(partList.Count);
+            var interpolatable = true;
+            for (var i = 0; i < partList.Count; i++)
             {
-                PhpEncapsStringAst encapsPart => encapsPart.TokenValue?.ValueString ?? encapsPart.ValueString ?? "",
-                IExpression expr => this.BuildExpression(expr),
-                _ => p.ValueString ?? "",
-            });
-            return quote + string.Join("", parts) + quote;
+                var p = partList[i];
+                switch (p)
+                {
+                    case PhpEncapsStringAst encapsPart:
+                        var literal = encapsPart.TokenValue?.ValueString ?? encapsPart.ValueString ?? "";
+                        parts.Add(literal);
+                        segments.Add((false, literal));
+                        break;
+                    case IExpression expr:
+                        var nextText = i + 1 < partList.Count && partList[i + 1] is PhpEncapsStringAst nextPart
+                            ? nextPart.TokenValue?.ValueString ?? nextPart.ValueString
+                            : null;
+                        var built = this.BuildExpression(expr);
+                        // PHP interpolates only `$`-rooted expressions; a call rewritten to a
+                        // static form (extension methods, operators) cannot appear in a string.
+                        interpolatable &= built.StartsWith('$');
+                        parts.Add(WrapInterpolatedExpression(built, nextText));
+                        segments.Add((true, built));
+                        break;
+                    default:
+                        var other = p.ValueString ?? "";
+                        parts.Add(other);
+                        segments.Add((false, other));
+                        break;
+                }
+            }
+
+            if (interpolatable)
+            {
+                return quote + string.Join("", parts) + quote;
+            }
+
+            // Concatenate instead: "a " . (expr) . " b".
+            var pieces = segments
+                .Where(s => s.IsExpression || s.Text.Length > 0)
+                .Select(s => s.IsExpression ? "(" + s.Text + ")" : quote + s.Text + quote)
+                .ToList();
+            if (pieces.Count == 1)
+            {
+                // A sole expression must still yield a string.
+                pieces.Insert(0, quote + quote);
+            }
+
+            // Parenthesized so the string keeps its precedence inside a larger expression.
+            return "(" + string.Join(" . ", pieces) + ")";
+        }
+
+        // PHP's unbraced "$var", "$var->prop", "$var[0]" forms interpolate only that shape. Any
+        // other expression ("{$obj->method($x)}", "{$a['k']}", a rewritten operator call) needs the
+        // `{$…}` form, as does a simple form that the following literal text would otherwise extend
+        // ("{$name}s" must not become "$names").
+        private static readonly System.Text.RegularExpressions.Regex SimpleInterpolationShape = new(
+            @"^\$[A-Za-z_\x80-\xff][\w\x80-\xff]*(?<tail>->[A-Za-z_\x80-\xff][\w\x80-\xff]*|\[(?:-?\d+|[A-Za-z_\x80-\xff][\w\x80-\xff]*|\$[A-Za-z_\x80-\xff][\w\x80-\xff]*)\])?$",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        private static string WrapInterpolatedExpression(string text, string? followingText)
+        {
+            var match = SimpleInterpolationShape.Match(text);
+            if (!match.Success)
+            {
+                return text.StartsWith('$') ? "{" + text + "}" : text;
+            }
+
+            if (string.IsNullOrEmpty(followingText))
+            {
+                return text;
+            }
+
+            var first = followingText[0];
+            var continuesIdentifier = char.IsLetterOrDigit(first) || first == '_' || first >= '\x80';
+            var isBareVariable = !match.Groups["tail"].Success;
+            var startsAccessor = isBareVariable
+                && (first == '['
+                    || followingText.StartsWith("->", StringComparison.Ordinal)
+                    || followingText.StartsWith("?->", StringComparison.Ordinal));
+            var endsInIndex = text[^1] == ']';
+            return (continuesIdentifier && !endsInIndex) || startsAccessor
+                ? "{" + text + "}"
+                : text;
         }
 
         private EmitItem EmitExpression(IExpression expression, EmitItem parent, EmitType emitType = EmitType.SubBlockStatement)
@@ -447,8 +525,15 @@ namespace Tyhp.TyhpLang.Emitter
                 return false;
             }
 
-            if (op.ValueInt64 == TyhpParser.T_PIPE
-                || string.Equals(op.ValueString, "|>", StringComparison.Ordinal))
+            // The spelling is authoritative when present: a tyhpdef-parsed operator (for example `&&` in
+            // a spliced extension body) carries a tyhpdef-lexer token id that can numerically equal
+            // TyhpParser.T_PIPE.
+            if (!string.IsNullOrWhiteSpace(op.ValueString))
+            {
+                return string.Equals(op.ValueString.Trim(), "|>", StringComparison.Ordinal);
+            }
+
+            if (op.ValueInt64 == TyhpParser.T_PIPE)
             {
                 return true;
             }
@@ -505,6 +590,14 @@ namespace Tyhp.TyhpLang.Emitter
                 && GetGenericTypeArgumentAddon(parameterized) is { Count: > 0 })
             {
                 this._context.RequirePackage("tyhp/core");
+
+                // Checker-only `__` utilities (`__CallableReturnType<T>`, …) are not PHP classes;
+                // they reify to the type their native hint erases to.
+                if (this.TryBuildRuntimeUtilityTypeFromAst(parameterized, preferCtorLocals: false) is { } utilityType)
+                {
+                    return $"{RuntimeTypeClass}::is({leftText}, {utilityType})";
+                }
+
                 var className = ResolveRuntimeClassName(
                     parameterized.BoundSymbol, parameterized, written: parameterized.ValueString);
                 var runtimeType = this.BuildRuntimeGenericFromClassAndArgs(
@@ -753,6 +846,11 @@ namespace Tyhp.TyhpLang.Emitter
             if (typeArgs is { Count: > 0 })
             {
                 this._context.RequirePackage("tyhp/core");
+                if (this.TryBuildRuntimeUtilityTypeFromAst(name, preferCtorLocals: false) is { } utilityType)
+                {
+                    return utilityType;
+                }
+
                 var className = ResolveRuntimeClassName(
                     name.BoundSymbol, name, written: name.ValueString);
                 return this.BuildRuntimeGenericFromClassAndArgs(
@@ -1313,6 +1411,16 @@ namespace Tyhp.TyhpLang.Emitter
                 var bodyExpr = inlineFn.Body?.GetAllNotNull().FirstOrDefault() is PhpUnaryOpAst ret
                     ? this.BuildExpression(ret.Operand)
                     : "";
+
+                // PHP rejects an arrow function whose declared return type is `void` ("A void
+                // function must not return a value"), so a void arrow becomes a closure that runs
+                // the expression as a statement. Arrow functions capture by value implicitly; the
+                // closure lists the free variables explicitly.
+                if (string.Equals(returnType.Trim(), ": void", StringComparison.OrdinalIgnoreCase))
+                {
+                    return this.BuildVoidArrowAsClosure(inlineFn, modifiers, refPrefix, paramsText, returnType, bodyExpr);
+                }
+
                 return $"{modifiers}fn{refPrefix}({paramsText}){returnType} => {bodyExpr}";
             }
 
@@ -1352,6 +1460,49 @@ namespace Tyhp.TyhpLang.Emitter
             // PER-CS §7: space after `function` (and after `&` when returning by reference).
             var functionKeyword = inlineFn.ReturnsRef ? "function &" : "function ";
             return $"{modifiers}{functionKeyword}({paramsText}){useClause}{returnType} {body}";
+        }
+
+        private string BuildVoidArrowAsClosure(
+            PhpInlineFunctionAst inlineFn,
+            string modifiers,
+            string refPrefix,
+            string paramsText,
+            string returnType,
+            string bodyExpr)
+        {
+            var bound = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var parameter in inlineFn.Parameters?.GetAllNotNull() ?? [])
+            {
+                var name = parameter.Name?.TrimStart('$');
+                if (!string.IsNullOrEmpty(name))
+                {
+                    bound.Add(name);
+                }
+            }
+
+            var captures = new HashSet<string>(StringComparer.Ordinal);
+            if (inlineFn.Body is { } body)
+            {
+                CollectAsyncBlockLocals(body, bound);
+                CollectAsyncBlockCaptures(body, bound, captures);
+            }
+
+            captures.Remove("this");
+            var useParts = captures
+                .OrderBy(n => n, StringComparer.Ordinal)
+                .Select(n => "$" + n)
+                .ToList();
+            if (this._context.WeakSelfCaptureVar is { } weakVar && !useParts.Contains(weakVar))
+            {
+                useParts.Add(weakVar);
+            }
+
+            var useClause = useParts.Count > 0 ? " use (" + string.Join(", ", useParts) + ")" : "";
+            var functionKeyword = string.IsNullOrEmpty(refPrefix) ? "function " : "function &";
+            var statement = string.Join(
+                "\n",
+                (bodyExpr + ";").Replace("\r\n", "\n").Split('\n').Select(l => l.Length == 0 ? l : "    " + l));
+            return $"{modifiers}{functionKeyword}({paramsText}){useClause}{returnType} {{\n{statement}\n}}";
         }
 
         /// <summary>
@@ -1666,6 +1817,7 @@ namespace Tyhp.TyhpLang.Emitter
                 PhpArrayPairListAst arrayList => this.BuildArrayPairList(arrayList),
                 PhpEncapsStringAst encaps => this.BuildEncapsStringExpression(encaps),
                 PhpEncapsListAst encapsList => this.BuildEncapsListExpression(encapsList),
+                CallableWrapperAst wrapper => this.BuildCallableWrapper(wrapper),
                 _ => "",
             };
         }
@@ -1791,10 +1943,10 @@ namespace Tyhp.TyhpLang.Emitter
                 TyhpGenericIdentifierAst g => g.ValueString ?? "",
                 PhpNameAst n => GetShortName(n.ValueString),
                 PhpInstanceMemberAccessAst m => this.BuildInstanceMemberAccessName(m.MemberName),
-                PhpStaticMemberAccessAst s => GetShortName(this.BuildExpression(s.Member)),
+                PhpStaticMemberAccessAst s => GetShortName(this.BuildExpression(s.Member)).TrimStart('$'),
                 PhpClassConstantAccessAst c => GetShortName(this.BuildExpression(c.Member)),
                 PhpDereferenceableAst deref when deref.Base is PhpInstanceMemberAccessAst instance => this.BuildInstanceMemberAccessName(instance.MemberName),
-                PhpDereferenceableAst deref when deref.Suffix is PhpStaticMemberAccessAst staticAccess => GetShortName(this.BuildExpression(staticAccess.Member)),
+                PhpDereferenceableAst deref when deref.Suffix is PhpStaticMemberAccessAst staticAccess => GetShortName(this.BuildExpression(staticAccess.Member)).TrimStart('$'),
                 // nameof($o->name): the member access is the dereferenceable suffix, not the base.
                 PhpDereferenceableAst deref when deref.Suffix is PhpInstanceMemberAccessAst instanceMember => this.BuildInstanceMemberAccessName(instanceMember.MemberName),
                 // nameof(C::A): a class constant access is the suffix.
@@ -1962,7 +2114,7 @@ namespace Tyhp.TyhpLang.Emitter
                 && !simpleName.Contains('\\')
                 && this.TryResolveDeclaredClass(simpleName))
             {
-                return $"{RuntimeTypeClass}::fromClassName('{simpleName}'::class)";
+                return $"{RuntimeTypeClass}::fromClassName({this.ResolveTypeofClassName(name, simpleName)}::class)";
             }
 
             if (name.BoundSymbol is ObjectDeclarationSymbol { IsStruct: true } boundStruct)
@@ -1972,7 +2124,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (name.BoundSymbol is ObjectDeclarationSymbol)
             {
-                return $"{RuntimeTypeClass}::fromClassName('{GetShortName(name.ValueString)}'::class)";
+                return $"{RuntimeTypeClass}::fromClassName({this.ResolveTypeofClassName(name, GetShortName(name.ValueString))}::class)";
             }
 
             var isGenericParam = name.BoundSymbol is GenericTypeParameterSymbol
@@ -2194,6 +2346,19 @@ namespace Tyhp.TyhpLang.Emitter
         /// is available (parse-only emit) the scope is empty and this returns false, so the
         /// generic-lookup fallback path is taken.
         /// </summary>
+        /// <summary>
+        /// Root-anchored class-name spelling for a declared class named in <c>typeof(Name)</c> /
+        /// <c>is ?Name</c>: the bound symbol's FQCN, else the declared class found by simple name, else the
+        /// spelling as written.
+        /// </summary>
+        private string ResolveTypeofClassName(PhpNameAst name, string written)
+        {
+            var fqn = TryGetBoundObjectFqn(name.BoundSymbol)
+                ?? this.TryResolveObjectByName(written)?.FullyQualifiedName?.TrimStart('\\')
+                ?? written;
+            return QuoteClassNameForType(fqn);
+        }
+
         private bool TryResolveDeclaredClass(string simpleName)
         {
             if (string.IsNullOrEmpty(simpleName))

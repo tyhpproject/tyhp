@@ -11,7 +11,8 @@ namespace Tyhp.TyhpLang.Emitter.Splice
         string Name,
         bool IsByReference,
         IExpression? DefaultValue,
-        bool IsThis);
+        bool IsThis,
+        bool IsVariadic = false);
 
     /// <summary>Why a call site cannot be spliced faithfully (rule 3).</summary>
     public enum SpliceDeclineReason
@@ -41,6 +42,13 @@ namespace Tyhp.TyhpLang.Emitter.Splice
         /// already resolved by the caller). A null slot means "use the parameter default".
         /// </summary>
         public IReadOnlyList<IExpression?> Arguments { get; init; } = [];
+
+        /// <summary>
+        /// Parallel to <see cref="Arguments"/>: true when the call-site argument is an
+        /// unpacking <c>...$expr</c>. Null means no argument is unpacked. A variadic parameter
+        /// consumes every argument from its own position onward, so only those entries matter.
+        /// </summary>
+        public IReadOnlyList<bool>? ArgumentIsSpread { get; init; }
 
         /// <summary>
         /// True when the member also emits a PHP method the call can fall back to. False for an

@@ -130,12 +130,12 @@ namespace Tyhp.TyhpLang.Checker
                 ? genericParameters
                 : [.. genericParameters, .. state.FunctionGenerics];
 
-            var substitutions = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
+            var substitutions = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
             foreach (var param in genericParameters)
             {
                 if (bindings.TryGetValue(param, out var bound))
                 {
-                    substitutions[param.Name] = bound;
+                    substitutions[param] = bound;
                 }
             }
 
@@ -274,7 +274,7 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             var resolved = new List<ICheckedType>(genericParams.Count);
-            var substitutions = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
+            var substitutions = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
 
             // Constraints resolve in the declaring generic scope, same as defaults just below —
             // a sibling reference like Story 21.6's `TScope extends __ClosureScope<TThis>` needs
@@ -311,7 +311,7 @@ namespace Tyhp.TyhpLang.Checker
                 }
 
                 resolved.Add(arg);
-                substitutions[param.Name] = arg;
+                substitutions[param] = arg;
 
                 // `void`/`never` are normally banned in non-return generic positions, but a parameter
                 // whose constraint explicitly admits them (e.g. `TReturn extends void|mixed`) opts in.
@@ -354,7 +354,7 @@ namespace Tyhp.TyhpLang.Checker
         private static ICheckedType ResolveDefaultTypeArgument(
             GenericTypeParameterSymbol param,
             IReadOnlyList<GenericTypeParameterSymbol> genericParams,
-            Dictionary<string, ICheckedType> substitutions,
+            Dictionary<GenericTypeParameterSymbol, ICheckedType> substitutions,
             CheckerState state,
             SymbolTree symbolTree,
             GlobalScope globalScope,
@@ -373,7 +373,7 @@ namespace Tyhp.TyhpLang.Checker
             var defaultType = resolveType(param.DefaultType, defaultState, false, true);
             if (substitutions.Count > 0)
             {
-                defaultType = TypeComparer.ResolveGenericType(
+                defaultType = TypeComparer.ResolveGenericTypeBySymbol(
                     defaultType, substitutions, symbolTree, globalScope);
             }
 
@@ -431,7 +431,7 @@ namespace Tyhp.TyhpLang.Checker
                     continue;
                 }
 
-                var substitutions = new Dictionary<string, ICheckedType>(StringComparer.Ordinal);
+                var substitutions = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
                 var defaultType = ResolveDefaultTypeArgument(
                     param, genericParams, substitutions, state, symbolTree, globalScope, resolveType);
                 if (TypeComparer.IsUnresolvedType(defaultType))
@@ -517,12 +517,45 @@ namespace Tyhp.TyhpLang.Checker
             }
         }
 
+        // Bounds currently being expanded by `TryResolveBoundOnce` (thread-static for the same
+        // reason as `_resolvingConstraints`).
+        [ThreadStatic]
+        private static HashSet<GenericTypeParameterSymbol>? _expandingBounds;
+
+        /// <summary>
+        /// Resolves <paramref name="param"/>'s bound, or returns null when that same bound is
+        /// already being resolved higher on the stack. A bound that names its own declaration
+        /// (<c>T extends Box&lt;T&gt;</c>, <c>A&lt;T extends B&lt;T&gt;&gt;</c> /
+        /// <c>B&lt;U extends A&lt;U&gt;&gt;</c>) validates the instantiation it contains, which
+        /// resolves the same bound again; without this guard that recursion never ends.
+        /// </summary>
+        private static ICheckedType? TryResolveBoundOnce(
+            GenericTypeParameterSymbol param,
+            CheckerState state,
+            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType)
+        {
+            var expanding = _expandingBounds ??= [];
+            if (!expanding.Add(param))
+            {
+                return null;
+            }
+
+            try
+            {
+                return resolveType(param.Constraint!, state, false, true);
+            }
+            finally
+            {
+                expanding.Remove(param);
+            }
+        }
+
         private static bool ConstraintPermitsRestrictedType(
             ICheckedType arg,
             GenericTypeParameterSymbol param,
             CheckerState state,
             Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType,
-            IReadOnlyDictionary<string, ICheckedType>? substitutions,
+            IReadOnlyDictionary<GenericTypeParameterSymbol, ICheckedType>? substitutions,
             SymbolTree symbolTree,
             GlobalScope globalScope)
         {
@@ -531,7 +564,11 @@ namespace Tyhp.TyhpLang.Checker
                 return false;
             }
 
-            var constraintType = resolveType(param.Constraint, state, false, true);
+            if (TryResolveBoundOnce(param, state, resolveType) is not { } constraintType)
+            {
+                // The bound is already being expanded further up the stack (`T extends Box<T>`).
+                return false;
+            }
 
             // Inspect the declared bound *before* sibling substitution. `ResolveGenericType`
             // rebuilds unions through `UnionTypesCore`, which collapses `void|mixed` /
@@ -545,8 +582,8 @@ namespace Tyhp.TyhpLang.Checker
 
             if (substitutions is { Count: > 0 } knownArgs)
             {
-                constraintType = TypeComparer.ResolveGenericType(
-                    constraintType, new Dictionary<string, ICheckedType>(knownArgs, StringComparer.Ordinal),
+                constraintType = TypeComparer.ResolveGenericTypeBySymbol(
+                    constraintType, new Dictionary<GenericTypeParameterSymbol, ICheckedType>(knownArgs),
                     symbolTree, globalScope);
                 return ConstraintAllowsVoidOrNever(constraintType, arg);
             }
@@ -687,7 +724,7 @@ namespace Tyhp.TyhpLang.Checker
             GlobalScope globalScope,
             DiagnosticBag diagnostics,
             Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType,
-            IReadOnlyDictionary<string, ICheckedType>? substitutions = null,
+            IReadOnlyDictionary<GenericTypeParameterSymbol, ICheckedType>? substitutions = null,
             IReadOnlyList<ParameterInfo>? calleeParameters = null)
         {
             if (param.Constraint is null)
@@ -769,7 +806,12 @@ namespace Tyhp.TyhpLang.Checker
                 }
             }
 
-            var constraintType = resolveType(param.Constraint, state, false, true);
+            if (TryResolveBoundOnce(param, state, resolveType) is not { } constraintType)
+            {
+                // The bound is already being expanded further up the stack: a self-referential or
+                // mutually recursive bound (`T extends Box<T>`) is checked by the outer expansion.
+                return;
+            }
 
             // A constraint mentioning an earlier sibling parameter (e.g. Story 21.6's
             // `TScope extends __ClosureScope<TThis>`) resolves that sibling as its own open
@@ -781,8 +823,8 @@ namespace Tyhp.TyhpLang.Checker
             // never satisfies its own still-open-`TThis` constraint.
             if (substitutions is { Count: > 0 } knownArgs)
             {
-                constraintType = TypeComparer.ResolveGenericType(
-                    constraintType, new Dictionary<string, ICheckedType>(knownArgs, StringComparer.Ordinal),
+                constraintType = TypeComparer.ResolveGenericTypeBySymbol(
+                    constraintType, new Dictionary<GenericTypeParameterSymbol, ICheckedType>(knownArgs),
                     symbolTree, globalScope);
             }
 
@@ -801,6 +843,15 @@ namespace Tyhp.TyhpLang.Checker
                 symbolTree,
                 globalScope,
                 (ast, alias) => resolveType(ast, CheckerHelpers.WithAliasBodyContext(state, alias), false, true));
+
+            // `T extends __Awaited<X>`: besides satisfying X, the argument must be its own awaited
+            // type — never a promise, `mixed`/`object`, or an open parameter that could hold one.
+            if (param.IsAwaitedBound && !UtilityTypeResolver.IsSettledType(arg))
+            {
+                Report(reportNode, state, diagnostics, MessageCode.CheckerAwaitedBoundNotSettled,
+                    arg.DisplayName, param.Name);
+                return;
+            }
 
             if (ConstraintAllowsVoidOrNever(constraintType, arg))
             {

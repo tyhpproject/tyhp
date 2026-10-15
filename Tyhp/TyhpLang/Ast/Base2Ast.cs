@@ -17,6 +17,14 @@ namespace Tyhp.TyhpLang.Ast {
         public IBaseSymbol? BoundSymbol { get; set; }
 
         /// <summary>
+        /// On a call's callee node: the declared signature of a source overload set that the
+        /// checker selected for the call, set only when it is not the emitted declaration
+        /// (<see cref="BoundSymbol"/> is the implementation). The emitter reads the argument-driven
+        /// parameter types from it. Not serialized — set by the checker each pass.
+        /// </summary>
+        public IBaseSymbol? SelectedOverload { get; set; }
+
+        /// <summary>
         /// The source file AST that owns this node. Set during binding.
         /// Not serialized — reconstructed each bind pass.
         /// </summary>

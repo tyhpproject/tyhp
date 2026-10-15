@@ -207,6 +207,70 @@ namespace Tyhp.XDebugProxy.Dbgp
             return buffer;
         }
 
+        private static byte[] ReadUntilNullBlocking(Stream stream, int maxBytes)
+        {
+            using var buffer = new MemoryStream();
+            var one = new byte[1];
+            while (true)
+            {
+                int read = stream.Read(one, 0, 1);
+                if (read == 0)
+                {
+                    throw new DbgpProtocolException("Unexpected end of stream while waiting for a NUL terminator.");
+                }
+
+                if (one[0] == DbgpConstants.NullByte)
+                {
+                    return buffer.ToArray();
+                }
+
+                buffer.WriteByte(one[0]);
+                if (buffer.Length > maxBytes)
+                {
+                    throw new DbgpProtocolException($"DBGp message exceeded the maximum size of {maxBytes} bytes.");
+                }
+            }
+        }
+
+        private static byte[] ReadExactBlocking(Stream stream, int count)
+        {
+            if (count == 0)
+            {
+                return [];
+            }
+
+            var buffer = new byte[count];
+            int offset = 0;
+            while (offset < count)
+            {
+                int read = stream.Read(buffer, offset, count - offset);
+                if (read == 0)
+                {
+                    throw new DbgpProtocolException(
+                        $"Unexpected end of stream while reading DBGp XML payload ({offset} of {count} bytes).");
+                }
+
+                offset += read;
+            }
+
+            return buffer;
+        }
+
+        private static void ReadTrailingNullBlocking(Stream stream)
+        {
+            var one = new byte[1];
+            int read = stream.Read(one, 0, 1);
+            if (read == 0)
+            {
+                throw new DbgpProtocolException("Unexpected end of stream while reading the trailing NUL.");
+            }
+
+            if (one[0] != DbgpConstants.NullByte)
+            {
+                throw new DbgpProtocolException("DBGp response XML was not followed by a NUL terminator.");
+            }
+        }
+
         private static async Task ReadTrailingNullAsync(Stream stream, CancellationToken cancellationToken)
         {
             var one = new byte[1];

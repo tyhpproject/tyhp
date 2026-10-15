@@ -15,7 +15,7 @@ namespace Tyhp.TyhpLang.Checker
     /// </summary>
     internal static class SymbolNameExistenceVerifier
     {
-        private static readonly DiagnosticBag SilentDiagnostics = new();
+        private static DiagnosticBag SilentDiagnostics => new();
 
         public static bool VerifyLiteral(
             string literalValue,

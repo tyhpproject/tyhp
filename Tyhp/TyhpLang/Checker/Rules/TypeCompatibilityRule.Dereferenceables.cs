@@ -11,11 +11,65 @@ namespace Tyhp.TyhpLang.Checker.Rules
 {
     public sealed partial class TypeCompatibilityRule
     {
-        private static void CheckBinaryOp(
+        /// <summary>
+        /// A plain <c>$var = expr</c>. The variable's tracked / narrowed type changes only after
+        /// <c>expr</c> has been checked, so <c>$b = $b-&gt;next()</c> reads <c>$b</c> under its
+        /// current narrowing.
+        /// </summary>
+        internal static bool IsDeferredVariableAssignment(PhpBinaryOpAst binary) =>
+            binary.Left is PhpVariableAst
+            && binary.Right is not null
+            && string.Equals(binary.Operator?.ValueString, "=", StringComparison.Ordinal);
+
+        /// <summary>
+        /// Checks a deferred variable assignment: validates the assignment, walks the right
+        /// operand, records the new variable type, and only then walks the left operand.
+        /// </summary>
+        private static void CheckDeferredVariableAssignment(
             PhpBinaryOpAst binary,
             CheckerState state,
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
+        {
+            var deferred = new DeferredAssignment();
+            CheckBinaryOp(binary, state, context, diagnostics, deferred);
+            var assignedType = deferred.Type;
+
+            foreach (var child in binary.AstChildren)
+            {
+                if (child is not null && !ReferenceEquals(child, binary.Left))
+                {
+                    context.CheckNode(child, state);
+                }
+            }
+
+            if (assignedType is not null
+                && binary.Left is PhpVariableAst variable
+                && CheckerHelpers.GetVariableName(variable) is { } name)
+            {
+                // Drop index/member-access narrowing keyed on this receiver — AssignVariable
+                // overwrites the variable's own NarrowedType, but structural maps are separate.
+                TypeNarrowingRule.ResetNarrowingOnAssignment(name, state);
+                state.AssignVariable(name, assignedType, diagnostics);
+            }
+
+            if (binary.Left is not null)
+            {
+                context.CheckNode(binary.Left, state);
+            }
+        }
+
+        private sealed class DeferredAssignment
+        {
+            public ICheckedType? Type { get; set; }
+        }
+
+        private static void CheckBinaryOp(
+            PhpBinaryOpAst binary,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics,
+            DeferredAssignment? deferred = null)
         {
             var op = binary.Operator?.ValueString ?? string.Empty;
 
@@ -235,7 +289,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 if (binary.Left is PhpVariableAst variable)
                 {
                     var name = CheckerHelpers.GetVariableName(variable);
-                    if (name is not null)
+                    if (name is not null && deferred is not null)
+                    {
+                        deferred.Type = sourceType;
+                    }
+                    else if (name is not null)
                     {
                         // Drop index/member-access narrowing keyed on this receiver — AssignVariable
                         // overwrites the variable's own NarrowedType, but structural maps are separate.
@@ -294,7 +352,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
         }
 
         private static bool IsMixedAllowedBinaryOperator(string op) =>
-            op is "==" or "!=" or "===" or "!==" or "<" or ">" or "<=" or ">=" or "<=>"
+            op is "==" or "!=" or "<>" or "===" or "!=="
                 or "??"
                 or "instanceof" or "is";
 
@@ -494,6 +552,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         diagnostics, state, newExpr, MessageCode.CheckerCannotInstantiateNonClass,
                         annotationType.DisplayName);
                 }
+                else
+                {
+                    ReportUnresolvedNewClassName(classRef, state, context, diagnostics);
+                }
 
                 return;
             }
@@ -535,6 +597,29 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
                     break;
             }
+        }
+
+        /// <summary>
+        /// <c>new Missing()</c> where no class, alias, or built-in named <c>Missing</c> is in scope
+        /// reports TYHP4197 at the class name, the same diagnostic a static call on that name gets.
+        /// Only a written class name is checked: <c>new $cls</c>, <c>new (expr)</c>, anonymous
+        /// classes, and the relative names <c>self</c> / <c>static</c> / <c>parent</c> are not.
+        /// </summary>
+        private static void ReportUnresolvedNewClassName(
+            IClassNameReference classRef,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (classRef is not PhpNameAst nameAst
+                || CheckerHelpers.IsRelativeClassKeyword(nameAst))
+            {
+                return;
+            }
+
+            var resolved = CheckerHelpers.ResolveInstanceofTargetType(
+                nameAst, state, context, context.SymbolTree, context.GlobalScope);
+            CheckerHelpers.ReportUnresolvedReceiver(diagnostics, state, nameAst, resolved);
         }
 
         /// <summary>
@@ -1087,7 +1172,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             if (string.Equals(op, "clone", StringComparison.OrdinalIgnoreCase))
             {
-                if (!IsObjectType(operandType))
+                // An anonymous `struct { … }` is a PHP array like a named struct; `clone` of it is
+                // a no-op copy, so it is accepted (a named struct passes via its declaration).
+                if (!IsObjectType(operandType) && operandType is not StructCheckedType)
                 {
                     CheckerHelpers.ReportError(
                         diagnostics, state, unary, MessageCode.CheckerCloneNonObject, operandType.DisplayName);
@@ -1104,6 +1191,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 CheckerHelpers.ReportMixedRequiresNarrowing(
                     diagnostics, state, unary.Operand, operandType);
+            }
+            else if (string.Equals(op, "print", StringComparison.OrdinalIgnoreCase)
+                && !CheckerHelpers.IsStringableType(operandType, context.SymbolTree, context.GlobalScope))
+            {
+                // `print` converts its operand to string exactly like `echo`.
+                CheckerHelpers.ReportError(
+                    diagnostics, state, unary, MessageCode.CheckerConcatNonStringable, operandType.DisplayName);
             }
 
             CheckObjectUnaryOperatorOverloadApplicability(unary, op, operandType, state, context, diagnostics);
@@ -1350,12 +1444,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // array literals like `[[1, 2], 3]` are not reported as illegal spread.
             // Parsed `[…]` / `array(…)` literals are this node (not `PhpArrayAst`), so
             // duplicate keys are checked here. Skip-slot trailing commas are not keys.
-            _ = context;
-            var seenKeys = new Dictionary<string, PhpArrayPairAst>(StringComparer.Ordinal);
-            foreach (var pair in pairList.GetAllExcludingSkippedSlots())
-            {
-                ReportDuplicateArrayKeyIfNeeded(pair, seenKeys, state, diagnostics);
-            }
+            CheckerHelpers.ReportDuplicateArrayKeys(
+                pairList.GetAllExcludingSkippedSlots(), state, diagnostics);
+
+            // `[...$m]` iterates `$m`: unnarrowed `mixed` must be narrowed first. The literal's
+            // pair list is checked here (not on the enclosing `PhpArrayAst`) so it is reported once.
+            CheckerHelpers.ReportMixedSpreadElements(
+                pairList.GetAllExcludingSkippedSlots(), state, context, diagnostics);
         }
 
         private static void ReportDuplicateArrayKeyIfNeeded(

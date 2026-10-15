@@ -109,6 +109,42 @@ public class ArrayLiteralInferenceTests
     }
 
     [Fact]
+    public void Check_ListLiteral_AssignableToIntKeyedArray()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(): void {
+                array<int, string> $flat = ['pipe', 'r'];
+                array<int, array<int, string>> $nested = [0 => ['pipe', 'r'], 1 => ['pipe', 'w']];
+                array<string, array<int, int>> $byName = ['a' => [1, 2]];
+                $xs = [1, 2, 3];
+                array<int, int> $typed = $xs;
+                array<int> $shorthand = $xs;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(
+            d => d.Code == MessageCode.CheckerTypeMismatch,
+            string.Join(", ", diagnostics.Errors.Select(e => $"{e.Code}: {e.Message}")));
+    }
+
+    [Fact]
+    public void Check_UnkeyedEntryNextToStringKey_KeepsIntKey()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(): void {
+                array<string, string> $bad = ['a', 'k' => 'b'];
+                array<int|string, string> $ok = ['a', 'k' => 'b'];
+            }
+            """);
+
+        diagnostics.Errors.Where(d => d.Code == MessageCode.CheckerTypeMismatch)
+            .Should().ContainSingle(string.Join(", ", diagnostics.Errors.Select(e => $"{e.Code}: {e.Message}")))
+            .Which.Line.Should().Be(3);
+    }
+
+    [Fact]
     public void Check_ListAssignedToWrongElementType_ReportsMismatch()
     {
         var diagnostics = CompileAndCheck("""

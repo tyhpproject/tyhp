@@ -135,6 +135,49 @@ public class CodeQualityMatchArmTests
         diagnostics.Warnings.Should().Contain(d => d.Code == MessageCode.CheckerUnreachableArm);
     }
 
+    [Fact]
+    public void Check_WhilePropertyClearedByCall_DoesNotWarnAlwaysTrue()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Loop {
+                public bool $running = false;
+
+                public function stop(): void {
+                    $this->running = false;
+                }
+
+                public function run(): void {
+                    $this->running = true;
+                    while ($this->running) {
+                        $this->stop();
+                    }
+                }
+            }
+            """);
+
+        diagnostics.Warnings.Should().NotContain(d => d.Code == MessageCode.CheckerConditionAlwaysTrueFalse);
+    }
+
+    [Fact]
+    public void Check_WhileTrue_StillWarnsWhenBodyCalls()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Loop {
+                public function stop(): void {}
+
+                public function run(): void {
+                    while (true) {
+                        $this->stop();
+                    }
+                }
+            }
+            """);
+
+        diagnostics.Warnings.Should().Contain(d => d.Code == MessageCode.CheckerConditionAlwaysTrueFalse);
+    }
+
     private static DiagnosticBag CompileAndCheck(string content)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));

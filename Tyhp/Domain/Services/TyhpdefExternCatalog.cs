@@ -167,7 +167,8 @@ namespace Tyhp.Domain.Services
         /// <summary>
         /// Builds a catalog from <paramref name="roots"/>, or from the resolved runtime
         /// packages root (<c>TYHP_RUNTIME_SRC</c>, then a sibling <c>tyhp-runtime-src/packages</c>)
-        /// when <paramref name="roots"/> is null.
+        /// when <paramref name="roots"/> is null; the default catalog indexes the <c>tyhpdef/</c>
+        /// subdirectory of that root.
         /// An empty list yields an empty catalog.
         /// </summary>
         public static TyhpdefExternCatalog Build(IReadOnlyList<string>? roots)
@@ -194,7 +195,11 @@ namespace Tyhp.Domain.Services
                     }
 
                     DefaultRoot = defaultRoot;
-                    DefaultCache = BuildFromRoots([defaultRoot]);
+
+                    // tyhpdef packages live under {packages}/tyhpdef; the compiled tyhp/* runtimes
+                    // beside them never wrap PHP packages, so they are not indexed.
+                    var tyhpdefRoot = Path.Combine(defaultRoot, "tyhpdef");
+                    DefaultCache = BuildFromRoots([Directory.Exists(tyhpdefRoot) ? tyhpdefRoot : defaultRoot]);
                     return DefaultCache;
                 }
             }

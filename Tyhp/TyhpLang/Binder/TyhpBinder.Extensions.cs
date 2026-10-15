@@ -483,12 +483,30 @@ namespace Tyhp.TyhpLang.Binder
                 }
             }
 
+            // A tyhpdef extension mapping (`fn name(...) => expr;`) is a thin implementation, so
+            // overloads are written as repeated same-named mappings, each with its own body.
+            // Later ones attach to the first as `Overloads` (most specific first).
+            var isMappingOverload = false;
             if (!block.LexicalScope.TryAddChildSymbol(methodSymbol, out var existing))
             {
-                ReportBinderDuplicate(methodDecl, existing, methodSymbol.Name);
-                return;
+                if (receiverAnchor is TyhpdefInlineExtensionFunctionAst
+                    && existing is ObjectMethodSymbol and not ObjectOperatorOverloadMethodSymbol)
+                {
+                    isMappingOverload = true;
+                    methodSymbol.ContainingScope = block.LexicalScope;
+                }
+                else
+                {
+                    ReportBinderDuplicate(methodDecl, existing, methodSymbol.Name);
+                    return;
+                }
             }
-            RegisterObjectMember(block.LexicalScope, methodSymbol, name);
+
+            if (!isMappingOverload)
+            {
+                RegisterObjectMember(block.LexicalScope, methodSymbol, name);
+            }
+
             PublishExtensionMethod(block.ExtensionSymbol, methodSymbol);
 
             var staticScope = new StaticMethodDeclarationScope(block.LexicalScope, methodSymbol);

@@ -110,9 +110,6 @@ public class ProjectConfigTests
                 ["build:sourcemapIncludeContent"] = "true",
                 ["build:updateComposer"] = "true",
                 ["build:structBacking"] = "array",
-                ["build:decimalBacking"] = "gmp",
-                ["build:decimalScale"] = "18",
-                ["build:decimalRounding"] = "halfEven",
                 ["build:allowEval"] = "true",
                 ["build:profile"] = "release",
                 ["build:optimize"] = "aggressive",
@@ -133,15 +130,143 @@ public class ProjectConfigTests
         project.Build.GenerateSourcemap.Should().BeTrue();
         project.Build.SourceMapIncludeContent.Should().BeTrue();
         project.Build.UpdateComposer.Should().BeTrue();
-        project.Build.DecimalBacking.Should().Be("gmp");
-        project.Build.DecimalScale.Should().Be(18);
-        project.Build.DecimalRounding.Should().Be("halfEven");
         project.Build.AllowEval.Should().BeTrue();
         project.Build.Profile.Should().Be("release");
         project.Build.Optimize.Should().Be("aggressive");
         project.Build.RuntimeGenericChecks.Should().BeTrue();
         project.Build.Psr4.Should().ContainKey("App\\").WhoseValue.Should().Be("src/");
         project.Build.Psr4Includes.Should().ContainSingle("extra/");
+    }
+
+    [Fact]
+    public void BuildConfig_DoesNotExposeDecimalOptions()
+    {
+        var properties = typeof(BuildConfig).GetProperties().Select(p => p.Name).ToList();
+
+        properties.Should().NotContain(["DecimalBacking", "DecimalScale", "DecimalRounding"]);
+        properties.Should().NotContain("StructBacking");
+    }
+
+    [Fact]
+    public void Project_StructBackingAbsent_NoWarning()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["build:allowEval"] = "true",
+            })
+            .Build();
+
+        var project = new Project(configuration);
+
+        var bag = new DiagnosticBag();
+        project.TransferPendingConfigWarningsTo(bag);
+        bag.Errors.Should().BeEmpty();
+        bag.Warnings.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("array")]
+    [InlineData("ARRAY")]
+    [InlineData("Array")]
+    public void Project_StructBackingArray_BuildsSilently(string value)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["build:structBacking"] = value,
+            })
+            .Build();
+
+        var project = new Project(configuration);
+
+        var bag = new DiagnosticBag();
+        project.TransferPendingConfigWarningsTo(bag);
+        bag.Errors.Should().BeEmpty();
+        bag.Warnings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Project_StructBackingClassName_WarnsOnceAndIsIgnored()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["build:structBacking"] = @"App\MyStructBacking",
+            })
+            .Build();
+
+        var project = new Project(configuration);
+
+        var bag = new DiagnosticBag();
+        project.TransferPendingConfigWarningsTo(bag);
+        bag.Errors.Should().BeEmpty();
+        bag.Warnings.Should().ContainSingle(d => d.Code == MessageCode.ConfigStructBackingIgnored)
+            .Which.Message.Should().Contain(@"App\MyStructBacking").And.Contain("always PHP arrays");
+    }
+
+    [Theory]
+    [InlineData("gmp", "18", "halfEven")]
+    [InlineData("not-a-backing", "not-a-number", "not-a-rounding")]
+    public void Project_IgnoresRemovedDecimalBuildKeysWithoutDiagnostics(
+        string backing,
+        string scale,
+        string rounding)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["build:decimalBacking"] = backing,
+                ["build:decimalScale"] = scale,
+                ["build:decimalRounding"] = rounding,
+                ["build:structBacking"] = "array",
+                ["build:allowEval"] = "true",
+            })
+            .Build();
+
+        var project = new Project(configuration);
+
+        project.Build.AllowEval.Should().BeTrue();
+
+        var bag = new DiagnosticBag();
+        project.TransferPendingConfigWarningsTo(bag);
+        bag.Errors.Should().BeEmpty();
+        bag.Warnings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Project_IgnoresRemovedDecimalBuildKeysInTyhpJson()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-config-test", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        File.WriteAllText(Path.Combine(tempDir, "tyhp.json"), """
+            {
+                "build": {
+                    "decimalBacking": "gmp",
+                    "decimalScale": 18,
+                    "decimalRounding": "halfEven",
+                    "structBacking": "array"
+                }
+            }
+            """);
+
+        try
+        {
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(tempDir)
+                .AddJsonFile("tyhp.json")
+                .Build();
+            var project = new Project(configuration);
+
+            var bag = new DiagnosticBag();
+            project.TransferPendingConfigWarningsTo(bag);
+            bag.Errors.Should().BeEmpty();
+            bag.Warnings.Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

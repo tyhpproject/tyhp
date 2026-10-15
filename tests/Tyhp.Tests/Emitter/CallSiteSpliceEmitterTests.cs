@@ -298,6 +298,192 @@ public class CallSiteSpliceEmitterTests
     }
 
     [Fact]
+    public void Tyhpdef_VariadicParameter_SplicesEachArgumentAsOwnArgument()
+    {
+        var php = CompileAndEmitWithTyhpdef(
+            """
+            <?tyhpdef
+            extension MutArray extends array {
+                fn push(&$this, mixed ...$values): int => \array_push($this, ...$values);
+                fn unshift(&$this, mixed ...$values): int => \array_unshift($this, ...$values);
+            }
+            extension IntOps extends int {
+                fn max(int ...$others): int => \max($this, ...$others);
+            }
+            extension StrOps extends string {
+                fn format(mixed ...$values): string => \sprintf($this, ...$values);
+            }
+            """,
+            """
+            <?tyhp
+            use extension MutArray;
+            use extension IntOps;
+            use extension StrOps;
+            function f(array $more): void {
+                array $a = [];
+                $a->push('one');
+                $a->push('x', 'y');
+                $a->push(...$more);
+                $a->push('x', ...$more);
+                $a->unshift('first', 'zero');
+                int $i = 3;
+                echo $i->max(5, 9);
+                string $s = '%s %s';
+                echo $s->format('x', 'y');
+            }
+            """);
+
+        php.Should().Contain(@"\array_push($a, 'one')");
+        php.Should().Contain(@"\array_push($a, 'x', 'y')");
+        php.Should().Contain(@"\array_push($a, ...$more)");
+        php.Should().Contain(@"\array_push($a, 'x', ...$more)");
+        php.Should().Contain(@"\array_unshift($a, 'first', 'zero')");
+        php.Should().Contain(@"\max($i, 5, 9)");
+        php.Should().Contain(@"\sprintf($s, 'x', 'y')");
+        php.Should().NotContain("...'");
+        php.Should().NotContain("...5");
+    }
+
+    [Fact]
+    public void Tyhpdef_LiteralArgumentsAndReceiver_SpliceWhenCalleeReadsReceiverSecond()
+    {
+        var php = CompileAndEmitWithTyhpdef(
+            """
+            <?tyhpdef
+            extension StrOps extends string {
+                fn split(string $pattern, int $limit = -1): array<int, string> => \preg_split($pattern, $this, $limit);
+            }
+            """,
+            """
+            <?tyhp
+            use extension StrOps;
+            function f(): void {
+                $a = 'a,b'->split('/,/');
+                $b = 'a,b'->split('/,/', -1);
+                $c = 'a,b'->split('/,/', 2);
+            }
+            """);
+
+        php.Should().Contain(@"\preg_split('/,/', 'a,b', -1)");
+        php.Should().Contain(@"\preg_split('/,/', 'a,b', 2)");
+        php.Should().NotContain("StrOps::");
+    }
+
+    [Fact]
+    public void Tyhpdef_RepeatedExtensionMapping_BindsAsOverloadsSelectedPerCall()
+    {
+        var php = CompileAndEmitWithTyhpdef(
+            """
+            <?tyhpdef
+            extension StrOps extends string {
+                fn pick(0 $flags = 0): int => \strlen($this);
+                fn pick(1 $flags): string => \strtoupper($this);
+                fn pick(int $flags = 0): int|string => \strtolower($this);
+            }
+            """,
+            """
+            <?tyhp
+            use extension StrOps;
+            function f(string $s, int $n): void {
+                $zero = $s->pick();
+                $one = $s->pick(1);
+                $any = $s->pick($n);
+            }
+            """);
+
+        php.Should().Contain(@"$zero = \strlen($s)");
+        php.Should().Contain(@"$one = \strtoupper($s)");
+        php.Should().Contain(@"$any = \strtolower($s)");
+    }
+
+    [Fact]
+    public void Tyhpdef_VariadicParameterWithNoArguments_SplicesNothing()
+    {
+        var php = CompileAndEmitWithTyhpdef(
+            """
+            <?tyhpdef
+            extension IntOps extends int {
+                fn max(int ...$others): int => \max($this, ...$others);
+            }
+            """,
+            """
+            <?tyhp
+            use extension IntOps;
+            function f(int $i): int {
+                return $i->max();
+            }
+            """);
+
+        php.Should().Contain(@"\max($i)");
+        php.Should().NotContain("...");
+    }
+
+    [Fact]
+    public void Tyhpdef_ErasedGenericExtensionWithClosure_Splices()
+    {
+        var php = CompileAndEmitWithTyhpdef(
+            """
+            <?tyhpdef
+            extension Arrays<TKey extends int|string, TValue> extends array<TKey, TValue> {
+                #[\Tyhp\GenericRuntime(erased: true, layouts: [1], compiler: "805.1.0.0")]
+                fn mapped<TResult>(callable(TValue): TResult $callback): array<TKey, TResult> => \array_map($callback, $this);
+                #[\Tyhp\GenericRuntime(erased: true, layouts: [1], compiler: "805.1.0.0")]
+                fn reduce<TResult>(callable(TResult, TValue): TResult $callback, TResult $initial): TResult => \array_reduce($this, $callback, $initial);
+            }
+            """,
+            """
+            <?tyhp
+            use extension Arrays;
+            function nums(): array<int, int> {
+                return [1, 2, 3];
+            }
+            function f(array<int, int> $a): void {
+                $doubled = $a->mapped(fn(int $x): int => $x * 2);
+                $sum = $a->reduce(fn(int $c, int $x): int => $c + $x, 0);
+                $fromCall = nums()->mapped(fn(int $x): int => $x + 1);
+                $sumFromCall = nums()->reduce(fn(int $c, int $x): int => $c + $x, 0);
+            }
+            """);
+
+        php.Should().Contain(@"\array_map(fn(int $x): int => $x * 2, $a)");
+        php.Should().Contain(@"\array_reduce($a, fn(int $c, int $x): int => $c + $x, 0)");
+        php.Should().Contain(@"\array_map(fn(int $x): int => $x + 1, nums())");
+        php.Should().Contain(@"\array_reduce(nums(), fn(int $c, int $x): int => $c + $x, 0)");
+        php.Should().NotContain("ArrayExtensions::");
+        php.Should().NotContain("->mapped(");
+        php.Should().NotContain("->reduce(");
+    }
+
+    [Fact]
+    public void Tyhpdef_ExtensionBackerInNamespace_IsRootAnchoredInsideConsumerNamespace()
+    {
+        var php = CompileAndEmitWithTyhpdef(
+            """
+            <?tyhpdef
+            namespace Lib {
+                class StringExtensions as StringExtensions__tyhpExtensionBacker {
+                    public static function shout(string $this_, int $times = 1): string;
+                }
+                extension StringExtensions extends string {
+                    fn shout(int $times = 1): string => StringExtensions__tyhpExtensionBacker::shout($this, $times);
+                }
+            }
+            """,
+            """
+            <?tyhp
+            namespace App;
+            use extension \Lib\StringExtensions;
+            function f(string $s): string {
+                return $s->shout(2);
+            }
+            """);
+
+        php.Should().Contain(@"\Lib\StringExtensions::shout($s, 2)");
+        php.Should().NotContain(@"App\Lib");
+        php.Should().NotContain("__tyhpExtensionBacker");
+    }
+
+    [Fact]
     public void Emit_SelfKeyword_RewritesToBlockTarget()
     {
         // Block-target `self` emits as the target type's PHP spelling. On

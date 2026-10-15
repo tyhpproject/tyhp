@@ -18,6 +18,38 @@ public class TyhpdefOutputWriterTests
     }
 
     [Fact]
+    public void Write_AsyncMethodWithAsyncModifier_WritesAsyncOnce()
+    {
+        var file = new TyhpdefFile
+        {
+            GlobalTypes =
+            [
+                new TyhpdefClassDeclaration
+                {
+                    Kind = "class",
+                    Name = "Client",
+                    Methods =
+                    [
+                        new TyhpdefMethod
+                        {
+                            Name = "fetch",
+                            Modifiers = ["public", "static", "async"],
+                            IsAsync = true,
+                            ReturnType = "string",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        var output = TyhpdefOutputWriter.Write(file);
+
+        output.Should().Contain("async public static function fetch(): string;");
+        output.Should().NotContain("static async function");
+        AssertParses(output);
+    }
+
+    [Fact]
     public void Write_FormatsConstantsFunctionsAndTypes()
     {
         var file = new TyhpdefFile
@@ -140,7 +172,7 @@ public class TyhpdefOutputWriterTests
     }
 
     [Fact]
-    public void Write_UnsafeParameterDefault_KeepsOptionalWithNullDummy()
+    public void Write_UnsafeParameterDefault_KeepsOptionalWithNullDummy_AndKeepsConstantDefault()
     {
         var file = new TyhpdefFile
         {
@@ -164,10 +196,41 @@ public class TyhpdefOutputWriterTests
         var output = TyhpdefOutputWriter.Write(file);
 
         output.Should().Contain(
-            "function concat(mixed $required, string $suffix = null, string $body = null, mixed $stream = null): void;");
+            "function concat(mixed $required, string $suffix = null, string $body = null, mixed $stream = \\STDIN): void;");
         output.Should().NotContain("'a'.'b'");
         output.Should().NotContain("<<<");
-        output.Should().NotContain("\\STDIN");
+        AssertParses(output);
+    }
+
+    [Fact]
+    public void Write_FlagCombinationDefault_IsKept()
+    {
+        var file = new TyhpdefFile
+        {
+            GlobalFunctions =
+            [
+                new TyhpdefFunction
+                {
+                    Name = "enc",
+                    Parameters =
+                    [
+                        new TyhpdefParameter
+                        {
+                            Name = "flags",
+                            Type = "int",
+                            DefaultValue = "\\ENT_QUOTES | \\ENT_SUBSTITUTE | \\ENT_HTML401",
+                        },
+                        new TyhpdefParameter { Name = "bad", Type = "string", DefaultValue = "'a' | 'b'" },
+                    ],
+                    ReturnType = "void",
+                },
+            ],
+        };
+
+        var output = TyhpdefOutputWriter.Write(file);
+
+        output.Should().Contain(
+            "function enc(int $flags = \\ENT_QUOTES | \\ENT_SUBSTITUTE | \\ENT_HTML401, string $bad = null): void;");
         AssertParses(output);
     }
 

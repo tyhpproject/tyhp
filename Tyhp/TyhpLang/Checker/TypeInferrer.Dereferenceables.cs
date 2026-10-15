@@ -1,3 +1,5 @@
+using Tyhp.Domain.Diagnostics;
+using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder;
@@ -67,7 +69,7 @@ namespace Tyhp.TyhpLang.Checker
             // callable itself, not an invocation. Type it as the callee's signature.
             if (IsFirstClassCallableSyntax(call))
             {
-                return InferFirstClassCallable(current, baseNode, state);
+                return InferFirstClassCallable(current, baseNode, call, state);
             }
 
             if (baseNode is PhpNameAst nameAst)
@@ -99,10 +101,13 @@ namespace Tyhp.TyhpLang.Checker
                                     ? inferred
                                     : null;
                             },
+                            ResolveCallSiteType = typeAst => ResolveTypeExpression(typeAst, state),
                         });
                     // DeprecationRule reads BoundSymbol on the callee name; point it at the
                     // selected overload so `deprecated function f(bool)` warns only that call.
-                    nameAst.BoundSymbol = selected;
+                    // A `.tyhp` overload signature is erased, so those calls point at the declaration.
+                    nameAst.BoundSymbol = selected.EmittedSymbol;
+                    nameAst.SelectedOverload = selected.OverloadOwner is null ? null : selected;
                     return ResolveFunctionReturnType(selected, state, baseNode, call);
                 }
 
@@ -325,6 +330,20 @@ namespace Tyhp.TyhpLang.Checker
 
             CallableCheckedType facet;
             if (facets.Count > 1
+                && call is not null
+                && CallableOverloadSet.IsOverloadSet(facetSource)
+                && CallableOverloadSet.Select(
+                    facetSource,
+                    call.Arguments,
+                    state,
+                    _symbolTree,
+                    _globalScope,
+                    expr => InferExpressionType(expr, state)) is { } overloadFacet)
+            {
+                // Overload-set value: the first declared signature that accepts the arguments.
+                facet = overloadFacet;
+            }
+            else if (facets.Count > 1
                 && CallableArityFacetBuilder.TrySelectCallableFacet(
                     facetSource,
                     CallableArityFacetBuilder.CountPositionalArguments(call?.Arguments),
@@ -496,7 +515,9 @@ namespace Tyhp.TyhpLang.Checker
             PhpCallAst call,
             CheckerState state)
         {
-            if (!HasCallSiteTypeArguments(baseNode))
+            if (!HasCallSiteTypeArguments(baseNode)
+                && !HasAsyncInlineFunctionArgument(call)
+                && !StampAsyncClosureVariableArguments(call, state))
             {
                 return;
             }
@@ -535,12 +556,267 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
+        /// True when an argument is an <c>async</c> closure or arrow function literal. Such a call is
+        /// recorded even without explicit type arguments: an async closure is emitted as a PHP
+        /// closure returning <c>\Tyhp\Promise</c>, so the emitter must bind a generic parameter
+        /// inferred from its result (<c>callable(): T</c>) at the call site instead of leaving the
+        /// declared-name wrapper to read <c>Promise</c> back from the closure's PHP return type.
+        /// </summary>
+        private static bool HasAsyncInlineFunctionArgument(PhpCallAst call) =>
+            call.Arguments?.GetAllNotNull().Any(argument =>
+                argument.Expression is PhpInlineFunctionAst inline
+                && Rules.ClosureRule.IsAsyncClosure(inline)) == true;
+
+        /// <summary>
+        /// Stamps arguments that are variables holding an <c>async</c> closure and returns
+        /// whether any were stamped. The call is then recorded so the emitter can bind
+        /// <c>T</c> from the closure's declared return type.
+        /// </summary>
+        private static bool StampAsyncClosureVariableArguments(PhpCallAst call, CheckerState state)
+        {
+            if (call.Arguments is null)
+            {
+                return false;
+            }
+
+            var stamped = false;
+            foreach (var argument in call.Arguments.GetAllNotNull())
+            {
+                if (argument.Expression is not PhpVariableAst variable)
+                {
+                    continue;
+                }
+
+                var name = Rules.CheckerHelpers.GetVariableName(variable);
+                if (name is null)
+                {
+                    continue;
+                }
+
+                var binding = state.LookupVariable(name);
+                if (binding is not { HoldsAsyncClosure: true })
+                {
+                    continue;
+                }
+
+                AsyncClosureArgumentFacts.Remember(argument.Expression, binding.AsyncClosureReturn);
+                stamped = true;
+            }
+
+            return stamped;
+        }
+
+        /// <summary>
         /// True when the callee name carries a generic type-argument list. They hang off the name, not
         /// the argument list: a free function under the <c>identifier</c> addon, a <c>::</c>/<c>-&gt;</c>
         /// member under <c>memberName</c>.
         /// </summary>
         private static bool HasCallSiteTypeArguments(IDereferenceableBase? baseNode) =>
             TryGetCallSiteTypeArgumentList(baseNode) is not null;
+
+        /// <summary>
+        /// True when the call wrote a type argument for every generic parameter of the callee, so
+        /// argument-driven inference has nothing left to fill. A shorter list (explicit leading
+        /// arguments only) leaves the trailing parameters to inference and then to their defaults.
+        /// </summary>
+        private static bool HasCompleteCallSiteTypeArguments(
+            IDereferenceableBase? baseNode,
+            int calleeGenericCount) =>
+            TryGetCallSiteTypeArgumentList(baseNode) is { } list
+            && list.GetAllNotNull().Count() >= calleeGenericCount;
+
+        /// <summary>
+        /// For a call that wrote only leading type arguments (<c>each&lt;string, int&gt;(…)</c>),
+        /// fills the remaining generic parameters: bindings found by argument inference win, and a
+        /// parameter that stays unbound takes its declared default
+        /// (<c>TKey extends int|string = int|string</c>).
+        /// </summary>
+        private ICheckedType CompletePartialCallSiteGenerics(
+            ICheckedType resolved,
+            IReadOnlyList<GenericTypeParameterSymbol> calleeGenerics,
+            IDereferenceableBase? callBase,
+            IReadOnlyDictionary<GenericTypeParameterSymbol, ICheckedType>? inferred,
+            CheckerState state)
+        {
+            if (TryGetCallSiteTypeArgumentList(callBase) is not { } list)
+            {
+                return resolved;
+            }
+
+            var explicitCount = list.GetAllNotNull().Count();
+            if (explicitCount == 0 || explicitCount >= calleeGenerics.Count)
+            {
+                return resolved;
+            }
+
+            var bindings = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
+            var defaultState = state.Fork();
+            defaultState.FunctionGenerics = calleeGenerics;
+            for (var i = explicitCount; i < calleeGenerics.Count; i++)
+            {
+                var parameter = calleeGenerics[i];
+                if (inferred is not null && inferred.ContainsKey(parameter))
+                {
+                    continue;
+                }
+
+                if (parameter.DefaultType is null)
+                {
+                    continue;
+                }
+
+                var defaultType = ResolveTypeExpression(parameter.DefaultType, defaultState);
+                if (!TypeComparer.IsUnresolvedType(defaultType))
+                {
+                    bindings[parameter] = defaultType;
+                }
+            }
+
+            return bindings.Count == 0
+                ? resolved
+                : TypeComparer.ResolveGenericTypeBySymbol(resolved, bindings, _symbolTree, _globalScope);
+        }
+
+        /// <summary>
+        /// Fills a type parameter that arguments did not bind: the expected type of this
+        /// call (a declaration, argument, or return), then the parameter's declared default.
+        /// A parameter that is still present in the result is TYHP4377.
+        /// </summary>
+        private ICheckedType FinishUnboundCallGenerics(
+            ICheckedType resolved,
+            IReadOnlyList<GenericTypeParameterSymbol> calleeGenerics,
+            PhpCallAst? call,
+            CheckerState state,
+            string calleeName)
+        {
+            if (calleeGenerics.Count == 0 || call is null)
+            {
+                return resolved;
+            }
+
+            if (ContextualNewInference.IsUsableExpectedType(state.ExpectedExpressionType)
+                && CallableGenericInference.ContainsUnboundGeneric(resolved)
+                && SameGenericDeclaration(resolved, state.ExpectedExpressionType!))
+            {
+                var fromExpected = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
+                CallableGenericInference.CollectGenericBindings(
+                    resolved, state.ExpectedExpressionType!, fromExpected);
+                var accepted = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
+                foreach (var pair in fromExpected)
+                {
+                    if (calleeGenerics.Any(parameter => ReferenceEquals(parameter, pair.Key))
+                        && TypeMentionsParameter(resolved, pair.Key))
+                    {
+                        accepted[pair.Key] = pair.Value;
+                    }
+                }
+
+                if (accepted.Count > 0)
+                {
+                    resolved = TypeComparer.ResolveGenericTypeBySymbol(
+                        resolved, accepted, _symbolTree, _globalScope);
+                }
+            }
+
+            var defaults = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
+            var defaultState = state.Fork();
+            defaultState.FunctionGenerics = calleeGenerics;
+            foreach (var parameter in calleeGenerics)
+            {
+                if (parameter.DefaultType is null || !TypeMentionsParameter(resolved, parameter))
+                {
+                    continue;
+                }
+
+                var defaultType = ResolveTypeExpression(parameter.DefaultType, defaultState);
+                if (!TypeComparer.IsUnresolvedType(defaultType))
+                {
+                    defaults[parameter] = defaultType;
+                }
+            }
+
+            if (defaults.Count > 0)
+            {
+                resolved = TypeComparer.ResolveGenericTypeBySymbol(
+                    resolved, defaults, _symbolTree, _globalScope);
+            }
+
+            if (ContextualNewInference.IsUsableExpectedType(state.ExpectedExpressionType)
+                || !_reportedMissingGenerics.Add(call))
+            {
+                return resolved;
+            }
+
+            foreach (var parameter in calleeGenerics)
+            {
+                if (!TypeMentionsParameter(resolved, parameter))
+                {
+                    continue;
+                }
+
+                _diagnostics.AddErrorFromAst(
+                    MessageCode.CheckerCannotInferTypeArgument,
+                    call,
+                    Rules.CheckerHelpers.ResolveDiagnosticFileName(state, call),
+                    parameter.Name,
+                    calleeName);
+            }
+
+            return resolved;
+        }
+
+        private static bool SameGenericDeclaration(ICheckedType result, ICheckedType expected)
+        {
+            result = UnwrapForExpectedGeneric(result);
+            expected = UnwrapForExpectedGeneric(expected);
+            if (result is not GenericCheckedType resultGeneric
+                || expected is not GenericCheckedType expectedGeneric)
+            {
+                return false;
+            }
+
+            var resultSymbol = resultGeneric.BaseType is SimpleCheckedType resultSimple
+                ? resultSimple.ResolvedSymbol
+                : null;
+            var expectedSymbol = expectedGeneric.BaseType is SimpleCheckedType expectedSimple
+                ? expectedSimple.ResolvedSymbol
+                : null;
+            return resultSymbol is not null && ReferenceEquals(resultSymbol, expectedSymbol);
+        }
+
+        private static ICheckedType UnwrapForExpectedGeneric(ICheckedType type)
+        {
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            return type;
+        }
+
+        private static bool TypeMentionsParameter(ICheckedType type, GenericTypeParameterSymbol parameter)
+        {
+            switch (type)
+            {
+                case SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol mentioned }:
+                    return ReferenceEquals(mentioned, parameter);
+                case NullableCheckedType nullable:
+                    return TypeMentionsParameter(nullable.InnerType, parameter);
+                case GenericCheckedType generic:
+                    return TypeMentionsParameter(generic.BaseType, parameter)
+                        || generic.TypeArguments.Any(argument => TypeMentionsParameter(argument, parameter));
+                case UnionCheckedType union:
+                    return union.Members.Any(member => TypeMentionsParameter(member, parameter));
+                case IntersectionCheckedType intersection:
+                    return intersection.Members.Any(member => TypeMentionsParameter(member, parameter));
+                case CallableCheckedType callable:
+                    return TypeMentionsParameter(callable.ReturnType, parameter)
+                        || callable.ParameterTypes.Any(parameterType =>
+                            TypeMentionsParameter(parameterType, parameter));
+                default:
+                    return false;
+            }
+        }
 
         private ICheckedType InferInstanceMember(
             ICheckedType current,
@@ -1030,16 +1306,24 @@ namespace Tyhp.TyhpLang.Checker
             // Minimal argument-driven inference when the call omitted explicit type arguments
             // (Story 11 audit #4). Covers `max(1, $n): T`, `array_reverse($xs): array<…>`,
             // `str_replace(..., $s): TSubject` so return types are not left as unbound params.
+            Dictionary<GenericTypeParameterSymbol, ICheckedType>? inferred = null;
             if (function.GenericParameters.Count > 0
                 && call is not null
-                && !HasCallSiteTypeArguments(callBase)
+                && !HasCompleteCallSiteTypeArguments(callBase, function.GenericParameters.Count)
                 && TryInferGenericBindings(
-                    function.GenericParameters, function.Parameters, call, state, out var inferred)
-                && inferred.Count > 0)
+                    function.GenericParameters, function.Parameters, call, state, out var inferredBindings)
+                && inferredBindings.Count > 0)
             {
+                inferred = inferredBindings;
                 resolved = TypeComparer.ResolveGenericTypeBySymbol(
                     resolved, inferred, _symbolTree, _globalScope);
             }
+
+            resolved = CompletePartialCallSiteGenerics(
+                resolved, function.GenericParameters, callBase, inferred, state);
+
+            resolved = FinishUnboundCallGenerics(
+                resolved, function.GenericParameters, call, state, function.Name);
 
             return WrapIfAsyncCall(resolved, function.IsAsync);
         }
@@ -1107,7 +1391,7 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             var argumentParameters = parameters;
-            if (method is not null)
+            if (method is not null && parameters.Count > 0)
             {
                 argumentParameters = Rules.CheckerHelpers.ExcludeExtensionReceiver(parameters, method);
                 var declaredType = parameters[0].DeclaredType;
@@ -1116,8 +1400,26 @@ namespace Tyhp.TyhpLang.Checker
                     && declaredType is not null)
                 {
                     var receiverDeclared = ResolveTypeExpression(declaredType, resolveState);
-                    CallableGenericInference.CollectGenericBindings(
-                        receiverDeclared, receiverType, bindings);
+                    // A block target (`extends<TRight> Pair<string, TRight>`) binds only when
+                    // the whole target matches. CollectGenericBindings would still bind TRight
+                    // from the second argument after `string` failed to match `int`.
+                    if (blockGenerics is { Count: > 0 })
+                    {
+                        var owned = new HashSet<GenericTypeParameterSymbol>(blockGenerics);
+                        var strict = new Dictionary<GenericTypeParameterSymbol, ICheckedType>();
+                        if (TryMatchBlockTarget(receiverDeclared, receiverType, owned, strict))
+                        {
+                            foreach (var pair in strict)
+                            {
+                                bindings[pair.Key] = pair.Value;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        CallableGenericInference.CollectGenericBindings(
+                            receiverDeclared, receiverType, bindings);
+                    }
                 }
             }
 
@@ -1189,7 +1491,23 @@ namespace Tyhp.TyhpLang.Checker
                         functionGenerics: inferenceParameters)
                     : ResolveTypeExpression(param.DeclaredType, resolveState);
 
+                // An `fn` passed to `Expression<callable(T): R>` binds like a plain
+                // `callable(T): R` parameter: the tree is built from the same closure.
+                if (arg.Expression is PhpInlineFunctionAst
+                    && ExpressionTreeSupport.TryMapToCallable(declared, out var expressionCallable))
+                {
+                    declared = expressionCallable;
+                }
+
                 var actual = InferExpressionType(arg.Expression, state);
+
+                // An arrow `fn` without a return annotation binds the callable's open return
+                // generic (`R`) from the type of its body expression.
+                if (arg.Expression is PhpInlineFunctionAst inlineArrow
+                    && TryInferArrowCallableForOpenReturn(inlineArrow, declared, state) is { } arrowCallable)
+                {
+                    actual = arrowCallable;
+                }
 
                 // A bare, direct occurrence of a type parameter (not wrapped in Rest/Pack/Slice)
                 // is the single most authoritative source for that parameter's real type — it
@@ -1205,19 +1523,78 @@ namespace Tyhp.TyhpLang.Checker
                     sliceSynthesized.Remove(bareParam);
                 }
 
-                if (bindings.Count > 0)
+                if (bindings.Count > 0 && !param.IsVariadic)
                 {
                     declared = TypeComparer.ResolveGenericTypeBySymbol(
                         declared, bindings, _symbolTree, _globalScope);
                 }
 
-                CallableGenericInference.CollectGenericBindings(declared, actual, bindings);
+                CallableGenericInference.CollectGenericBindings(
+                    declared, actual, bindings, BuildAncestorProjection(state),
+                    mergeTypeArguments: param.IsVariadic);
             }
 
             InferSiblingReturnFromHomogeneousBound(genericParameters, bindings, resolveState);
             UnifySynthesizedCallableReturns(bindings, call, state, resolveState);
             ClosureBindSupport.UnwrapLateStaticBindBindings(method, bindings);
             return bindings.Count > 0;
+        }
+
+        /// <summary>
+        /// For an arrow <c>fn</c> with no return annotation passed to a <c>callable(…): R</c> whose
+        /// return still mentions an open generic, builds the callable the closure actually has: its
+        /// parameters (annotated, else taken from the declared callable) and the type of its body
+        /// expression as the return type. Null when the closure is not such an arrow function or its
+        /// body type is not known.
+        /// </summary>
+        private CallableCheckedType? TryInferArrowCallableForOpenReturn(
+            PhpInlineFunctionAst closure,
+            ICheckedType declared,
+            CheckerState state)
+        {
+            if (closure.ReturnType is not null
+                || !closure.IsArrowFunction
+                || !PropertyPathSupport.TryGetArrowBodyExpression(closure, out var body))
+            {
+                return null;
+            }
+
+            var parameters = closure.Parameters?.GetAllNotNull().ToList() ?? [];
+            if (!CallableArityFacetBuilder.TrySelectCallableFacetForClosure(
+                    declared, parameters.Count, out var expectedFacet)
+                || expectedFacet is null
+                || !CallableGenericInference.ContainsUnboundGeneric(expectedFacet.ReturnType))
+            {
+                return null;
+            }
+
+            var bodyState = state.Fork();
+            var paramTypes = new List<ICheckedType>(parameters.Count);
+            for (var i = 0; i < parameters.Count; i++)
+            {
+                var param = parameters[i];
+                var paramType = param.Type is not null
+                    ? ResolveTypeExpression(param.Type, state)
+                    : i < expectedFacet.ParameterTypes.Count
+                        ? expectedFacet.ParameterTypes[i]
+                        : CheckedTypes.Unresolved;
+                paramTypes.Add(paramType);
+
+                var variable = new VariableSymbol(param.Name) { IsParameter = true, IsRef = param.IsRef };
+                var variableType = param.IsVariadic
+                    ? CallableSignatureReflection.VariadicParameterStorageType(paramType)
+                    : paramType;
+                bodyState.Variables[param.Name.TrimStart('$')] =
+                    VariableState.ForParameter(variable, variableType, param.IsRef);
+            }
+
+            var bodyType = InferExpressionType(body, bodyState);
+            if (TypeComparer.IsUnresolvedType(bodyType) || bodyType.IsMixed)
+            {
+                return null;
+            }
+
+            return new CallableCheckedType(paramTypes, bodyType);
         }
 
         /// <summary>
@@ -1518,6 +1895,7 @@ namespace Tyhp.TyhpLang.Checker
                             && inferred.Count > 0
                             ? inferred
                             : null,
+                    ResolveCallSiteType = typeAst => ResolveTypeExpression(typeAst, state),
                 });
         }
 
@@ -1670,16 +2048,24 @@ namespace Tyhp.TyhpLang.Checker
 
             // Argument-driven inference when the call omitted explicit type arguments (parity with
             // free functions — CHECKER_GAPS P1 #14 / Story 11 §4 residual).
+            Dictionary<GenericTypeParameterSymbol, ICheckedType>? inferred = null;
             if (call is not null
-                && !HasCallSiteTypeArguments(callBase)
+                && !HasCompleteCallSiteTypeArguments(callBase, method.GenericParameters.Count)
                 && TryInferGenericBindings(
-                    method.GenericParameters, method.Parameters, call, state, out var inferred,
+                    method.GenericParameters, method.Parameters, call, state, out var inferredBindings,
                     receiverType, method)
-                && inferred.Count > 0)
+                && inferredBindings.Count > 0)
             {
+                inferred = inferredBindings;
                 resolved = TypeComparer.ResolveGenericTypeBySymbol(
                     resolved, inferred, _symbolTree, _globalScope);
             }
+
+            resolved = CompletePartialCallSiteGenerics(
+                resolved, method.GenericParameters, callBase, inferred, state);
+
+            resolved = FinishUnboundCallGenerics(
+                resolved, method.GenericParameters, call, state, method.Name);
 
             if (ClosureProducerInference.IsFromCallableMethod(method)
                 && call is not null
@@ -1932,12 +2318,17 @@ namespace Tyhp.TyhpLang.Checker
             IDereferenceableBase? callBase = null)
         {
             var resolveState = callerState;
-            if (function.GenericParameters.Count > 0)
+            if (function.GenericParameters.Count > 0
+                || callerState.FunctionGenerics.Count > 0
+                || callerState.ObjectGenerics.Count > 0)
             {
                 // Fork (mutable): callee params are often tyhpdef annotations resolved via a
                 // nested SnapShot for declaring-file scope (see ResolveTypeExpression).
+                // The callee's annotation sees only the callee's own type parameters: the caller's
+                // generics must not shadow a same-named class or type by name.
                 resolveState = callerState.Fork();
                 resolveState.FunctionGenerics = function.GenericParameters;
+                resolveState.ObjectGenerics = [];
             }
 
             var resolved = ResolveTypeExpression(declaredType, resolveState, isReturnTypePosition: false);
@@ -2000,9 +2391,14 @@ namespace Tyhp.TyhpLang.Checker
                     {
                         resolveState.ObjectGenerics = scopeOwner.GenericParameters;
                     }
-                }
 
-                if (needsFunctionGenerics)
+                    // The member is resolved in its own declaration's type-parameter scope. The
+                    // access site's function-level parameters are not part of it: a caller's `T`
+                    // would otherwise shadow the class's `T` by name and the receiver substitution
+                    // (by symbol) would never find it.
+                    resolveState.FunctionGenerics = needsFunctionGenerics ? functionGenerics! : [];
+                }
+                else if (needsFunctionGenerics)
                 {
                     resolveState.FunctionGenerics = functionGenerics!;
                 }
@@ -2213,7 +2609,7 @@ namespace Tyhp.TyhpLang.Checker
                     : patternGeneric.TypeArguments.Count;
                 for (var i = 0; i < limit; i++)
                 {
-                    if (!TryMatchBlockTarget(
+                    if (!MatchBlockTargetArgument(
                             patternGeneric.TypeArguments[i],
                             actualGeneric.TypeArguments[i],
                             ownedParameters,
@@ -2250,6 +2646,63 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             return SameCheckedType(pattern, actual);
+        }
+
+        /// <summary>
+        /// A concrete pattern argument must equal the receiver argument
+        /// (<c>Pair&lt;string, TRight&gt;</c> rejects <c>Pair&lt;int, int&gt;</c>).
+        /// A pattern that still contains one of the block's type parameters
+        /// (a callable shape, <c>__CallableReturnType&lt;T&gt;</c>) is bound with
+        /// ordinary generic inference so <c>Closure::compose</c> still fills
+        /// <c>TThisReturn</c>.
+        /// </summary>
+        private static bool MatchBlockTargetArgument(
+            ICheckedType pattern,
+            ICheckedType actual,
+            HashSet<GenericTypeParameterSymbol> ownedParameters,
+            Dictionary<GenericTypeParameterSymbol, ICheckedType> bindings)
+        {
+            if (pattern is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol param }
+                && ownedParameters.Contains(param))
+            {
+                return TryMatchBlockTarget(pattern, actual, ownedParameters, bindings);
+            }
+
+            if (ContainsOwnedParameter(pattern, ownedParameters))
+            {
+                CallableGenericInference.CollectGenericBindings(pattern, actual, bindings);
+                return true;
+            }
+
+            return SameCheckedType(pattern, actual);
+        }
+
+        private static bool ContainsOwnedParameter(
+            ICheckedType type,
+            HashSet<GenericTypeParameterSymbol> ownedParameters)
+        {
+            switch (type)
+            {
+                case SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol param }:
+                    return ownedParameters.Contains(param);
+                case NullableCheckedType nullable:
+                    return ContainsOwnedParameter(nullable.InnerType, ownedParameters);
+                case GenericCheckedType generic:
+                    return ContainsOwnedParameter(generic.BaseType, ownedParameters)
+                        || generic.TypeArguments.Any(argument =>
+                            ContainsOwnedParameter(argument, ownedParameters));
+                case UnionCheckedType union:
+                    return union.Members.Any(member => ContainsOwnedParameter(member, ownedParameters));
+                case IntersectionCheckedType intersection:
+                    return intersection.Members.Any(member =>
+                        ContainsOwnedParameter(member, ownedParameters));
+                case CallableCheckedType callable:
+                    return ContainsOwnedParameter(callable.ReturnType, ownedParameters)
+                        || callable.ParameterTypes.Any(parameterType =>
+                            ContainsOwnedParameter(parameterType, ownedParameters));
+                default:
+                    return false;
+            }
         }
 
         private static bool SameCheckedType(ICheckedType left, ICheckedType right)
@@ -2439,6 +2892,18 @@ namespace Tyhp.TyhpLang.Checker
         /// ancestor's — to a concrete type argument, keyed by parameter symbol so that same-named
         /// parameters at different levels stay distinct. See FOUND_BUGS.md item 11.
         /// </summary>
+        private CallableGenericInference.AncestorProjection BuildAncestorProjection(CheckerState state) =>
+            (actual, target) => GenericInheritanceBindings.TryGetAncestorTypeArguments(
+                actual,
+                target,
+                state,
+                _symbolTree,
+                _globalScope,
+                ResolveTypeExpressionCore,
+                out var arguments)
+                ? arguments
+                : null;
+
         private bool TryBuildReceiverGenericBindings(
             ICheckedType receiverType,
             CheckerState state,
@@ -2504,17 +2969,29 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             var declaringClass = FindDeclaringClass(ownerType, method);
+
+            // A source overload set is callable through its declared signatures only: one facet
+            // each, in declaration order. The implementation signature is not part of the value.
+            if (CallableOverloadSet.AppliesTo(method))
+            {
+                return CallableOverloadSet.Combine(
+                    Rules.CheckerHelpers.EnumerateMethodSignatures(method)
+                        .Select(signature => BuildMethodCallable(signature, ownerType, declaringClass, state))
+                        .ToList());
+            }
+
+            return BuildMethodCallable(method, ownerType, declaringClass, state);
+        }
+
+        private ICheckedType BuildMethodCallable(
+            ObjectMethodSymbol method,
+            ICheckedType ownerType,
+            ObjectDeclarationSymbol? declaringClass,
+            CheckerState state)
+        {
             var callSiteParameters = Rules.CheckerHelpers.ExcludeExtensionReceiver(method.Parameters, method);
-            var paramTypes = callSiteParameters
-                .Select(param => param.DeclaredType is not null
-                    ? ResolveDeclaredTypeOnReceiver(
-                        param.DeclaredType,
-                        ownerType,
-                        state,
-                        declaringClass: declaringClass,
-                        functionGenerics: method.GenericParameters)
-                    : CheckedTypes.Unresolved)
-                .ToList();
+            var paramTypes = ResolveMethodParameterTypes(
+                callSiteParameters, method, ownerType, declaringClass, state);
 
             return CallableArityFacetBuilder.BuildFromParameterInfos(
                 callSiteParameters,
@@ -2528,13 +3005,23 @@ namespace Tyhp.TyhpLang.Checker
         private ICheckedType InferFirstClassCallable(
             ICheckedType current,
             IDereferenceableBase? baseNode,
+            PhpCallAst call,
             CheckerState state)
         {
+            // Cleared first: the checker may visit the same call again, and only the branches
+            // below that resolve a callee record a plan.
+            CallableWrapperFacts.Record(call, null);
+
             if (baseNode is PhpNameAst nameAst
                 && Rules.CheckerHelpers.ResolveFreeFunction(nameAst, state, _symbolTree, _globalScope)
                     is { } function)
             {
-                return WrapFunctionCallableAsClosure(InferCallableFromFunction(function, state));
+                var functionPlan = BuildFunctionWrapperPlan(function, state, call);
+                CallableWrapperFacts.Record(call, functionPlan);
+                return WrapFunctionCallableAsClosure(
+                    functionPlan is { Parameters.Count: > 0 }
+                        ? BuildWidenedCallableShape(functionPlan)
+                        : InferCallableFromFunction(function, state));
             }
 
             if (baseNode is PhpDereferenceableAst chain)
@@ -2560,9 +3047,33 @@ namespace Tyhp.TyhpLang.Checker
                 if (methodName is not null)
                 {
                     var receiverType = InferDereferenceableBase(chain.Base, state);
-                    var shape = InferCallableFromMethod(receiverType, methodName, staticOnly, state);
+                    var methodPlan = BuildMethodWrapperPlan(receiverType, methodName, staticOnly, state, call);
+                    CallableWrapperFacts.Record(call, methodPlan);
+                    var shape = methodPlan is { Parameters.Count: > 0 }
+                        ? BuildWidenedCallableShape(methodPlan)
+                        : InferCallableFromMethod(receiverType, methodName, staticOnly, state);
                     return WrapMethodCallableAsClosure(
                         shape, receiverType, methodName, staticOnly, state);
+                }
+            }
+
+            // `$object(...)` of an invokable object: the callable of its `__invoke`.
+            if (baseNode is not null
+                && current is SimpleCheckedType { ResolvedSymbol: ObjectDeclarationSymbol invokable }
+                && !string.Equals(invokable.Name, "Closure", System.StringComparison.OrdinalIgnoreCase))
+            {
+                var invokePlan = BuildMethodWrapperPlan(
+                    current, "__invoke", staticOnly: false, state, call, isInvokeCall: true);
+                if (invokePlan is { IsExtensionMethod: true })
+                {
+                    invokePlan = null;
+                }
+
+                CallableWrapperFacts.Record(call, invokePlan);
+                if (invokePlan is { Parameters.Count: > 0 })
+                {
+                    return WrapMethodCallableAsClosure(
+                        BuildWidenedCallableShape(invokePlan), current, "__invoke", false, state);
                 }
             }
 
@@ -2595,6 +3106,23 @@ namespace Tyhp.TyhpLang.Checker
             FunctionDeclarationSymbol function,
             CheckerState state)
         {
+            // A source overload set is callable through its declared signatures only: one facet
+            // each, in declaration order. The implementation signature is not part of the value.
+            if (CallableOverloadSet.AppliesTo(function))
+            {
+                return CallableOverloadSet.Combine(
+                    Rules.CheckerHelpers.EnumerateFunctionSignatures(function)
+                        .Select(signature => BuildFunctionCallable(signature, state))
+                        .ToList());
+            }
+
+            return BuildFunctionCallable(function, state);
+        }
+
+        private ICheckedType BuildFunctionCallable(
+            FunctionDeclarationSymbol function,
+            CheckerState state)
+        {
             var resolveState = state;
             if (function.GenericParameters.Count > 0)
             {
@@ -2602,11 +3130,7 @@ namespace Tyhp.TyhpLang.Checker
                 resolveState.FunctionGenerics = function.GenericParameters;
             }
 
-            var paramTypes = function.Parameters
-                .Select(param => param.DeclaredType is not null
-                    ? ResolveTypeExpression(param.DeclaredType, resolveState)
-                    : CheckedTypes.Unresolved)
-                .ToList();
+            var paramTypes = ResolveFunctionParameterTypes(function, resolveState);
 
             ICheckedType returnType = function.ReturnType switch
             {
@@ -2682,6 +3206,20 @@ namespace Tyhp.TyhpLang.Checker
                 return TypeOfConstant(boundConstant, state);
             }
 
+            // `true->not()`: the language constants are values, not class names.
+            if (name.BoundSymbol is null && TryInferLanguageConstant(name) is { } languageConstant)
+            {
+                return languageConstant;
+            }
+
+            // A name bound to its `use` import (top-level script statements, where the binder binds
+            // the alias) denotes the imported class, not the import declaration itself.
+            if (name.BoundSymbol is UseIncludeSymbol { UseType: PhpUseType.Class }
+                && ResolveClassReceiverType(name, state) is { } importedClass)
+            {
+                return importedClass;
+            }
+
             if (name.BoundSymbol is not null)
             {
                 return CheckedTypes.FromSymbol(name.BoundSymbol);
@@ -2738,13 +3276,37 @@ namespace Tyhp.TyhpLang.Checker
                 if (TypeComparer.TryGetParentDeclaration(enclosing, _symbolTree, _globalScope)
                     is { } parentObj)
                 {
-                    return CheckedTypes.FromSymbol(parentObj);
+                    var parentBase = CheckedTypes.FromSymbol(parentObj);
+
+                    // `class Child<U> extends Base<U>`: `parent::` members are declared in Base's
+                    // generic scope, so the receiver has to carry the extends arguments for
+                    // `Base<T>`'s parameters to bind to `U` (or to a concrete argument).
+                    if (parentObj.GenericParameters.Count > 0
+                        && GenericInheritanceBindings.GetExtendsTypeArguments(enclosing) is { Count: > 0 } extendsArguments)
+                    {
+                        var resolvedArguments = extendsArguments
+                            .Select(argument => ResolveTypeExpression(argument, state))
+                            .ToList();
+                        return new GenericCheckedType(parentBase, resolvedArguments);
+                    }
+
+                    return parentBase;
                 }
 
                 return null;
             }
 
             var scope = GetResolutionScope(state);
+
+            // Top-level statements of a script have no enclosing callable or object, so the
+            // fallback scope is the global scope, which holds none of the file's `use` imports.
+            // Resolve in the file (or namespace block) that wrote the name instead.
+            if (state.NameResolutionScope is null
+                && TryGetDeclaringFileResolutionScope(nameAst, out var declaringScope)
+                && !SharesFileScope(scope, declaringScope))
+            {
+                scope = declaringScope;
+            }
 
             // Qualified names cannot be found by a simple lexical-scope walk. Fully-qualified
             // (`\Foo\Bar`) resolve from the global root; relative qualified (`Foo\Bar`) resolve
