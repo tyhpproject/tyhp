@@ -1474,9 +1474,9 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         /// <summary>
-        /// Source type-alias factories are PHP functions of the alias's short name. A class-kind
-        /// <c>use App\Types\UserId</c> must not rewrite <c>UserId</c> to a relative FQN — emit
-        /// keeps the short name so <c>use function</c> applies (Story 21.9 Phase 4).
+        /// A class-kind <c>use App\Types\UserId</c> must not rewrite <c>UserId</c> to a relative
+        /// class FQN. Value-position alias calls lower to <c>\Tyhp\Type::ref</c> in the
+        /// expression emitter; this guard only preserves a leftover short name.
         /// </summary>
         private bool ShouldKeepSourceTypeAliasFactorySpelling(PhpNameAst name)
         {
@@ -3167,7 +3167,7 @@ namespace Tyhp.TyhpLang.Emitter
                     continue;
                 }
 
-                // Story 16 Phase 1: fn => new \Tyhp\PropertyPath(...)
+                // fn => \Tyhp\PropertyPath::from(...)
                 if (PropertyPathEmissionHelper.TryRewriteInlineFn(
                         arg.Expression,
                         param.DeclaredType,
@@ -3185,7 +3185,7 @@ namespace Tyhp.TyhpLang.Emitter
                     continue;
                 }
 
-                // Story 16 Phase 2: fn => new \Tyhp\Expression(...)
+                // fn => \Tyhp\Expression::lambda(...)
                 if (ExpressionTreeEmissionHelper.TryRewriteInlineFn(
                         arg.Expression,
                         param.DeclaredType,

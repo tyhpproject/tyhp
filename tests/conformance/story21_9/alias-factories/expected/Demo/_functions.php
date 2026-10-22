@@ -10,16 +10,13 @@ namespace Demo;
 
 use App\UserService;
 
-use function App\Types\Optional;
-use function App\Types\UserId;
-
 function demo(mixed $x): mixed
 {
-    UserId();
-    UserId();
-    Optional(\Tyhp\Type::int());
-    Optional(\Tyhp\Type::int());
-    \Tyhp\Type::is($x, UserId());
-    UserId()->defaultValue();
-    return \App\UserService::NameType();
+    \Tyhp\Type::ref('App\\Types\\UserId');
+    \Tyhp\Type::ref('App\\Types\\UserId');
+    \Tyhp\Type::ref('App\\Types\\Optional', \Tyhp\Type::int());
+    \Tyhp\Type::ref('App\\Types\\Optional', \Tyhp\Type::int());
+    \Tyhp\Type::is($x, \Tyhp\Type::ref('App\\Types\\UserId'));
+    \Tyhp\Type::ref('App\\Types\\UserId')->defaultValue();
+    return \Tyhp\Type::ref('App\\UserService\\NameType');
 }

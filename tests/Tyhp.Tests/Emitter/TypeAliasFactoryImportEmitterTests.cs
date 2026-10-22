@@ -7,14 +7,14 @@ using Tyhp.TyhpLang.Emitter;
 namespace Tyhp.Tests.Emitter;
 
 /// <summary>
-/// Story 21.9 Phase 4 — rewrite class-kind alias <c>use</c> to <c>use function</c> when the
-/// factory is referenced by short name; prune hints-only and fully-qualified-only usage.
+/// Value-position alias calls emit <c>\Tyhp\Type::ref</c>. A class-kind alias <c>use</c> is
+/// dropped for those calls and for hints-only usage. A real class import stays.
 /// </summary>
 [Trait("Category", "Emitter")]
 public class TypeAliasFactoryImportEmitterTests
 {
     [Fact]
-    public void Emit_UseAliasPlusFactoryCall_RewritesToUseFunction()
+    public void Emit_UseAliasPlusFactoryCall_EmitsTypeRefAndDropsImport()
     {
         var php = CompileAndEmit("""
             <?tyhp
@@ -29,9 +29,10 @@ public class TypeAliasFactoryImportEmitterTests
             }
             """);
 
-        php.Should().Contain("use function App\\Types\\UserId;");
+        php.Should().Contain("\\Tyhp\\Type::ref('App\\\\Types\\\\UserId')");
+        php.Should().NotContain("use function App\\Types\\UserId;");
         php.Should().NotContain("use App\\Types\\UserId;");
-        php.Should().Contain("UserId()");
+        php.Should().NotContain("UserId()");
     }
 
     [Fact]
@@ -50,7 +51,8 @@ public class TypeAliasFactoryImportEmitterTests
             }
             """);
 
-        php.Should().Contain("use function App\\Types\\UserId;");
+        php.Should().Contain("\\Tyhp\\Type::ref('App\\\\Types\\\\UserId')");
+        php.Should().NotContain("use function App\\Types\\UserId;");
         php.Should().NotContain("use App\\Types\\UserId;");
     }
 
@@ -94,8 +96,10 @@ public class TypeAliasFactoryImportEmitterTests
             """);
 
         php.Should().Contain("use App\\Types\\User;");
-        php.Should().Contain("use function App\\Types\\UserId;");
+        php.Should().Contain("\\Tyhp\\Type::ref('App\\\\Types\\\\UserId')");
+        php.Should().NotContain("use function App\\Types\\UserId;");
         php.Should().NotContain("use App\\Types\\UserId;");
+        php.Should().NotContain("UserId()");
     }
 
     [Fact]
@@ -116,7 +120,8 @@ public class TypeAliasFactoryImportEmitterTests
 
         php.Should().NotContain("use App\\Types\\UserId;");
         php.Should().NotContain("use function App\\Types\\UserId;");
-        php.Should().Contain("\\App\\Types\\UserId()");
+        php.Should().Contain("\\Tyhp\\Type::ref('App\\\\Types\\\\UserId')");
+        php.Should().NotContain("\\App\\Types\\UserId()");
     }
 
     [Fact]
@@ -189,8 +194,10 @@ public class TypeAliasFactoryImportEmitterTests
             """);
 
         php.Should().Contain("use App\\UserService;");
+        php.Should().Contain("\\Tyhp\\Type::ref('App\\\\UserService\\\\NameType')");
         php.Should().NotContain("use function App\\UserService");
-        php.Should().Contain("UserService::NameType()");
+        php.Should().NotContain("UserService::NameType()");
+        php.Should().NotContain("\\App\\UserService::NameType()");
     }
 
     private static string CompileAndEmit(string tyhp)

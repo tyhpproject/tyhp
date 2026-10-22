@@ -789,8 +789,8 @@ namespace Tyhp.TyhpLang.Emitter
                     case UseIncludeSymbol useInclude:
                     {
                         // Class-kind `use App\Types\UserId` must not rewrite short `UserId` to a
-                        // relative FQN. The factory is a PHP function; emit keeps the short name so
-                        // `use function` can apply. Hints still expand via TypeAliasMap.
+                        // relative class FQN. Value calls emit `\Tyhp\Type::ref` with the
+                        // registered name. Hints still expand via TypeAliasMap.
                         var imported = (useInclude.ImportedName ?? "").TrimStart('\\');
                         if (!string.IsNullOrEmpty(imported) && sourceAliasFqns.Contains(imported))
                         {

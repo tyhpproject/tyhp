@@ -87,16 +87,16 @@ function convertToString(UserId $val): string
 ");
 
         php.Should().NotContain("type UserId");
-        php.Should().Contain("function UserId(): \\Tyhp\\Type");
-        php.Should().Contain("return \\Tyhp\\Type::int();");
+        php.Should().Contain("\\Tyhp\\Type::register('UserId'");
+        php.Should().Contain("fn () => \\Tyhp\\Type::int()");
         php.Should().Contain("int $val");
         php.Should().NotContain("UserId $val");
         packages.Should().Contain("tyhp/core");
 
         var functions = files.Should().ContainSingle(f =>
             (f.OutputFilePath ?? "").Contains("_functions.php", StringComparison.OrdinalIgnoreCase)).Subject;
-        functions.GeneratedContent.Should().Contain("function UserId(): \\Tyhp\\Type");
-        functions.GeneratedContent.Should().Contain("return \\Tyhp\\Type::int();");
+        functions.GeneratedContent.Should().Contain("\\Tyhp\\Type::register('UserId'");
+        functions.GeneratedContent.Should().Contain("fn () => \\Tyhp\\Type::int()");
     }
 
     [Fact]
@@ -107,9 +107,7 @@ function convertToString(UserId $val): string
 type Optional<T> = T|null;
 ").Php;
 
-        php.Should().Contain("function Optional(?\\Tyhp\\Type $T = null): \\Tyhp\\Type");
-        php.Should().Contain("$T ??= \\Tyhp\\Type::mixed();");
-        php.Should().Contain("return \\Tyhp\\Type::nullable($T);");
+        php.Should().Contain("\\Tyhp\\Type::register('Optional', fn (\\Tyhp\\Type $T) => \\Tyhp\\Type::nullable($T));");
     }
 
     [Fact]
@@ -123,11 +121,9 @@ class UserService {
 }
 ").Php;
 
-        php.Should().Contain("public static function UserIdType(): \\Tyhp\\Type");
-        php.Should().Contain("return \\Tyhp\\Type::int();");
-        php.Should().Contain("private static function Row(?\\Tyhp\\Type $T = null): \\Tyhp\\Type");
-        php.Should().Contain("$T ??= \\Tyhp\\Type::mixed();");
-        php.Should().Contain("\\Tyhp\\Type::generic('array'");
+        php.Should().Contain("\\Tyhp\\Type::register('UserService\\\\UserIdType', fn () => \\Tyhp\\Type::int());");
+        php.Should().Contain("\\Tyhp\\Type::register('UserService\\\\Row', fn (\\Tyhp\\Type $T) =>");
+        php.Should().Contain("\\Tyhp\\Type::mapOf(\\Tyhp\\Type::string(), $T)");
         php.Should().NotContain("type UserIdType");
         php.Should().NotContain("type Row");
     }
@@ -148,7 +144,7 @@ function convertToString(scalarType $val): string
 
         php.Should().Contain("int|float|string|bool|array|null $val");
         php.Should().NotContain("scalarType $val");
-        php.Should().Contain("function scalarType(): \\Tyhp\\Type");
+        php.Should().Contain("\\Tyhp\\Type::register('scalarType'");
     }
 
     [Fact]
@@ -170,8 +166,8 @@ class MyObject
 
         php.Should().Contain("public function __construct(?self $buildFrom = null");
         php.Should().NotContain("MyObjOrNull $buildFrom");
-        php.Should().Contain("public static function MyObjOrNull(): \\Tyhp\\Type");
-        php.Should().Contain("\\Tyhp\\Type::fromClassName(self::class)");
+        php.Should().Contain("\\Tyhp\\Type::register('MyObject\\\\MyObjOrNull'");
+        php.Should().Contain("\\Tyhp\\Type::fromClassName(\\MyObject::class)");
         php.Should().Contain("\\Tyhp\\Type::nullable(");
     }
 
@@ -196,7 +192,7 @@ MyObject\MyObjOrNull $myObj = null;
 
         php.Should().Contain("$myObj = null");
         php.Should().NotContain("MyObjOrNull $myObj");
-        php.Should().Contain("public static function MyObjOrNull(): \\Tyhp\\Type");
+        php.Should().Contain("\\Tyhp\\Type::register('MyObject\\\\MyObjOrNull'");
     }
 
     [Fact]
@@ -208,11 +204,11 @@ type UserId = int;
 type UserIds = array<UserId>;
 ");
 
-        php.Should().Contain("function UserId(): \\Tyhp\\Type");
-        php.Should().Contain("function UserIds(): \\Tyhp\\Type");
-        php.Should().Contain("UserId()");
-        var userIdsFn = php[php.IndexOf("function UserIds():", StringComparison.Ordinal)..];
-        userIdsFn.Should().Contain("UserId()");
+        php.Should().Contain("\\Tyhp\\Type::register('UserId'");
+        php.Should().Contain("\\Tyhp\\Type::register('UserIds'");
+        php.Should().Contain("\\Tyhp\\Type::ref('UserId')");
+        var userIdsFn = php[php.IndexOf("\\Tyhp\\Type::register('UserIds'", StringComparison.Ordinal)..];
+        userIdsFn.Should().Contain("\\Tyhp\\Type::ref('UserId')");
         userIdsFn.Should().NotContain("\\Tyhp\\Type::int()");
     }
 
@@ -228,8 +224,8 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("function UserId(): \\Tyhp\\Type");
-        php.Should().Contain("return \\Tyhp\\Type::int();");
+        php.Should().Contain("\\Tyhp\\Type::register('UserId'");
+        php.Should().Contain("fn () => \\Tyhp\\Type::int()");
         php.Should().NotContain("typeof");
     }
 
@@ -246,7 +242,7 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("$t = UserId();");
+        php.Should().Contain("$t = \\Tyhp\\Type::ref('UserId');");
         php.Should().NotContain("typeof(");
         php.Should().NotContain("\\Tyhp\\Type::mixed()");
     }
@@ -331,8 +327,8 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("Optional(\\Tyhp\\Type::int())");
-        php.Should().Contain("$u = Optional();");
+        php.Should().Contain("\\Tyhp\\Type::ref('Optional', \\Tyhp\\Type::int())");
+        php.Should().Contain("$u = \\Tyhp\\Type::ref('Optional', \\Tyhp\\Type::mixed());");
         php.Should().NotContain("typeof(");
     }
 
@@ -350,7 +346,7 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("Map(\\Tyhp\\Type::string(), UserId())");
+        php.Should().Contain("\\Tyhp\\Type::ref('Map', \\Tyhp\\Type::string(), \\Tyhp\\Type::ref('UserId'))");
         php.Should().NotContain("typeof(");
     }
 
@@ -371,8 +367,8 @@ class C {
 }
 ");
 
-        php.Should().Contain("self::UserIdType()");
-        php.Should().Contain("C::NameType()");
+        php.Should().Contain("\\Tyhp\\Type::ref(self::class . '\\\\UserIdType')");
+        php.Should().Contain("\\Tyhp\\Type::ref('C\\\\NameType')");
         php.Should().NotContain("typeof(");
         php.Should().NotContain("\\Tyhp\\Type::mixed()");
     }
@@ -392,7 +388,7 @@ function f(mixed $x): void
 }
 ");
 
-        php.Should().Contain("\\Tyhp\\Type::is($x, UserId())");
+        php.Should().Contain("\\Tyhp\\Type::is($x, \\Tyhp\\Type::ref('UserId'))");
         php.Should().Contain("$x instanceof User");
         php.Should().NotContain("$x is UserId");
         php.Should().NotContain("$x instanceof UserId");
@@ -413,7 +409,7 @@ function f(mixed $x): bool
 }
 ");
 
-        php.Should().Contain("\\Tyhp\\Type::is($x, UserAlias())");
+        php.Should().Contain("\\Tyhp\\Type::is($x, \\Tyhp\\Type::ref('UserAlias'))");
         php.Should().NotContain("$x instanceof UserAlias");
         php.Should().NotContain("$x instanceof User;");
     }
@@ -431,7 +427,7 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("UserId()->defaultValue()");
+        php.Should().Contain("\\Tyhp\\Type::ref('UserId')->defaultValue()");
         php.Should().NotContain("default(");
     }
 
@@ -475,7 +471,7 @@ function f(mixed $x): void
             type StubId = int;
             """).Php;
 
-        php.Should().Contain("StubId()");
+        php.Should().Contain("\\Tyhp\\Type::ref('StubId')");
         php.Should().NotContain("\\Tyhp\\Type::int()");
         php.Should().NotContain("typeof(");
     }
@@ -494,9 +490,9 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("$t = UserIds();");
-        var userIdsFn = php[php.IndexOf("function UserIds():", StringComparison.Ordinal)..];
-        userIdsFn.Should().Contain("UserId()");
+        php.Should().Contain("$t = \\Tyhp\\Type::ref('UserIds');");
+        var userIdsFn = php[php.IndexOf("\\Tyhp\\Type::register('UserIds'", StringComparison.Ordinal)..];
+        userIdsFn.Should().Contain("\\Tyhp\\Type::ref('UserId')");
         userIdsFn.Should().NotContain("\\Tyhp\\Type::int()");
         php.Should().NotContain("typeof(");
     }
@@ -515,7 +511,7 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("\\App\\Types\\UserId()");
+        php.Should().Contain("\\Tyhp\\Type::ref('App\\\\Types\\\\UserId')");
         php.Should().NotContain("typeof(");
     }
 
@@ -556,8 +552,8 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("$a = C::NameType();");
-        php.Should().Contain("$b = C::NameType()->defaultValue();");
+        php.Should().Contain("$a = \\Tyhp\\Type::ref('C\\\\NameType');");
+        php.Should().Contain("$b = \\Tyhp\\Type::ref('C\\\\NameType')->defaultValue();");
         php.Should().NotContain("typeof(");
         php.Should().NotContain("default(");
     }
@@ -582,7 +578,7 @@ class C {
 }
 ");
 
-        php.Should().Contain("$d = self::NameType()->defaultValue();");
+        php.Should().Contain("$d = \\Tyhp\\Type::ref(self::class . '\\\\NameType')->defaultValue();");
         php.Should().NotContain("default(");
     }
 
@@ -601,7 +597,7 @@ class C {
 }
 ");
 
-        php.Should().Contain("\\Tyhp\\Type::is($x, self::NameType());");
+        php.Should().Contain("\\Tyhp\\Type::is($x, \\Tyhp\\Type::ref(self::class . '\\\\NameType'));");
         php.Should().NotContain("$x is self\\NameType");
         php.Should().NotContain("$x instanceof");
     }
@@ -621,7 +617,7 @@ class C {
 }
 ");
 
-        php.Should().Contain("\\Tyhp\\Type::is($x, self::NameType());");
+        php.Should().Contain("\\Tyhp\\Type::is($x, \\Tyhp\\Type::ref(self::class . '\\\\NameType'));");
         php.Should().NotContain("$x instanceof self\\NameType");
         php.Should().NotContain("$x instanceof");
     }
@@ -641,7 +637,7 @@ function f(mixed $x): bool
 }
 ");
 
-        php.Should().Contain("\\Tyhp\\Type::is($x, C::NameType());");
+        php.Should().Contain("\\Tyhp\\Type::is($x, \\Tyhp\\Type::ref('C\\\\NameType'));");
         php.Should().NotContain("$x is C\\NameType");
         php.Should().NotContain("$x instanceof");
     }
@@ -663,7 +659,7 @@ class Child extends Base {
 }
 ");
 
-        php.Should().Contain("\\Tyhp\\Type::is($x, parent::IdType());");
+        php.Should().Contain("\\Tyhp\\Type::is($x, \\Tyhp\\Type::ref(parent::class . '\\\\IdType'));");
         php.Should().NotContain("$x is parent\\IdType");
         php.Should().NotContain("$x instanceof");
     }
@@ -683,7 +679,7 @@ class C {
 }
 ");
 
-        php.Should().Contain("\\Tyhp\\Type::is($x, static::NameType());");
+        php.Should().Contain("\\Tyhp\\Type::is($x, \\Tyhp\\Type::ref(static::class . '\\\\NameType'));");
         php.Should().NotContain("$x is static\\NameType");
         php.Should().NotContain("$x instanceof");
     }
@@ -698,8 +694,37 @@ type P = ?Point;
 ");
 
         php.Should().Contain(
-            "return \\Tyhp\\Type::nullable(\\Tyhp\\Type::struct('Point', "
-            + "['x' => \\Tyhp\\Type::int(), 'y' => \\Tyhp\\Type::int()], ['x', 'y']));");
+            "\\Tyhp\\Type::register('P', fn () => \\Tyhp\\Type::nullable(\\Tyhp\\Type::ref('Point')));");
+    }
+
+    [Fact]
+    public void Emit_StringLiteralUnionAlias_UsesStringFactories()
+    {
+        var php = CompileAndEmit(@"
+<?tyhp
+namespace Bookmarks;
+type SearchScope = 'any' | 'title' | 'url' | 'tag' | 'note';
+");
+
+        php.Should().Contain(
+            "\\Tyhp\\Type::register('Bookmarks\\\\SearchScope', fn () => \\Tyhp\\Type::union(\\Tyhp\\Type::string(), \\Tyhp\\Type::string(), \\Tyhp\\Type::string(), \\Tyhp\\Type::string(), \\Tyhp\\Type::string()));");
+        php.Should().NotContain("fromClassName");
+    }
+
+    [Fact]
+    public void Emit_NumericLiteralUnionAlias_UsesScalarFactories()
+    {
+        var php = CompileAndEmit(@"
+<?tyhp
+type Port = 80 | 443;
+type Ratio = 1.5 | -2.0;
+");
+
+        php.Should().Contain(
+            "\\Tyhp\\Type::register('Port', fn () => \\Tyhp\\Type::union(\\Tyhp\\Type::int(), \\Tyhp\\Type::int()));");
+        php.Should().Contain(
+            "\\Tyhp\\Type::register('Ratio', fn () => \\Tyhp\\Type::union(\\Tyhp\\Type::float(), \\Tyhp\\Type::float()));");
+        php.Should().NotContain("fromClassName");
     }
 
     [Fact]
@@ -712,8 +737,7 @@ type P = Point|int;
 ");
 
         php.Should().Contain(
-            "return \\Tyhp\\Type::union(\\Tyhp\\Type::struct('Point', "
-            + "['x' => \\Tyhp\\Type::int(), 'y' => \\Tyhp\\Type::int()], ['x', 'y']), \\Tyhp\\Type::int());");
+            "\\Tyhp\\Type::register('P', fn () => \\Tyhp\\Type::union(\\Tyhp\\Type::ref('Point'), \\Tyhp\\Type::int()));");
     }
 
     [Fact]
@@ -726,8 +750,7 @@ type Points = array<Point>;
 ");
 
         php.Should().Contain(
-            "return \\Tyhp\\Type::generic('array', new \\Tyhp\\NamedType('TValue', "
-            + "\\Tyhp\\Type::struct('Point', ['x' => \\Tyhp\\Type::int(), 'y' => \\Tyhp\\Type::int()], ['x', 'y'])));");
+            "\\Tyhp\\Type::register('Points', fn () => \\Tyhp\\Type::listOf(\\Tyhp\\Type::ref('Point')));");
     }
 
     [Fact]
@@ -740,8 +763,7 @@ type Points = iterable<Point>;
 ");
 
         php.Should().Contain(
-            "return \\Tyhp\\Type::generic('iterable', new \\Tyhp\\NamedType('TValue', "
-            + "\\Tyhp\\Type::struct('Point', ['x' => \\Tyhp\\Type::int(), 'y' => \\Tyhp\\Type::int()], ['x', 'y'])));");
+            "\\Tyhp\\Type::register('Points', fn () => \\Tyhp\\Type::generic('iterable')->param('TValue', \\Tyhp\\Type::ref('Point')));");
     }
 
     [Fact]
@@ -754,9 +776,7 @@ type PointsByName = array<string, Point>;
 ");
 
         php.Should().Contain(
-            "return \\Tyhp\\Type::generic('array', new \\Tyhp\\NamedType('TKey', \\Tyhp\\Type::string()), "
-            + "new \\Tyhp\\NamedType('TValue', "
-            + "\\Tyhp\\Type::struct('Point', ['x' => \\Tyhp\\Type::int(), 'y' => \\Tyhp\\Type::int()], ['x', 'y'])));");
+            "\\Tyhp\\Type::register('PointsByName', fn () => \\Tyhp\\Type::mapOf(\\Tyhp\\Type::string(), \\Tyhp\\Type::ref('Point')));");
     }
 
     [Fact]
@@ -775,9 +795,8 @@ class C {
 }
 ");
 
-        php.Should().Contain("public static function B(): \\Tyhp\\Type");
-        php.Should().Contain("return self::A();");
-        php.Should().Contain("$x = self::B();");
+        php.Should().Contain("\\Tyhp\\Type::register('C\\\\B', fn () => \\Tyhp\\Type::ref('C\\\\A'));");
+        php.Should().Contain("$x = \\Tyhp\\Type::ref(self::class . '\\\\B');");
         php.Should().NotContain("typeof(");
     }
 
@@ -794,7 +813,7 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("$d = Optional(\\Tyhp\\Type::int())->defaultValue();");
+        php.Should().Contain("$d = \\Tyhp\\Type::ref('Optional', \\Tyhp\\Type::int())->defaultValue();");
         php.Should().NotContain("default(");
     }
 
@@ -811,8 +830,8 @@ type UserId = StubId;
             type StubId = int;
             """).Php;
 
-        php.Should().Contain("function UserId(): \\Tyhp\\Type");
-        php.Should().Contain("return \\Tyhp\\Type::int();");
+        php.Should().Contain("\\Tyhp\\Type::register('UserId'");
+        php.Should().Contain("fn () => \\Tyhp\\Type::int()");
         php.Should().NotContain("StubId");
     }
 
@@ -850,7 +869,7 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("$t = \\Tyhp\\Type::union(A(), \\Tyhp\\Type::string());");
+        php.Should().Contain("$t = \\Tyhp\\Type::union(\\Tyhp\\Type::ref('A'), \\Tyhp\\Type::string());");
         php.Should().NotContain("typeof(");
     }
 
@@ -867,7 +886,7 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("$t = \\Tyhp\\Type::nullable(A());");
+        php.Should().Contain("$t = \\Tyhp\\Type::nullable(\\Tyhp\\Type::ref('A'));");
         php.Should().NotContain("typeof(");
     }
 
@@ -903,9 +922,8 @@ function f(): void
 ");
 
         php.Should().Contain(
-            "function P(): \\Tyhp\\Type\n{\n    return \\Tyhp\\Type::struct('Point', "
-            + "['x' => \\Tyhp\\Type::int(), 'y' => \\Tyhp\\Type::int()], ['x', 'y']);\n}");
-        php.Should().Contain("$t = P();");
+            "\\Tyhp\\Type::register('P', fn () => \\Tyhp\\Type::ref('Point'));");
+        php.Should().Contain("$t = \\Tyhp\\Type::ref('P');");
         php.Should().NotContain("\\Tyhp\\Type::array()");
         php.Should().NotContain("typeof(");
     }
@@ -924,9 +942,8 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("function IntBox(): \\Tyhp\\Type");
-        php.Should().Contain("\\Tyhp\\Type::generic(\\Box::class,");
-        php.Should().Contain("$t = IntBox();");
+        php.Should().Contain("\\Tyhp\\Type::register('IntBox', fn () => \\Tyhp\\Type::generic(\\Box::class)->param('T', \\Tyhp\\Type::int()));");
+        php.Should().Contain("$t = \\Tyhp\\Type::ref('IntBox');");
         php.Should().NotContain("typeof(");
     }
 
@@ -946,12 +963,67 @@ function f(): void
 {
     $t = typeof(\App\A\Dup);
     $u = typeof(\App\B\Dup);
+    $a = \App\A\Dup();
+    $b = \App\B\Dup();
 }
 ");
 
-        php.Should().Contain("$t = \\App\\A\\Dup();");
-        php.Should().Contain("$u = \\App\\B\\Dup();");
+        php.Should().Contain("$t = \\Tyhp\\Type::ref('App\\\\A\\\\Dup');");
+        php.Should().Contain("$u = \\Tyhp\\Type::ref('App\\\\B\\\\Dup');");
+        php.Should().Contain("$a = \\Tyhp\\Type::ref('App\\\\A\\\\Dup');");
+        php.Should().Contain("$b = \\Tyhp\\Type::ref('App\\\\B\\\\Dup');");
         php.Should().NotContain("typeof(");
+        php.Should().NotContain("Dup()");
+    }
+
+    [Fact]
+    public void Emit_ValuePositionAliasCall_EmitsTypeRef()
+    {
+        var php = CompileAndEmit(@"
+<?tyhp
+namespace App\Types;
+type UserId = int;
+type Optional<T = mixed> = T|null;
+
+namespace App;
+class UserService {
+    public type NameType = string;
+    public static function zero(): int { return 0; }
+
+    public function t(): mixed {
+        return self::NameType();
+    }
+}
+
+function id(int $n): int { return $n; }
+function callId(): int { return id(1); }
+
+namespace Demo;
+use App\Types\UserId;
+use App\Types\Optional;
+use App\UserService;
+
+function demo(): mixed {
+    $c = UserId();
+    $d = \App\Types\UserId();
+    $e = Optional(typeof(int));
+    $f = Optional();
+    $g = UserService::NameType();
+    return UserService::zero();
+}
+");
+
+        php.Should().Contain("$c = \\Tyhp\\Type::ref('App\\\\Types\\\\UserId');");
+        php.Should().Contain("$d = \\Tyhp\\Type::ref('App\\\\Types\\\\UserId');");
+        php.Should().Contain("$e = \\Tyhp\\Type::ref('App\\\\Types\\\\Optional', \\Tyhp\\Type::int());");
+        php.Should().Contain("$f = \\Tyhp\\Type::ref('App\\\\Types\\\\Optional', \\Tyhp\\Type::mixed());");
+        php.Should().Contain("$g = \\Tyhp\\Type::ref('App\\\\UserService\\\\NameType');");
+        php.Should().Contain("return \\Tyhp\\Type::ref(self::class . '\\\\NameType');");
+        php.Should().Contain("::zero()");
+        php.Should().Contain("id(1)");
+        php.Should().NotContain("UserId()");
+        php.Should().NotContain("NameType()");
+        php.Should().NotContain("Optional(");
     }
 
     [Fact]
@@ -969,7 +1041,7 @@ function f(): void
 }
 ");
 
-        php.Should().Contain("$t = \\App\\Types\\UserId();");
+        php.Should().Contain("$t = \\Tyhp\\Type::ref('App\\\\Types\\\\UserId');");
         php.Should().NotContain("typeof(");
     }
 

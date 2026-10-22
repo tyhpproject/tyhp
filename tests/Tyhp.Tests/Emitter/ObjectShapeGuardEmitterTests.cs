@@ -27,9 +27,8 @@ public class ObjectShapeGuardEmitterTests
             }
             """);
 
-        php.Should().Contain("\\Tyhp\\Type::is($obj, ClockShape())");
-        php.Should().Contain("function ClockShape()");
-        php.Should().Contain("\\Tyhp\\Type::objectShape('ClockShape', ['now'], [])");
+        php.Should().Contain("\\Tyhp\\Type::is($obj, \\Tyhp\\Type::ref('ClockShape'))");
+        php.Should().Contain("\\Tyhp\\Type::register('ClockShape', fn () => \\Tyhp\\Type::shape()->method('now')->returns(\\Tyhp\\Type::int()));");
         php.Should().Contain("$x instanceof User");
         php.Should().NotContain("$obj instanceof ClockShape");
         php.Should().NotContain("class ClockShape");
@@ -54,11 +53,44 @@ public class ObjectShapeGuardEmitterTests
             };
             """).Php;
 
-        php.Should().Contain("\\Tyhp\\Type::is($obj, \\Tyhp\\Type::objectShape('ClockShape', ['now'], [])");
+        php.Should().Contain("\\Tyhp\\Type::is($obj, \\Tyhp\\Type::shape()->method('now')->returns(\\Tyhp\\Type::int())->name('ClockShape'))");
         php.Should().NotContain("function ClockShape");
         php.Should().NotContain("ClockShape()");
         php.Should().NotContain("$obj instanceof ClockShape");
         php.Should().NotContain("class ClockShape");
+    }
+
+    [Fact]
+    public void Emit_ClockShapeMethod_IncludesReturnType()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            type ClockShape = object {
+                public function now(): \DateTimeImmutable;
+            };
+            type FormatShape = object {
+                public function format(\DateTimeImmutable $instant, string $zone = "UTC"): string;
+                public function join(string ...$parts): string;
+                public function id(): string|int;
+                public function maybe(): ?\DateTimeImmutable;
+            };
+            function f(object $obj): void
+            {
+                $a = $obj is ClockShape;
+                $b = $obj is FormatShape;
+            }
+            """);
+
+        php.Should().Contain(
+            "\\Tyhp\\Type::shape()->method('now')->returns(\\Tyhp\\Type::fromClassName(\\DateTimeImmutable::class))");
+        php.Should().Contain(
+            "->method('format')->param('instant', \\Tyhp\\Type::fromClassName(\\DateTimeImmutable::class))->param('zone', \\Tyhp\\Type::string(), optional: true)->returns(\\Tyhp\\Type::string())");
+        php.Should().Contain(
+            "->method('join')->param('parts', \\Tyhp\\Type::string(), variadic: true)->returns(\\Tyhp\\Type::string())");
+        php.Should().Contain(
+            "->method('id')->returns(\\Tyhp\\Type::union(\\Tyhp\\Type::string(), \\Tyhp\\Type::int()))");
+        php.Should().Contain(
+            "->method('maybe')->returns(\\Tyhp\\Type::nullable(\\Tyhp\\Type::fromClassName(\\DateTimeImmutable::class)))");
     }
 
     [Fact]

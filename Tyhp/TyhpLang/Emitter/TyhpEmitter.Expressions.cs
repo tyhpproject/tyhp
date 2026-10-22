@@ -1797,6 +1797,12 @@ namespace Tyhp.TyhpLang.Emitter
                 return variantCall;
             }
 
+            if (dereferenceable.Suffix is PhpCallAst typeRefCall
+                && this.TryBuildValuePositionTypeRef(dereferenceable, typeRefCall) is { } typeRef)
+            {
+                return typeRef;
+            }
+
             var baseText = this.BuildDereferenceableBase(dereferenceable.Base);
             var suffix = this.BuildDereferenceableSuffix(dereferenceable.Suffix);
             return baseText + suffix;
@@ -1881,7 +1887,16 @@ namespace Tyhp.TyhpLang.Emitter
                 return accessor + this.ApplyPendingVariantCallSuffix(name, name.ValueString ?? "");
             }
 
-            return accessor + this.BuildExpression(instance.MemberName);
+            // `$obj->$name` is a simple variable. Any other expression
+            // (`$obj->{$this->path[$i]}`) needs braces or PHP binds the rest
+            // of the chain to the object instead of the property name.
+            var member = this.BuildExpression(instance.MemberName);
+            if (instance.MemberName is PhpVariableAst)
+            {
+                return accessor + member;
+            }
+
+            return accessor + "{" + member + "}";
         }
 
         private string BuildArrayAccess(PhpArrayAccessAst arrayAccess)

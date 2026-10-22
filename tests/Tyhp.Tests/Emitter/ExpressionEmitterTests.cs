@@ -11,7 +11,7 @@ using Tyhp.Tests.TestHelpers;
 namespace Tyhp.Tests.Emitter;
 
 /// <summary>
-/// Story 16 Phase 2 — emit <c>new \Tyhp\Expression(...)</c> for Expression call arguments.
+/// Emit a <c>\Tyhp\Expr::param(...)->...->backedBy(fn)</c> chain for Expression call arguments.
 /// </summary>
 [Trait("Category", "Emitter")]
 public class ExpressionEmitterTests
@@ -30,15 +30,12 @@ public class ExpressionEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\Expression(");
-        php.Should().Contain(@"new \Tyhp\Expression\BinaryExpression(");
-        php.Should().Contain(@"new \Tyhp\Expression\PropertyAccessExpression(");
-        php.Should().Contain(@"new \Tyhp\Expression\ConstantExpression(");
-        php.Should().Contain(@"new \Tyhp\Expression\ParameterExpression(");
-        php.Should().Contain("'>'");
-        php.Should().Contain("18");
-        php.Should().Contain("callable:");
-        php.Should().Contain("returnType:");
+        php.Should().Contain(@"\Tyhp\Expr::param('u', \User::class)->age->gt(18)->backedBy(fn(");
+        php.Should().Contain(": bool");
+        php.Should().Contain("$u->age > 18");
+        php.Should().NotContain("returnType:");
+        php.Should().NotContain("Generic::bind");
+        php.Should().NotContain(@"\Tyhp\Expression::lambda(");
     }
 
     [Fact]
@@ -55,9 +52,8 @@ public class ExpressionEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\Expression\MethodCallExpression(");
-        php.Should().Contain("'getFullName'");
-        php.Should().Contain(@"new \Tyhp\Expression\ParameterExpression(");
+        php.Should().Contain(@"\Tyhp\Expr::param('u', \User::class)->call('getFullName')->backedBy(fn(");
+        php.Should().Contain("$u->getFullName()");
     }
 
     [Fact]
@@ -75,8 +71,7 @@ public class ExpressionEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\Expression\ConstantExpression($minAge");
-        php.Should().Contain(@"new \Tyhp\Expression\BinaryExpression(");
+        php.Should().Contain(@"->age->gt($minAge)->backedBy(fn(");
     }
 
     [Fact]
@@ -129,9 +124,8 @@ public class ExpressionEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\Expression\StaticMethodCallExpression(");
-        php.Should().Contain("'create'");
-        php.Should().Contain("User::class");
+        php.Should().Contain(@"->staticCall(\User::class, 'create')->backedBy(fn(");
+        php.Should().Contain("User::create()");
     }
 
     [Fact]
@@ -148,7 +142,7 @@ public class ExpressionEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\Expression\ConstantExpression(");
+        php.Should().Contain(@"->value(User::FLAG)->backedBy(fn(");
         php.Should().Contain("User::FLAG");
     }
 
@@ -166,8 +160,8 @@ public class ExpressionEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\PropertyPath(");
-        php.Should().NotContain(@"new \Tyhp\Expression(");
+        php.Should().Contain(@"\Tyhp\PropertyPath::on(\User::class)->name->backedBy(fn(");
+        php.Should().NotContain(@"\Tyhp\Expr::param(");
     }
 
     [Fact]
@@ -184,13 +178,10 @@ public class ExpressionEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\Expression(");
-        php.Should().Contain(@"new \Tyhp\Expression\ParameterExpression(");
-        php.Should().Contain("'a'");
-        php.Should().Contain("'b'");
-        php.Should().Contain("'<=>'");
-        php.Should().Contain("returnType:");
-        php.Should().Contain("'int'");
+        php.Should().Contain(@"\Tyhp\Expr::param('a', \User::class, 0)->lastName->spaceship(\Tyhp\Expr::param('b', \User::class, 1)->lastName)->backedBy(fn(");
+        php.Should().Contain(": int");
+        php.Should().Contain("$a->lastName <=> $b->lastName");
+        php.Should().NotContain("returnType:");
     }
 
     [Fact]
@@ -207,11 +198,9 @@ public class ExpressionEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\Expression\InstanceofExpression(");
-        php.Should().Contain("'int'");
+        php.Should().Contain(@"->prop('value')->is('int')->backedBy(fn(");
         php.Should().Contain(@"\Tyhp\Type::is($u->value, \Tyhp\Type::int())");
         php.Should().NotContain("instanceof int");
-        php.Should().NotContain(@"new \Tyhp\Expression\BinaryExpression(");
     }
 
     [Fact]
@@ -229,8 +218,7 @@ public class ExpressionEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\Expression\InstanceofExpression(");
-        php.Should().Contain("Address::class");
+        php.Should().Contain(@"->prop('value')->is(\Address::class)->backedBy(fn(");
     }
 
     [Fact]
@@ -248,9 +236,7 @@ public class ExpressionEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\Expression(");
-        php.Should().Contain(@"new \Tyhp\Expression\ParameterExpression('a'");
-        php.Should().Contain(@"new \Tyhp\Expression\ParameterExpression('b'");
+        php.Should().Contain(@"\Tyhp\Expr::param('a', \App\User::class, 0)->lastName->spaceship(\Tyhp\Expr::param('b', \App\User::class, 1)->lastName)->backedBy(fn(");
         php.Should().NotContain("sortBy(fn(");
     }
 
@@ -267,22 +253,20 @@ public class ExpressionEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\Expression(");
-        php.Should().Contain(@"new \Tyhp\Expression\BinaryExpression(");
-        php.Should().Contain(@"new \Tyhp\Expression\PropertyAccessExpression(");
+        php.Should().Contain(@"\Tyhp\Expr::param('u', \User::class)->age->gt(18)->backedBy(fn(");
         php.Should().NotContain("$e = fn");
     }
 
     [Theory]
-    [InlineData("'Ada'", "ConstantExpression('Ada', 'string')")]
-    [InlineData("\"Ada\"", "ConstantExpression(\"Ada\", 'string')")]
-    [InlineData("'it\\'s'", "ConstantExpression('it\\'s', 'string')")]
-    [InlineData("true", "ConstantExpression(true, 'true')")]
-    [InlineData("false", "ConstantExpression(false, 'false')")]
-    [InlineData("null", "ConstantExpression(null, 'null')")]
-    [InlineData("1.5", "ConstantExpression(1.5, '1.5')")]
-    [InlineData("18", "ConstantExpression(18, '18')")]
-    public void Emit_LiteralInBody_EmitsConstantExpressionWithBaseType(string literal, string expected)
+    [InlineData("'Ada'", "'Ada'")]
+    [InlineData("\"Ada\"", "\"Ada\"")]
+    [InlineData("'it\\'s'", "'it\\'s'")]
+    [InlineData("true", "true")]
+    [InlineData("false", "false")]
+    [InlineData("null", "null")]
+    [InlineData("1.5", "1.5")]
+    [InlineData("18", "18")]
+    public void Emit_LiteralInBody_PassesTheLiteralToEq(string literal, string expected)
     {
         var php = CompileAndEmit($$"""
             <?tyhp
@@ -295,8 +279,7 @@ public class ExpressionEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\Expression\" + expected);
-        php.Should().Contain(@"new \Tyhp\Expression\BinaryExpression(");
+        php.Should().Contain("->prop('value')->eq(" + expected + ")->backedBy(fn(");
     }
 
     private static string CompileAndEmit(string tyhp)

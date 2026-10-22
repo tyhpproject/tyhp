@@ -11,7 +11,7 @@ using Tyhp.Tests.TestHelpers;
 namespace Tyhp.Tests.Emitter;
 
 /// <summary>
-/// Story 16 Phase 1 — emit <c>new \Tyhp\PropertyPath(...)</c> for PropertyPath call arguments.
+/// Emit <c>\Tyhp\PropertyPath::on(...)->...->backedBy(fn)</c> for PropertyPath call arguments.
 /// </summary>
 [Trait("Category", "Emitter")]
 public class PropertyPathEmitterTests
@@ -30,7 +30,10 @@ public class PropertyPathEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\PropertyPath(\User::class, 'string', ['name'], fn(");
+        php.Should().Contain(@"\Tyhp\PropertyPath::on(\User::class)->name->backedBy(fn(");
+        php.Should().Contain(": string");
+        php.Should().NotContain("'mixed'");
+        php.Should().NotContain("Generic::bind");
         php.Should().Contain("$u->name");
         php.Should().NotContain("take(fn(");
     }
@@ -52,9 +55,9 @@ public class PropertyPathEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\PropertyPath(");
-        php.Should().Contain("['address', 'city']");
+        php.Should().Contain(@"\Tyhp\PropertyPath::on(\User::class)->address->city->backedBy(fn(");
         php.Should().Contain("$u->address->city");
+        php.Should().Contain(": string");
     }
 
     [Fact]
@@ -74,13 +77,9 @@ public class PropertyPathEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\PropertyPath(");
-        php.Should().Contain("['address', 'city']");
+        php.Should().Contain(@"\Tyhp\PropertyPath::on(\User::class)->nullSafe()->address->nullSafe()->city->backedBy(fn(");
         php.Should().Contain("$u?->address?->city");
-        php.Should().Contain("'?string'", "a null-safe chain must not advertise a non-nullable result type");
-        php.Should().Contain(
-            "nullSafeFlags: [true, true]",
-            "the expression tree must record which segments were null-safe");
+        php.Should().Contain(": ?string", "a null-safe chain must not advertise a non-nullable result type");
     }
 
     [Fact]
@@ -97,7 +96,7 @@ public class PropertyPathEmitterTests
             }
             """);
 
-        php.Should().Contain(@"new \Tyhp\PropertyPath(");
+        php.Should().Contain(@"\Tyhp\PropertyPath::on(");
         php.Should().NotContain(@"\T::class");
         php.Should().NotContain("('T'");
     }
@@ -136,6 +135,30 @@ public class PropertyPathEmitterTests
 
         php.Should().Contain("takeClosure($path->callable)");
         php.Should().NotContain("takeClosure($path);");
+    }
+
+    [Fact]
+    public void Emit_GenericResultParameter_UsesKnownPropertyType()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Person {
+                public int $age;
+                public string $city;
+            }
+            function column<R>(\Tyhp\PropertyPath<callable(Person): R> $path): void {}
+            function demo(): void {
+                column(fn (Person $person) => $person->age);
+                column(fn ($p) => $p->city);
+            }
+            """);
+
+        php.Should().Contain(@"\Tyhp\PropertyPath::on(\Person::class)->age->backedBy(fn(");
+        php.Should().Contain(@"\Tyhp\PropertyPath::on(\Person::class)->city->backedBy(fn(");
+        php.Should().Contain(": int");
+        php.Should().Contain(": string");
+        php.Should().NotContain("'mixed'");
+        php.Should().NotContain("Generic::bind");
     }
 
     private static string CompileAndEmit(string tyhp)

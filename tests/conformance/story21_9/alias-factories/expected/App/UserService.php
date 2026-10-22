@@ -8,10 +8,6 @@ declare(strict_types=1);
 
 namespace App;
 
-class UserService
-{
-    public static function NameType(): \Tyhp\Type
-    {
-        return \Tyhp\Type::string();
-    }
-}
+\Tyhp\Type::register('App\\UserService\\NameType', fn () => \Tyhp\Type::string());
+
+class UserService {}

@@ -82,7 +82,7 @@ public class NullableInstanceofEmitterTests
             }
             """);
 
-        php.Should().Contain("\\Tyhp\\Type::is($x, \\Tyhp\\Type::nullable(UserId()))");
+        php.Should().Contain("\\Tyhp\\Type::is($x, \\Tyhp\\Type::nullable(\\Tyhp\\Type::ref('UserId')))");
         php.Should().NotContain("$x instanceof ?UserId");
         php.Should().NotContain("$x is ?UserId");
     }

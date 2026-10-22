@@ -20,6 +20,12 @@ class Type implements \Stringable
 {
     private static array $singletons = [];
 
+    /** @var array<string, \Closure> */
+    private static array $registry = [];
+
+    /** @var array<string, self> */
+    private static array $resolved = [];
+
     public function __construct(
         private readonly string $kind,
         private readonly ?string $name = null,
@@ -109,11 +115,104 @@ class Type implements \Stringable
     }
 
     public static function struct(
-        string $name,
-        array $fields,
+        ?string $name = null,
+        array $fields = [],
         array $requiredKeys = [],
     ): self {
         return new self('struct', $name, [], false, false, $fields, $requiredKeys);
+    }
+
+    public static function shape(?string $name = null): self
+    {
+        return new self('objectShape', $name);
+    }
+
+    public static function register(string $name, \Closure $factory): void
+    {
+        self::$registry[$name] = $factory;
+        unset(self::$resolved[$name]);
+    }
+
+    public static function ref(string $refName, self ...$generics): self
+    {
+        if (isset(self::$resolved[$refName])) {
+            return self::$resolved[$refName];
+        }
+
+        if (!isset(self::$registry[$refName])) {
+            throw new \InvalidArgumentException("Unknown type '{$refName}'.");
+        }
+
+        $placeholder = new self('ref', $refName);
+        self::$resolved[$refName] = $placeholder;
+        $raw = (self::$registry[$refName])(...$generics);
+        if (!$raw instanceof self) {
+            throw new \InvalidArgumentException('Type factory must return a Type.');
+        }
+
+        $named = $raw->name($refName);
+        self::$resolved[$refName] = $named;
+
+        return $named;
+    }
+
+    public function name(string $declaredName): self
+    {
+        return $this->copy(name: $declaredName);
+    }
+
+    public function field(string $fieldName, self $type): self
+    {
+        $fields = $this->structFields;
+        $fields[$fieldName] = $type;
+        $required = $this->structRequiredKeys;
+        $required[] = $fieldName;
+
+        return $this->copy(structFields: $fields, structRequiredKeys: $required);
+    }
+
+    public function optional(string $fieldName, self $type): self
+    {
+        $fields = $this->structFields;
+        $fields[$fieldName] = $type;
+
+        return $this->copy(structFields: $fields);
+    }
+
+    public function method(string $methodName): self
+    {
+        $methods = $this->objectShapeMethods;
+        $methods[] = $methodName;
+
+        return $this->copy(objectShapeMethods: $methods);
+    }
+
+    public function property(string $propertyName): self
+    {
+        $properties = $this->objectShapeProperties;
+        $properties[] = $propertyName;
+
+        return $this->copy(objectShapeProperties: $properties);
+    }
+
+    private function copy(
+        ?string $name = null,
+        ?array $structFields = null,
+        ?array $structRequiredKeys = null,
+        ?array $objectShapeMethods = null,
+        ?array $objectShapeProperties = null,
+    ): self {
+        return new self(
+            $this->kind,
+            $name ?? $this->name,
+            $this->typeArgs,
+            $this->isReadOnly,
+            $this->isNullable,
+            $structFields ?? $this->structFields,
+            $structRequiredKeys ?? $this->structRequiredKeys,
+            $objectShapeMethods ?? $this->objectShapeMethods,
+            $objectShapeProperties ?? $this->objectShapeProperties,
+        );
     }
 
     /**

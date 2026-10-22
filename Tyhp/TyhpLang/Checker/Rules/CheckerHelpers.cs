@@ -1573,8 +1573,22 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // Scalar / class extension methods are instance-call syntax (`$s->length()`), not
             // `string::length()`. Static lookup stays on declared static members only, including
             // relative-keyword forwarding (own instance members are handled above).
+            // A missing static name still dispatches to `__callStatic` in PHP. Skip that
+            // fallback when the name is a property: `self::$field` shares this lookup and
+            // must stay the property, not the magic method's return type.
             if (staticOnly)
             {
+                if (objectDecl is not null && !DeclaresStaticProperty(symbolTree, objectDecl, methodName))
+                {
+                    if (symbolTree.ResolveStaticMember(methodName, objectDecl, new DiagnosticBag())
+                            is ObjectMethodSymbol staticMember
+                        && (staticMember.IsStatic || allowInstanceForwarding))
+                    {
+                        method = staticMember;
+                        return true;
+                    }
+                }
+
                 return false;
             }
 
@@ -1614,6 +1628,18 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             return false;
+        }
+
+        private static bool DeclaresStaticProperty(
+            SymbolTree symbolTree,
+            ObjectDeclarationSymbol objectDecl,
+            string methodName)
+        {
+            var propertyName = methodName.StartsWith('$')
+                ? methodName
+                : "$" + methodName;
+            return symbolTree.ResolveMember(propertyName, objectDecl, new DiagnosticBag())
+                is ObjectPropertySymbol;
         }
 
         /// <summary>

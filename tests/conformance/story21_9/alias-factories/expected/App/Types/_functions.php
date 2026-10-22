@@ -8,13 +8,6 @@ declare(strict_types=1);
 
 namespace App\Types;
 
-function UserId(): \Tyhp\Type
-{
-    return \Tyhp\Type::int();
-}
+\Tyhp\Type::register('App\\Types\\UserId', fn () => \Tyhp\Type::int());
 
-function Optional(?\Tyhp\Type $T = null): \Tyhp\Type
-{
-    $T ??= \Tyhp\Type::mixed();
-    return \Tyhp\Type::nullable($T);
-}
+\Tyhp\Type::register('App\\Types\\Optional', fn (\Tyhp\Type $T) => \Tyhp\Type::nullable($T));

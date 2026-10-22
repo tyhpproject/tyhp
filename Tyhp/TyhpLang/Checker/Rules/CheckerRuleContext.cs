@@ -369,6 +369,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             InferredClosureSignature signature) =>
             _checker.RecordInferredClosureSignature(closure, signature);
 
+        public bool TryGetInferredClosureSignature(
+            PhpInlineFunctionAst? closure,
+            out InferredClosureSignature? signature) =>
+            _checker.TryGetInferredClosureSignature(closure, out signature);
+
         public void RecordInferredGeneratorReturn(
             IBaseSymbol? callableSymbol,
             PhpInlineFunctionAst? closure,

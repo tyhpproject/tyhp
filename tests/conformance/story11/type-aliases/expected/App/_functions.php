@@ -8,7 +8,4 @@ declare(strict_types=1);
 
 namespace App;
 
-function UserId(): \Tyhp\Type
-{
-    return \Tyhp\Type::int();
-}
+\Tyhp\Type::register('App\\UserId', fn () => \Tyhp\Type::int());

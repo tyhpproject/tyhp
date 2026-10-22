@@ -25,9 +25,8 @@ public class CallableShapeGuardEmitterTests
             }
             """);
 
-        php.Should().Contain("\\Tyhp\\Type::is($fn, Predicate(\\Tyhp\\Type::int()))");
-        php.Should().Contain("function Predicate(");
-        php.Should().Contain("\\Tyhp\\Type::callableShape('Predicate')");
+        php.Should().Contain("\\Tyhp\\Type::is($fn, \\Tyhp\\Type::ref('Predicate', \\Tyhp\\Type::int()))");
+        php.Should().Contain("\\Tyhp\\Type::register('Predicate', fn (\\Tyhp\\Type $T) => \\Tyhp\\Type::callableShape());");
         php.Should().Contain("$x instanceof User");
         php.Should().NotContain("$fn instanceof Predicate");
         php.Should().NotContain("class Predicate");
@@ -74,7 +73,7 @@ public class CallableShapeGuardEmitterTests
             """);
 
         php.Should().Contain("\\Tyhp\\Type::is($x");
-        php.Should().Contain("\\Tyhp\\Type::struct('Point'");
+        php.Should().Contain("\\Tyhp\\Type::ref('Point')");
         php.Should().NotContain("$x instanceof Point");
         php.Should().NotContain("class Point");
         php.Should().NotContain("function Point(");
@@ -106,7 +105,7 @@ public class CallableShapeGuardEmitterTests
             """).Php;
 
         php.Should().Contain("\\Tyhp\\Type::is($x");
-        php.Should().Contain("\\Tyhp\\Type::struct('C\\\\Point'");
+        php.Should().Contain("\\Tyhp\\Type::register('C\\\\Point'");
         php.Should().NotContain("is_array_marker($x)");
         php.Should().NotContain("$x instanceof");
         php.Should().NotContain("C::Point()");
@@ -133,7 +132,7 @@ public class CallableShapeGuardEmitterTests
             """);
 
         php.Should().Contain("\\Tyhp\\Type::is($x");
-        php.Should().Contain("\\Tyhp\\Type::struct('C\\\\Point'");
+        php.Should().Contain("\\Tyhp\\Type::register('C\\\\Point'");
         php.Should().NotContain("$x instanceof");
         php.Should().NotContain("self::Point()");
     }

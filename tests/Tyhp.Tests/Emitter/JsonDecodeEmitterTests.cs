@@ -59,7 +59,8 @@ public class JsonDecodeEmitterTests
         php.Should().Contain("\\Tyhp\\Type::struct(");
         php.Should().Contain("'name'");
         php.Should().Contain("'age'");
-        php.Should().Contain("], ['name', 'age'])");
+        php.Should().Contain("\\Tyhp\\Type::ref('Test\\\\User')");
+        php.Should().Contain("->field('name', \\Tyhp\\Type::string())->field('age', \\Tyhp\\Type::int())");
         php.Should().NotContain("User::class");
         php.Should().NotContain("fromClassName");
     }
@@ -86,7 +87,9 @@ public class JsonDecodeEmitterTests
             }
             """);
 
-        php.Should().Contain("], ['name'])");
+        php.Should().Contain("->field('name', \\Tyhp\\Type::string())");
+        php.Should().Contain("->optional('age', \\Tyhp\\Type::int())");
+        php.Should().Contain("->optional('nick', \\Tyhp\\Type::nullable(\\Tyhp\\Type::string()))");
     }
 
     [Fact]

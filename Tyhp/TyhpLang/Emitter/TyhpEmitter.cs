@@ -120,10 +120,21 @@ namespace Tyhp.TyhpLang.Emitter
         private readonly List<TyhpOperatorOverloadAst> _pendingOperatorOverloads = new();
 
         /// <summary>
-        /// Struct FQNs currently being materialized into <c>\Tyhp\Type::struct(...)</c>, so a
-        /// recursive struct field falls back to <c>Type::array()</c> instead of overflowing.
+        /// Struct FQNs currently being materialized into a <c>Type::struct()</c> fluent body.
+        /// A recursive field of the same struct emits <c>Type::ref</c> instead of overflowing.
         /// </summary>
         private readonly HashSet<string> _structTypeEmitStack = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// FQN of the struct whose <c>Type::register</c> body is being emitted. Other structs
+        /// in that body are <c>Type::ref</c> calls, not inlined shapes.
+        /// </summary>
+        private string? _materializingStructFqn;
+
+        /// <summary>
+        /// Class-level declaration registrations emitted beside the class, not as methods.
+        /// </summary>
+        private readonly List<(IBase2Ast Node, string Statement)> _pendingClassTypeRegistrations = new();
 
         /// <summary>
         /// While emitting a source type-alias Type factory, each of that alias's generic

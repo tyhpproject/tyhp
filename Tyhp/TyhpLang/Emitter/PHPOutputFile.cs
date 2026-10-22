@@ -636,9 +636,10 @@ namespace Tyhp.TyhpLang.Emitter
         /// <list type="bullet">
         /// <item>Erased types — tyhpdef type aliases, object-scoped type aliases, generic type
         /// parameters, and struct declarations (structs erase to <c>array</c>).</item>
-        /// <item>Source file-level type aliases whose factory is not referenced by short name
-        /// (hints-only or fully-qualified <c>\Ns\Alias()</c> calls). When the factory is used as
-        /// <c>Alias()</c>, the class-kind Tyhp <c>use</c> is rewritten to <c>use function</c>.</item>
+        /// <item>Source file-level type aliases. Value calls, <c>typeof</c>, <c>is</c>, and
+        /// <c>default</c> lower to <c>\Tyhp\Type::ref</c>, so the class-kind <c>use</c> is dropped.
+        /// A body that still contains a short-name <c>Alias()</c> call is rewritten to
+        /// <c>use function</c>.</item>
         /// <item>Extension-class imports whose call sites were rewritten to fully-qualified static
         /// calls (e.g. <c>\Tyhp\Extensions\StringExtensions::method()</c>) — the leading backslash makes
         /// the <c>use</c> clause redundant.</item>
@@ -730,9 +731,10 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         /// <summary>
-        /// Source file-level aliases emit a PHP function. Keep the Tyhp class-kind
-        /// <c>use App\Types\UserId</c> as <c>use function</c> when the factory is referenced by
-        /// short name; drop it for hints-only usage or fully-qualified <c>\App\Types\UserId()</c>.
+        /// Source file-level aliases register with <c>\Tyhp\Type::register</c>. Value calls
+        /// lower to <c>\Tyhp\Type::ref</c> and do not need an import. Keep the Tyhp class-kind
+        /// <c>use App\Types\UserId</c> as <c>use function</c> only when the body still contains
+        /// a short-name <c>UserId()</c> call; drop it for hints-only usage.
         /// Returns <see langword="null"/> when the import is not a source type-alias factory,
         /// <see langword="true"/> when it was rewritten and should be kept, and
         /// <see langword="false"/> when it should be dropped.

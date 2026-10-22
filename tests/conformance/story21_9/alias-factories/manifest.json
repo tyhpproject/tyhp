@@ -1,6 +1,6 @@
 {
   "suite": "story21_9/alias-factories",
-  "description": "Story 21.9 Phase 4 — type-alias Type factories plus import rewrite (use → use function)",
+  "description": "Type-alias registrations and value-position Type::ref calls",
   "defaults": {
     "action": "build"
   },

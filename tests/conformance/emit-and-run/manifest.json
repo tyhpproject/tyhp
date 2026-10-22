@@ -93,7 +93,8 @@
         "errorCount": 0,
         "stdout": "yes\n",
         "emittedContains": [
-          "\\Tyhp\\Type::is($x, \\Tyhp\\Type::struct('Money', ['cents' => \\Tyhp\\Type::int()], []))"
+          "\\Tyhp\\Type::is($x, \\Tyhp\\Type::ref('Money'))",
+          "\\Tyhp\\Type::register('Money', fn () => \\Tyhp\\Type::struct()->optional('cents', \\Tyhp\\Type::int()))"
         ],
         "emittedNotContains": ["instanceof Money"]
       }
@@ -105,8 +106,8 @@
         "errorCount": 0,
         "stdout": "yes\nno\n1\n",
         "emittedContains": [
-          "\\Tyhp\\Type::is($withNow, ClockShape())",
-          "\\Tyhp\\Type::objectShape('ClockShape', ['now'], [])"
+          "\\Tyhp\\Type::is($withNow, \\Tyhp\\Type::ref('ClockShape'))",
+          "\\Tyhp\\Type::register('ClockShape', fn () => \\Tyhp\\Type::shape()->method('now'))"
         ],
         "emittedNotContains": [
           "instanceof ClockShape",

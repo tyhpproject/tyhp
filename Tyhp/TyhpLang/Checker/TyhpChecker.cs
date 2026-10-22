@@ -813,6 +813,25 @@ namespace Tyhp.TyhpLang.Checker
             }
         }
 
+        internal bool TryGetInferredClosureSignature(
+            PhpInlineFunctionAst? closure,
+            out InferredClosureSignature? signature)
+        {
+            signature = null;
+            if (closure is null)
+            {
+                return false;
+            }
+
+            if (!_inferredClosureSignatures.TryGetValue(closure, out var found))
+            {
+                return false;
+            }
+
+            signature = found;
+            return true;
+        }
+
         internal void RecordInferredGeneratorReturn(
             IBaseSymbol? callableSymbol,
             PhpInlineFunctionAst? closure,

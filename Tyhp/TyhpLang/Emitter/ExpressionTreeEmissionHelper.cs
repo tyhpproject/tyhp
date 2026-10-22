@@ -10,15 +10,17 @@ using Tyhp.TyhpLang.Parser;
 namespace Tyhp.TyhpLang.Emitter
 {
     /// <summary>
-    /// Story 16 Phase 2 — builds <c>new \Tyhp\Expression(...)</c> AST for inline expression-tree
+    /// Builds a <c>\Tyhp\Expression::lambda(...)</c> call for inline expression-tree
     /// arrow functions targeting <c>Expression&lt;TCallableShape&gt;</c> parameters.
+    /// The helper infers the return type from the closure and the tree body, so the
+    /// call does not pass <c>returnType</c>.
     /// </summary>
-    internal static class ExpressionTreeEmissionHelper
+    internal static partial class ExpressionTreeEmissionHelper
     {
         /// <summary>
         /// When <paramref name="expectedType"/> is <c>Expression&lt;…&gt;</c> (not PropertyPath) and
         /// <paramref name="expression"/> is an arrow fn, returns the rewritten
-        /// <c>new \Tyhp\Expression(...)</c> expression.
+        /// <c>\Tyhp\Expression::lambda(...)</c> call.
         /// </summary>
         public static bool TryRewriteInlineFn(
             IExpression expression,
@@ -54,7 +56,6 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             var inferred = getInferredSignature?.Invoke(closure);
-            var paramNames = GetParameterNames(closure);
             var parameterInfos = BuildParameterInfos(
                 closure,
                 inferred,
@@ -62,48 +63,21 @@ namespace Tyhp.TyhpLang.Emitter
                 formatClassFqn,
                 context);
 
-            var treeBody = RewriteNode(
+            var chain = RewriteFluent(
                 body,
-                paramNames,
                 parameterInfos,
                 expressionTypes,
                 formatClassFqn,
                 context);
-            if (treeBody is null)
+            if (chain is null)
             {
                 return false;
             }
 
-            var returnTypeSpelling = SpellReturnType(
-                expectedType,
-                closure,
-                inferred,
-                resolveTypeSymbol,
-                formatClassFqn);
-
-            var parameterList = parameterInfos
-                .OrderBy(p => p.Value.Index)
-                .Select(p => BuildParameterExpressionNode(p.Value, context))
-                .ToList();
-
-            var args = PhpArgumentListAst.Create(
-                [
-                    PhpArgumentAst.CreateNamedFromContext(treeBody, "body", context),
-                    PhpArgumentAst.CreateNamedFromContext(
-                        BuildArray(parameterList, context),
-                        "parameters",
-                        context),
-                    PhpArgumentAst.CreateNamedFromContext(closure, "callable", context),
-                    PhpArgumentAst.CreateNamedFromContext(
-                        PhpScalarAst.CreateStringFromContext(context, returnTypeSpelling),
-                        "returnType",
-                        context),
-                ],
-                context);
-
-            rewritten = PhpNewAst.CreateFromContext(
-                PhpNameAst.CreateFromContext(@"\Tyhp\Expression", context),
-                args,
+            rewritten = CallInstance(
+                RenderChain(chain, context),
+                "backedBy",
+                [closure],
                 context);
             return true;
         }
@@ -250,42 +224,6 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             return PhpScalarAst.CreateStringFromContext(context, "mixed");
-        }
-
-        private static string SpellReturnType(
-            ITypeExpression expectedType,
-            PhpInlineFunctionAst closure,
-            InferredClosureSignature? inferred,
-            Func<ITypeExpression?, IBaseSymbol?> resolveTypeSymbol,
-            Func<string?, string?, string> formatClassFqn)
-        {
-            var typeArgs = PropertyPathEmissionHelper.GetGenericTypeArguments(expectedType);
-            PropertyPathEmissionHelper.SplitCallableShapeTypeArguments(
-                typeArgs, out _, out var resultTypeExpr);
-            if (resultTypeExpr is not null)
-            {
-                return PropertyPathEmissionHelper.SpellTypeAsRuntimeString(
-                    resultTypeExpr,
-                    resolveTypeSymbol,
-                    formatClassFqn);
-            }
-
-            if (closure.ReturnType is not null)
-            {
-                return PropertyPathEmissionHelper.SpellTypeAsRuntimeString(
-                    closure.ReturnType,
-                    resolveTypeSymbol,
-                    formatClassFqn);
-            }
-
-            if (inferred?.ReturnType is { } inferredReturn)
-            {
-                return PropertyPathEmissionHelper.SpellCheckedTypeAsRuntimeString(
-                    inferredReturn,
-                    formatClassFqn);
-            }
-
-            return "mixed";
         }
 
         private static IExpression? RewriteNode(

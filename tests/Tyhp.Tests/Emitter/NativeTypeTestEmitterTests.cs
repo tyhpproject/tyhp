@@ -223,7 +223,7 @@ public class NativeTypeTestEmitterTests
             }
             """);
 
-        php.Should().Contain("\\Tyhp\\Type::is($x, Numeric())");
+        php.Should().Contain("\\Tyhp\\Type::is($x, \\Tyhp\\Type::ref('Numeric'))");
         php.Should().NotContain("\\is_int($x)");
         php.Should().NotContain("\\is_string($x)");
     }

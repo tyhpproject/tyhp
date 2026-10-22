@@ -241,8 +241,7 @@ public class GenericEraseEmitterTests
             }
             """);
 
-        php.Should().Contain("\\Tyhp\\Type::struct('Vendor\\\\Point'");
-        php.Should().Contain("], ['x'])");
+        php.Should().Contain("\\Tyhp\\Type::ref('Vendor\\\\Point')");
     }
 
     [Fact]

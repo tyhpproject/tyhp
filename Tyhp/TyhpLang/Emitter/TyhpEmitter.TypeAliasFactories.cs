@@ -1,15 +1,20 @@
+using Tyhp.Domain.Diagnostics;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
+using Tyhp.TyhpLang.Binder.Resolution;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
+using Tyhp.TyhpLang.Checker;
+using Tyhp.TyhpLang.Checker.Rules;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Emitter
 {
     /// <summary>
-    /// Source type-alias declarations emit a <c>\Tyhp\Type</c> factory (namespace function or
-    /// class static method). PHP type hints still expand via <see cref="TypeSpellingHelper"/>.
+    /// Source type-alias declarations emit <c>\Tyhp\Type::register</c>. A value-position call
+    /// (<c>UserId()</c>, <c>\Ns\UserId()</c>, <c>UserService::NameType()</c>) emits
+    /// <c>\Tyhp\Type::ref</c>. PHP type hints still expand via <see cref="TypeSpellingHelper"/>.
     /// </summary>
     public partial class TyhpEmitter
     {
@@ -20,10 +25,7 @@ namespace Tyhp.TyhpLang.Emitter
             var emptyType = classLevel ? EmitType.ObjectStaticMethods : EmitType.RootStatement;
             if (!ShouldEmitSourceTypeAliasFactory(alias)
                 || !ShouldEmitPhpVersionGatedDeclaration(alias)
-                || NoEmitAttributeSupport.ShouldOmitDeclaration(alias)
-                || (TypeAliasIsCircular(alias.BoundSymbol)
-                    && alias.ObjectShape is null
-                    && alias.CallableShape is null))
+                || NoEmitAttributeSupport.ShouldOmitDeclaration(alias))
             {
                 return EmitItem.Empty(alias, emptyType, parent);
             }
@@ -42,6 +44,7 @@ namespace Tyhp.TyhpLang.Emitter
                 StringComparer.Ordinal);
             var previousSymbol = this._emittingAliasFactorySymbol;
             var previousIsStatic = this._currentMemberIsStatic;
+            var previousStructFqn = this._materializingStructFqn;
 
             this._aliasFactoryGenericParamExprs.Clear();
             foreach (var gp in genericParams)
@@ -50,6 +53,7 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             this._emittingAliasFactorySymbol = alias.BoundSymbol;
+            this._materializingStructFqn = StructRegistrationFqn(alias);
             if (classLevel)
             {
                 this._currentMemberIsStatic = true;
@@ -57,27 +61,21 @@ namespace Tyhp.TyhpLang.Emitter
 
             try
             {
-                var signature = this.BuildAliasFactorySignature(alias, name, genericParams, classLevel);
-                var block = this.ApplyDocComment(
-                    alias,
-                    EmitItem.BlockBraceNextLine(alias, emptyType, signature, "}", parent));
-                this.AttachAttributes(alias, block);
-
-                foreach (var gp in genericParams)
+                var bodyExpr = this.BuildRuntimeTypeExpression(alias.TypeExpression, preferCtorLocals: false);
+                var registeredName = classLevel && this._currentObjectFqn is { } objectFqn
+                    ? objectFqn.TrimStart('\\') + "\\" + name
+                    : DeclarationRegistrationName(alias, name);
+                var statement = this.BuildTypeRegisterStatement(
+                    registeredName,
+                    genericParams,
+                    bodyExpr);
+                if (classLevel)
                 {
-                    var defaultExpr = gp.DefaultType is not null
-                        ? this.BuildRuntimeTypeExpression(gp.DefaultType, preferCtorLocals: false)
-                        : $"{RuntimeTypeClassFq}::mixed()";
-                    EmitItem.Line(
-                        alias,
-                        EmitType.FunctionStatement,
-                        $"${gp.Name} ??= {defaultExpr};",
-                        block);
+                    this._pendingClassTypeRegistrations.Add((alias, statement));
+                    return EmitItem.Empty(alias, emptyType, parent);
                 }
 
-                var bodyExpr = this.BuildRuntimeTypeExpression(alias.TypeExpression, preferCtorLocals: false);
-                EmitItem.Line(alias, EmitType.FunctionStatement, "return " + bodyExpr + ";", block);
-                return block;
+                return EmitItem.Line(alias, emptyType, statement, parent);
             }
             finally
             {
@@ -89,13 +87,12 @@ namespace Tyhp.TyhpLang.Emitter
 
                 this._emittingAliasFactorySymbol = previousSymbol;
                 this._currentMemberIsStatic = previousIsStatic;
+                this._materializingStructFqn = previousStructFqn;
             }
         }
 
         private static bool ShouldEmitSourceTypeAliasFactory(TyhpTypeAliasAst alias)
-            => !IsTyhpdefTypeAlias(alias)
-                && alias.StructShape is null
-                && alias.BoundSymbol is not ObjectDeclarationSymbol { IsStruct: true };
+            => !IsTyhpdefTypeAlias(alias);
 
         private static bool IsTyhpdefTypeAlias(TyhpTypeAliasAst alias)
         {
@@ -261,7 +258,7 @@ namespace Tyhp.TyhpLang.Emitter
             {
                 if (TryGetSelfStaticParentSpelling(typeExpr) is { } selfName)
                 {
-                    return $"{RuntimeTypeClassFq}::fromClassName({selfName}::class)";
+                    return this.BuildSelfStaticParentRuntimeClass(selfName);
                 }
 
                 if (typeExpr is TyhpTemplateStringTypeAst)
@@ -362,6 +359,343 @@ namespace Tyhp.TyhpLang.Emitter
             }
         }
 
+        /// <summary>
+        /// A value-position call of a source alias (<c>UserId()</c>, <c>\Ns\UserId()</c>,
+        /// <c>Optional(typeof(int))</c>, <c>UserService::NameType()</c>) is a
+        /// <c>\Tyhp\Type::ref</c> of the registered declaration. The same shape
+        /// <c>typeof</c> already emits. Tyhpdef aliases are left as calls.
+        /// </summary>
+        private string? TryBuildValuePositionTypeRef(PhpDereferenceableAst dereferenceable, PhpCallAst call)
+        {
+            if (CheckerHelpers.IsFirstClassCallableArgumentList(call.Arguments))
+            {
+                return null;
+            }
+
+            if (!this.TryResolveValuePositionAlias(dereferenceable, out var alias, out var writtenName, out var typeArgBase))
+            {
+                return null;
+            }
+
+            this._context.RequirePackage("tyhp/core");
+            return this.BuildRuntimeTypeRefCall(
+                this.BuildAliasRefNameExpression(alias, writtenType: null, writtenName),
+                this.BuildValuePositionRefArguments(alias, call, typeArgBase));
+        }
+
+        private bool TryResolveValuePositionAlias(
+            PhpDereferenceableAst dereferenceable,
+            out IBaseSymbol alias,
+            out string? writtenName,
+            out IDereferenceableBase? typeArgBase)
+        {
+            alias = null!;
+            writtenName = null;
+            typeArgBase = null;
+
+            if (dereferenceable.Base is PhpNameAst name)
+            {
+                var resolved = this.ResolveEmitTypeAliasFactory(name);
+                if (resolved is null)
+                {
+                    return false;
+                }
+
+                alias = resolved;
+                writtenName = name.ValueString ?? name.Identifier;
+                typeArgBase = name;
+                return true;
+            }
+
+            if (dereferenceable.Base is PhpDereferenceableAst chain
+                && this.TryResolveStaticAliasCall(chain) is { } objectAlias)
+            {
+                alias = objectAlias;
+                writtenName = WrittenStaticAliasName(chain, objectAlias.Name);
+                typeArgBase = chain;
+                return true;
+            }
+
+            return false;
+        }
+
+        private TypeAliasSymbol? ResolveEmitTypeAliasFactory(PhpNameAst name)
+        {
+            if (this._context.GlobalScope is null)
+            {
+                return null;
+            }
+
+            var state = new CheckerState
+            {
+                CurrentNamespaceName = this._context.CurrentSourceNamespace?.Trim().TrimStart('\\'),
+                CurrentFileName = this._context.CurrentOutputFile?.SourceFileAst?.Identifier
+                    ?? this._context.CurrentSourceFile?.Identifier,
+                NameResolutionScope = this.GetEmitAliasResolutionScope(),
+                EnclosingObject = this._currentObjectSymbol,
+            };
+            var resolved = CheckerHelpers.ResolveTypeAliasFactory(
+                name,
+                state,
+                this._context.GetSymbolTree(),
+                this._context.GlobalScope);
+            return resolved is not null && !IsTyhpdefAliasSymbol(resolved) ? resolved : null;
+        }
+
+        private ObjectTypeAliasSymbol? TryResolveStaticAliasCall(PhpDereferenceableAst chain)
+        {
+            if (chain.Base is not PhpNameAst ownerName || this._context.GlobalScope is null)
+            {
+                return null;
+            }
+
+            var memberName = StaticCallMemberName(chain);
+            if (string.IsNullOrEmpty(memberName))
+            {
+                return null;
+            }
+
+            var ownerText = (ownerName.ValueString ?? ownerName.Identifier ?? "").Trim();
+            var simple = ownerText.TrimStart('\\');
+            if (simple.Length == 0)
+            {
+                return null;
+            }
+
+            var ownerSegments = simple.Split('\\', StringSplitOptions.RemoveEmptyEntries);
+            if (ownerSegments.Length == 0)
+            {
+                return null;
+            }
+
+            var segments = new string[ownerSegments.Length + 1];
+            ownerSegments.CopyTo(segments, 0);
+            segments[^1] = memberName;
+
+            var resolver = new NameResolver(this._context.GetSymbolTree(), new DiagnosticBag());
+            var resolved = resolver.TryResolveObjectTypeAlias(
+                segments,
+                this.GetEmitAliasResolutionScope(),
+                isFullyQualified: ownerText.StartsWith('\\'));
+            if (resolved is ObjectTypeAliasSymbol alias && !IsTyhpdefAliasSymbol(alias))
+            {
+                return alias;
+            }
+
+            if (ownerSegments.Length == 1 && IsRelativeClassKeyword(ownerSegments[0]))
+            {
+                var owner = string.Equals(ownerSegments[0], "parent", StringComparison.OrdinalIgnoreCase)
+                    ? this.TryResolveEmitParent(this._currentObjectSymbol)
+                    : this._currentObjectSymbol;
+                return this.FindSourceAliasMember(owner, memberName);
+            }
+
+            return null;
+        }
+
+        private ObjectTypeAliasSymbol? FindSourceAliasMember(ObjectDeclarationSymbol? owner, string memberName)
+        {
+            var seen = new HashSet<ObjectDeclarationSymbol>();
+            while (owner is not null && seen.Add(owner))
+            {
+                if (owner.Members.TryGetValue(memberName, out var member))
+                {
+                    return member is ObjectTypeAliasSymbol alias && !IsTyhpdefAliasSymbol(alias)
+                        ? alias
+                        : null;
+                }
+
+                owner = this.TryResolveEmitParent(owner);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Namespace scope for the file being emitted, or the class scope when a method body
+        /// is being emitted so <c>self</c> / <c>parent</c> / <c>static</c> alias calls resolve.
+        /// </summary>
+        private IBaseScope GetEmitAliasResolutionScope()
+        {
+            var scope = this.GetEmitResolutionScope();
+            if (this._currentObjectSymbol is null)
+            {
+                return scope;
+            }
+
+            foreach (var child in scope.GetAllChildScopes())
+            {
+                if (ReferenceEquals(child.DeclarationSymbol, this._currentObjectSymbol))
+                {
+                    return child;
+                }
+            }
+
+            var parent = this._currentObjectSymbol.ContainingScope;
+            if (parent is null)
+            {
+                return scope;
+            }
+
+            foreach (var child in parent.GetAllChildScopes())
+            {
+                if (ReferenceEquals(child.DeclarationSymbol, this._currentObjectSymbol))
+                {
+                    return child;
+                }
+            }
+
+            return scope;
+        }
+
+        private List<string> BuildValuePositionRefArguments(
+            IBaseSymbol alias,
+            PhpCallAst call,
+            IDereferenceableBase? typeArgBase)
+        {
+            var generics = CheckerHelpers.GetAliasFactoryGenericParameters(alias);
+            var callArgs = call.Arguments?.GetAllNotNull().ToList() ?? [];
+            if (callArgs.Count > 0)
+            {
+                var emitted = new List<string?>(generics.Count);
+                while (emitted.Count < generics.Count)
+                {
+                    emitted.Add(null);
+                }
+
+                var positional = 0;
+                foreach (var arg in callArgs)
+                {
+                    var text = arg.IsVariadic
+                        ? "..." + this.BuildExpression(arg.Expression)
+                        : this.BuildExpression(arg.Expression);
+                    var named = arg.Name?.ValueString?.Trim().TrimStart('$');
+                    if (!string.IsNullOrEmpty(named))
+                    {
+                        var index = IndexOfGenericParameter(generics, named);
+                        if (index >= 0)
+                        {
+                            while (emitted.Count <= index)
+                            {
+                                emitted.Add(null);
+                            }
+
+                            emitted[index] = text;
+                            continue;
+                        }
+                    }
+
+                    while (emitted.Count <= positional)
+                    {
+                        emitted.Add(null);
+                    }
+
+                    emitted[positional] = text;
+                    positional++;
+                }
+
+                for (var i = 0; i < emitted.Count; i++)
+                {
+                    if (emitted[i] is not null)
+                    {
+                        continue;
+                    }
+
+                    emitted[i] = i < generics.Count
+                        ? this.DefaultAliasGenericExpr(generics[i])
+                        : $"{RuntimeTypeClassFq}::mixed()";
+                }
+
+                return emitted.Select(expr => expr!).ToList();
+            }
+
+            var fromTypes = new List<string>();
+            var typeArgs = TypeInferrer.TryGetCallSiteTypeArgumentList(typeArgBase);
+            if (typeArgs is null
+                && call.AstGrammarAddons.TryGetValue("genericTypeArguments", out var addon))
+            {
+                typeArgs = addon as PhpTypeExpressionListAst;
+            }
+
+            if (typeArgs is not null)
+            {
+                foreach (var typeArg in typeArgs.GetAllNotNull().OfType<ITypeExpression>())
+                {
+                    fromTypes.Add(this.BuildRuntimeTypeExpression(typeArg, preferCtorLocals: false));
+                }
+            }
+
+            for (var i = fromTypes.Count; i < generics.Count; i++)
+            {
+                fromTypes.Add(this.DefaultAliasGenericExpr(generics[i]));
+            }
+
+            return fromTypes;
+        }
+
+        private string DefaultAliasGenericExpr(GenericTypeParameterSymbol generic) =>
+            generic.DefaultType is not null
+                ? this.BuildRuntimeTypeExpression(generic.DefaultType, preferCtorLocals: false)
+                : $"{RuntimeTypeClassFq}::mixed()";
+
+        private static int IndexOfGenericParameter(
+            IReadOnlyList<GenericTypeParameterSymbol> generics,
+            string name)
+        {
+            for (var i = 0; i < generics.Count; i++)
+            {
+                if (string.Equals(generics[i].Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static string? StaticCallMemberName(PhpDereferenceableAst chain)
+        {
+            IExpression? member = chain.Suffix switch
+            {
+                PhpStaticMemberAccessAst staticAccess => staticAccess.Member,
+                PhpClassConstantAccessAst classConst => classConst.Member,
+                _ => null,
+            };
+            if (member is null)
+            {
+                return null;
+            }
+
+            var text = member.ValueString;
+            if (string.IsNullOrWhiteSpace(text) && member is PhpNameAst name)
+            {
+                text = name.Identifier;
+            }
+
+            return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+        }
+
+        private static string? WrittenStaticAliasName(PhpDereferenceableAst chain, string aliasName)
+        {
+            if (chain.Base is not PhpNameAst ownerName)
+            {
+                return null;
+            }
+
+            var ownerText = (ownerName.ValueString ?? ownerName.Identifier ?? "").Trim().TrimStart('\\');
+            if (ownerText.Length == 0)
+            {
+                return null;
+            }
+
+            if (IsRelativeClassKeyword(ownerText))
+            {
+                ownerText = ownerText.ToLowerInvariant();
+            }
+
+            return ownerText + "\\" + aliasName;
+        }
+
         private string BuildSourceAliasFactoryCall(
             IBaseSymbol alias,
             IReadOnlyList<ITypeExpression>? typeArgs,
@@ -378,8 +712,149 @@ namespace Tyhp.TyhpLang.Emitter
                 }
             }
 
-            var callee = this.SpellSourceAliasFactoryCallee(alias, writtenType, writtenName);
-            return callee + "(" + string.Join(", ", args) + ")";
+            var generics = CheckerHelpers.GetAliasFactoryGenericParameters(alias);
+            for (var i = args.Count; i < generics.Count; i++)
+            {
+                var gp = generics[i];
+                args.Add(gp.DefaultType is not null
+                    ? this.BuildRuntimeTypeExpression(gp.DefaultType, preferCtorLocals)
+                    : $"{RuntimeTypeClassFq}::mixed()");
+            }
+
+            return this.BuildRuntimeTypeRefCall(
+                this.BuildAliasRefNameExpression(alias, writtenType, writtenName),
+                args);
+        }
+
+        private string BuildTypeRegisterStatement(
+            string fqn,
+            IReadOnlyList<AliasFactoryGenericParam> genericParams,
+            string bodyExpr)
+        {
+            var parameters = string.Join(
+                ", ",
+                genericParams.Select(gp => $"{RuntimeTypeClassFq} ${gp.Name}"));
+            var closure = genericParams.Count == 0
+                ? $"fn () => {bodyExpr}"
+                : $"fn ({parameters}) => {bodyExpr}";
+            var nameLiteral = FormatPhpArrayKey(new StructArrayKey(fqn, IsInteger: false));
+            return $"{RuntimeTypeClassFq}::register({nameLiteral}, {closure});";
+        }
+
+        private string BuildRuntimeTypeRefCall(string nameExpr, IReadOnlyList<string> genericExprs)
+        {
+            return genericExprs.Count == 0
+                ? $"{RuntimeTypeClassFq}::ref({nameExpr})"
+                : $"{RuntimeTypeClassFq}::ref({nameExpr}, {string.Join(", ", genericExprs)})";
+        }
+
+        private string BuildAliasRefNameExpression(
+            IBaseSymbol alias,
+            ITypeExpression? writtenType,
+            string? writtenName)
+        {
+            var written = writtenName ?? GetWrittenTypeSpelling(writtenType);
+            if (alias is ObjectTypeAliasSymbol objectAlias)
+            {
+                var owner = objectAlias.ContainingScope?.DeclarationSymbol as ObjectDeclarationSymbol;
+                var classFqn = (owner?.FullyQualifiedName ?? "").TrimStart('\\');
+                var registered = string.IsNullOrEmpty(classFqn)
+                    ? objectAlias.Name
+                    : classFqn + "\\" + objectAlias.Name;
+
+                if (TrySpellObjectAliasCalleeFromWritten(written, objectAlias.Name) is { } callee)
+                {
+                    var split = callee.LastIndexOf("::", StringComparison.Ordinal);
+                    if (split > 0)
+                    {
+                        var qualifier = callee[..split];
+                        if (qualifier is "self" or "static" or "parent")
+                        {
+                            if (this._emittingAliasFactorySymbol is not null)
+                            {
+                                var boundFqn = string.Equals(qualifier, "parent", StringComparison.Ordinal)
+                                    ? this.TryGetCurrentParentClassFqn()
+                                    : this._currentObjectFqn?.TrimStart('\\');
+                                if (!string.IsNullOrEmpty(boundFqn))
+                                {
+                                    registered = boundFqn + "\\" + objectAlias.Name;
+                                }
+                            }
+                            else
+                            {
+                                return qualifier + "::class . '\\\\" + objectAlias.Name + "'";
+                            }
+                        }
+                    }
+                }
+
+                return FormatPhpArrayKey(new StructArrayKey(registered, IsInteger: false));
+            }
+
+            var fqn = (alias.FullyQualifiedName ?? alias.Name).TrimStart('\\');
+            if (string.IsNullOrEmpty(fqn))
+            {
+                fqn = alias.Name;
+            }
+
+            return FormatPhpArrayKey(new StructArrayKey(fqn, IsInteger: false));
+        }
+
+        private string BuildSelfStaticParentRuntimeClass(string spelling)
+        {
+            if (string.Equals(spelling, "parent", StringComparison.OrdinalIgnoreCase))
+            {
+                if (this.TryGetCurrentParentClassFqn() is { } parentFqn)
+                {
+                    return $"{RuntimeTypeClassFq}::fromClassName({QuoteClassNameForType(parentFqn)}::class)";
+                }
+            }
+            else if (this._currentObjectFqn is { } fqn)
+            {
+                return $"{RuntimeTypeClassFq}::fromClassName({QuoteClassNameForType(fqn)}::class)";
+            }
+
+            return $"{RuntimeTypeClassFq}::fromClassName({spelling}::class)";
+        }
+
+        private string? TryGetCurrentParentClassFqn()
+        {
+            var extends = this._currentObjectDecl?.Extends;
+            if (extends is null)
+            {
+                return null;
+            }
+
+            if (extends.BoundSymbol is ObjectDeclarationSymbol parent
+                && !string.IsNullOrWhiteSpace(parent.FullyQualifiedName))
+            {
+                return parent.FullyQualifiedName.TrimStart('\\');
+            }
+
+            var written = (extends.ValueString ?? "").Trim().TrimStart('\\');
+            return string.IsNullOrEmpty(written) ? null : written;
+        }
+
+        private static string? StructRegistrationFqn(TyhpTypeAliasAst alias)
+        {
+            if (alias.BoundSymbol is not ObjectDeclarationSymbol { IsStruct: true } structDecl)
+            {
+                return null;
+            }
+
+            var fqn = (structDecl.FullyQualifiedName ?? structDecl.Name).TrimStart('\\');
+            return string.IsNullOrEmpty(fqn) ? structDecl.Name : fqn;
+        }
+
+        private static string DeclarationRegistrationName(TyhpTypeAliasAst alias, string shortName)
+        {
+            if (StructRegistrationFqn(alias) is { } structFqn)
+            {
+                return structFqn;
+            }
+
+            var fromSymbol = (alias.BoundSymbol?.FullyQualifiedName ?? shortName).TrimStart('\\');
+            return string.IsNullOrEmpty(fromSymbol) ? shortName : fromSymbol;
         }
 
         private string SpellSourceAliasFactoryCallee(

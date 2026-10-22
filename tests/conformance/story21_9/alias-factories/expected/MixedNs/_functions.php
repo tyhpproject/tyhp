@@ -10,10 +10,8 @@ namespace MixedNs;
 
 use App\Types\User;
 
-use function App\Types\UserId;
-
 function take(int $id): \App\Types\User
 {
-    UserId();
+    \Tyhp\Type::ref('App\\Types\\UserId');
     return new \App\Types\User();
 }

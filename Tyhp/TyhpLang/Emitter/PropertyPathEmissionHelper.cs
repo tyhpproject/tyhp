@@ -9,15 +9,19 @@ using Tyhp.TyhpLang.Parser;
 namespace Tyhp.TyhpLang.Emitter
 {
     /// <summary>
-    /// Story 16 Phase 1 — builds <c>new \Tyhp\PropertyPath(...)</c> AST for inline property-path
+    /// Builds a <c>\Tyhp\PropertyPath::from(...)</c> call for inline property-path
     /// arrow functions targeting <c>PropertyPath&lt;TCallableShape&gt;</c> parameters.
+    /// The helper infers the result type from the closure and the property chain, so the
+    /// call does not pass a type string.
     /// </summary>
     internal static class PropertyPathEmissionHelper
     {
         /// <summary>
         /// When <paramref name="expectedType"/> is <c>PropertyPath&lt;…&gt;</c> and
         /// <paramref name="expression"/> is a valid property-chain arrow fn, returns the
-        /// rewritten <c>new \Tyhp\PropertyPath(...)</c> expression.
+        /// rewritten <c>\Tyhp\PropertyPath::from(...)</c> call. The result type is not
+        /// an argument: <c>PropertyPath::from</c> reads it from the closure, then from
+        /// the property chain.
         /// </summary>
         public static bool TryRewriteInlineFn(
             IExpression expression,
@@ -55,7 +59,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             var typeArgs = GetGenericTypeArguments(expectedType);
             var inferred = getInferredSignature?.Invoke(closure);
-            SplitCallableShapeTypeArguments(typeArgs, out var sourceTypeExpr, out var resultTypeExpr);
+            SplitCallableShapeTypeArguments(typeArgs, out var sourceTypeExpr, out _);
 
             var sourceArg = BuildSourceTypeArgument(
                 sourceTypeExpr,
@@ -64,35 +68,50 @@ namespace Tyhp.TyhpLang.Emitter
                 resolveTypeSymbol,
                 formatClassFqn,
                 context);
-            var resultArg = PhpScalarAst.CreateStringFromContext(
-                context,
-                SpellResultType(resultTypeExpr, closure, inferred, resolveTypeSymbol, formatClassFqn));
-            var pathArg = BuildPathArray(segments, context);
 
-            var argList = new List<PhpArgumentAst>
+            IExpression chain = BuildLambdaCall(
+                @"\Tyhp\PropertyPath",
+                "on",
+                [PhpArgumentAst.CreateFromContext(sourceArg, context)],
+                context);
+            foreach (var segment in segments)
             {
-                PhpArgumentAst.CreateFromContext(sourceArg, context),
-                PhpArgumentAst.CreateFromContext(resultArg, context),
-                PhpArgumentAst.CreateFromContext(pathArg, context),
-                PhpArgumentAst.CreateFromContext(closure, context),
-            };
+                if (segment.NullSafe)
+                {
+                    chain = ExpressionTreeEmissionHelper.CallInstance(chain, "nullSafe", [], context);
+                }
 
-            // Only `?->` chains need the flags, so plain paths keep the shorter emitted call.
-            if (segments.Any(s => s.NullSafe))
-            {
-                argList.Add(PhpArgumentAst.CreateNamedFromContext(
-                    BuildNullSafeFlagsArray(segments, context),
-                    "nullSafeFlags",
-                    context));
+                chain = ExpressionTreeEmissionHelper.IsFluentMethodName(segment.Name)
+                    ? ExpressionTreeEmissionHelper.CallInstance(
+                        chain,
+                        "prop",
+                        [PhpScalarAst.CreateStringFromContext(context, segment.Name)],
+                        context)
+                    : ExpressionTreeEmissionHelper.AccessProperty(chain, segment.Name, context);
             }
 
-            var args = PhpArgumentListAst.Create(argList, context);
-
-            rewritten = PhpNewAst.CreateFromContext(
-                PhpNameAst.CreateFromContext(@"\Tyhp\PropertyPath", context),
-                args,
-                context);
+            rewritten = ExpressionTreeEmissionHelper.CallInstance(chain, "backedBy", [closure], context);
             return true;
+        }
+
+        internal static IExpression BuildLambdaCall(
+            string classFqn,
+            string methodName,
+            IReadOnlyList<PhpArgumentAst> arguments,
+            Base2Ast context)
+        {
+            var staticMember = PhpStaticMemberAccessAst.CreateFromContext(
+                PhpNameAst.CreateFromContext(methodName, context),
+                context);
+            var classBase = PhpDereferenceableAst.CreateFromContext(
+                PhpNameAst.CreateFromContext(classFqn, context),
+                staticMember,
+                context);
+            var args = PhpArgumentListAst.Create(arguments, context);
+            return PhpDereferenceableAst.CreateFromContext(
+                classBase,
+                PhpCallAst.CreateFromContext(args, context),
+                context);
         }
 
         public static bool TryBuildCallableExtraction(
@@ -444,31 +463,6 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             return PhpScalarAst.CreateStringFromContext(context, "mixed");
-        }
-
-        private static string SpellResultType(
-            ITypeExpression? resultTypeExpr,
-            PhpInlineFunctionAst closure,
-            InferredClosureSignature? inferred,
-            Func<ITypeExpression?, IBaseSymbol?> resolveTypeSymbol,
-            Func<string?, string?, string> formatClassFqn)
-        {
-            if (resultTypeExpr is not null)
-            {
-                return SpellTypeAsRuntimeString(resultTypeExpr, resolveTypeSymbol, formatClassFqn);
-            }
-
-            if (closure.ReturnType is not null)
-            {
-                return SpellTypeAsRuntimeString(closure.ReturnType, resolveTypeSymbol, formatClassFqn);
-            }
-
-            if (inferred?.ReturnType is { } inferredReturn)
-            {
-                return SpellCheckedTypeAsRuntimeString(inferredReturn, formatClassFqn);
-            }
-
-            return "mixed";
         }
 
         private static PhpArrayAst BuildPathArray(

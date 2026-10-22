@@ -155,6 +155,8 @@ namespace Tyhp.TyhpLang.Emitter
             var previousParentInPropertyHookChain = this._currentObjectParentInPropertyHookChain;
             var previousObjectFqn = this._currentObjectFqn;
             var previousPendingOperators = this._pendingOperatorOverloads.ToList();
+            var previousTypeRegistrations = this._pendingClassTypeRegistrations.ToList();
+            this._pendingClassTypeRegistrations.Clear();
 
             this._currentObjectShortName = objectDecl.IsAnonymousClass
                 ? this._currentObjectShortName
@@ -195,6 +197,14 @@ namespace Tyhp.TyhpLang.Emitter
                 // emitted after all class members are collected.
                 this.EmitCollapsedOperatorMethods(block, this._pendingOperatorOverloads, isExtension: false);
             }
+
+            foreach (var pending in this._pendingClassTypeRegistrations)
+            {
+                EmitItem.Line(pending.Node, EmitType.RootStatement, pending.Statement, parent);
+            }
+
+            this._pendingClassTypeRegistrations.Clear();
+            this._pendingClassTypeRegistrations.AddRange(previousTypeRegistrations);
 
             this._currentObjectShortName = previousObjectShortName;
             this._currentObjectDecl = previousObjectDecl;

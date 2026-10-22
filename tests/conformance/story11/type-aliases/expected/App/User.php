@@ -8,13 +8,11 @@ declare(strict_types=1);
 
 namespace App;
 
+\Tyhp\Type::register('App\\User\\NameType', fn () => \Tyhp\Type::string());
+
 class User
 {
     public string $name = "";
-    public static function NameType(): \Tyhp\Type
-    {
-        return \Tyhp\Type::string();
-    }
     public function getId(): int
     {
         return 42;

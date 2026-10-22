@@ -2983,6 +2983,68 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             // ClosureRule already checks the body return against the mapped callable's R
             // (including nullability when R is `?T` / the chain uses `?->`).
+            // When that R is still a type parameter or mixed, the property chain's type is
+            // the one the emitted closure should advertise.
+            if (body is IBase2Ast typedBody)
+            {
+                RememberPropertyPathBodyReturn(
+                    closure,
+                    context.ResolveExpressionType(typedBody, ambient),
+                    context);
+            }
+        }
+
+        /// <summary>
+        /// Replaces a missing or non-concrete inferred return (a method type parameter, or
+        /// <c>mixed</c>) with the type of the property chain so emit can spell <c>: int</c>
+        /// instead of leaving the closure untyped.
+        /// </summary>
+        private static void RememberPropertyPathBodyReturn(
+            PhpInlineFunctionAst closure,
+            ICheckedType bodyType,
+            CheckerRuleContext context)
+        {
+            if (closure.ReturnType is not null || !IsConcretePropertyPathResult(bodyType))
+            {
+                return;
+            }
+
+            if (!context.TryGetInferredClosureSignature(closure, out var existing) || existing is null)
+            {
+                context.RecordInferredClosureSignature(
+                    closure,
+                    new InferredClosureSignature(bodyType, []));
+                return;
+            }
+
+            if (IsConcretePropertyPathResult(existing.ReturnType))
+            {
+                return;
+            }
+
+            context.RecordInferredClosureSignature(
+                closure,
+                new InferredClosureSignature(bodyType, existing.ParameterTypes));
+        }
+
+        private static bool IsConcretePropertyPathResult(ICheckedType? type)
+        {
+            if (type is null)
+            {
+                return false;
+            }
+
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            if (type.Kind is CheckedTypeKind.Mixed or CheckedTypeKind.Unresolved or CheckedTypeKind.Inferred)
+            {
+                return false;
+            }
+
+            return type is not SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol };
         }
 
         /// <summary>

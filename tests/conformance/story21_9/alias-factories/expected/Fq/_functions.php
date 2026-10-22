@@ -10,5 +10,5 @@ namespace Fq;
 
 function demo(): mixed
 {
-    return \App\Types\UserId();
+    return \Tyhp\Type::ref('App\\Types\\UserId');
 }
