@@ -19,7 +19,7 @@
   <a href="https://tyhplang.com"><img src="https://img.shields.io/badge/docs-tyhplang.com-34A4F4" alt="Documentation"></a>
   <a href="https://www.php.net"><img src="https://img.shields.io/badge/PHP-8.2--8.5-777BB4?logo=php&logoColor=white" alt="PHP 8.2 to 8.5"></a>
   <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache%202.0-34A4F4" alt="Apache License 2.0"></a>
-  <a href="https://github.com/tyhpproject/tyhp/releases"><img src="https://img.shields.io/badge/status-805.1.0--beta.2-orange" alt="Beta 805.1.0-beta.2"></a>
+  <a href="https://github.com/tyhpproject/tyhp/releases"><img src="https://img.shields.io/badge/status-805.1.0--beta.2-orange" alt="Beta 805.1.0-beta.3"></a>
 </p>
 
 ---
@@ -28,7 +28,7 @@ Tyhp is a typed superset of the PHP language. You write `.tyhp` (and can keep `.
 
 **Compile with Tyhp. Deploy with PHP.** Required types, null safety, generics, structs, `async`/`await`, extension methods, and expression trees are part of Tyhp; the output is ordinary PHP that runs on a PHP runtime. Composer packages and existing hosting stay in the picture.
 
-> **Public beta (`805.1.0-beta.2`).** The compiler, type checker, emitter, and CLI work today. Syntax may still change.
+> **Public beta (`805.1.0-beta.3`).** The compiler, type checker, emitter, and CLI work today. Syntax may still change.
 
 ## Write this. Ship PHP.
 
