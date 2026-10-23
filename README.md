@@ -19,7 +19,7 @@
   <a href="https://tyhplang.com"><img src="https://img.shields.io/badge/docs-tyhplang.com-34A4F4" alt="Documentation"></a>
   <a href="https://www.php.net"><img src="https://img.shields.io/badge/PHP-8.2--8.5-777BB4?logo=php&logoColor=white" alt="PHP 8.2 to 8.5"></a>
   <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache%202.0-34A4F4" alt="Apache License 2.0"></a>
-  <a href="https://github.com/tyhpproject/tyhp/releases"><img src="https://img.shields.io/badge/status-805.1.1--beta.3-orange" alt="Beta 805.1.1-beta.3"></a>
+  <a href="https://github.com/tyhpproject/tyhp/releases"><img src="https://img.shields.io/badge/status-805.1.2--beta.3-orange" alt="Beta 805.1.2-beta.3"></a>
 </p>
 
 ---
@@ -28,7 +28,7 @@ Tyhp is a typed superset of the PHP language. You write `.tyhp` (and can keep `.
 
 **Compile with Tyhp. Deploy with PHP.**
 
-> **Public beta (`805.1.1-beta.3`).** The compiler, type checker, emitter, and CLI work today. Syntax may still change. See the [roadmap](https://tyhplang.com/release_roadmap.html).
+> **Public beta (`805.1.2-beta.3`).** The compiler, type checker, emitter, and CLI work today. Syntax may still change. See the [roadmap](https://tyhplang.com/release_roadmap.html).
 
 ## Why Tyhp
 

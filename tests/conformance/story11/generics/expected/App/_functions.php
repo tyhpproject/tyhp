@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace App;
 
-#[\Tyhp\GenericRuntime(erased: true, layouts: [1], compiler: "805.1.1.0")]
+#[\Tyhp\GenericRuntime(erased: true, layouts: [1], compiler: "805.1.2.0")]
 function identity(mixed $val): mixed
 {
     return $val;

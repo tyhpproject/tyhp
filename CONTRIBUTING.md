@@ -1,6 +1,6 @@
 # Contributing to Tyhp
 
-Tyhp is in **beta** (`805.1.1-beta.3`). Issues and pull requests are welcome. Read this before opening either.
+Tyhp is in **beta** (`805.1.2-beta.3`). Issues and pull requests are welcome. Read this before opening either.
 
 ## Legal
 

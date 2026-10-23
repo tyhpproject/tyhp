@@ -425,9 +425,9 @@ public class CallSiteSpliceEmitterTests
             """
             <?tyhpdef
             extension Arrays<TKey extends int|string, TValue> extends array<TKey, TValue> {
-                #[\Tyhp\GenericRuntime(erased: true, layouts: [1], compiler: "805.1.1.0")]
+                #[\Tyhp\GenericRuntime(erased: true, layouts: [1], compiler: "805.1.2.0")]
                 fn mapped<TResult>(callable(TValue): TResult $callback): array<TKey, TResult> => \array_map($callback, $this);
-                #[\Tyhp\GenericRuntime(erased: true, layouts: [1], compiler: "805.1.1.0")]
+                #[\Tyhp\GenericRuntime(erased: true, layouts: [1], compiler: "805.1.2.0")]
                 fn reduce<TResult>(callable(TResult, TValue): TResult $callback, TResult $initial): TResult => \array_reduce($this, $callback, $initial);
             }
             """,

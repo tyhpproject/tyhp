@@ -11,7 +11,7 @@ namespace App;
 /**
  * @template TValue
  */
-#[\Tyhp\GenericRuntime(erased: false, factory: "new_App_Container__tyhpGeneric", layouts: [1], compiler: "805.1.1.0")]
+#[\Tyhp\GenericRuntime(erased: false, factory: "new_App_Container__tyhpGeneric", layouts: [1], compiler: "805.1.2.0")]
 class Container
 {
     use \Tyhp\Concerns\HasGenerics;
