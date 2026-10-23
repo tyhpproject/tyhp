@@ -1834,12 +1834,8 @@ namespace Tyhp.TyhpLang.Emitter
             {
                 null => "",
                 PhpInstanceMemberAccessAst instance => this.BuildInstanceMemberAccess(instance),
-                PhpStaticMemberAccessAst staticAccess => "::"
-                    + this.ApplyPendingVariantCallSuffix(
-                        staticAccess.Member, this.BuildExpression(staticAccess.Member)),
-                PhpClassConstantAccessAst constant => "::"
-                    + this.ApplyPendingVariantCallSuffix(
-                        constant.Member, this.BuildExpression(constant.Member)),
+                PhpStaticMemberAccessAst staticAccess => this.BuildStaticMemberAccess(staticAccess),
+                PhpClassConstantAccessAst constant => this.BuildClassConstantAccess(constant),
                 PhpArrayAccessAst arrayAccess => this.BuildArrayAccess(arrayAccess),
                 PhpCallAst call => "(" + this.FormatArgumentList(call.Arguments) + ")",
                 PhpMemberAccessAst memberAccess => this.BuildMemberAccess(memberAccess),
@@ -1872,6 +1868,36 @@ namespace Tyhp.TyhpLang.Emitter
         private string BuildInstanceMemberAccessName(IExpression? memberName)
         {
             return memberName?.ValueString ?? "";
+        }
+
+        private string BuildStaticMemberAccess(PhpStaticMemberAccessAst staticAccess)
+        {
+            // `Type::$name` is the variable form. A bare identifier is still a member
+            // name and must not be resolved as a class.
+            if (staticAccess.Member is PhpNameAst name)
+            {
+                return "::" + this.ApplyPendingVariantCallSuffix(name, name.ValueString ?? "");
+            }
+
+            return "::"
+                + this.ApplyPendingVariantCallSuffix(
+                    staticAccess.Member, this.BuildExpression(staticAccess.Member));
+        }
+
+        private string BuildClassConstantAccess(PhpClassConstantAccessAst constant)
+        {
+            // The grammar parses `Type::name(...)` as a class-constant suffix: the
+            // identifier alternative, not `Type::$var`. PHP class names are
+            // case-insensitive, so resolving that identifier would turn `Route::view`
+            // or `Auth::user` into `Route::\Illuminate\Support\Facades\View`.
+            if (constant.Member is PhpNameAst name)
+            {
+                return "::" + this.ApplyPendingVariantCallSuffix(name, name.ValueString ?? "");
+            }
+
+            return "::"
+                + this.ApplyPendingVariantCallSuffix(
+                    constant.Member, this.BuildExpression(constant.Member));
         }
 
         private string BuildInstanceMemberAccess(PhpInstanceMemberAccessAst instance)

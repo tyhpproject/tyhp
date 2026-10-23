@@ -1358,6 +1358,15 @@ namespace Tyhp.TyhpLang.Emitter
                 case PhpInstanceMemberAccessAst instance when instance.MemberName is PhpNameAst instanceName:
                     this._protectedMemberNames.Add(instanceName);
                     break;
+                case PhpStaticMemberAccessAst staticAccess when staticAccess.Member is PhpNameAst staticName:
+                    this._protectedMemberNames.Add(staticName);
+                    break;
+                case PhpClassConstantAccessAst constant when constant.Member is PhpNameAst constantName:
+                    // `Type::name` (methods and class constants) is this node, not
+                    // PhpStaticMemberAccessAst. Protect it so `Route::view` is not
+                    // rewritten to the imported class `View`.
+                    this._protectedMemberNames.Add(constantName);
+                    break;
                 case PhpMemberAccessAst memberAccess when memberAccess.Key is PhpNameAst keyName:
                     this._protectedMemberNames.Add(keyName);
                     break;
@@ -1373,8 +1382,8 @@ namespace Tyhp.TyhpLang.Emitter
 
             var text = name.ValueString ?? "";
 
-            // Member positions (`->name` / `$arr->key`) are protected from the free-name alias map
-            // so a class alias like `Promise` cannot rewrite `$this->promise`. They still erase
+            // Member positions (`->name`, `::name`, `$arr->key`) are protected from the free-name alias map
+            // so a class alias like `Promise` cannot rewrite `$this->promise` or `Route::view`. They still erase
             // through the dedicated member-alias map (tyhpdef `function php_name as tyhpName`).
             if (this._protectedMemberNames.Contains(name))
             {

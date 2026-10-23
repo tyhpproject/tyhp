@@ -797,7 +797,18 @@ namespace Tyhp.TyhpLang.Emitter
                             break;
                         }
 
-                        tyhpdefAliases[useInclude.Name] = useInclude.ImportedName ?? "";
+                        // `use` names are resolved from the root. A relative spelling is
+                        // later prefixed with the file's namespace, so `extends Controller`
+                        // in `App\Http\Controllers` became
+                        // `\App\Http\Controllers\App\Http\Controllers\Controller` when
+                        // another file imported that class.
+                        var importedName = useInclude.ImportedName ?? "";
+                        if (importedName.Length > 0 && !importedName.StartsWith('\\'))
+                        {
+                            importedName = "\\" + importedName;
+                        }
+
+                        tyhpdefAliases[useInclude.Name] = importedName;
                         break;
                     }
                     case FunctionDeclarationSymbol { OriginalPhpName: { Length: > 0 } originalFunction }:

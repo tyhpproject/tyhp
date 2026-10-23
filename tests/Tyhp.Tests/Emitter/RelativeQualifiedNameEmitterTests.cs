@@ -94,6 +94,32 @@ public class RelativeQualifiedNameEmitterTests
     }
 
     [Fact]
+    public void SameNamespaceExtends_IsNotPrefixedWithTheImportingFileNamespace()
+    {
+        var php = CompileAndEmitJoined(
+            ("Controller.tyhp", """
+                <?tyhp
+                namespace App\Http\Controllers;
+                abstract class Controller {}
+                """),
+            ("ChirpController.tyhp", """
+                <?tyhp
+                namespace App\Http\Controllers;
+                class ChirpController extends Controller {}
+                """),
+            ("Login.tyhp", """
+                <?tyhp
+                namespace App\Http\Controllers\Auth;
+                use App\Http\Controllers\Controller;
+                class Login extends Controller {}
+                """));
+
+        php.Should().Contain("class ChirpController extends \\App\\Http\\Controllers\\Controller");
+        php.Should().NotContain("App\\Http\\Controllers\\App\\Http\\Controllers\\Controller");
+        php.Should().Contain("class Login extends \\App\\Http\\Controllers\\Controller");
+    }
+
+    [Fact]
     public void FullyQualifiedName_StillRootAnchoredAsWritten()
     {
         var php = CompileAndEmitJoined(
