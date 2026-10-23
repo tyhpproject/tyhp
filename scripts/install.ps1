@@ -1,5 +1,5 @@
 param(
-    [string]$Tag = 'v805.1.0-beta.3',
+    [string]$Tag = 'v805.1.1-beta.3',
     [switch]$Latest,
     [switch]$SelfContained,
     [switch]$FrameworkDependent

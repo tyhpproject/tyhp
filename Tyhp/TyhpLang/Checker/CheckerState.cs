@@ -1110,11 +1110,13 @@ namespace Tyhp.TyhpLang.Checker
             {
                 // First assignment without a prior typed declaration (Story 08): infer and lock the
                 // type from the RHS so later uses (e.g. `clone $cfg with [...]`) see a real type
-                // instead of `unknown`.
+                // instead of `unknown`. A literal initializer (`$sum = 0`) locks the widened scalar
+                // (`int`) as the declared type so a later assignment of another `int` is legal.
+                // The narrowed type stays the literal, so reads keep that precision.
                 var scope = FindDeclarationScope();
                 scope.Variables[name] = new VariableState
                 {
-                    DeclaredType = type,
+                    DeclaredType = GeneratorBodyInference.WidenLiteral(type),
                     NarrowedType = type,
                     IsDefinitelyAssigned = true,
                     IsInferred = true,
@@ -1132,7 +1134,7 @@ namespace Tyhp.TyhpLang.Checker
             variable.IsPossiblyUndefined = false;
             variable.IsPossiblyNull = type.IsNullable || type is LiteralCheckedType { Value: null };
             variable.NarrowedType = type;
-            variable.DeclaredType ??= type;
+            variable.DeclaredType ??= GeneratorBodyInference.WidenLiteral(type);
 
             if (variable.IsReference && variable.ReferenceGroup is not null)
             {

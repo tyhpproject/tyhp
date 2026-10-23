@@ -5,7 +5,7 @@
 set -euo pipefail
 
 readonly RELEASE_REPO="tyhpproject/tyhp"
-readonly DEFAULT_TAG="v805.1.0-beta.3"
+readonly DEFAULT_TAG="v805.1.1-beta.3"
 readonly USER_AGENT="tyhp-install-script"
 readonly SCRIPT_NAME="$(basename "${BASH_SOURCE[0]:-install.sh}")"
 

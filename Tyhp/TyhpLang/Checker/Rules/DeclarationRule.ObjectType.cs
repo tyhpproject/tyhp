@@ -1347,7 +1347,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     enumCase.Name?.ValueString ?? enumCase.Identifier);
             }
 
-            var isBacked = objectSymbol.DeclaringAstNode is PhpObjectTypeDeclAst { BackingType: not null };
+            // Tyhpdef enums store the backing type on the symbol. The declaring node is still
+            // the tyhpdef object declaration, whose BackingType the pattern below also accepts.
+            var isBacked = objectSymbol.BackingType is not null
+                || objectSymbol.DeclaringAstNode is PhpObjectTypeDeclAst { BackingType: not null };
             if (isBacked && enumCase.Value is null)
             {
                 CheckerHelpers.ReportError(

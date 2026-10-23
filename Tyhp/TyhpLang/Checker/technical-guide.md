@@ -339,7 +339,11 @@ fields:
   assignable from `Res|false` after an if/else inside the loop. Only when the
   two sides' declared types differ (e.g. an inferred local first assigned in
   each branch) does the union of `EffectiveType`s become the new
-  `DeclaredType`, with `NarrowedType` cleared. Property
+  `DeclaredType`, with `NarrowedType` cleared. An inferred local's first
+  assignment stores `GeneratorBodyInference.WidenLiteral` as `DeclaredType`
+  (`$sum = 0` is declared `int`, narrowed to the literal `0`), so a later
+  assignment of another value of that scalar is legal while reads keep the
+  literal until something else is assigned. Property
   `NarrowedType` is the union of both sides when both recorded a refinement
   (so `if ($p === null) { $p = new T(); }` is non-null on the join); otherwise
   it is cleared. Index/member narrowing is kept only when both sides agree
