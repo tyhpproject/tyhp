@@ -32,9 +32,9 @@ Tyhp is a typed superset of the PHP language. You write `.tyhp` (and can keep `.
 
 ## Why Tyhp
 
-PHP checks type declarations when the code runs. Static analyzers such as PHPStan and Psalm catch more before that, but generics, array shapes, and similar types live in PHPDoc comments, and their findings can be ignored or baselined.
+PHP checks type declarations when the code runs. Static analyzers such as PHPStan and Psalm catch more before that, but generics, array shapes, and similar types live in PHPDoc comments.
 
-Tyhp makes those types part of the language. The compiler does not emit PHP until the program type-checks.
+Tyhp makes those types part of the language. The compiler does not emit PHP until the program type-checks. Type errors in `.tyhp` files are compile errors, and you adopt Tyhp file by file instead of baselining existing issues.
 
 - Type and null errors are reported at build time, before the code runs.
 - Generics, structs (typed array shapes), and type aliases are part of the syntax, not comments.
