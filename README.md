@@ -32,6 +32,17 @@ Tyhp is a typed superset of the PHP language. You write `.tyhp` (and can keep `.
 
 ## Why Tyhp
 
+PHP checks type declarations when the code runs. Static analyzers such as PHPStan and Psalm catch more before that, but generics, array shapes, and similar types live in PHPDoc comments, and their findings can be ignored or baselined.
+
+Tyhp makes those types part of the language. The compiler does not emit PHP until the program type-checks.
+
+- Type and null errors are reported at build time, before the code runs.
+- Generics, structs (typed array shapes), and type aliases are part of the syntax, not comments.
+- It adds constructs PHP syntax does not have: `async`/`await`, extension methods, operator overloads, and expression trees.
+- Deployment stays the same. The output is readable PHP 8.2–8.5, `.php` files pass through unchanged, and Composer packages work as usual.
+
+## How it works
+
 The compiler type-checks `.tyhp`, then emits human-readable PHP 8.2–8.5. Deploy that output on a PHP runtime. Mix `.tyhp` and `.php` in one project. Describe existing PHP libraries with [`.tyhpdef` files](https://tyhplang.com/tyhpdef_about.html).
 
 Types are part of the language. Every variable, parameter, property, and return is typed or inferred. Types are non-nullable by default. [`mixed`](https://tyhplang.com/tyhp_0600_theMixedType.html) has to be narrowed before you use it.
@@ -39,6 +50,17 @@ Types are part of the language. Every variable, parameter, property, and return 
 Tyhp-only type syntax is erased after the checker accepts the program. Structs become PHP arrays. `async`/`await` and parsable lambdas lower to calls in `tyhp/async` and `tyhp/lambda`. The usual comparison is TypeScript’s relationship to JavaScript.
 
 More on the model: [What is Tyhp?](https://tyhplang.com/intro.html)
+
+## How Tyhp compares
+
+Several projects add types to PHP in different ways. The docs compare Tyhp with each one:
+
+- [PHPStan and Psalm](https://tyhplang.com/faq_general.html) (static analyzers)
+- [Hack / HHVM](https://tyhplang.com/other_hack.html)
+- [TypePHP (Swoole AOT)](https://tyhplang.com/other_typephp.html)
+- [PXP](https://tyhplang.com/other_pxp.html)
+- [ReactPHP](https://tyhplang.com/other_reactphp.html) (async)
+- [TypeScript](https://tyhplang.com/other_typescript.html)
 
 ## Features
 
