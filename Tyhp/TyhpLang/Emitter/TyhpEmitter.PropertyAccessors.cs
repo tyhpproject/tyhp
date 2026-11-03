@@ -288,7 +288,9 @@ namespace Tyhp.TyhpLang.Emitter
                 return;
             }
 
-            if (this._currentObjectGenericParamNames.Count == 0)
+            // Every instance property of a readonly class is readonly, and PHP rejects set hooks on those.
+            if (this._currentObjectGenericParamNames.Count == 0
+                || HasReadonlyModifier(objectDecl.Modifiers))
             {
                 return;
             }
@@ -739,10 +741,11 @@ namespace Tyhp.TyhpLang.Emitter
 
             this._context.RequirePackage("tyhp/core");
 
-            // Generic-chain ctors already boot via EmitGenericObjectConstructorPrologue (always
-            // called first). Emitting again would duplicate `$this->tyhpBootTraits();`.
-            // The init hook also boots (factory / newInstanceWithoutConstructor path).
-            if (!this._currentObjectInGenericChain)
+            // A non-readonly generic chain already boots traits in EmitGenericObjectConstructorPrologue
+            // (always called first). Emitting again would duplicate `$this->tyhpBootTraits();`.
+            // A readonly generic chain boots its instance bag there and does not call tyhpBootTraits(),
+            // so a class that also has property hooks still needs this call.
+            if (!this._currentObjectInGenericChain || this.UsesReadonlyGenericBag())
             {
                 EmitItem.Line(
                     provider,

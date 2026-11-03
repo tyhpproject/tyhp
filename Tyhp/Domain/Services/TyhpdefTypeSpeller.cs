@@ -2,6 +2,7 @@ using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
+using Tyhp.TyhpLang.Checker;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.Domain.Services
@@ -60,9 +61,83 @@ namespace Tyhp.Domain.Services
                 TyhpReturnTypeGuardAst guard => SpellTypeGuard(guard),
                 TyhpEllipsisTypeAst => "...",
                 TyhpPostfixEllipsisTypeAst postfix => SpellRequired(postfix.InnerType) + "...",
-                TyhpTemplateStringTypeAst template => template.ValueString ?? "string",
+                TyhpTemplateStringTypeAst template => SpellTemplate(template),
                 _ => SpellFallback(type),
             };
+
+        /// <summary>
+        /// Re-spells a template string type from its source parts. Literal text (including hole
+        /// quantifiers) is kept as written; hole names are qualified from their bound symbols.
+        /// </summary>
+        private static string SpellTemplate(TyhpTemplateStringTypeAst template)
+        {
+            var text = new System.Text.StringBuilder("\"");
+            foreach (var part in template.EncapsList?.GetAllNotNull() ?? [])
+            {
+                var isHole = part is PhpNameAst || part is IExpression and not PhpEncapsStringAst and not TokenValueAst;
+                if (!isHole)
+                {
+                    text.Append(UnquoteRaw((part as IBase2Ast)?.ValueString));
+                    continue;
+                }
+
+                var spelledHole = SpellTemplateHole((IExpression)part);
+                if (spelledHole is null)
+                {
+                    return "string";
+                }
+
+                text.Append("${").Append(spelledHole).Append('}');
+            }
+
+            return text.Append('"').ToString();
+        }
+
+        private static string? SpellTemplateHole(IExpression hole)
+        {
+            switch (hole)
+            {
+                case PhpNameAst name:
+                {
+                    var written = NameText(name);
+                    return string.IsNullOrWhiteSpace(written)
+                        ? null
+                        : AppendTypeArguments(SpellBoundHead(name.BoundSymbol, written), name);
+                }
+                case ITypeExpression type:
+                    return Spell(type);
+                case PhpBinaryOpAst { Left: IExpression left, Right: IExpression right }:
+                {
+                    var spelledLeft = SpellTemplateHole(left);
+                    var spelledRight = SpellTemplateHole(right);
+                    return spelledLeft is null || spelledRight is null ? null : spelledLeft + "|" + spelledRight;
+                }
+                case PhpUnaryOpAst { Operand: PhpScalarAst operand } unary
+                    when unary.Operator?.ValueString is "-" or "+":
+                    var spelledOperand = SpellTemplateHole(operand);
+                    return spelledOperand is null ? null : unary.Operator.ValueString + spelledOperand;
+                case PhpScalarAst scalar:
+                    return scalar.AstChildren.FirstOrDefault() is TokenValueAst { ValueString: { Length: > 0 } scalarText }
+                        ? scalarText
+                        : null;
+                case TokenValueAst { ValueString: { Length: > 0 } token }:
+                    return token;
+                case PhpEncapsListAst encaps when PhpStringLiteralHelper.TryGetStaticLiteral(encaps, out var literal):
+                    return "'" + literal.Replace("\\", "\\\\").Replace("'", "\\'") + "'";
+                default:
+                    return null;
+            }
+        }
+
+        private static string UnquoteRaw(string? raw)
+        {
+            if (raw is null)
+            {
+                return "";
+            }
+
+            return raw.Length >= 2 && raw[0] == '"' && raw[^1] == '"' ? raw[1..^1] : raw;
+        }
 
         private static string SpellRequired(ITypeExpression? type)
             => Spell(type) ?? "mixed";
@@ -339,7 +414,7 @@ namespace Tyhp.Domain.Services
             return spelled.Count == 0 ? head : head + "<" + string.Join(", ", spelled) + ">";
         }
 
-        private static IReadOnlyList<ITypeExpression> GetGenericTypeArguments(IBase2Ast node)
+        internal static IReadOnlyList<ITypeExpression> GetGenericTypeArguments(IBase2Ast node)
         {
             if (TryAddonTypeArguments(node, out var fromNode))
             {

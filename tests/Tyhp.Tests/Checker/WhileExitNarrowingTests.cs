@@ -7,7 +7,7 @@ namespace Tyhp.Tests.Checker;
 
 /// <summary>
 /// A <c>while</c> that exits because its condition became false narrows by that
-/// negated condition when the body has no <c>break</c>.
+/// negated condition; the state at each <c>break</c> joins that exit un-narrowed.
 /// </summary>
 [Trait("Category", "Checker")]
 public class WhileExitNarrowingTests
@@ -36,6 +36,68 @@ public class WhileExitNarrowingTests
             function demo(mixed $m): int {
                 while (!\is_int($m)) {
                     break;
+                }
+                return $m;
+            }
+            """);
+
+        UserErrors(result).Should().Contain(
+            e => e.Code == MessageCode.CheckerIncompatibleReturnType,
+            Describe(result));
+    }
+
+    [Fact]
+    public void WhileWithBreakAfterNarrowingAssignment_ExitIsNarrowed()
+    {
+        var result = IsolatedCompilation.ParseSnippet("""
+            <?tyhp
+            function demo(mixed $m, bool $stop): int {
+                while (!\is_int($m)) {
+                    if ($stop) {
+                        $m = 2;
+                        break;
+                    }
+                    $m = 1;
+                }
+                return $m;
+            }
+            """);
+
+        UserErrors(result).Should().BeEmpty(Describe(result));
+    }
+
+    [Fact]
+    public void BreakFromNestedIf_StateAtBreakJoinsExit()
+    {
+        var result = IsolatedCompilation.ParseSnippet("""
+            <?tyhp
+            function demo(mixed $m, bool $stop): int {
+                while (!\is_int($m)) {
+                    if ($stop) {
+                        break;
+                    }
+                    $m = 1;
+                }
+                return $m;
+            }
+            """);
+
+        UserErrors(result).Should().Contain(
+            e => e.Code == MessageCode.CheckerIncompatibleReturnType,
+            Describe(result));
+    }
+
+    [Fact]
+    public void BreakTwoFromInnerLoop_StateAtBreakJoinsOuterExit()
+    {
+        var result = IsolatedCompilation.ParseSnippet("""
+            <?tyhp
+            function demo(mixed $m, bool $stop): int {
+                while (!\is_int($m)) {
+                    while ($stop) {
+                        break 2;
+                    }
+                    $m = 1;
                 }
                 return $m;
             }

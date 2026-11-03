@@ -87,7 +87,7 @@ String `[$c0, $c1] = "ab"` is **not** ArrayAccess (PHP warns; not this story).
 **Out**
 
 - Changing 21.6 indexing / `ArrayAccessShape` / `PhpType`.
-- Story 31 Idea 2 (`*Convertible`, `__toInt`, implicit int/float/bool casts). Native Stringable only.
+- Story 32 (`*Convertible`, `__toInt`, implicit int/float/bool casts). Native Stringable only.
 - `list()` on strings (PHP does not treat a string as an array here).
 - Spread in destructure (still **4095**).
 - Synthesizing `implements \Stringable` in **emitted** PHP (engine already adds it). Omit unless a test proves Reflection-on-source needs it.
@@ -128,7 +128,7 @@ Anywhere the checker asks “does this type implement Stringable?” (assignabil
 
 A class that implements an interface which itself has `__toString` is Stringable (the interface is Stringable; implements follows).
 
-Do not invent `__toInt` / Idea 2 here.
+Do not invent `__toInt` / Story 32 here.
 
 ---
 
@@ -155,7 +155,7 @@ Do not invent `__toInt` / Idea 2 here.
 
 ## Out of scope
 
-Story 31 Idea 2 (`*Convertible`); refined-type `emit` (`DESIGN_OPEN_QUESTIONS.md`); Fiber CFA (rejected in 21.6); runtime `is Closure<…>` (31 Idea 14); dual Closure spelling (removed in 21.6).
+Story 32 (`*Convertible`); refined-type `emit` (`DESIGN_OPEN_QUESTIONS.md`); Fiber CFA (rejected in 21.6); runtime `is Closure<…>` (Story 43); dual Closure spelling (removed in 21.6).
 
 ---
 
@@ -166,7 +166,7 @@ Story 31 Idea 2 (`*Convertible`); refined-type `emit` (`DESIGN_OPEN_QUESTIONS.md
 | 08 | 4094 / 4095 / 4120 / `__toString` signature |
 | 21.6 | ArrayAccess indexing types; destructure reuses them |
 | 21.8 | `tyhpdef/php` Layer 3 overlay completeness (independent; sequenced after this story) |
-| 31 Idea 2 | `*Convertible` is **not** this story |
+| 32 | `*Convertible` is **not** this story |
 | PHP_LANGUAGE_HOOKS | Audit rows for ArrayAccess destructure and Stringable |
 | 30 | User-facing polish if this lands first |
 

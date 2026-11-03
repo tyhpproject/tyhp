@@ -69,7 +69,7 @@ This guide is grounded in the sources under `Tyhp/TyhpLang/Enum/` and call sites
 
 | Value | Intended role (from comments / usage) |
 | --- | --- |
-| `OutsideItems` | PHP blocks / inline HTML (e.g. `?>…<?php`) |
+| `OutsideItems` | PHP blocks. Inline HTML in a `.php` file (`?>…<?php`). A `.tyhp` file emits inline HTML with the surrounding statement's emit type so it stays in source order. |
 | `TyhpBlock` | Documented; **no current `EmitType.TyhpBlock` references found in Emitter** |
 | `FileHeader` | File-level header (often empty root) |
 | `FileDeclare` | Top-level `declare()` (non-block) |

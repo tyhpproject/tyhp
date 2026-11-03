@@ -41,7 +41,7 @@ public class CallReturnTypeInferenceTests
     [Fact]
     public void InstanceMethodCall_OnNullableReceiver_ReturnTypeInferred_NoError()
     {
-        // Member access on a nullable receiver (`?Node`) must still resolve the method by
+        // A null-safe call on a nullable receiver (`?Node`) must still resolve the method by
         // unwrapping the nullable layer; otherwise the call inferred to `mixed`.
         var errors = CompileAndCheck("""
             <?tyhp
@@ -52,7 +52,7 @@ public class CallReturnTypeInferenceTests
                     return $this->next;
                 }
                 public function chain(): ?Node {
-                    return $this->next->peek();
+                    return $this->next?->peek();
                 }
             }
             """);
@@ -903,6 +903,39 @@ public class CallReturnTypeInferenceTests
             d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied,
             $"method return TKey must resolve under owner ObjectGenerics: {Describe(errors)}");
         errors.Should().BeEmpty($"__MethodReturnType on a generic class should type-check: {Describe(errors)}");
+    }
+
+    [Fact]
+    public void PropertyNameKeyedReturnType_ConcreteObjectArgument_NoFalse4035()
+    {
+        // Same signature as the `get_object_vars` overlay: a symbol-name type is a string, so
+        // binding T to a concrete class must satisfy the `int|string` key constraint.
+        var result = IsolatedCompilation.ParseSnippet(
+            """
+            <?tyhp
+            namespace Test;
+
+            class Node {
+                public int $value = 0;
+            }
+
+            function demo(Node $node): array<string, mixed> {
+                return \object_vars_of($node);
+            }
+            """,
+            """
+            <?tyhpdef
+            function object_vars_of<T extends object>(T $object): array<__PropertyName<T>, mixed>;
+            """,
+            skipChecking: true);
+        result.GlobalScope.Should().NotBeNull("bind should succeed");
+
+        var checker = new TyhpChecker(result.Diagnostics, new SymbolTree(result.GlobalScope!), result.GlobalScope!);
+        checker.Check(result.ParsedFiles!);
+
+        result.Diagnostics.Errors.Should().NotContain(
+            d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied,
+            $"__PropertyName<Node> is a string key: {Describe(result.Diagnostics.Errors.ToList())}");
     }
 
     private static string Describe(IReadOnlyList<IDiagnostic> errors) =>

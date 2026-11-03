@@ -49,9 +49,9 @@ Severity (Ready and NEEDS INPUT items):
 
 ### 5. Flare 1.1.2 typechecks against newer Illuminate and Livewire tyhpdefs than its lock
 
-- **Where:** `runtime/packages/spatie-laravel-flare/1.1.2`,
-  `runtime/packages/spatie-error-solutions/1.1.3`, and
-  `runtime/packages/spatie-ignition/1.16.0`. Composer now installs real `illuminate/*`
+- **Where:** `tyhp-runtime-src/packages/tyhpdef/spatie-laravel-flare/1.1.2`,
+  `tyhp-runtime-src/packages/tyhpdef/spatie-error-solutions/1.1.3`, and
+  `tyhp-runtime-src/packages/tyhpdef/spatie-ignition/1.16.0`. Composer now installs real `illuminate/*`
   v12.69.2 because flare 1.1.2 requires `illuminate/support` `^11.0|^12.0`. No Illuminate
   11 or 12 tyhpdef tree exists, so `tests/tyhp.json` and `extra.tyhp.require` still include
   Illuminate 13.32.0 component tyhpdefs and `laravel-framework/13.32.0/composer.json`. Flare
@@ -75,7 +75,7 @@ Severity (Ready and NEEDS INPUT items):
 - **Where:** Tyhp type grammar (`list` is reserved as the PHP `list()` function name in
   `PhpReservedFunctionNames`, not a type). `array<T>` is documented as shorthand for
   `array<int|string, T>`, which is not a 0-indexed list. `Nette\Utils\Arrays::isList` in
-  `runtime/packages/nette-utils/4.1.5` returns `($value is list ? true : false)` in PHPDoc
+  `tyhp-runtime-src/packages/tyhpdef/nette-utils/4.1.5` returns `($value is list ? true : false)` in PHPDoc
   and is implemented with `is_array && array_is_list`.
 - **Issue:** A type-guard return cannot name a list. `$value is array` would be wrong
   (`isList` is false for associative arrays). `$value is array<int, mixed>` is also wrong:
@@ -138,104 +138,12 @@ Severity (Ready and NEEDS INPUT items):
   `operator default()`, `return $instance ?? default(MyClass)` against a non-nullable return is a
   type error rather than a constructed instance, and that is the entire point of writing
   `?? default(MyClass)`.
-- **Why deferred:** Author-supplied defaults for object types are Story 31 Idea 5
+- **Why deferred:** Author-supplied defaults for object types are Story 34
   (`operator default()`).
-- **Stage 2 (Story 31 Idea 5):** When a class declares `operator default(): self`, infer
+- **Stage 2 (Story 34):** When a class declares `operator default(): self`, infer
   `default(<that class>)` as the class type again and emit the call. Absent the operator the
   default stays `null` and Stage 1's error stands.
-- **Status:** Deferred (Story 22+ / Story 31 Idea 5). Stage 2 waits on `operator default()`.
+- **Status:** Deferred (Story 22+ / Story 34). Stage 2 waits on `operator default()`.
 - **Severity:** Medium — class-typed `default` still emits `null`; Stage 1 already type-errors the
   useful `?? default(MyClass)` shape. Stage 2 is the feature.
 
----
-
-## Ready
-
-### 12. `Promise::run(async function (): T)` is typed as `?Promise<T>`
-
-- **Where:** Published `tyhp/async` 805.0.1 `package.tyhpdef` declares
-  `Promise::run<T extends void|mixed>(callable(): T $fn, ?CancellationToken $token = null): ?T`.
-  Current source `packages/tyhp/async/tyhp_src/Promise.tyhp` and
-  `tyhp-docs-src/content/package_async.md` declare the return as `__Awaited<T>` and show
-  `return Promise::run(async function(): int { ... })` assigned to `int`. Checker used by
-  Tyhp CLI v805.1.0-beta.2.
-- **Issue:** An `async` closure is a `callable(): Promise<U>`. The published stub takes that
-  promise as `T` and returns `?T`, so the call is `?Promise<U>` rather than the settled `U`.
-  Reproduced while compiling `tyhp-examples/async-jobs`: assigning
-  `Promise::run(async function () use ($greetings, $names): array<int, string> { return await $greetings->all($names); })`
-  to `array<int, string>` reported TYHP4008, cannot assign
-  `?\Tyhp\Promise<array<int, string>>`.
-- **Impact:** The documented synchronous entry point rejects a direct assignment of an `async`
-  closure's settled value. Callers have to start from `EventLoop::run` on a promise whose
-  type argument is not `void`.
-- **Suggested fix:** Publish `run` as returning `__Awaited<T>`, and infer `T` as the settled
-  value of an `async` closure (the closure's declared return), not as `Promise<T>`.
-- **Status:** Ready
-- **Severity:** High — documented `Promise::run(async fn(): T): T` path does not typecheck.
-
-### 13. `EventLoop::run` rejects `Promise<void>`
-
-- **Where:** Published `tyhp/async` 805.0.1 `package.tyhpdef`:
-  `EventLoop::run<T extends mixed|void>(Promise<T> $rootPromise): T`.
-  Source `packages/tyhp/async/tyhp_src/EventLoop.tyhp` is
-  `run<T extends __Awaited<void|mixed> = mixed>(Promise<T> $rootPromise, ?CancellationToken $token = null): T`.
-  Reproduced with Tyhp CLI v805.1.0-beta.2 on an `async function (): void` passed to `EventLoop::run`.
-- **Issue:** The checker instantiates `T` as `mixed` and then reports TYHP4010:
-  `Promise<void>` is not assignable to `Promise<mixed>`. The published constraint lists `void`,
-  and the source default of `mixed` is what the argument should override.
-- **Impact:** An async method whose result is `void` cannot be the root of `EventLoop::run`.
-  The files example returns the written path from that method so the promise is `Promise<string>`.
-- **Suggested fix:** Infer `T` from the promise argument, including `void`, instead of keeping
-  the `mixed` default and then rejecting `Promise<void>`.
-- **Status:** Ready
-- **Severity:** High — `async` functions that return `void` cannot be run from synchronous code
-  through the published `EventLoop::run` signature.
-
-### 14. Parsable `Expression` is constructed with a null callable type argument and `__invoke` fatals
-
-- **Where:** `Tyhp/TyhpLang/Emitter/TyhpEmitter.Generics.cs` (uninferred generic arguments emit
-  `null` into `\Tyhp\Generic::bind`). Emitted from `tyhp-examples/filters` by Tyhp CLI
-  v805.1.0-beta.2 against `tyhp/lambda` 805.0.1. Runtime check is
-  `vendor/tyhp/lambda/src/Tyhp/Expression.php` `__invoke` (the `__CallableReturnType` check).
-- **Issue:** `Expression<callable(Person): bool>` emits
-  `\Tyhp\Generic::bind(\Tyhp\Expression::class, null)(...)`. Calling that value as a function,
-  which the lambda docs describe, throws `IncompatibleTypeException`: expected
-  `__CallableReturnType<callable>`, got `bool`. The same `null` type argument is emitted for
-  `PropertyPath`. Tree inspection (`body`, `PropertyPath::getPath()`) does not read it and runs.
-- **Impact:** A compiled lambda cannot be invoked. The filters example only prints the property
-  and operator from the tree.
-- **Suggested fix:** Emit the callable shape as the `Expression` type argument (not `null`) so
-  `__invoke` checks the result against that shape's return type.
-- **Status:** Ready
-- **Severity:** High — the documented call of a parsable lambda fatals at runtime.
-
-### 15. A matching string interpolation is not a template string type
-
-- **Where:** `Tyhp/TyhpLang/Checker` template-string assignability
-  (`TypeComparer.Assignability.cs`, `TryCheckTemplateStringAssignability`). Tyhp CLI
-  v805.1.0-beta.2. Docs: `tyhp_0700_typeAliases.md` and `guide/18-string-as-type.md`
-  (`type ApiPath = "api/${string}/items"`).
-- **Issue:** `return "api/{$segment}/items"` where `$segment` is `string` is a `string`, and
-  TYHP4009 rejects it as not compatible with `"api/${string}/items"`. A string literal that
-  matches the pattern, such as `'api/widgets/items'`, is accepted. The routes example uses
-  those literals.
-- **Impact:** A template type with a `${string}` hole cannot be built from a string variable
-  by writing the same pattern as an interpolation.
-- **Suggested fix:** When an interpolation's literal parts and hole types match a template
-  pattern, type that interpolation as the template so it is assignable to the alias.
-- **Status:** Ready
-- **Severity:** Medium — matching literals still typecheck; values built from variables do not.
-
-### 16. `DisposableScope` calls deprecated `SplObjectStorage::contains()` on PHP 8.5
-
-- **Where:** `tyhp/async` 805.0.1 `src/Tyhp/DisposableScope.php` `disposeAll()`, the
-  `$this->released->contains($disposable)` check. Hit by `tyhp-examples/sessions` `open`
-  (`:=` of two `IsDisposable` logs) on PHP 8.5.0.
-- **Issue:** PHP 8.5 deprecates `SplObjectStorage::contains()`. `open` still prints
-  `closed second` then `closed first` and exits 0, with deprecation warnings from that line.
-- **Impact:** Every multi-resource `:=` dispose on PHP 8.5 prints warnings.
-- **Suggested fix:** Call `offsetExists()` instead of `contains()`.
-- **Status:** Ready
-- **Severity:** Low — the dispose order is correct; the warning is noise.
-
----

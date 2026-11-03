@@ -613,8 +613,19 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         /// <summary>
-        /// PHP &lt; 8.5 readonly <c>clone ... with</c> — reflection IIFE per Story 11 plan.
+        /// PHP 8.3–8.4 readonly <c>clone ... with</c> on a class that is not itself readonly.
+        /// The checker rejects this form below 8.3 (TYHP4400) and on a <c>readonly class</c>
+        /// below 8.5 (TYHP4401).
         /// </summary>
+        /// <remarks>
+        /// <c>new class extends T</c> would run <c>T::__construct()</c> with no arguments.
+        /// The subclass declares an empty constructor (PHP allows no return type on a constructor)
+        /// so that throwaway instantiation does not,
+        /// and the value that is cloned is <c>ReflectionClass::newInstanceWithoutConstructor()</c>.
+        /// Override values live on a static stack, not an instance property, so the result does
+        /// not gain <c>$__tyhp_overrides</c>. <c>__clone()</c> snapshots the top of the stack
+        /// before it assigns, so a nested <c>with</c> on the same class can push and pop safely.
+        /// </remarks>
         public static IExpression BuildReadonlyCloneIife(
             IExpression sourceExpr,
             PhpArrayAst overridesArray,
@@ -628,30 +639,46 @@ namespace Tyhp.TyhpLang.Emitter
             var php = new StringBuilder();
             php.Append("(static function (").Append(classFqn).Append(" $__src, array $__overrides): ")
                 .Append(classFqn).Append(" {\n");
-            php.Append("    $__wrapper = (new \\ReflectionClass(new class extends ").Append(classFqn).Append(" {\n");
-            php.Append("        /** @internal */ public array $__tyhp_overrides = [];\n");
+            php.Append("    $__rc = new \\ReflectionClass(new class extends ").Append(classFqn).Append(" {\n");
+            php.Append("        /** @internal */\n");
+            php.Append("        public static array $__tyhp_overrides = [];\n");
+            php.Append("\n");
+            php.Append("        public function __construct()\n");
+            php.Append("        {\n");
+            php.Append("        }\n");
             php.Append("\n");
             php.Append("        public function __clone(): void\n");
             php.Append("        {\n");
             php.Append("            if (\\method_exists(parent::class, '__clone')) {\n");
             php.Append("                parent::__clone();\n");
             php.Append("            }\n");
-            php.Append("            foreach ($this->__tyhp_overrides as $__k => $__v) {\n");
+            php.Append("            $__current = [];\n");
+            php.Append("            if (self::$__tyhp_overrides !== []) {\n");
+            php.Append("                $__current = self::$__tyhp_overrides[\\array_key_last(self::$__tyhp_overrides)];\n");
+            php.Append("            }\n");
+            php.Append("            foreach ($__current as $__k => $__v) {\n");
             php.Append("                $this->$__k = $__v;\n");
             php.Append("            }\n");
-            php.Append("            $this->__tyhp_overrides = [];\n");
             php.Append("        }\n");
-            php.Append("    }))->newInstanceWithoutConstructor();\n");
+            php.Append("    });\n");
+            php.Append("    $__wrapper = $__rc->newInstanceWithoutConstructor();\n");
             php.Append("\n");
             php.Append("    foreach ((new \\ReflectionObject($__src))->getProperties() as $__prop) {\n");
-            php.Append("        $__prop->setAccessible(true);\n");
             php.Append("        if ($__prop->isInitialized($__src)) {\n");
             php.Append("            $__prop->setValue($__wrapper, $__prop->getValue($__src));\n");
             php.Append("        }\n");
             php.Append("    }\n");
             php.Append("\n");
-            php.Append("    $__wrapper->__tyhp_overrides = $__overrides;\n");
-            php.Append("    return clone $__wrapper;\n");
+            php.Append("    $__stack = $__rc->getStaticPropertyValue('__tyhp_overrides');\n");
+            php.Append("    $__stack[] = $__overrides;\n");
+            php.Append("    $__rc->setStaticPropertyValue('__tyhp_overrides', $__stack);\n");
+            php.Append("    try {\n");
+            php.Append("        return clone $__wrapper;\n");
+            php.Append("    } finally {\n");
+            php.Append("        $__stack = $__rc->getStaticPropertyValue('__tyhp_overrides');\n");
+            php.Append("        \\array_pop($__stack);\n");
+            php.Append("        $__rc->setStaticPropertyValue('__tyhp_overrides', $__stack);\n");
+            php.Append("    }\n");
             php.Append("})(").Append(sourceText).Append(", ").Append(overridesText).Append(')');
 
             return EmittedPhpExprAst.Create(php.ToString(), context);
@@ -659,6 +686,8 @@ namespace Tyhp.TyhpLang.Emitter
 
         /// <summary>
         /// PHP &lt; 8.5 readonly <c>new ... with</c> — anonymous class + <c>__clone</c> with inlined assignments.
+        /// The anonymous class repeats <c>readonly</c> when the target is a <c>readonly class</c>,
+        /// because PHP does not let a non-readonly class extend one.
         /// </summary>
         public static IExpression BuildReadonlyNewCloneWrapper(
             PhpNewAst? newExpr,
@@ -669,9 +698,12 @@ namespace Tyhp.TyhpLang.Emitter
             var classFqn = NormalizeFqn(objectDecl?.FullyQualifiedName ?? GetNewClassName(newExpr) ?? "object");
             var argsText = RenderArgumentList(newExpr?.Arguments);
             var overrides = GetOverrideProperties(pairList);
+            var anonymousClass = objectDecl is not null && (objectDecl.Visibility & MemberModifier.Readonly) != 0
+                ? "new readonly class("
+                : "new class(";
 
             var php = new StringBuilder();
-            php.Append("clone (new class(").Append(argsText).Append(") extends ").Append(classFqn).Append(" {\n");
+            php.Append("clone (").Append(anonymousClass).Append(argsText).Append(") extends ").Append(classFqn).Append(" {\n");
             php.Append("    public function __clone(): void\n");
             php.Append("    {\n");
             php.Append("        if (\\method_exists(parent::class, '__clone')) {\n");

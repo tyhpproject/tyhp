@@ -124,6 +124,12 @@ namespace Tyhp.TyhpLang.Parser {
                 this._taglessLanguageMode = "";
                 this._taglessDiagnostics = null;
                 this._taglessFileName = "";
+
+                // Reset() may have applied the previous file's tagless start mode. A tagged
+                // file (including a `.tyhp` file in a tagless project that starts with
+                // `<?tyhp`) starts in inline-HTML mode.
+                this._languageMode = "";
+                this.Mode(Lexer.DEFAULT_MODE);
             }
         }
 
@@ -447,6 +453,14 @@ namespace Tyhp.TyhpLang.Parser {
         public bool lineCommentExcludesCloseTag()
         {
             return this.Text.IndexOf("?>", StringComparison.Ordinal) < 0;
+        }
+
+        /// <summary>
+        /// True when the next two characters are <c>?&gt;</c>. Lets <c>&lt;?tyhp?&gt;</c>
+        /// open an empty section.
+        /// </summary>
+        public bool closeTagAhead() {
+            return this.InputStream.LA(1) == '?' && this.InputStream.LA(2) == '>';
         }
 
         public bool closeTagHandler() {

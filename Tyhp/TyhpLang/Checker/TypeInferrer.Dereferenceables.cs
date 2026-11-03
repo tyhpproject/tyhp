@@ -14,7 +14,23 @@ namespace Tyhp.TyhpLang.Checker
 {
     public sealed partial class TypeInferrer
     {
+        /// <summary>
+        /// Value of a whole chain. PHP aborts the entire chain (through parentheses, not into
+        /// arguments or index expressions) when a <c>?-&gt;</c> receiver is null, so the value
+        /// admits <c>null</c> when any <c>?-&gt;</c> link has a possibly-null receiver.
+        /// </summary>
         private ICheckedType InferDereferenceable(PhpDereferenceableAst ast, CheckerState state)
+        {
+            var value = InferChainLink(ast, state);
+            return ChainShortCircuitsOnNull(ast, state) ? WithShortCircuitNull(value) : value;
+        }
+
+        /// <summary>
+        /// Type of one chain link when the chain has not short-circuited. Later links in the same
+        /// chain see this type as their receiver, so <c>$a?-&gt;b-&gt;c</c> reads <c>c</c> on
+        /// <c>b</c>'s declared type.
+        /// </summary>
+        private ICheckedType InferChainLink(PhpDereferenceableAst ast, CheckerState state)
         {
             var current = InferDereferenceableBase(ast.Base, state);
             if (ast.Suffix is null)
@@ -25,13 +41,62 @@ namespace Tyhp.TyhpLang.Checker
             return ApplySuffix(current, ast.Suffix, ast.Base, state);
         }
 
+        /// <summary>
+        /// Receiver type for a member access or call on <paramref name="receiver"/> in the same
+        /// chain: the link type when <paramref name="receiver"/> is itself a chain, otherwise the
+        /// expression type.
+        /// </summary>
+        internal ICheckedType InferChainReceiverType(IBase2Ast receiver, CheckerState state) =>
+            UnwrapChainParentheses(receiver) is PhpDereferenceableAst chain
+                ? InferChainLink(chain, state)
+                : InferExpressionType(receiver, state);
+
+        private bool ChainShortCircuitsOnNull(PhpDereferenceableAst ast, CheckerState state)
+        {
+            for (var link = ast; link is not null; link = UnwrapChainParentheses(link.Base) as PhpDereferenceableAst)
+            {
+                if (link.Suffix is PhpInstanceMemberAccessAst member
+                    && Rules.CheckerHelpers.IsNullSafeAccessor(member.Accessor)
+                    && Rules.CheckerHelpers.IsPossiblyNullReceiverType(
+                        InferDereferenceableBase(link.Base, state)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static IBase2Ast? UnwrapChainParentheses(IBase2Ast? node)
+        {
+            while (node is PhpDereferenceableExpressionAst { Expression: PhpDereferenceableAst inner })
+            {
+                node = inner;
+            }
+
+            return node;
+        }
+
+        private static ICheckedType WithShortCircuitNull(ICheckedType type)
+        {
+            if (TypeComparer.IsUnresolvedType(type) || type.IsMixed || type.IsVoid || type.IsNullable
+                || Rules.CheckerHelpers.IsPossiblyNullReceiverType(type))
+            {
+                return type;
+            }
+
+            return type.IsNever ? CheckedTypes.Null : new NullableCheckedType(type);
+        }
+
         private ICheckedType InferDereferenceableBase(IDereferenceableBase? baseNode, CheckerState state) =>
             baseNode switch
             {
-                PhpDereferenceableAst chain => InferDereferenceable(chain, state),
+                PhpDereferenceableAst chain => InferChainLink(chain, state),
                 PhpVariableAst variable => InferVariable(variable, state),
                 PhpNewAst newExpr => InferNew(newExpr, state),
                 PhpNameAst name => InferNameBaseType(name, state),
+                PhpDereferenceableExpressionAst { Expression: PhpDereferenceableAst chain } =>
+                    InferChainLink(chain, state),
                 PhpDereferenceableExpressionAst wrapped => InferExpressionType(wrapped.Expression!, state),
                 // Parenthesized / binary-op receivers (`($n + tick())->ext()`) are IExpression
                 // values, not variables. Infer them the same way CheckCall does.
@@ -49,7 +114,7 @@ namespace Tyhp.TyhpLang.Checker
             {
                 PhpCallAst call => InferCall(current, baseNode, call, state),
                 PhpInstanceMemberAccessAst member => InferInstanceMember(current, member, baseNode, state),
-                PhpStaticMemberAccessAst staticMember => InferStaticMember(current, staticMember, state),
+                PhpStaticMemberAccessAst staticMember => InferStaticMember(current, staticMember, baseNode, state),
                 PhpArrayAccessAst arrayAccess => InferArrayAccess(current, arrayAccess, baseNode, state),
                 PhpClassConstantAccessAst classConst => InferClassConstant(current, classConst, state),
                 _ => CheckedTypes.Unresolved,
@@ -937,6 +1002,7 @@ namespace Tyhp.TyhpLang.Checker
         private ICheckedType InferStaticMember(
             ICheckedType current,
             PhpStaticMemberAccessAst staticMember,
+            IDereferenceableBase? baseNode,
             CheckerState state)
         {
             var memberName = GetExpressionText(staticMember.Member);
@@ -956,6 +1022,13 @@ namespace Tyhp.TyhpLang.Checker
                 {
                     return narrowed;
                 }
+            }
+
+            // Control-flow narrowing for `Name::$prop` on any class (structural key).
+            if (TypeNarrowingRule.TryGetStaticMemberKey(baseNode, staticMember, out var staticKey)
+                && state.LookupMemberAccess(staticKey!) is { } staticNarrowed)
+            {
+                return staticNarrowed;
             }
 
             if (TryResolveMethodOnType(current, memberName, staticOnly: true, state, out var method))
@@ -1491,12 +1564,20 @@ namespace Tyhp.TyhpLang.Checker
                         functionGenerics: inferenceParameters)
                     : ResolveTypeExpression(param.DeclaredType, resolveState);
 
-                // An `fn` passed to `Expression<callable(T): R>` binds like a plain
-                // `callable(T): R` parameter: the tree is built from the same closure.
-                if (arg.Expression is PhpInlineFunctionAst
-                    && ExpressionTreeSupport.TryMapToCallable(declared, out var expressionCallable))
+                // An `fn` passed to `Expression<callable(T): R>` or `PropertyPath<callable(T): R>`
+                // binds like a plain `callable(T): R` parameter: the tree is built from the same closure.
+                // In a union with a callable, the member that types the `fn` is the one it binds against.
+                if (arg.Expression is PhpInlineFunctionAst)
                 {
-                    declared = expressionCallable;
+                    if (ClosureParameterInference.TryPickUnionClosureType(declared) is { } unionClosureType)
+                    {
+                        declared = unionClosureType;
+                    }
+                    else if (PropertyPathSupport.TryMapPropertyPathOrExpressionToCallable(
+                        declared, out var expressionCallable))
+                    {
+                        declared = expressionCallable;
+                    }
                 }
 
                 var actual = InferExpressionType(arg.Expression, state);
@@ -3372,8 +3453,8 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         // Member access (`->`/`::`) resolves against the underlying object type. A nullable
-        // receiver (`?T`) still exposes the members of `T` (the receiver may have been narrowed
-        // to non-null by a prior check, or null-safety is enforced separately), so unwrap any
+        // receiver (`?T`) still exposes the members of `T` (a possibly-null receiver is reported
+        // by `TypeCompatibilityRule` as TYHP4198), so unwrap any
         // nullable layers before looking up members. Literal wrappers (`"hi"` → string) peel
         // the same way so scalar extension lookup sees the builtin.
         private static ICheckedType UnwrapForMemberAccess(ICheckedType type) =>

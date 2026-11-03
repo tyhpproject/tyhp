@@ -135,12 +135,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             foreach (var expr in echo.EchoExpressions?.GetAllNotNull() ?? [])
             {
                 CheckerHelpers.CheckCompileTimeConstructsInTree(expr, state, context, diagnostics);
-                var exprType = context.ResolveExpressionType(expr, state);
-                if (!CheckerHelpers.IsStringableType(exprType, context.SymbolTree, context.GlobalScope))
-                {
-                    CheckerHelpers.ReportError(
-                        diagnostics, state, echo, MessageCode.CheckerConcatNonStringable, exprType.DisplayName);
-                }
+                CheckerHelpers.CheckStringConversion(
+                    echo, context.ResolveExpressionType(expr, state), state, context, diagnostics);
             }
         }
 

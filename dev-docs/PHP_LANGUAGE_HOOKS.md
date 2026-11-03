@@ -106,7 +106,7 @@ Engine or extension special-cases a **call**, not `$x[…]` / `foreach` / `yield
 | `#[\Tyhp\PhpType]` | emit PHP type on a parameter, return, property, or typed constant | **Done** (hint / inherit / reject illegal sites; TYHP4327 / 4329). Class + usages omitted because the class is `#[\Tyhp\NoEmit]`. |
 | `#[\Tyhp\NoEmit]` | omit tagged type declarations from PHP; strip usages of those types as attributes | **Done** (`NoEmitAttributeSupport`; `\Tyhp\Php` / `\Tyhp\PhpType` / `\Tyhp\NoEmit` are tagged) |
 | `\Tyhp\Contracts\ArrayAccessShape` | `$o[$k]` per struct field | **Done** (listing in `package.tyhpdef`; wide key **4331**; append **4332**; unhandled key **4333**) |
-| Operator overloads / convert-to | operators, implicit convert; string via Stringable | Story 09 / 31 Idea 2 |
+| Operator overloads / convert-to | operators, implicit convert; string via Stringable | Story 09 / 32 |
 
 ---
 

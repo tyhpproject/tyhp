@@ -656,8 +656,8 @@ Docs-only. Three product locks in one sweep:
 | `README.md` | Same tagline; do not show only trivial `Box<T>` erase as if it were always true. |
 | `docs/content/quickref.md` and intro examples | Locals: `$sum = 0;` / inferred `foreach`; show `int $x = …` as the explicit form, not the first form. |
 | `docs/content/tyhp_2500_phpMagicMethods.md` | Hook polyfill only when `output.phpVersion` < 8.4. |
-| `docs/content/tyhp_2600_asyncAndAwait.md` | Lowering to `Promise::_async` / `_await`; blocking PHP I/O blocks the loop (Idea 17 is the later I/O). |
-| `docs/content/tyhp_0400_structs.md` | PHP sees `array`; no runtime shape check (Ideas 4 / 15). |
+| `docs/content/tyhp_2600_asyncAndAwait.md` | Lowering to `Promise::_async` / `_await`; blocking PHP I/O blocks the loop (Story 46 is the later I/O). |
+| `docs/content/tyhp_0400_structs.md` | PHP sees `array`; no runtime shape check (Stories 22.1 / 44). |
 | `docs/content/tyhp_2200_withKeyword.md` | Array-vs-object argument analogy; no rename. |
 | `AIDevGuide/QUICK_GUIDE.md`, `guide/01-mental-model.md`, `REGEN.md` | Tagline + inference-first locals. |
 | `AIDevGuide/guide/28-availability-gotchas.md` | Only if it claims `isa`/`isan` or required ctor `: void` — those pages update in G / H. |
@@ -799,10 +799,10 @@ Do **not** insert `parent::__construct()` when the author wrote neither `: void`
 - Story **21.9** — `aliasFactory`; do not route aliases through `Generic::bind`.
 - Story **21.11** — previous bucket; this story does not depend on 21.11 A–F.
 - Story **30** — user docs must match when A / B / E / G / H are implemented.
-- Story **31** Idea 4 (docblocks), Idea 5 (`operator default()`), Idea 15 (runtime struct checks), Idea 16 (tyhpdef symbol cache), Idea 17 (async HTTP/DB/FS).
-- `FOUND_BUGS.md` #1 #2 (still skipped; do not fail CI on them), #6 (Idea 5), #56 (Workstream C).
+- Story **22.1** Part A (docblocks; was Story 31 Idea 4). Story **34** (`operator default()`), Story **44** (runtime struct checks), Story **45** (tyhpdef symbol cache), Story **46** (async HTTP/DB/FS).
+- `FOUND_BUGS.md` #1 #2 (still skipped; do not fail CI on them), #6 (Story 34), #56 (Workstream C).
 - `LANGUAGE_ASSESSMENT.md` §8 — why B–E, G, H exist; F withdrawn.
-- `DESIGN_OPEN_QUESTIONS.md` §§15–18 — 15a/b/d and 16 tagline locked here; 15c `with` kept; 17 → Idea 17; 18 don’t.
+- `DESIGN_OPEN_QUESTIONS.md` §§15–18 — 15a/b/d and 16 tagline locked here; 15c `with` kept; 17 → Story 46; 18 don’t.
 - `DECISIONS.md` — `isa`/`isan`/`is_a`/`is_an` removed; omitted ctor `: void`; `with` kept; tagline “typed superset”; no emitter pipeline.
 - `ALPHA_RELEASE.md` — Packagist / `tyhp init` without this checkout; leftover CI polish (PHPUnit job, coverage, extra OS).
 - `CONVENTIONS.md` §10 — named documentation pages above.

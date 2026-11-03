@@ -48,6 +48,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
+            if (TypeNarrowingRule.TryGetMemberPathKey(target, out var unsetPath))
+            {
+                state.RemoveMemberAccessNarrowingUnder(unsetPath!);
+            }
+
             if (target is not PhpDereferenceableAst
                 {
                     Base: PhpVariableAst receiver,

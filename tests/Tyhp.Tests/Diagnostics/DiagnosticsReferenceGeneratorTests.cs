@@ -108,6 +108,17 @@ public class DiagnosticsReferenceGeneratorTests
     }
 
     [Fact]
+    public void SplitLongFormBlocks_KeepsListItemsOnTheirOwnLines()
+    {
+        var blocks = MessageCodeCatalog.SplitLongFormBlocks(
+            "Use:\n- bare `static`\n  continued\n- `self<...>`\n\n1. First step.\n2. Second\nstep.").ToList();
+
+        blocks.Should().HaveCount(2);
+        blocks[0].Text.Should().Be("Use:\n- bare `static` continued\n- `self<...>`");
+        blocks[1].Text.Should().Be("1. First step.\n2. Second step.");
+    }
+
+    [Fact]
     public void GeneratedIndex_ContainsEveryMessageCodeAndLiveShortMessage()
     {
         var markdown = DiagnosticsReferenceGenerator.GenerateMarkdown();

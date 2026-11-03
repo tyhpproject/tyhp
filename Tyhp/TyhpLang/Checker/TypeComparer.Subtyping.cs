@@ -878,13 +878,19 @@ namespace Tyhp.TyhpLang.Checker
 
         /// <summary>
         /// Carve-out for user-generic invariance: <c>G&lt;T&gt;</c> may assign to <c>G&lt;mixed&gt;</c>
-        /// when <c>T</c> is neither <c>void</c> nor <c>never</c>. Heterogeneous bags such as
+        /// when <c>T</c> is neither <c>void</c> nor <c>never</c>, and to <c>G&lt;void|mixed&gt;</c>
+        /// when <c>T</c> is not <c>never</c> (<c>Promise&lt;void&gt;</c> to <c>Promise&lt;void|mixed&gt;</c>).
+        /// Heterogeneous bags such as
         /// <c>array&lt;string, PropertyAccessor&lt;mixed&gt;&gt;</c> rely on this; <c>G&lt;string&gt;</c>
         /// still does not assign to <c>G&lt;int&gt;</c>. Explicit <c>in</c>/<c>out</c> variance remains
         /// unimplemented — this is not general covariance.
         /// </summary>
         private static bool IsCovariantToMixedGenericArg(ICheckedType sourceArg, ICheckedType targetArg) =>
-            IsMixedType(targetArg) && !IsVoidType(sourceArg) && !IsNeverType(sourceArg);
+            IsMixedType(targetArg)
+            && !IsNeverType(sourceArg)
+            && (!IsVoidType(sourceArg)
+                || targetArg is UnionCheckedType { Members: var targetMembers }
+                    && targetMembers.Any(IsVoidType));
     }
 }
 

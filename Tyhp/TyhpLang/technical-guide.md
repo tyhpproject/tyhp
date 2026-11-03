@@ -94,7 +94,7 @@ For each file, `CompilationService.ParseFile`:
 2. Configures tagless mode from `CompilationOptions.Tagless` for `.tyhp` / `.tyhpdef`.
 3. Picks the ANTLR entry rule by extension:
    - `.tyhpdef` → `tyhpdefSrcFile` / `tyhpdefTaglessSrcFile`
-   - `.tyhp` → `tyhpSrcFile` / `tyhpTaglessSrcFile`
+   - `.tyhp` → `tyhpSrcFile` / `tyhpTaglessSrcFile`. `TaglessEntryPoint` sends a file whose first six characters are `<?tyhp` to `tyhpSrcFile`. `tyhpTaglessSrcFile` has no open tag.
    - else → `phpSrcFile`
 4. Optionally loads a cached AST (`AstCacheService`) keyed by path + content hash (+ tagless bit).
 5. On miss: `new TyhpParserAstVisitor(tokenStream, path, hash, diagnostics).Visit(ctx)` → `SrcFileAst`.

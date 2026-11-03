@@ -46,8 +46,8 @@ namespace Tyhp.TyhpLang.Checker
             IsInGeneratorContext = source.IsInGeneratorContext;
             GeneratorInference = source.GeneratorInference;
             IsInLoopContext = source.IsInLoopContext;
-            LoopDepth = source.LoopDepth;
             IsInSwitchContext = source.IsInSwitchContext;
+            BreakableScopes = source.BreakableScopes;
             HasReturnedOnAllPaths = source.HasReturnedOnAllPaths;
             TrackArrayAccessShapeOffsetGetCoverage = source.TrackArrayAccessShapeOffsetGetCoverage;
             TrackArrayAccessShapeOffsetSetCoverage = source.TrackArrayAccessShapeOffsetSetCoverage;
@@ -188,9 +188,13 @@ namespace Tyhp.TyhpLang.Checker
 
         public bool IsInLoopContext { get; set; }
 
-        public int LoopDepth { get; set; }
-
         public bool IsInSwitchContext { get; set; }
+
+        /// <summary>
+        /// Enclosing loops and switches of the current callable, innermost last. Resolves the
+        /// target of <c>break N</c> / <c>continue N</c>.
+        /// </summary>
+        internal IReadOnlyList<BreakableScope> BreakableScopes { get; set; } = [];
 
         /// <summary>
         /// True when every path through the current block exits abruptly — via <c>return</c>,
@@ -378,6 +382,10 @@ namespace Tyhp.TyhpLang.Checker
                     // A return inside a nested callable belongs to that callable, not to a
                     // finally the callable was written in.
                     child.IsInsideFinally = false;
+                    // `break` / `continue` cannot leave a callable.
+                    child.IsInLoopContext = false;
+                    child.IsInSwitchContext = false;
+                    child.BreakableScopes = [];
                     child.IsAsyncReturnScope = false;
                     child.AsyncReturnOwner = null;
                     child.ExpectedExpressionType = null;
@@ -596,7 +604,7 @@ namespace Tyhp.TyhpLang.Checker
             {
                 if (scope.MemberAccessNarrowing.TryGetValue(memberKey, out var type))
                 {
-                    return type;
+                    return ReferenceEquals(type, ClearedMemberAccessNarrowing.Instance) ? null : type;
                 }
 
                 if (IsFunctionBoundary(scope.ScopeType))
@@ -639,13 +647,7 @@ namespace Tyhp.TyhpLang.Checker
             ThrowIfLocked();
             var bare = variableName.TrimStart('$');
             var prefix = "$" + bare + "->";
-            var toRemove = MemberAccessNarrowing.Keys
-                .Where(k => k.StartsWith(prefix, StringComparison.Ordinal))
-                .ToList();
-            foreach (var key in toRemove)
-            {
-                MemberAccessNarrowing.Remove(key);
-            }
+            ClearMemberAccessNarrowing(k => k.StartsWith(prefix, StringComparison.Ordinal));
         }
 
         /// <summary>
@@ -668,7 +670,65 @@ namespace Tyhp.TyhpLang.Checker
         public bool RemoveMemberAccessNarrowing(string memberKey)
         {
             ThrowIfLocked();
-            return MemberAccessNarrowing.Remove(memberKey);
+            var narrowed = LookupMemberAccess(memberKey) is not null;
+            ClearMemberAccessNarrowing(k => string.Equals(k, memberKey, StringComparison.Ordinal));
+            return narrowed;
+        }
+
+        /// <summary>
+        /// Clears the member-access narrowing for <paramref name="pathKey"/> and every nested path
+        /// under it (<c>$a->b</c> also clears <c>$a->b->c</c>) after that path is written.
+        /// </summary>
+        public void RemoveMemberAccessNarrowingUnder(string pathKey)
+        {
+            ThrowIfLocked();
+            var prefix = pathKey + "->";
+            ClearMemberAccessNarrowing(k => string.Equals(k, pathKey, StringComparison.Ordinal)
+                || k.StartsWith(prefix, StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// Drops every visible member-access narrowing whose key matches. An entry inherited from
+        /// an enclosing scope is shadowed with <see cref="ClearedMemberAccessNarrowing"/> so the
+        /// parent walk in <see cref="LookupMemberAccess"/> does not find it again.
+        /// </summary>
+        private void ClearMemberAccessNarrowing(Func<string, bool> matches)
+        {
+            foreach (var key in CloneMemberAccessNarrowing().Keys.Where(matches).ToList())
+            {
+                MemberAccessNarrowing.Remove(key);
+                if (IsMemberAccessNarrowedInEnclosingScope(key))
+                {
+                    MemberAccessNarrowing[key] = ClearedMemberAccessNarrowing.Instance;
+                }
+            }
+        }
+
+        private bool IsMemberAccessNarrowedInEnclosingScope(string memberKey) =>
+            !IsFunctionBoundary(ScopeType) && Parent?.LookupMemberAccess(memberKey) is not null;
+
+        /// <summary>
+        /// Marks a member-access key whose enclosing-scope narrowing no longer holds here.
+        /// </summary>
+        private sealed class ClearedMemberAccessNarrowing : ICheckedType
+        {
+            public static ClearedMemberAccessNarrowing Instance { get; } = new();
+
+            private ClearedMemberAccessNarrowing()
+            {
+            }
+
+            public CheckedTypeKind Kind => CheckedTypeKind.Unresolved;
+
+            public string DisplayName => "unresolved";
+
+            public bool IsNullable => true;
+
+            public bool IsNever => false;
+
+            public bool IsVoid => false;
+
+            public bool IsMixed => false;
         }
 
         /// <summary>
@@ -1000,9 +1060,18 @@ namespace Tyhp.TyhpLang.Checker
             {
                 var inThis = MemberAccessNarrowing.TryGetValue(key, out var thisType);
                 var inBranch = branchState.MemberAccessNarrowing.TryGetValue(key, out var branchType);
-                if (inThis && inBranch && TypeComparer.AreTypesEqual(thisType!, branchType!))
+                var cleared = ReferenceEquals(thisType, ClearedMemberAccessNarrowing.Instance)
+                    || ReferenceEquals(branchType, ClearedMemberAccessNarrowing.Instance);
+                if (inThis && inBranch && !cleared && TypeComparer.AreTypesEqual(thisType!, branchType!))
                 {
                     kept[key] = thisType!;
+                }
+                else if (IsMemberAccessNarrowedInEnclosingScope(key))
+                {
+                    // Dropping the key would expose the enclosing scope's narrowing again.
+                    kept[key] = inThis && inBranch && !cleared
+                        ? CheckedTypes.UnionTypes(thisType!, branchType!)
+                        : ClearedMemberAccessNarrowing.Instance;
                 }
             }
 
@@ -1350,5 +1419,27 @@ namespace Tyhp.TyhpLang.Checker
                 throw new InvalidOperationException("CheckerState snapshot is immutable.");
             }
         }
+    }
+
+    /// <summary>
+    /// An enclosing loop or <c>switch</c> that <c>break N</c> / <c>continue N</c> can leave.
+    /// Shared by every state inside the construct, so a jump in any nested branch records the
+    /// state it leaves with.
+    /// </summary>
+    internal sealed class BreakableScope(bool isSwitch)
+    {
+        public bool IsSwitch { get; } = isSwitch;
+
+        /// <summary>
+        /// States at reachable jumps that continue after this construct: <c>break</c> to it, and
+        /// <c>continue</c> to a switch (PHP treats that as <c>break</c>).
+        /// </summary>
+        public List<CheckerState> BreakStates { get; } = [];
+
+        /// <summary>
+        /// States at reachable <c>continue</c> jumps to this loop. The loop condition is tested
+        /// again, so the loop may end from them.
+        /// </summary>
+        public List<CheckerState> ContinueStates { get; } = [];
     }
 }

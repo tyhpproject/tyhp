@@ -13,13 +13,19 @@ namespace Tyhp.Domain.Services
     /// </summary>
     internal static class RuntimePackageVersions
     {
-        internal const string Php = "0.0.1";
-        internal const string Core = "0.1";
-        internal const string Async = "0.1";
-        internal const string Decimal = "0.1";
-        internal const string Lambda = "0.1";
-        internal const string Parallel = "0.1";
-        internal const string Io = "0.1";
+        internal const string Php = "0.0.3";
+        internal const string Core = "0.4";
+        internal const string Async = "0.4";
+        internal const string Decimal = "0.4";
+        internal const string Lambda = "0.4";
+        internal const string Parallel = "0.4";
+        internal const string Io = "0.4";
+
+        /// <summary>
+        /// PHP minor versions that compiled <c>tyhp/*</c> packages publish an <c>80N.X.Y</c>
+        /// line for (the runtime repo's <c>DIST_BUILDS</c>).
+        /// </summary>
+        internal static readonly IReadOnlyList<string> PublishedPhpVersions = ["8.2", "8.3", "8.4", "8.5"];
 
         internal static readonly IReadOnlyDictionary<string, string> Bundled =
             new Dictionary<string, string>(StringComparer.Ordinal)

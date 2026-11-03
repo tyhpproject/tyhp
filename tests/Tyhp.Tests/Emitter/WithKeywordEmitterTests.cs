@@ -14,6 +14,14 @@ namespace Tyhp.Tests.Emitter;
 public class WithKeywordEmitterTests
 {
     private static string CompileAndEmit(string tyhp, string phpVersion = "8.4", Project? project = null)
+        => string.Join(
+            '\n',
+            CompileAndEmitFiles(tyhp, phpVersion, project).Select(f => f.GeneratedContent ?? string.Empty));
+
+    private static IReadOnlyList<PHPOutputFile> CompileAndEmitFiles(
+        string tyhp,
+        string phpVersion = "8.4",
+        Project? project = null)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
@@ -49,8 +57,7 @@ public class WithKeywordEmitterTests
             result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
 
             var context = EmitContext.Create(result.GlobalScope, result.Diagnostics, project);
-            var outputFiles = new TyhpEmitter(context).Emit(result.ParsedFiles!);
-            return string.Join('\n', outputFiles.Select(f => f.GeneratedContent ?? string.Empty));
+            return new TyhpEmitter(context).Emit(result.ParsedFiles!).ToList();
         }
         finally
         {
@@ -226,7 +233,11 @@ public class WithKeywordEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Color {
-                public readonly int $alpha = 255;
+                public readonly int $alpha;
+
+                public function __construct() {
+                    $this->alpha = 255;
+                }
             }
             function copyColor(Color $c): Color {
                 return clone $c with [alpha => 128];
@@ -237,9 +248,83 @@ public class WithKeywordEmitterTests
 
         php.Should().Contain("newInstanceWithoutConstructor");
         php.Should().Contain("ReflectionObject");
-        php.Should().Contain("__tyhp_overrides");
+        php.Should().Contain("public static array $__tyhp_overrides");
+        php.Should().Contain("public function __construct()\n");
+        php.Should().NotContain("__construct(): void");
+        php.Should().Contain("setStaticPropertyValue");
         php.Should().Contain("['alpha' => 128]");
+        php.Should().NotContain("public array $__tyhp_overrides");
         php.Should().NotContain(" with ");
+    }
+
+    [Fact]
+    public void Emit_CloneWith_Readonly_RequiredConstructor_Php83_SkipsParentConstructor()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Box {
+                public function __construct(public readonly int $w, public readonly int $h) {}
+            }
+            function copyBox(Box $b): Box {
+                return clone $b with [w => 7];
+            }
+            """,
+            phpVersion: "8.3",
+            project: CreateProject("8.3", experimentalReadonlyCloneWith: true));
+
+        php.Should().Contain("new \\ReflectionClass(new class extends \\Box");
+        php.Should().Contain("public function __construct()\n");
+        php.Should().NotContain("__construct(): void");
+        php.Should().Contain("public static array $__tyhp_overrides");
+        php.Should().Contain("newInstanceWithoutConstructor");
+        php.Should().Contain("})($b, ['w' => 7])");
+        php.Should().NotContain("public array $__tyhp_overrides");
+        php.Should().NotContain(" with ");
+    }
+
+    [Fact]
+    public void Emit_NewWith_Readonly_Php83_UsesAnonymousCloneWrapper()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Color {
+                public readonly int $alpha;
+
+                public function __construct() {
+                    $this->alpha = 255;
+                }
+            }
+            function make(): Color {
+                return new Color() with [alpha => 128];
+            }
+            """, phpVersion: "8.3");
+
+        php.Should().Contain("clone (new class(");
+        php.Should().Contain("extends \\Color");
+        php.Should().Contain("function __clone(): void");
+        php.Should().Contain("$this->alpha = 128");
+        php.Should().NotContain("ObjectHelper");
+        php.Should().NotContain("new readonly class");
+        php.Should().NotContain(" with ");
+    }
+
+    [Fact]
+    public void Emit_NewWith_ReadonlyClass_Php83_UsesReadonlyAnonymousWrapper()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            readonly class Color {
+                public function __construct(public int $alpha) {}
+            }
+            function make(): Color {
+                return new Color(255) with [alpha => 128];
+            }
+            """, phpVersion: "8.3");
+
+        php.Should().Contain("clone (new readonly class(255) extends \\Color");
+        php.Should().Contain("$this->alpha = 128");
+        php.Should().NotContain("ObjectHelper");
+        php.Should().NotContain("public array $__tyhp_overrides");
     }
 
     [Fact]
@@ -248,7 +333,11 @@ public class WithKeywordEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Color {
-                public readonly int $alpha = 255;
+                public readonly int $alpha;
+
+                public function __construct() {
+                    $this->alpha = 255;
+                }
             }
             function make(): Color {
                 return new Color() with [alpha => 128];
@@ -264,12 +353,51 @@ public class WithKeywordEmitterTests
     }
 
     [Fact]
+    public void Emit_NewWith_ReadonlyClassImplicitProperty_Php84_UsesReadonlyAnonymousWrapper()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            readonly class Color {
+                public function __construct(public int $alpha) {}
+            }
+            function make(): Color {
+                return new Color(255) with [alpha => 128];
+            }
+            """);
+
+        php.Should().Contain("clone (new readonly class(255) extends \\Color");
+        php.Should().Contain("$this->alpha = 128");
+        php.Should().NotContain("ObjectHelper");
+    }
+
+    [Fact]
+    public void Emit_CloneWith_ReadonlyClassImplicitProperty_Php85_UsesNativeCloneCall()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            readonly class Color {
+                public function __construct(public int $alpha) {}
+            }
+            function fade(Color $color): Color {
+                return clone $color with [alpha => 128];
+            }
+            """, phpVersion: "8.5");
+
+        php.Should().Contain("clone($color, ['alpha' => 128])");
+        php.Should().NotContain("ObjectHelper");
+    }
+
+    [Fact]
     public void Emit_NewWith_Readonly_Php85_UsesNativeCloneCall()
     {
         var php = CompileAndEmit("""
             <?tyhp
             class Color {
-                public readonly int $alpha = 255;
+                public readonly int $alpha;
+
+                public function __construct() {
+                    $this->alpha = 255;
+                }
             }
             function make(): Color {
                 return new Color() with [alpha => 128];
@@ -323,7 +451,11 @@ public class WithKeywordEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Color {
-                public readonly array $channels = [];
+                public readonly array $channels;
+
+                public function __construct() {
+                    $this->channels = [];
+                }
             }
             function copyColor(Color $c): Color {
                 return clone $c with [channels => [1, 2,]];
@@ -335,5 +467,86 @@ public class WithKeywordEmitterTests
         php.Should().Contain("['channels' => [1, 2]]");
         php.Should().NotMatchRegex(@",\s*,");
         php.Should().NotContain(" with ");
+    }
+
+    [Theory]
+    [InlineData("8.3")]
+    [InlineData("8.4")]
+    public void Run_CloneWith_Readonly_RequiredConstructor_Experimental_CopiesWithoutParentConstructor(
+        string phpVersion)
+    {
+        // `Box::__construct` has required parameters. The wrapper must not run it with no
+        // arguments, must not put override state on the instance, and must pop its override
+        // frame even when the same call site re-enters through recursion.
+        var files = CompileAndEmitFiles("""
+            <?tyhp
+            class Box {
+                public function __construct(public readonly int $w, public readonly int $h) {}
+            }
+
+            function copyBox(Box $b): Box {
+                return clone $b with [w => 7];
+            }
+
+            function widen(Box $b, int $n): Box {
+                if ($n === 0) {
+                    return $b;
+                }
+
+                return clone $b with [w => widen($b, $n - 1)->w + 10];
+            }
+            """,
+            phpVersion: phpVersion,
+            project: CreateProject(phpVersion, experimentalReadonlyCloneWith: true));
+
+        var output = EmittedPhpRunner.Run(
+            files,
+            """
+            $b = new \Box(1, 2);
+            $c = \copyBox($b);
+            echo $c->w, ',', $c->h, ',', $b->w, ',', $b->h, "\n";
+            echo \count(\get_object_vars($c)), "\n";
+            $d = \copyBox($c);
+            echo $d->w, ',', $d->h, "\n";
+            echo \widen($b, 2)->w, ',', $b->w, "\n";
+            """);
+
+        output.Should().Be("7,2,1,2\n2\n7,2\n21,1\n");
+    }
+
+    [Theory]
+    [InlineData("8.3")]
+    [InlineData("8.4")]
+    public void Run_NewWith_Readonly_AnonymousCloneWrapper_AppliesOverride(string phpVersion)
+    {
+        var files = CompileAndEmitFiles("""
+            <?tyhp
+            class Pair {
+                public function __construct(public readonly int $a, public readonly int $b) {}
+            }
+
+            readonly class Tone {
+                public function __construct(public int $alpha, public int $beta) {}
+            }
+
+            function makePair(): Pair {
+                return new Pair(1, 2) with [a => 9];
+            }
+
+            function makeTone(): Tone {
+                return new Tone(255, 3) with [alpha => 128];
+            }
+            """,
+            phpVersion: phpVersion);
+
+        var output = EmittedPhpRunner.Run(
+            files,
+            """
+            $p = \makePair();
+            $t = \makeTone();
+            echo $p->a, ',', $p->b, ',', $t->alpha, ',', $t->beta, "\n";
+            """);
+
+        output.Should().Be("9,2,128,3\n");
     }
 }

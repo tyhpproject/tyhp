@@ -83,6 +83,11 @@ namespace Tyhp.TyhpLang.Checker
                 return true;
             }
 
+            if (TryMatchInterpolation(source, target, symbolTree, globalScope, out result))
+            {
+                return true;
+            }
+
             if (Rules.CheckerHelpers.IsBuiltInName(source, "string") &&
                 target is TemplateStringCheckedType &&
                 source is not LiteralCheckedType)
@@ -151,7 +156,37 @@ namespace Tyhp.TyhpLang.Checker
                 return true;
             }
 
-            return false;
+            return TryMatchInterpolation(child, parent, symbolTree, globalScope, out result);
+        }
+
+        private static bool TryMatchInterpolation(
+            ICheckedType source,
+            ICheckedType target,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            out bool result)
+        {
+            result = false;
+            if (source is not SimpleCheckedType { InterpolationPattern: { } interpolation } ||
+                target is not TemplateStringCheckedType targetPattern)
+            {
+                return false;
+            }
+
+            var budget = CreateTemplateStringBudget();
+            result = TemplateStringMatcher.InterpolationMatches(
+                interpolation,
+                targetPattern.Pattern,
+                symbolTree,
+                globalScope,
+                budget);
+            if (budget.ExceededLimit)
+            {
+                MarkTemplateStringBudgetExceeded();
+                result = false;
+            }
+
+            return true;
         }
     }
 }

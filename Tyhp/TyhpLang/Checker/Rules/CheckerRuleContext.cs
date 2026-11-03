@@ -138,7 +138,40 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 CheckerHelpers.ReportNoDiscardIfDiscarded(
                     statement, state, this, Diagnostics);
                 MarkTerminatedIfNeverReturning(statement, state);
+                ApplyAssertNarrowing(statement, state);
             }
+        }
+
+        /// <summary>
+        /// <c>\assert($cond);</c> as a statement narrows the code after it as if <c>$cond</c>
+        /// held, the same as an early exit on <c>!$cond</c>.
+        /// </summary>
+        public void ApplyAssertNarrowing(IBase2Ast statement, CheckerState state)
+        {
+            if (state.HasReturnedOnAllPaths
+                || statement is not PhpDereferenceableAst { Base: PhpNameAst callee, Suffix: PhpCallAst call }
+                || !IsGlobalAssert(callee, state)
+                || call.Arguments?.GetAllNotNull().FirstOrDefault() is not
+                    { IsVariadic: false, Name: null, Expression: { } condition })
+            {
+                return;
+            }
+
+            TypeNarrowingRule.ApplyConditionNarrowing(
+                condition, state, this, SymbolTree, GlobalScope, positive: true);
+        }
+
+        private bool IsGlobalAssert(PhpNameAst callee, CheckerState state)
+        {
+            if (CheckerHelpers.ResolveFreeFunction(callee, state, SymbolTree, GlobalScope) is { } function)
+            {
+                return string.Equals(
+                    (function.FullyQualifiedName ?? function.Name).TrimStart('\\'),
+                    "assert",
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            return string.Equals(callee.ValueString?.TrimStart('\\'), "assert", StringComparison.OrdinalIgnoreCase);
         }
 
         private readonly HashSet<PhpDeclareAst> _pairedGateBlocks = new(ReferenceEqualityComparer.Instance);
@@ -246,6 +279,14 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
         public ICheckedType ResolveExpressionType(IBase2Ast expression, CheckerState state) =>
             _checker.ResolveExpressionType(expression, state);
+
+        /// <summary>
+        /// Type a later link of the same chain sees for <paramref name="receiver"/>: a
+        /// <c>?-&gt;</c> earlier in the chain short-circuits the rest, so <c>$a?-&gt;b</c> as the
+        /// receiver of <c>-&gt;c</c> is <c>b</c>'s type, not <c>b|null</c>.
+        /// </summary>
+        public ICheckedType ResolveChainReceiverType(IBase2Ast receiver, CheckerState state) =>
+            _checker.ResolveChainReceiverType(receiver, state);
 
         /// <summary>
         /// Value type of an index / destructure read (same as <c>$obj[$k]</c>).

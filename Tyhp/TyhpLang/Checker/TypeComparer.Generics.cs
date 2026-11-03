@@ -142,8 +142,19 @@ namespace Tyhp.TyhpLang.Checker
                         .ToList(),
                     shapeType.Members?.MapTypes(mapped =>
                         SubstituteType(mapped, lookup, symbolTree, globalScope, substituting))),
+                TemplateStringCheckedType template => SubstituteTemplateHoles(
+                    template,
+                    mapped => SubstituteType(mapped, lookup, symbolTree, globalScope, substituting)),
                 _ => type,
             };
+        }
+
+        private static TemplateStringCheckedType SubstituteTemplateHoles(
+            TemplateStringCheckedType template,
+            Func<ICheckedType, ICheckedType> substitute)
+        {
+            var pattern = template.Pattern.MapHoleTypes(substitute);
+            return ReferenceEquals(pattern, template.Pattern) ? template : new TemplateStringCheckedType(pattern);
         }
 
         private static ICheckedType ExpandSubstitutedPack(

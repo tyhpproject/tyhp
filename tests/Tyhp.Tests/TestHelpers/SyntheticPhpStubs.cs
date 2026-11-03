@@ -296,6 +296,12 @@ public static class SyntheticPhpStubs
                     ?string $compiler = null
                 ): void;
             }
+
+            #[\Attribute(\Attribute::TARGET_PROPERTY | \Attribute::TARGET_PARAMETER)]
+            final class PropertyType {
+                readonly public string $type;
+                public function __construct(string $type): void;
+            }
         }
         """;
 
@@ -498,6 +504,7 @@ public static class SyntheticPhpStubs
         function str_repeat(string $string, int $times): string;
         function compact(string|array ...$var_names): array;
         function array_key_exists(mixed $key, array $array): bool;
+        function assert(mixed $assertion, \Throwable|string|null $description = null): bool;
         function strlen(string $string): int;
         function strval(mixed $value): string;
         function count(\Countable|array $value): int;
@@ -610,6 +617,12 @@ public static class SyntheticPhpStubs
                 ): void;
             }
 
+            #[\Attribute(\Attribute::TARGET_PROPERTY | \Attribute::TARGET_PARAMETER)]
+            final class PropertyType {
+                readonly public string $type;
+                public function __construct(string $type): void;
+            }
+
             class Type implements \Stringable {
                 public function __toString(): string;
             }
@@ -626,11 +639,14 @@ public static class SyntheticPhpStubs
                 public \Tyhp\Expression\ExpressionNode $body;
                 public array<\Tyhp\Expression\ParameterExpression> $parameters;
                 public readonly \Closure<TCallableShape> $callable;
+                public function __invoke(__CallableParametersRest<TCallableShape> ...$args): __CallableReturnType<TCallableShape>;
+                public function compile(): \Closure<TCallableShape>;
                 public function equals(\Tyhp\Expression $other): bool;
             }
 
             class PropertyPath<TCallableShape extends callable> extends Expression<TCallableShape> {
                 public function getPath(): string;
+                public function getValue(mixed $source): __CallableReturnType<TCallableShape>;
             }
 
             class Promise<TReturn extends __Awaited<void|mixed> = __Awaited<mixed>> {

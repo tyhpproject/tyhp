@@ -62,21 +62,36 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     diagnostics, state, property, MessageCode.CheckerEnumPropertyNotAllowed);
             }
 
-            if ((state.Modifiers & MemberModifier.Readonly) != 0
-                && (modifiers & MemberModifier.Readonly) == 0
-                && (modifiers & MemberModifier.Static) == 0)
+            var propName = property.Properties?.GetAllNotNull()
+                    .Select(p => p.Identifier)
+                    .FirstOrDefault(n => !string.IsNullOrEmpty(n))
+                ?? property.Identifier;
+
+            if (IsReadonlyClassContext(state))
             {
-                CheckerHelpers.ReportError(
-                    diagnostics, state, property, MessageCode.CheckerReadonlyClassMutableProperty, property.Identifier);
+                if ((modifiers & MemberModifier.Static) != 0)
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        property,
+                        MessageCode.CheckerReadonlyClassStaticProperty,
+                        propName,
+                        state.EnclosingObject!.Name);
+                }
+                else
+                {
+                    modifiers |= MemberModifier.Readonly;
+                }
+            }
+
+            if (!isTyhpdefProperty)
+            {
+                CheckReadonlyPropertyDefaults(property, modifiers, state, context, diagnostics);
             }
 
             if (property.Type is null)
             {
-                var propName = property.Properties?.GetAllNotNull()
-                        .Select(p => p.Identifier)
-                        .FirstOrDefault(n => !string.IsNullOrEmpty(n))
-                    ?? property.Identifier;
-
                 CheckerHelpers.ReportError(
                     context, state, property, MessageCode.CheckerVariableTypeRequired,
                     CheckerHelpers.FormatTypeRequiredName(propName));
@@ -594,6 +609,64 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     targetVersion);
             }
         }
+
+        /// <summary>
+        /// True inside a <c>readonly class</c>, whose instance properties and promoted parameters
+        /// are readonly without the modifier (the binder stamps the same on their symbols).
+        /// </summary>
+        private static bool IsReadonlyClassContext(CheckerState state) =>
+            state.EnclosingObject is { ObjectKind: PhpTypeDeclType.Class, IsStruct: false } enclosing
+            && (enclosing.Visibility & MemberModifier.Readonly) != 0;
+
+        /// <summary>
+        /// TYHP4378: PHP before 8.6 rejects a default value on a readonly property, whether the
+        /// property is declared <c>readonly</c> or belongs to a <c>readonly class</c>
+        /// (<paramref name="modifiers"/> already includes the class's implicit <c>readonly</c>).
+        /// Static properties are never readonly, and promoted constructor parameters carry a
+        /// parameter default instead, so neither is checked here.
+        /// </summary>
+        private static void CheckReadonlyPropertyDefaults(
+            PhpPropertyDeclAst property,
+            MemberModifier modifiers,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if ((modifiers & MemberModifier.Readonly) == 0
+                || (modifiers & MemberModifier.Static) != 0
+                || state.EnclosingObject is null or { IsStruct: true })
+            {
+                return;
+            }
+
+            var targetVersion = TargetPhpVersionText(context);
+            if (IsPhpVersionAtLeast(targetVersion, 8, 6))
+            {
+                return;
+            }
+
+            foreach (var prop in property.Properties?.GetAllNotNull() ?? [])
+            {
+                if (prop.DefaultValue is null || string.IsNullOrEmpty(prop.Identifier))
+                {
+                    continue;
+                }
+
+                var name = prop.Identifier.StartsWith('$') ? prop.Identifier : "$" + prop.Identifier;
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    prop,
+                    MessageCode.CheckerReadonlyPropertyDefaultRequiresPhp86,
+                    name,
+                    targetVersion);
+            }
+        }
+
+        private static string TargetPhpVersionText(CheckerRuleContext context)
+            => string.IsNullOrWhiteSpace(context.Options.PhpVersion)
+                ? Domain.Services.CompilationOptions.DefaultPhpVersionWhenUnset
+                : context.Options.PhpVersion.Trim();
 
         private static bool IsPhpVersionAtLeast(string? version, int major, int minor)
         {
@@ -1246,14 +1319,6 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         diagnostics, state, param, MessageCode.CheckerPromotedVariadic, param.Name);
                 }
 
-                if (param.Modifiers is not null
-                    && (state.Modifiers & MemberModifier.Readonly) != 0
-                    && (CheckerHelpers.ToMemberModifiers(param.Modifiers) & MemberModifier.Readonly) == 0)
-                {
-                    CheckerHelpers.ReportError(
-                        diagnostics, state, param, MessageCode.CheckerReadonlyClassMutableProperty, param.Name);
-                }
-
                 if (param.PropertyHooks is PhpPropertyHookListAst promotedHooks)
                 {
                     var promotedModifiers = CheckerHelpers.ToMemberModifiers(param.Modifiers);
@@ -1261,7 +1326,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         promotedHooks, param.Name, promotedModifiers, param, state, context, diagnostics);
 
                     if (param.Modifiers is not null
-                        && (CheckerHelpers.ToMemberModifiers(param.Modifiers) & MemberModifier.Readonly) != 0)
+                        && ((promotedModifiers & MemberModifier.Readonly) != 0 || IsReadonlyClassContext(state)))
                     {
                         CheckerHelpers.ReportError(
                             diagnostics, state, param, MessageCode.CheckerHookedPropertyReadonly);

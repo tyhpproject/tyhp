@@ -144,7 +144,7 @@ Use these exact keys; do not invent synonyms in story docs.
 | `exclude` | Glob(s) to exclude |
 | `tyhpdefInclude` | Glob(s) for additional tyhpdefs **and** `composer.json` tyhpdef package manifests (vendor is auto-scanned; `runtime/` is not — list local packages here) |
 | `tyhpdefExclude` | Glob(s) to exclude from the tyhpdef load set |
-| `source.tagless` | Opt-in extension-driven source mode (Story 06, Phase 7). Default `false`. When `true`: the `<?tyhp`/`<?tyhpdef` open tag is optional (allowed but not required) and the closing tag `?>` is always an error. A future release may flip the default to `true`. |
+| `source.tagless` | Opt-in extension-driven source mode (Story 06, Phase 7). Default `false`. When `true`: `.tyhp` and `.tyhpdef` files may omit their open tag. A `.tyhp` file whose first six characters are `<?tyhp` uses the tagged entry; the tagless `.tyhp` entry has no open tag. Closing `?>` is an error in a tagless file. A `.tyhpdef` open tag stays optional. A future release may flip the default to `true`. |
 | `output.path` | Build output directory (e.g. `./build`) |
 | `output.namespacePrefix` | PHP namespace prefix for emitted code |
 | `type` | `"library"` triggers auto-generation of `extra.tyhp.package` on `composer.json` from the compiled public API |

@@ -45,6 +45,15 @@ Composer-lib wrappers `<vendor>-<name>/<version>`), and `dist/`.
 `tyhp/*` and `tyhpdef/*` to its directory (the path repositories registered for a
 build); `RuntimePackagePaths` recognises `tyhpdef/php` as the engine PHP package.
 
+With `build.updateComposer`, `ComposerJsonService.MergeRequireSection` pins each required
+package: a path-repo package gets its source `composer.json` version, a Packagist `tyhpdef/*`
+keeps its source version, and a Packagist compiled `tyhp/*` gets `80N.X.Y`
+(`TryEncodeRuntimePackageVersion`). `80N` exists only for the PHP minors in
+`RuntimePackageVersions.PublishedPhpVersions` (the runtime repo's `DIST_BUILDS`); for any other
+`output.phpVersion` the build reports TYHP7108 and leaves `composer.json` unwritten, and
+`TyhpLibDistributionService` skips `composer install`. Supporting a new PHP minor means adding it
+to that list once its runtime line is published.
+
 Each `composer.json` under a root that has `extra.tyhp.package` as an object
 (skipping `vendor` / `node_modules` /
 `.git` / `dist`) is a wrapper. Include **and** overlay globs are scanned.

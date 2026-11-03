@@ -10,7 +10,7 @@ namespace Tyhp.Tests.Checker;
 
 /// <summary>
 /// Story 11 §8: checker accepts call/return/<c>new</c> sites that AliasConverter rewrites via
-/// <c>operator convert</c> (convert-to / convert-from). Does not implement Story 31 Idea 2
+/// <c>operator convert</c> (convert-to / convert-from). Does not implement Story 32
 /// <c>*Convertible</c> acceptance.
 /// </summary>
 [Trait("Category", "Checker")]

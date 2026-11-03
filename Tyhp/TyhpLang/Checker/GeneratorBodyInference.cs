@@ -87,6 +87,11 @@ namespace Tyhp.TyhpLang.Checker
                 type = literal.UnderlyingType;
             }
 
+            if (type is SimpleCheckedType { InterpolationPattern: not null })
+            {
+                return CheckedTypes.String;
+            }
+
             // `true`/`false` stay nominal after dropping LiteralCheckedType; TReturn/TValue
             // slots used as Generator type arguments are invariant, so widen to bool.
             if (CheckerHelpers.IsBuiltInName(type, "true")

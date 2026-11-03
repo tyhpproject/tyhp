@@ -277,7 +277,7 @@ Feature transforms (structs, async, disposables, etc.) are Story 11, not gaps in
    - Trait-`$this` direct-operand operator rewrite — **RESOLVED 2026-08-11** (Story 11 §8; composing-class
      search + `static::__op` late static binding; see `RESOLVED_BUGS.md`).  
    - Checker convert assignability at call/return/`new` — **RESOLVED 2026-08-11** (same audit; see
-     `RESOLVED_BUGS.md`). Scoped `operator convert` mirror of emit — not Story 31 Idea 2
+     `RESOLVED_BUGS.md`). Scoped `operator convert` mirror of emit — not Story 32
      `*Convertible`.  
    - Checker binary/unary operator inference uses overload return types — **RESOLVED 2026-08-11**
      (same audit; see `RESOLVED_BUGS.md`).  

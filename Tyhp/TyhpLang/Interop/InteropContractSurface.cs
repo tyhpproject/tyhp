@@ -56,6 +56,7 @@ namespace Tyhp.TyhpLang.Interop
             new("tyhp/core", "Tyhp\\PropertyAccessor", SymbolKind.Class),
             new("tyhp/core", "Tyhp\\PropertyAccessorObject", SymbolKind.Class),
             new("tyhp/core", "Tyhp\\ObjectHelper", SymbolKind.Class),
+            new("tyhp/core", "Tyhp\\PropertyType", SymbolKind.Class),
             new("tyhp/core", "Tyhp\\Contracts\\IsDisposable", SymbolKind.Interface),
             new("tyhp/core", "Tyhp\\Contracts\\StringConvertible", SymbolKind.Interface),
             new("tyhp/core", "Tyhp\\Contracts\\BoolConvertible", SymbolKind.Interface),

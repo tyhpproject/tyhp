@@ -100,10 +100,19 @@ namespace Tyhp.TyhpLang.Checker.Rules
             var beforeTry = state.SnapShot();
             var tryState = beforeTry.Split(ScopeType.CodeBlock);
             context.CheckStatementBlock(tryCatch.TryBlock, tryState);
-            state.Merge(tryState);
 
             var mergedReturned = tryState.HasReturnedOnAllPaths;
             var seenCatchTypes = new Dictionary<string, IBase2Ast>(StringComparer.OrdinalIgnoreCase);
+
+            // Code after the statement is reached only through an exit that completes normally:
+            // the try block, or a catch (each catch starts from the pre-try state). A catch that
+            // throws or returns must not make try-assigned variables possibly undefined.
+            var branches = new List<CheckerState> { tryState };
+            var exits = new List<CheckerState>();
+            if (!tryState.HasReturnedOnAllPaths)
+            {
+                exits.Add(tryState);
+            }
 
             foreach (var catchClause in tryCatch.CatchClauses?.GetAllNotNull() ?? [])
             {
@@ -124,8 +133,31 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 }
 
                 context.CheckStatementBlock(catchClause.Body, catchState);
-                state.Merge(catchState);
+                branches.Add(catchState);
+                if (!catchState.HasReturnedOnAllPaths)
+                {
+                    exits.Add(catchState);
+                }
+
                 mergedReturned = mergedReturned && catchState.HasReturnedOnAllPaths;
+            }
+
+            if (exits.Count == 0)
+            {
+                foreach (var branch in branches)
+                {
+                    state.Merge(branch);
+                }
+            }
+            else
+            {
+                var joined = exits[0];
+                for (var i = 1; i < exits.Count; i++)
+                {
+                    joined.Merge(exits[i]);
+                }
+
+                state.AbsorbJoinedVariables(joined);
             }
 
             if (tryCatch.FinallyBlock is not null)

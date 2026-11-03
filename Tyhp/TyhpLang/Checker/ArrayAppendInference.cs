@@ -196,7 +196,12 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         private static ICheckedType WidenLiteral(ICheckedType type) =>
-            type is LiteralCheckedType literal ? literal.UnderlyingType : type;
+            type switch
+            {
+                LiteralCheckedType literal => literal.UnderlyingType,
+                SimpleCheckedType { InterpolationPattern: not null } => CheckedTypes.String,
+                _ => type,
+            };
 
         private static ICheckedType MakeArrayType(ICheckedType keyType, ICheckedType valueType) =>
             new GenericCheckedType(

@@ -17,6 +17,9 @@ public class SourceOverloadCallArgumentEmitterTests
         }
         """;
 
+    private const string ExpressionTree =
+        "(\\Tyhp\\Expr::param('p', \\Person::class)->age->gt(1)->backedBy(fn(\\Person $p): bool => $p->age > 1))";
+
     private static string Compile(string body)
     {
         var result = SnippetEmit.Compile(Prelude + "\n" + body);
@@ -39,7 +42,7 @@ public class SourceOverloadCallArgumentEmitterTests
             }
             """);
 
-        php.Should().Contain("new \\Tyhp\\Expression(");
+        php.Should().Contain(ExpressionTree);
     }
 
     [Fact]
@@ -57,7 +60,7 @@ public class SourceOverloadCallArgumentEmitterTests
             }
             """);
 
-        php.Should().Contain("new \\Tyhp\\Expression(");
+        php.Should().Contain(ExpressionTree);
     }
 
     [Fact]
@@ -75,7 +78,8 @@ public class SourceOverloadCallArgumentEmitterTests
             }
             """);
 
-        php.Should().NotContain("new \\Tyhp\\Expression(");
+        php.Should().NotContain("\\Tyhp\\Expr::");
+        php.Should().Contain("(fn(\\Person $p): bool => $p->age > 1)");
     }
 
     [Fact]
@@ -93,7 +97,8 @@ public class SourceOverloadCallArgumentEmitterTests
             }
             """);
 
-        php.Should().NotContain("new \\Tyhp\\Expression(");
+        php.Should().NotContain("\\Tyhp\\Expr::");
+        php.Should().Contain("(fn(\\Person $p): bool => $p->age > 1)");
     }
 
     [Fact]
@@ -113,7 +118,7 @@ public class SourceOverloadCallArgumentEmitterTests
             }
             """);
 
-        php.Should().Contain("new \\Tyhp\\Expression(");
+        php.Should().Contain(ExpressionTree);
     }
 
     [Fact]
@@ -160,7 +165,7 @@ public class SourceOverloadCallArgumentEmitterTests
             }
             """);
 
-        php.Should().Contain("new \\Tyhp\\Expression(");
+        php.Should().Contain(ExpressionTree);
     }
 
     [Fact]
@@ -178,7 +183,8 @@ public class SourceOverloadCallArgumentEmitterTests
             }
             """);
 
-        php.Should().NotContain("new \\Tyhp\\Expression(");
+        php.Should().NotContain("\\Tyhp\\Expr::");
+        php.Should().Contain("(fn(\\Person $p): bool => $p->age > 1)");
     }
 
     [Fact]
@@ -198,7 +204,8 @@ public class SourceOverloadCallArgumentEmitterTests
             }
             """);
 
-        php.Should().NotContain("new \\Tyhp\\Expression(");
+        php.Should().NotContain("\\Tyhp\\Expr::");
+        php.Should().Contain("(fn(\\Person $p): bool => $p->age > 1)");
     }
 
     [Fact]
@@ -218,7 +225,8 @@ public class SourceOverloadCallArgumentEmitterTests
             }
             """);
 
-        php.Should().NotContain("new \\Tyhp\\Expression(");
+        php.Should().NotContain("\\Tyhp\\Expr::");
+        php.Should().Contain("(fn(\\Person $p): bool => $p->age > 1)");
     }
 
     [Fact]
@@ -238,6 +246,6 @@ public class SourceOverloadCallArgumentEmitterTests
             }
             """);
 
-        php.Should().Contain("new \\Tyhp\\Expression(");
+        php.Should().Contain(ExpressionTree);
     }
 }

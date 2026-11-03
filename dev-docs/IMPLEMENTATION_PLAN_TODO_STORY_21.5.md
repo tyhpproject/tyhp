@@ -532,7 +532,7 @@ Not blockers for the shape; lock during implementation planning if still ambiguo
 | **21.10** | `extra.tyhp.require` plugin on `tyhp/core` + Track C `extern`. 21.5 still has no CommandProvider. |
 | **22** | Playground deferred; not this story |
 | **30** | Remaining docs polish / publish ops |
-| **31 Idea 1** | Tyhp Link — do **not** replace Composer autoload here |
+| **31** | Tyhp Link — do **not** replace Composer autoload here |
 
 ---
 

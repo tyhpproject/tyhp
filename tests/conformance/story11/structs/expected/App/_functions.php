@@ -8,6 +8,10 @@ declare(strict_types=1);
 
 namespace App;
 
+\Tyhp\Type::register('App\\Point', fn () => \Tyhp\Type::struct()->optional('x', \Tyhp\Type::int())->optional('y', \Tyhp\Type::int()));
+
+\Tyhp\Type::register('App\\NamedItem', fn () => \Tyhp\Type::struct()->optional('Display Name', \Tyhp\Type::string())->optional('id', \Tyhp\Type::int()));
+
 function main(): void
 {
     $p = ['x' => 0, 'y' => 0];

@@ -89,7 +89,7 @@ This story:
 | ArrayAccess `$obj[$k]` | `InferArrayAccess` returns `mixed` for objects; **4093 allocated but never emitted** |
 | Foreach Traversable | `GenericInheritanceBindings.TryGetTraversableIterationTypes` |
 | Expression arity special-case | `ResolveExpressionCallableArityArguments`; **replace** with `TCallableShape` |
-| Story 15 `interopContractVersion` | Emitted PHP ABI. This story is type-system unless a runtime helper is added (deferred → Story 31 Idea 14) |
+| Story 15 `interopContractVersion` | Emitted PHP ABI. This story is type-system unless a runtime helper is added (deferred → Story 43) |
 
 ---
 
@@ -110,7 +110,7 @@ This story:
 - `#[\Tyhp\PhpType]` + `ArrayAccessShape<TStruct>` (index utilities, inherit emit hints on implementors, per-key body exhaustiveness).
 - Expression / PropertyPath / builders → `TCallableShape`.
 - Docs + tests + type-system contract (this document + user-facing pages).
-- Story 31 Idea 14: runtime `is Closure<…>` via reflection (document only).
+- Story 43: runtime `is Closure<…>` via reflection (document only).
 
 **Out**
 
@@ -119,7 +119,7 @@ This story:
 - Compile-time fiber/closure call-stack tracing / CFA / `__CurrentFiber` / `__CurrentClosure` / `__FiberSuspend` / `__FiberResume` — **rejected**, not deferred. `Fiber::suspend()` return is `mixed` for every call site.
 - Runtime generic metadata on PHP `Closure` / `Fiber` (`GenericObject`).
 - Dual Closure spelling (old return-last **and** new `TCallableShape`) — **rejected**. This story **removes** compiler return-last for the name `Closure`.
-- Story 15 interop version bump (unless Idea 14 ships a helper later).
+- Story 15 interop version bump (unless Story 43 ships a helper later).
 - WeakReference Layer 3 header (Layer 2 already has `WeakReference<T>`).
 - Inferring `TSend` from later uses of an untyped `$x` after `$x = yield` (no Hindley–Milner). Mixed + narrowing.
 - Omitting the return type on generator functions (still `\Generator` at minimum).
@@ -145,7 +145,7 @@ This story:
 11. **`getCurrent` (Closure):** `\Closure<callable, __ClosureThis, __ClosureScope<__ClosureThis>>`. No extra generic for the user to fill. PHP 8.5 throws outside a closure (non-null).
 12. **Invokable `fromCallable`:** keep **intersection** of arity facets; drop the class type. Do not convert to a union.
 13. **Opaque bind:** if `TThis` is `object|null` / gradual `\Closure`, allow `bindTo` (cannot prove error). If `TThis` is a known class, `TNewThis` must be compatible; `null` this only from already-unbound; arrow / some FCC / internals → error when PHP forbids.
-14. **`as` vs `is`:** v1 is `as` (compile-time assertion). Runtime `is Closure<callable<…>>` is Story 31 Idea 14 (reflection; PHP types only; would bump interop if a `tyhp/core` helper is used).
+14. **`as` vs `is`:** v1 is `as` (compile-time assertion). Runtime `is Closure<callable<…>>` is Story 43 (reflection; PHP types only; would bump interop if a `tyhp/core` helper is used).
 15. **Expression/PropertyPath** move to `TCallableShape` in this story (not a follow-up).
 16. **No Story 15 bump** for type-system-only work.
 17. **Generator declared return** is what the **caller** receives: `\Generator`, `\Generator<TKey, TValue>`, or `\Generator<K, V, S, R>` (or `iterable` / `\Iterator` / `\Traversable`). Never the `return` statement’s type (`TReturn` is `getReturn()` after exhaustion).
@@ -527,7 +527,7 @@ Update tests (`CallReturnTypeInferenceTests`, `CallableSignatureUtilityTests`, G
 ## Interop contract
 
 - **This story:** no `interopContractVersion` bump. Emit still uses PHP `\Closure` / `\Fiber`. PropertyPath still extracts `$expr->callable` where a Closure is required. `#[\Tyhp\PhpType]` usages are stripped (same as `#[\Tyhp\Php]`).
-- **Story 31 Idea 14:** if a `tyhp/core` helper implements runtime `is Closure<…>`, that **does** bump the interop contract (Story 15 rules).
+- **Story 43:** if a `tyhp/core` helper implements runtime `is Closure<…>`, that **does** bump the interop contract (Story 15 rules).
 
 ---
 
@@ -614,7 +614,7 @@ Update tests (`CallReturnTypeInferenceTests`, `CallableSignatureUtilityTests`, G
 ## Out of scope
 
 - Variadic type parameters; omitting generator return types; WeakMap/WeakReference Layer 3 header generics (Layer 2); `.tyhp` interface overloads.
-- Runtime `is Closure<…>` — **Story 31 Idea 14**.
+- Runtime `is Closure<…>` — **Story 43**.
 - Refined-type `emit` member — `DESIGN_OPEN_QUESTIONS.md` (refined types). `PhpType` is v1.
 - Stringable auto-implement; `list()` / named ArrayAccess destructure — **Story 21.7**.
 - `tyhpdef/php` Layer 3 overlay completeness — **Story 21.8**.
@@ -632,8 +632,8 @@ Update tests (`CallReturnTypeInferenceTests`, `CallableSignatureUtilityTests`, G
 | 16.5 | Callable utilities + overload pick reused |
 | 21 | Overlay load; `Ext.Core` Layer 3 is the Closure/Fiber/Generator/ArrayAccess contract |
 | PHP_LANGUAGE_HOOKS | Audit inventory |
-| 15 | No version bump; Idea 14 would bump |
-| 31 Idea 14 | Runtime `is` via reflection |
+| 15 | No version bump; Story 43 would bump |
+| 43 | Runtime `is` via reflection |
 | 21.7 | ArrayAccess `list()` / named destructure; Stringable auto-implement |
 | 21.8 | Remaining `tyhpdef/php` Layer 3 overlays (array generics, SPL remaps, DateTime operators); FOUND_BUGS #6 / #8 / #10 |
 | 30 | User-facing polish if this lands first |

@@ -71,7 +71,11 @@ namespace Tyhp.Domain.Services
             }
 
             var composerService = new ComposerJsonService(this._diagnostics);
-            composerService.MergeRuntimePackages(outputDirectory, project, requiredPackages);
+            if (!composerService.MergeRuntimePackages(outputDirectory, project, requiredPackages))
+            {
+                return;
+            }
+
             _ = this.TryRunComposerInstall(outputDirectory, project);
 
             // After install so a freshly populated vendor/ is checked on this build, not the next.

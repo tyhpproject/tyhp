@@ -85,7 +85,7 @@ namespace Tyhp.TyhpLang.Enum
                     "%" => PhpBinaryOperator.Modulo,
                     "**" => PhpBinaryOperator.Power,
                     "==" => PhpBinaryOperator.Equal,
-                    "!=" => PhpBinaryOperator.NotEqual,
+                    "!=" or "<>" => PhpBinaryOperator.NotEqual,
                     "===" => PhpBinaryOperator.Identical,
                     "!==" => PhpBinaryOperator.NotIdentical,
                     ">" => PhpBinaryOperator.GreaterThan,

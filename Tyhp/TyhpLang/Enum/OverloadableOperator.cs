@@ -104,7 +104,7 @@ namespace Tyhp.TyhpLang.Enum {
                 "<=" => OverloadableOperator.CompareLessThanOrEqualTo,
                 ">=" => OverloadableOperator.CompareGreaterThanOrEqualTo,
                 "==" => OverloadableOperator.CompareEqual,
-                "!=" => OverloadableOperator.CompareNotEqual,
+                "!=" or "<>" => OverloadableOperator.CompareNotEqual,
                 "===" => OverloadableOperator.CompareIdentical,
                 "!==" => OverloadableOperator.CompareNotIdentical,
                 "<=>" => OverloadableOperator.CompareSpaceship,

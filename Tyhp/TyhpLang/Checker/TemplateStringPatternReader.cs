@@ -17,7 +17,8 @@ namespace Tyhp.TyhpLang.Checker
             Func<IExpression, ICheckedType> resolveHoleType,
             IBase2Ast reportNode,
             string fileName,
-            DiagnosticBag diagnostics)
+            DiagnosticBag diagnostics,
+            Func<IExpression, ICheckedType, string>? describeHole = null)
         {
             var parts = encapsList.GetAllNotNull().ToList();
             var segments = new List<TemplateStringSegment>();
@@ -59,7 +60,8 @@ namespace Tyhp.TyhpLang.Checker
 
                 FlushLiteral();
                 var holeType = resolveHoleType(holeExpr);
-                display.Append("${").Append(holeType.DisplayName).Append('}');
+                var holeDisplay = describeHole?.Invoke(holeExpr, holeType) ?? holeType.DisplayName;
+                display.Append("${").Append(holeDisplay).Append('}');
 
                 var quantifier = TemplateStringQuantifier.ExactlyOnce;
                 if (i + 1 < parts.Count && IsLiteralPart(parts[i + 1]))
@@ -92,12 +94,12 @@ namespace Tyhp.TyhpLang.Checker
                         }
 
                         display.Append(quantifier.ToString());
-                        segments.Add(new TemplateStringSegment.HoleSegment(holeType, quantifier));
+                        segments.Add(new TemplateStringSegment.HoleSegment(holeType, quantifier, holeDisplay));
                         continue;
                     }
                 }
 
-                segments.Add(new TemplateStringSegment.HoleSegment(holeType, quantifier));
+                segments.Add(new TemplateStringSegment.HoleSegment(holeType, quantifier, holeDisplay));
             }
 
             FlushLiteral();

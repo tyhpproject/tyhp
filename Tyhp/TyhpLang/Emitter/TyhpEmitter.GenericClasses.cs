@@ -113,10 +113,82 @@ namespace Tyhp.TyhpLang.Emitter
 
         /// <summary>
         /// The <c>HasGenerics</c> trait is applied once, at the topmost generic level. Re-applying it
-        /// lower down redeclares the trait's public <c>$__tyhpGeneric</c> storage.
+        /// lower down redeclares the trait's public <c>$__tyhpGeneric</c> storage. A
+        /// <c>readonly class</c> cannot use that trait (its storage property is not readonly and has a
+        /// default); it gets <see cref="ShouldEmitReadonlyGenericBag"/> instead.
         /// </summary>
         private bool ShouldApplyGenericObjectTrait() =>
-            this._currentObjectInGenericChain && !this._currentObjectParentInGenericChain;
+            this._currentObjectInGenericChain
+            && !this._currentObjectParentInGenericChain
+            && !this.UsesReadonlyGenericBag();
+
+        /// <summary>
+        /// True when this readonly class tracks generics without <c>HasGenerics</c>. The whole chain
+        /// shares one decision: a readonly class cannot extend a non-readonly one, so every level is
+        /// readonly when this one is. An author <c>use HasGenerics</c> keeps the trait path.
+        /// </summary>
+        private bool UsesReadonlyGenericBag() =>
+            this._currentObjectInGenericChain
+            && this._currentObjectDecl is { } decl
+            && HasReadonlyModifier(decl.Modifiers)
+            && !ObjectAlreadyUsesGenericObjectTrait(decl);
+
+        /// <summary>
+        /// The bag property and its boot method live on the topmost generic level only, matching
+        /// where <c>HasGenerics</c> would have been applied. Descendants call the inherited method.
+        /// </summary>
+        private bool ShouldEmitReadonlyGenericBag() =>
+            this.UsesReadonlyGenericBag() && !this._currentObjectParentInGenericChain;
+
+        /// <summary>
+        /// Statement that creates the bag before any lookup. Non-readonly classes boot the
+        /// <c>HasGenerics</c> trait. Readonly classes call the method that initializes the instance
+        /// property; they do not use <c>BootsTraits</c>, whose own property is not readonly.
+        /// </summary>
+        private string GenericBagBootStatement() =>
+            this.UsesReadonlyGenericBag()
+                ? $"$this->{GeneratedNames.GenericBagBoot}();"
+                : "$this->tyhpBootTraits();";
+
+        /// <summary>
+        /// Emits the instance bag for a readonly class: a public <c>\Tyhp\GenericObject</c> property
+        /// with no default (a readonly property cannot have one below PHP 8.6, and the class makes the
+        /// property readonly) and a method in the property's declaring scope that assigns it once.
+        /// <c>isset</c> is false while the property is uninitialized and does not raise, so the factory's
+        /// <c>newInstanceWithoutConstructor()</c> path and a later constructor can both call it.
+        /// </summary>
+        private void EmitReadonlyGenericBagIfNeeded(PhpObjectTypeDeclAst objectDecl, EmitItem classBlock)
+        {
+            if (!this.ShouldEmitReadonlyGenericBag())
+            {
+                return;
+            }
+
+            this._context.RequirePackage("tyhp/core");
+
+            EmitItem.Line(
+                objectDecl,
+                EmitType.ObjectInstancePropertyDeclaration,
+                "public \\Tyhp\\GenericObject $__tyhpGeneric;",
+                classBlock);
+
+            var block = EmitItem.BlockBraceNextLine(
+                objectDecl,
+                EmitType.ObjectInstanceMethods,
+                $"protected function {GeneratedNames.GenericBagBoot}(): void",
+                "}",
+                classBlock);
+
+            EmitItem.MultiLine(
+                objectDecl,
+                EmitType.FunctionStatement,
+                [
+                    "if (!isset($this->__tyhpGeneric)) {",
+                    "    $this->__tyhpGeneric = new \\Tyhp\\GenericObject();",
+                    "}",
+                ],
+                block);
+        }
 
         /// <summary>
         /// Emits <c>__initGenerics__tyhpGeneric</c>: resolve this level's arguments against their
@@ -144,8 +216,8 @@ namespace Tyhp.TyhpLang.Emitter
 
             var lines = new List<string>
             {
-                // Factories use newInstanceWithoutConstructor — boot traits (create bag) before any lookup.
-                "$this->tyhpBootTraits();",
+                // Factories use newInstanceWithoutConstructor — create the bag before any lookup.
+                this.GenericBagBootStatement(),
             };
 
             if (ownParams.Count > 0)
@@ -453,11 +525,20 @@ namespace Tyhp.TyhpLang.Emitter
                 ", ",
                 string.IsNullOrEmpty(authorParams) ? hidden : hidden.Append(authorParams));
 
-            EmitItem.Line(
-                objectDecl,
-                EmitType.ObjectStaticPropertyDeclaration,
-                $"private static ?\\ReflectionClass ${GeneratedNames.ReflectedClassField} = null;",
-                classBlock);
+            // A readonly class cannot declare a static property: PHP makes every property readonly,
+            // a static property cannot be readonly, and a readonly property cannot have a default
+            // below PHP 8.6. Cache reflection in a function static there. Other classes keep the
+            // private static field, emitted before the factory so the class shape stays stable.
+            var reflected = "$" + GeneratedNames.ReflectedClassField;
+            var readonlyBag = this.UsesReadonlyGenericBag();
+            if (!readonlyBag)
+            {
+                EmitItem.Line(
+                    objectDecl,
+                    EmitType.ObjectStaticPropertyDeclaration,
+                    $"private static ?\\ReflectionClass {reflected} = null;",
+                    classBlock);
+            }
 
             var factoryName = GeneratedNames.GenericFactory(this._currentObjectFqn);
             var block = EmitItem.BlockBraceNextLine(
@@ -473,17 +554,22 @@ namespace Tyhp.TyhpLang.Emitter
 
             // `self::class`, not `static::class`: the factory always constructs its own class, and the
             // FQN-derived name means every subclass needing generic instantiation gets its own.
-            EmitItem.MultiLine(
-                objectDecl,
-                EmitType.FunctionStatement,
-                [
-                    $"self::${GeneratedNames.ReflectedClassField} ??= new \\ReflectionClass(self::class);",
-                    $"$__tyhp_obj = self::${GeneratedNames.ReflectedClassField}->newInstanceWithoutConstructor();",
-                    $"$__tyhp_obj->{GeneratedNames.GenericInitHook}({initArgs});",
-                    $"$__tyhp_obj->__construct({authorArgs});",
-                    "return $__tyhp_obj;",
-                ],
-                block);
+            var reflectCache = readonlyBag
+                ? reflected
+                : "self::" + reflected;
+            var lines = new List<string>();
+            if (readonlyBag)
+            {
+                lines.Add($"static {reflected} = null;");
+            }
+
+            lines.Add($"{reflectCache} ??= new \\ReflectionClass(self::class);");
+            lines.Add($"$__tyhp_obj = {reflectCache}->newInstanceWithoutConstructor();");
+            lines.Add($"$__tyhp_obj->{GeneratedNames.GenericInitHook}({initArgs});");
+            lines.Add($"$__tyhp_obj->__construct({authorArgs});");
+            lines.Add("return $__tyhp_obj;");
+
+            EmitItem.MultiLine(objectDecl, EmitType.FunctionStatement, lines, block);
         }
 
         private static bool IsAbstractObjectDeclaration(PhpObjectTypeDeclAst objectDecl) =>

@@ -92,6 +92,10 @@ namespace Tyhp.CLI
 
             var mode = DebugCommandSupport.ResolveParseMode(filePath, this._modeOverride);
             var taglessEnabled = this._project.Tagless && mode != ParseMode.Php;
+            if (mode == ParseMode.Tyhp)
+            {
+                taglessEnabled = TaglessEntryPoint.UsesTaglessEntryPoint(this._project.Tagless, content);
+            }
 
             fileObject["parseMode"] = mode.ToString();
             fileObject["tagless"] = taglessEnabled;

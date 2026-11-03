@@ -2,8 +2,8 @@
 
 > **What this is:** the canonical description of how Tyhp is versioned, how it stays compatible with PHP over
 > time, and how it positions itself relative to other typed-superset-of-PHP efforts. The public website mirrors this in
-> `docs/content/release_planning.md`, `docs/content/intro_newSyntaxCreation.md`, and
-> `docs/content/other_hack.md`; **this file is the source of truth** — keep those in sync with it.
+> `release_planning.md`, `intro_newSyntaxCreation.md`, and `other_hack.md` under `content/` in
+> [tyhp-docs-src](https://github.com/tyhpproject/tyhp-docs-src); **this file is the source of truth** — keep those in sync with it.
 
 ---
 
@@ -72,7 +72,7 @@ in that package's `composer.json` as the Packagist / git tag. They are one tree 
 
 In-tree path repositories pin the source version (one tree, `php: >=8.2`). Packagist consumers of
 compiled `tyhp/*` helpers use the `80N.X.Y` form; Packagist consumers of `tyhpdef/*` use the source
-version. See `docs/content/project_composerPackages.md`.
+version. See [Composer Runtime Packages](https://tyhplang.com/project_composerPackages.html).
 
 ### Interop contract version (separate axis)
 
@@ -80,7 +80,7 @@ The Tyhp ↔ PHP **interop contract** version (`extra.tyhp.interopContractVersio
 `InteropContract.CurrentVersion` in the compiler) is **independent** of compiler `MAJOR.MINOR.PATCH` and of
 Composer package semver. Additive runtime surface may leave the contract version unchanged; any breaking change
 to an emitted name or signature bumps `interopContractVersion` on both the compiler and the affected packages.
-See `docs/content/cli_interopContract.md` and `CONVENTIONS.md` §8. PHP-target compatibility remains encoded in
+See [Interop Contract](https://tyhplang.com/cli_interopContract.html) and `CONVENTIONS.md` §8. PHP-target compatibility remains encoded in
 the compiler MAJOR (Story 21) as above — that axis and the interop contract can move in the same release, but
 they answer different questions.
 

@@ -13,7 +13,8 @@ namespace Tyhp;
  * that exercise struct/union `is` lowering assert on the compiled `Type::struct(...)` /
  * `Type::union(...)` call arguments (see `tests/conformance/emit-and-run/manifest.json`) so a
  * wrong-fields regression is still caught even though this stub would not catch it at runtime.
- * Object-shape `is()` here matches public method/property existence (v1), same contract as core.
+ * Object-shape `is()` here matches public method/property existence only; `param()` and
+ * `returns()` on a shape are accepted so emitted declarations load, but signatures are not compared.
  * Callable-shape `is()` here is existence-only (`\is_callable`), same contract as core v1.
  */
 class Type implements \Stringable
@@ -109,6 +110,24 @@ class Type implements \Stringable
         return new self('generic', $className, $params);
     }
 
+    public static function listOf(self $value): self
+    {
+        return self::generic('array', new NamedType('TValue', $value));
+    }
+
+    public static function mapOf(self $key, self $value): self
+    {
+        return self::generic('array', new NamedType('TKey', $key), new NamedType('TValue', $value));
+    }
+
+    public static function closure(): self
+    {
+        return self::generic(
+            \Closure::class,
+            new NamedType('TCallableShape', self::callableShape('callable')),
+        );
+    }
+
     public static function union(self ...$types): self
     {
         return new self('union', null, $types);
@@ -195,8 +214,34 @@ class Type implements \Stringable
         return $this->copy(objectShapeProperties: $properties);
     }
 
+    public function param(string $name, self $type, bool $optional = false, bool $variadic = false): self
+    {
+        if ($this->kind === 'objectShape') {
+            return $this;
+        }
+
+        if ($this->kind !== 'generic') {
+            throw new \InvalidArgumentException('param() requires a generic type or an object shape.');
+        }
+
+        $typeArgs = $this->typeArgs;
+        $typeArgs[] = new NamedType($name, $type);
+
+        return $this->copy(typeArgs: $typeArgs);
+    }
+
+    public function returns(self $type): self
+    {
+        if ($this->kind !== 'objectShape') {
+            throw new \InvalidArgumentException('returns() requires an object shape.');
+        }
+
+        return $this;
+    }
+
     private function copy(
         ?string $name = null,
+        ?array $typeArgs = null,
         ?array $structFields = null,
         ?array $structRequiredKeys = null,
         ?array $objectShapeMethods = null,
@@ -205,7 +250,7 @@ class Type implements \Stringable
         return new self(
             $this->kind,
             $name ?? $this->name,
-            $this->typeArgs,
+            $typeArgs ?? $this->typeArgs,
             $this->isReadOnly,
             $this->isNullable,
             $structFields ?? $this->structFields,
@@ -241,7 +286,7 @@ class Type implements \Stringable
      * Existence-only callable-shape descriptor. Matches the real `\Tyhp\Type::callableShape`
      * contract used by `$fn is Predicate` emit. Signatures are not compared.
      */
-    public static function callableShape(string $name): self
+    public static function callableShape(?string $name = null): self
     {
         return new self('callableShape', $name);
     }

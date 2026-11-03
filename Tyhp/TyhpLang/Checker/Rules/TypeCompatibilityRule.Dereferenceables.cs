@@ -126,6 +126,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
                 CheckMixedRestrictedBinaryOperands(binary, op, state, context, diagnostics);
                 CheckObjectOperatorOverloadApplicability(binary, op, state, context, diagnostics);
+                CheckConcatOperandsStringable(binary, op, state, context, diagnostics);
                 return;
             }
 
@@ -166,6 +167,22 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 CheckDereferenceable(leftDeref, state, context, diagnostics);
             }
 
+            // `??=` reads its left as an existence probe, but the write needs a non-null receiver.
+            if (op == "??="
+                && binary.Left is PhpDereferenceableAst
+                {
+                    Suffix: PhpInstanceMemberAccessAst coalesceMember,
+                    Base: IExpression coalesceReceiver,
+                } coalesceDeref)
+            {
+                CheckerHelpers.ReportPossiblyNullReceiver(
+                    diagnostics,
+                    state,
+                    coalesceDeref.Base,
+                    context.ResolveExpressionType(coalesceReceiver, state),
+                    "->" + GetExpressionText(coalesceMember.MemberName));
+            }
+
             if (state.TrackArrayAccessShapeOffsetSetCoverage
                 && op == "="
                 && binary.Right is PhpVariableAst valueVar
@@ -189,6 +206,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     diagnostics, state, binary.Right,
                     context.ResolveExpressionType(binary.Right, state));
                 CheckObjectOperatorOverloadApplicability(binary, op, state, context, diagnostics);
+                CheckConcatOperandsStringable(binary, op, state, context, diagnostics);
             }
 
             ICheckedType? assignmentTargetForContext = null;
@@ -270,7 +288,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     }
                 }
 
-                if (IsReadonlyAssignmentTarget(binary.Left, state))
+                if (IsReadonlyAssignmentTarget(binary.Left, state, context))
                 {
                     var memberName = binary.Left is PhpDereferenceableAst
                     {
@@ -411,22 +429,45 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return context.ResolveExpressionType(left, state);
             }
 
-            // `$obj->prop = value` — same invalidate-on-write for MemberAccessNarrowing.
-            if (left is PhpDereferenceableAst { Base: PhpVariableAst objVar, Suffix: PhpInstanceMemberAccessAst memberAccess }
-                && TypeNarrowingRule.TryGetMemberAccessKey(objVar, memberAccess, out var memberKey)
-                && state.RemoveMemberAccessNarrowing(memberKey!))
+            // `$obj->prop = value` / `$a->b->c = value` / `Name::$p = value` — the write is checked
+            // against the member's type without the read narrowing. The narrowing itself is
+            // dropped once the right side has been checked (`InvalidateAssignedMemberPath`).
+            if (left is IExpression memberLeft
+                && TypeNarrowingRule.TryGetMemberAccessKey(memberLeft, out var memberKey)
+                && state.LookupMemberAccess(memberKey!) is not null)
             {
-                return context.ResolveExpressionType(left, state);
+                var unnarrowed = state.Fork();
+                unnarrowed.RemoveMemberAccessNarrowing(memberKey!);
+                return context.ResolveExpressionType(left, unnarrowed);
             }
 
             return context.ResolveExpressionType(left, state);
+        }
+
+        /// <summary>
+        /// A write to <c>$a->b</c> (or <c>$this->a</c>, <c>Name::$p</c>) ends every member-access
+        /// narrowing on that path and below it (<c>$a->b->c</c>). Runs after the whole assignment
+        /// node has been checked, so the right side (<c>$n->next = $n->next->next</c>) still
+        /// reads under the narrowing.
+        /// </summary>
+        internal static void InvalidateAssignedMemberPath(IBase2Ast node, CheckerState state)
+        {
+            if (node is PhpBinaryOpAst { Left: { } left and not PhpVariableAst } binary
+                && IsAssignmentOperator(binary.Operator?.ValueString ?? string.Empty)
+                && TypeNarrowingRule.TryGetMemberPathKey(left, out var writtenPath))
+            {
+                state.RemoveMemberAccessNarrowingUnder(writtenPath!);
+            }
         }
 
         private static bool IsAssignmentOperator(string op) =>
             op is "=" or "+=" or "-=" or "*=" or "/=" or ".=" or "%=" or "**="
                 or "&=" or "|=" or "^=" or "<<=" or ">>=" or "??=";
 
-        private static bool IsReadonlyAssignmentTarget(IExpression left, CheckerState state)
+        private static bool IsReadonlyAssignmentTarget(
+            IExpression left,
+            CheckerState state,
+            CheckerRuleContext context)
         {
             if (left is not PhpDereferenceableAst { Suffix: PhpInstanceMemberAccessAst memberAccess } dereferenceable)
             {
@@ -434,15 +475,19 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             var memberName = GetExpressionText(memberAccess.MemberName);
-            if (memberName is null || state.EnclosingObject is null)
+            if (memberName is null)
             {
                 return false;
             }
 
             var propertyKey = memberName.StartsWith('$') ? memberName : "$" + memberName;
-            if (state.EnclosingObject.Members.TryGetValue(propertyKey, out var member) is not true
-                || member is not ObjectPropertySymbol { Visibility: var visibility }
-                || (visibility & MemberModifier.Readonly) == 0)
+            if (state.EnclosingObject?.Members.TryGetValue(propertyKey, out var member) is not true
+                || member is not ObjectPropertySymbol { Visibility: var visibility })
+            {
+                return IsReadonlyWriteOutsideDeclaringClass(dereferenceable.Base, memberName, state, context);
+            }
+
+            if ((visibility & MemberModifier.Readonly) == 0)
             {
                 return false;
             }
@@ -455,6 +500,72 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // write. Only `$other->prop = ...` (a receiver other than `$this`) is flagged: PHP rejects
             // that unconditionally, even from inside the declaring class.
             return dereferenceable.Base is not PhpVariableAst receiver || !CheckerHelpers.IsThisVariable(receiver);
+        }
+
+        /// <summary>
+        /// A readonly property can only be initialized from the scope of its declaring class (or,
+        /// from PHP 8.4, a subclass). A write from a function, the file scope, or an unrelated class
+        /// always fails in PHP. Properties with an explicit set visibility (<c>public(set)</c>) and
+        /// properties declared in a trait, whose using class is not known here, are left to PHP.
+        /// </summary>
+        private static bool IsReadonlyWriteOutsideDeclaringClass(
+            IExpression? receiver,
+            string memberName,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            if (receiver is null
+                || receiver is PhpVariableAst thisReceiver && CheckerHelpers.IsThisVariable(thisReceiver)
+                || state.EnclosingObject is { ObjectKind: PhpTypeDeclType.Trait }
+                || !TryResolveProperty(
+                    context.ResolveExpressionType(receiver, state), memberName, context, out var property)
+                || property is null
+                || (property.Visibility & (MemberModifier.Readonly | MemberModifier.Static)) != MemberModifier.Readonly
+                || property.ContainingScope?.DeclarationSymbol is not ObjectDeclarationSymbol
+                {
+                    ObjectKind: PhpTypeDeclType.Class,
+                } owner
+                || HasExplicitSetVisibility(property, owner))
+            {
+                return false;
+            }
+
+            return state.EnclosingObject is null || !IsSameOrSubclass(state.EnclosingObject, owner);
+        }
+
+        private static bool HasExplicitSetVisibility(ObjectPropertySymbol property, ObjectDeclarationSymbol owner)
+        {
+            var modifiers = property.DeclaringAstNode switch
+            {
+                PhpParameterAst param => param.Modifiers,
+                PhpPropertyDeclAst decl => decl.Modifiers,
+                _ => (owner.DeclaringAstNode as PhpObjectTypeDeclAst)?.Body?.GetAllNotNull()
+                    .OfType<PhpPropertyDeclAst>()
+                    .FirstOrDefault(decl => decl.Properties?.GetAllNotNull()
+                        .Any(item => ReferenceEquals(item, property.DeclaringAstNode)) == true)
+                    ?.Modifiers,
+            };
+
+            return modifiers?.Modifiers.Any(modifier =>
+                modifier is PhpModifier.PublicSet or PhpModifier.ProtectedSet or PhpModifier.PrivateSet) == true;
+        }
+
+        private static bool IsSameOrSubclass(ObjectDeclarationSymbol derived, ObjectDeclarationSymbol owner)
+        {
+            for (var current = derived; current is not null;
+                 current = current.ExtendsType?.BoundSymbol as ObjectDeclarationSymbol)
+            {
+                if (ReferenceEquals(current, owner)
+                    || string.Equals(
+                        current.FullyQualifiedName,
+                        owner.FullyQualifiedName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static ICheckedType ResolveNewClassType(
@@ -1192,12 +1303,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 CheckerHelpers.ReportMixedRequiresNarrowing(
                     diagnostics, state, unary.Operand, operandType);
             }
-            else if (string.Equals(op, "print", StringComparison.OrdinalIgnoreCase)
-                && !CheckerHelpers.IsStringableType(operandType, context.SymbolTree, context.GlobalScope))
+            else if (string.Equals(op, "print", StringComparison.OrdinalIgnoreCase))
             {
                 // `print` converts its operand to string exactly like `echo`.
-                CheckerHelpers.ReportError(
-                    diagnostics, state, unary, MessageCode.CheckerConcatNonStringable, operandType.DisplayName);
+                CheckerHelpers.CheckStringConversion(unary, operandType, state, context, diagnostics);
             }
 
             CheckObjectUnaryOperatorOverloadApplicability(unary, op, operandType, state, context, diagnostics);
@@ -1256,8 +1365,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // PHP concatenates Stringable objects by calling __toString; that is not an
             // operator overload. Non-Stringable objects still need a concat form (TYHP4029).
             if (overloadOp == OverloadableOperator.Concat
-                && CheckerHelpers.IsStringableType(leftType, context.SymbolTree, context.GlobalScope)
-                && CheckerHelpers.IsStringableType(rightType, context.SymbolTree, context.GlobalScope))
+                && CheckerHelpers.IsStringConvertibleType(leftType, context.SymbolTree, context.GlobalScope)
+                && CheckerHelpers.IsStringConvertibleType(rightType, context.SymbolTree, context.GlobalScope))
             {
                 return;
             }
@@ -1272,6 +1381,43 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 displayOp,
                 leftType.DisplayName,
                 rightType.DisplayName);
+        }
+
+        /// <summary>
+        /// <c>.</c> / <c>.=</c> stringify each operand like <c>echo</c> and interpolation
+        /// (<see cref="CheckerHelpers.CheckStringConversion"/>, TYHP4120). Class operands are left to
+        /// the operator-overload check (a concat overload or <c>__toString</c>); <c>mixed</c> reports
+        /// TYHP4160 and unresolved operands nothing.
+        /// </summary>
+        private static void CheckConcatOperandsStringable(
+            PhpBinaryOpAst binary,
+            string op,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (op is not ("." or ".="))
+            {
+                return;
+            }
+
+            foreach (var operand in (IBase2Ast?[])[binary.Left, binary.Right])
+            {
+                if (operand is not IExpression expr)
+                {
+                    continue;
+                }
+
+                var type = context.ResolveExpressionType(expr, state);
+                if (TypeComparer.IsUnresolvedType(type)
+                    || CheckerHelpers.IsUnnarrowedMixed(type)
+                    || OperandRequiresObjectOperatorOverload(type))
+                {
+                    continue;
+                }
+
+                CheckerHelpers.CheckStringConversion(expr, type, state, context, diagnostics);
+            }
         }
 
         private static void CheckObjectUnaryOperatorOverloadApplicability(
@@ -1355,7 +1501,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 "<<" or "<<=" => OverloadableOperator.BitwiseShiftLeft,
                 ">>" or ">>=" => OverloadableOperator.BitwiseShiftRight,
                 "==" => OverloadableOperator.CompareEqual,
-                "!=" => OverloadableOperator.CompareNotEqual,
+                "!=" or "<>" => OverloadableOperator.CompareNotEqual,
                 "===" => OverloadableOperator.CompareIdentical,
                 "!==" => OverloadableOperator.CompareNotIdentical,
                 "<" => OverloadableOperator.CompareLessThan,

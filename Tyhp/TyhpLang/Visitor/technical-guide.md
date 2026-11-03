@@ -172,7 +172,7 @@ Tyhp often overrides the **Handler** (e.g. `VisitReturnTypeGrammarAddonHandler`)
 |------------------|------------|-------------|--------|-------------|
 | `.php` (default) | `TyhpParser` | `phpSrcFile` | `TyhpParserAstVisitor.VisitPhpSrcFile` | `PhpSrcFileAst` |
 | `.tyhp` tagged | `TyhpParser` | `tyhpSrcFile` → `#tyhpFile` | `TyhpParserAstVisitor.VisitTyhpFile` | `TyhpSrcFileAst` |
-| `.tyhp` tagless | `TyhpParser` | `tyhpTaglessSrcFile` → `#tyhpTaglessFile` | `TyhpParserAstVisitor.VisitTyhpTaglessFile` | `TyhpSrcFileAst` |
+| `.tyhp` tagless | `TyhpParser` | `tyhpTaglessSrcFile` → `#tyhpTaglessFile` (no open tag; a leading `<?tyhp` is `tyhpSrcFile`) | `TyhpParserAstVisitor.VisitTyhpTaglessFile` | `TyhpSrcFileAst` |
 | `.tyhpdef` tagged | `TyhpdefParser` | `tyhpdefSrcFile` → `#tyhpdefFile` | `TyhpdefParserAstVisitor.VisitTyhpdefFile` | `TyhpdefSrcFileAst` |
 | `.tyhpdef` tagless | `TyhpdefParser` | `tyhpdefTaglessSrcFile` → `#tyhpdefTaglessFile` | `TyhpdefParserAstVisitor.VisitTyhpdefTaglessFile` | `TyhpdefSrcFileAst` |
 
@@ -383,7 +383,7 @@ When adding a new Tyhp syntax hook: extend the GrammarAddon rule in `TyhpParser.
 | `TyhpParserAstVisitor.cs` | Ctor only |
 | `TyhpParserAstVisitor.Included.cs` | Emitted shared Tyhp and tyhpdef visits for `TyhpParser` contexts. Edit `shared/TyhpParserAstVisitor/*.inc` |
 | `TyhpdefUnreached.cs` | `VisitTyhpdefClassConstDecl` / `VisitTyhpdefClassConstList` (`TyhpParser` only) |
-| `TyhpRoot.cs` | `tyhpFile` / tagless / blocks / inline output |
+| `TyhpRoot.cs` | `tyhpFile` chunks in source order (inline HTML, `<?=` echoes, `<?tyhp` blocks). A `<?php` block reports TYHP2005 and is not visited. Tagless files, blocks, and statement-level inline output (`?>` … `<?tyhp`, including inside a function or control-flow block) |
 | `TyhpTopStatements.cs` | Top GrammarAddon: type alias, extension, `use extension`, `global use` / `global use extension`, generic use aliases |
 | `TyhpStatements.cs` | Typed var expr, using blocks |
 | `TyhpFunctions.cs` | Overloads, async/generics/extends GrammarAddons, call-site generics |

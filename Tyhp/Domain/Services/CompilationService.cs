@@ -668,7 +668,8 @@ namespace Tyhp.Domain.Services
                 }
                 else if (filePath.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase))
                 {
-                    taglessEnabled = options.Tagless;
+                    // In a tagless project a file that starts with `<?tyhp` is a tagged file.
+                    taglessEnabled = TaglessEntryPoint.UsesTaglessEntryPoint(options.Tagless, content);
                     taglessLanguageMode = "tyhp";
                 }
 

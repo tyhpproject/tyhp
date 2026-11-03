@@ -162,6 +162,46 @@ namespace Tyhp.TyhpLang.Checker
             }
         }
 
+        /// <summary>
+        /// True for a <c>switch (true)</c> / <c>match (true)</c> subject, where each case label is
+        /// a condition.
+        /// </summary>
+        internal static bool IsTrueSubject(IExpression? subject)
+        {
+            while (subject is PhpDereferenceableExpressionAst { Expression: IExpression inner })
+            {
+                subject = inner;
+            }
+
+            return IsBoolKeyword(subject, true);
+        }
+
+        /// <summary>
+        /// Case labels of a <c>switch (true)</c> / <c>match (true)</c> that must all have failed
+        /// before <paramref name="arm"/> is entered by its own label: every earlier case label, or
+        /// every case label in the statement for a <c>default</c> arm.
+        /// </summary>
+        internal static List<IExpression> FailedArmConditions(
+            IReadOnlyList<PhpConditionalArmAst> arms,
+            PhpConditionalArmAst arm)
+        {
+            var failed = new List<IExpression>();
+            foreach (var other in arms)
+            {
+                if (ReferenceEquals(other, arm) && !arm.IsDefault)
+                {
+                    break;
+                }
+
+                if (!other.IsDefault && other.Conditions is not null)
+                {
+                    failed.AddRange(other.Conditions.GetAllNotNull().OfType<IExpression>());
+                }
+            }
+
+            return failed;
+        }
+
         public static void ResetNarrowingOnAssignment(string variableName, CheckerState state)
         {
             state.ResetNarrowing(variableName);
@@ -279,8 +319,10 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             var op = binary.Operator?.ValueString;
-            var isStrictNot = string.Equals(op, "!==", StringComparison.Ordinal);
-            var isStrict = string.Equals(op, "===", StringComparison.Ordinal);
+            var isLooseNot = op is "!=" or "<>";
+            var isLoose = op is "==";
+            var isStrictNot = isLooseNot || string.Equals(op, "!==", StringComparison.Ordinal);
+            var isStrict = isLoose || string.Equals(op, "===", StringComparison.Ordinal);
             if (!isStrictNot && !isStrict)
             {
                 return false;
@@ -302,6 +344,16 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             var expectSentinel = (isStrict && positive) || (isStrictNot && !positive);
+
+            // `$x == null` also holds for falsy values (`0`, `''`, `[]`, `false`), so a loose
+            // comparison only proves the not-null side.
+            if ((isLoose || isLooseNot)
+                && (expectSentinel
+                    || !(TypeComparer.IsNullLiteral(sentinelType!)
+                        || TypeComparer.IsBuiltInName(sentinelType!, "null"))))
+            {
+                return false;
+            }
             var narrowed = expectSentinel
                 ? TypeComparer.NarrowType(
                     ResolveSubjectType(subject, branchState, context, symbolTree),
@@ -1386,23 +1438,23 @@ namespace Tyhp.TyhpLang.Checker
             IsLogicalAnd(op) || IsLogicalOr(op);
 
         /// <summary>
-        /// Builds a structural key for <c>$var->prop</c> member-access narrowing. Only static
-        /// member names are supported; dynamic names and <c>$this->prop</c> (tracked via
-        /// <see cref="CheckerState.PropertyInit"/>) return false.
+        /// Builds a structural key for member-access narrowing: <c>$var->prop</c>, a nested
+        /// <c>-&gt;</c> path (<c>$var->a->b</c>, <c>$this->a->b</c>), or a static property
+        /// (<c>Name::$prop</c>, <c>Name::$prop->a</c>). Only static member names and plain
+        /// <c>-&gt;</c> links are supported. A single-level <c>$this->prop</c> is tracked via
+        /// <see cref="CheckerState.PropertyInit"/> and returns false.
         /// </summary>
         internal static bool TryGetMemberAccessKey(IExpression? expression, out string? memberKey)
         {
             memberKey = null;
-            if (expression is not PhpDereferenceableAst
-                {
-                    Base: PhpVariableAst variable,
-                    Suffix: PhpInstanceMemberAccessAst memberAccess,
-                })
+            return expression switch
             {
-                return false;
-            }
-
-            return TryGetMemberAccessKey(variable, memberAccess, out memberKey);
+                PhpDereferenceableAst { Suffix: PhpInstanceMemberAccessAst memberAccess } deref =>
+                    TryGetMemberAccessKey(deref.Base, memberAccess, out memberKey),
+                PhpDereferenceableAst { Suffix: PhpStaticMemberAccessAst staticAccess } staticDeref =>
+                    TryGetStaticMemberKey(staticDeref.Base, staticAccess, out memberKey),
+                _ => false,
+            };
         }
 
         /// <summary>
@@ -1415,9 +1467,93 @@ namespace Tyhp.TyhpLang.Checker
             out string? memberKey)
         {
             memberKey = null;
-            if (baseNode is not PhpVariableAst variable
-                || CheckerHelpers.IsThisVariable(variable)
-                || memberAccess.MemberName is not (PhpNameAst or TokenValueAst))
+            if (baseNode is PhpVariableAst variable && CheckerHelpers.IsThisVariable(variable))
+            {
+                return false;
+            }
+
+            if (!TryGetMemberPathKey(baseNode, out var receiverKey)
+                || !TryGetPathMemberName(memberAccess, out var prop))
+            {
+                return false;
+            }
+
+            memberKey = receiverKey + "->" + prop;
+            return true;
+        }
+
+        /// <summary>
+        /// Structural path of a receiver: <c>$var</c>, <c>$this</c>, <c>Name::$prop</c>, or one of
+        /// those followed by plain <c>-&gt;name</c> links. Writing to a path invalidates every
+        /// member-access key under it (<see cref="CheckerState.RemoveMemberAccessNarrowingUnder"/>).
+        /// </summary>
+        internal static bool TryGetMemberPathKey(IBase2Ast? expression, out string? pathKey)
+        {
+            pathKey = null;
+            switch (expression)
+            {
+                case PhpVariableAst variable:
+                    if (variable.VariableExpression is PhpVariableAst
+                        || CheckerHelpers.GetVariableName(variable) is not { } varName)
+                    {
+                        return false;
+                    }
+
+                    pathKey = "$" + varName.TrimStart('$');
+                    return true;
+
+                case PhpDereferenceableAst { Suffix: PhpStaticMemberAccessAst staticAccess } staticDeref:
+                    return TryGetStaticMemberKey(staticDeref.Base, staticAccess, out pathKey);
+
+                case PhpDereferenceableAst { Suffix: PhpInstanceMemberAccessAst memberAccess } deref:
+                    if (!TryGetMemberPathKey(deref.Base, out var receiverKey)
+                        || !TryGetPathMemberName(memberAccess, out var prop))
+                    {
+                        return false;
+                    }
+
+                    pathKey = receiverKey + "->" + prop;
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Key for a static property read <c>Name::$prop</c> (also <c>self</c> / <c>static</c> /
+        /// <c>parent</c>). The class part is the bound declaration's FQN when resolved.
+        /// </summary>
+        internal static bool TryGetStaticMemberKey(
+            IDereferenceableBase? baseNode,
+            PhpStaticMemberAccessAst staticAccess,
+            out string? memberKey)
+        {
+            memberKey = null;
+            var staticName = staticAccess.Member switch
+            {
+                PhpVariableAst { VariableExpression: PhpVariableAst } => null,
+                PhpVariableAst member => CheckerHelpers.GetVariableName(member),
+                PhpNameAst name => name.ValueString,
+                TokenValueAst token => token.ValueString,
+                _ => null,
+            };
+            if (baseNode is not PhpNameAst receiver
+                || staticName is null
+                || staticName.StartsWith('{')
+                || GetStaticReceiverKey(receiver) is not { } classKey)
+            {
+                return false;
+            }
+
+            memberKey = classKey + "::$" + staticName.TrimStart('$');
+            return true;
+        }
+
+        private static bool TryGetPathMemberName(PhpInstanceMemberAccessAst memberAccess, out string prop)
+        {
+            prop = string.Empty;
+            if (CheckerHelpers.IsNullSafeAccessor(memberAccess.Accessor))
             {
                 return false;
             }
@@ -1434,15 +1570,19 @@ namespace Tyhp.TyhpLang.Checker
                 return false;
             }
 
-            var varName = CheckerHelpers.GetVariableName(variable);
-            if (varName is null)
+            prop = memberName.StartsWith('$') ? memberName[1..] : memberName;
+            return true;
+        }
+
+        private static string? GetStaticReceiverKey(PhpNameAst receiver)
+        {
+            if (receiver.BoundSymbol is ObjectDeclarationSymbol bound)
             {
-                return false;
+                return "\\" + (bound.FullyQualifiedName ?? bound.Name).TrimStart('\\');
             }
 
-            var prop = memberName.StartsWith('$') ? memberName[1..] : memberName;
-            memberKey = "$" + varName + "->" + prop;
-            return true;
+            var raw = receiver.ValueString ?? receiver.Identifier;
+            return string.IsNullOrEmpty(raw) ? null : raw.ToLowerInvariant();
         }
 
         /// <summary>

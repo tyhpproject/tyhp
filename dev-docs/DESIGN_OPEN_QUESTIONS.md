@@ -9,7 +9,8 @@
 > For the committed sequence of work, see `ROADMAP.md`.
 > Language-assessment leftovers that still need a product lock are §16’s PHP-boundary questions.
 > Syntax trim, tagline, `with`, ctor `: void`, `isa`/`isan`, and the emitter pipeline are decided
-> (`DECISIONS.md` / Story 21.12). Async HTTP/DB/FS is Story 31 Idea 17.
+> (`DECISIONS.md` / Story 21.12). Async HTTP/DB/FS is Story 46. Generic variance (§6) is
+> Story 47. §22–§23 came from r/PHP launch feedback (2026-11).
 
 ---
 
@@ -720,69 +721,19 @@ $n = -$x; (Foo)$n     // same, if they want the cast token
   refined-type version. Confirm declaration `PhpType` overrides `emit`, and whether `emit` must be a
   legal PHP hint for `output.phpVersion` (same validation as `PhpType`).
 - **Precedence across all conversion mechanisms.** This is the third time the "two conversion mechanisms
-  both apply" question has arisen (Story 31 Idea 2 already flagged it between the `*Convertible` contracts
+  both apply" question has arisen (Story 32 already flagged it between the `*Convertible` contracts
   and `operator convert`, and deferred it). For a **pure brand** over a class (`decimal`), the order at
   a boundary site is: identity brand stamp/unstamp, then the class's `operator convert` / `*Convertible`
   (one site, not two refined hops). Non-object bases never see this. Custom `narrow` / `widen` on an
   object-base brand that would overlap convert is still the open collision (`explicit widen` >
   `residual widen(): T` > auto union identity > `*Convertible` / `\Stringable`, genuine ties as errors).
 
-### 6.Declaration-site generic variance (`in` / `out`)
+### 6. Declaration-site generic variance (`in` / `out`) — moved to Story 47
 
-Let a generic type parameter declare how its type argument may vary, so that `Producer<Dog>` can be used
-where `Producer<Animal>` is expected:
-
-```tyhp
-interface Producer<out T> { function produce(): T; }            // covariant   — T only comes out
-interface Consumer<in T>  { function consume(T $value): void; }  // contravariant — T only goes in
-interface Transform<in TIn, out TOut> { function apply(TIn $x): TOut; }
-```
-
-```tyhp
-Producer<Animal> $p = getDogProducer();   // covariance:     Producer<Dog>    → Producer<Animal>
-Consumer<Dog>    $c = getAnimalConsumer(); // contravariance: Consumer<Animal> → Consumer<Dog>
-```
-
-**Why this is unusually cheap for Tyhp:** generics are erased, so variance changes **nothing** in the
-emitted PHP — it is purely a checker rule. More to the point, **most of the plumbing already exists and is
-currently dead**:
-
-- `Tyhp/TyhpLang/Enum/TypeVariance.cs` defines `Invariant` / `Covariant` / `Contravariant`.
-- `GenericTypeParameterSymbol.Variance` holds it.
-- `TypeComparer.Subtyping.cs` **already reads** it when comparing type arguments and branches correctly
-  (covariant → compare in order, contravariant → compare reversed, invariant → require equality).
-- But **nothing in the compiler ever assigns `Variance`**, so it is always `Invariant`. There is no syntax
-  to set it.
-
-So the missing pieces are the surface syntax, the binder wiring, and — the actual work — the
-variance-safety check.
-
-**Unresolved questions (must be answered before this can be scheduled):**
-
-- **Variance safety checking — the real cost.** Declared variance is unsound without a position check:
-  `out T` may only appear in *output* positions (return types, readonly property types) and `in T` only in
-  *input* positions (parameter types). Enforcing that needs a new pass over every member signature of a
-  variant generic, plus diagnostics. Do we implement full safety checking, or trust the author (cheap, but
-  unsound and un-Tyhp-like)?
-- **Constructors and `readonly` are the classic exception.** A constructor takes `T` as a parameter (input
-  position) even on a covariant `out T`, and `readonly T $x` is input-at-construction but output
-  thereafter. C# exempts constructors from the check. Confirm the same rule, and decide how `readonly`
-  properties are classified.
-- **Relationship to the existing hardcoded array covariance.** `TypeComparer.Subtyping.cs` has an
-  `arrayLikeCovariant` special case that forces covariance for array-like types regardless of declared
-  variance. Does declared variance subsume that special case, or do they coexist (and which wins)?
-- **Declaration-site only, or use-site too?** C# is declaration-site only; Kotlin has both (`out T` on the
-  declaration plus `Box<out Animal>` at the use site); Java is use-site only (wildcards). Declaration-site
-  alone is the smaller feature and probably the right first cut — confirm we are not leaving a gap.
-- **Interaction with `extends` constraints and generic defaults (Story 28).** Does a variance annotation
-  combine freely with `T extends Foo` and `T = Foo`, and in what declaration order (`out T extends Foo = Bar`)?
-- **Does it apply to structs?** Struct compatibility is already *structural*, not nominal, so variance may
-  be meaningless there. Confirm it is a class/interface/trait-only annotation.
-- **Docblock emission.** Maps cleanly to `@template-covariant` / `@template-contravariant`. Story 31
-  Idea 4 already anticipates this ("variance where Tyhp models it") — this is what would make that real.
-- **Method-level generics.** Do variance annotations make sense on a generic *method*'s own type
-  parameters, or only on type parameters of a declaration that can appear as a type (class/interface/trait)?
-  Most likely the latter — reject them on methods.
+Moved 2026-11-03 to **Story 47** (`IMPLEMENTATION_PLAN_TODO_STORY_47.md`), including the existing
+plumbing notes and the unresolved questions (safety checking, constructors and `readonly`, the
+`arrayLikeCovariant` special case, declaration-site vs use-site, Story 28 ordering, structs, and method-level
+generics). Story 22.1 Part A emits `@template-covariant` / `@template-contravariant` once it lands.
 
 ### 7. Exception effect tracking (`throws`)
 
@@ -799,7 +750,7 @@ function caller(): void {
 
 **Why this is worth doing here specifically:**
 
-- **Story 31 Idea 4 is explicitly blocked on it.** Its `@throws` emission is deferred with "only if/when
+- **Story 22.1 Part A is explicitly blocked on it.** Its `@throws` emission is deferred with "only if/when
   the checker tracks thrown types — otherwise deferred." This is that prerequisite.
 - **The tyhpdef docs already claim it works.** `docs/content/tyhpdef_runTimeErrorsAndExceptions.md` states:
   "Use the `@throws` doc comment annotation … **The compiler uses this information to validate that callers
@@ -1011,7 +962,7 @@ exhaustive then silently falls through. The guarantee is real **inside Tyhp** an
 PHP boundary — the same standing as `internal`’s visibility, not the same feature.
 
 If scheduled, mitigations that belong to **this** feature (not to Story 25): emit `@psalm-sealed` /
-`@phpstan-sealed` docblocks (Story 31 Idea 4); consider a throwing `default` on exhaustive `match`
+`@phpstan-sealed` docblocks (Story 22.1 Part A); consider a throwing `default` on exhaustive `match`
 so a PHP-side extra implementer fails loudly.
 
 **Open questions if scheduled:** keyword choice given the C# collision; whether `permits` is explicit or
@@ -1120,20 +1071,20 @@ the PHP boundary).
 Mitigations already planned, none of which close the gap fully:
 
 - Story **25** — `internal` in the checker.
-- Story **31 Idea 4** — PHPStan/Psalm docblocks (shapes, `@template`, later `@psalm-sealed`).
-- Story **31 Idea 15** — opt-in runtime struct asserts at public PHP boundaries.
+- Story **22.1 Part A** — PHPStan/Psalm docblocks (shapes, `@template`, later `@psalm-sealed`).
+- Story **44** — opt-in runtime struct asserts at public PHP boundaries.
 
 **Still open (do not invent a fourth mitigation until these are answered):**
 
 - Which guarantees are **Tyhp-land only** and which, if any, must survive a PHP caller? Candidate
-  “must survive” list is only what Idea 15 covers (struct shapes at public boundaries). Generic
+  “must survive” list is only what Story 44 covers (struct shapes at public boundaries). Generic
   bounds and `sealed` stay advisory unless a later idea says otherwise.
 - Should exhaustive `match` on a Tyhp-only closed set emit a throwing `default` so a PHP-side extra
   implementer fails loudly? Independent of whether `sealed` is scheduled.
 
-### 17. Async I/O ecosystem — scheduled as Story 31 Idea 17
+### 17. Async I/O ecosystem — scheduled as Story 46
 
-HTTP / filesystem / database non-blocking I/O for `tyhp/async` is **Story 31 Idea 17**. Loop
+HTTP / filesystem / database non-blocking I/O for `tyhp/async` is **Story 46**. Loop
 ownership (stay on `tyhp/async`’s `stream_select` vs become a Revolt driver) is decided there, not
 here. Until that idea is implemented, 21.12 E documents that PDO / `curl_exec` / `file_get_contents`
 block the loop.
@@ -1415,6 +1366,80 @@ this expression” error. Do not guess.
   unkeyed spread of a list could append elementwise.
 - **Expression emit** when any entry is unkeyed — `\Tyhp\ArrayHelper::with($arr, $replace,
   $append)` in `tyhp/core` vs an IIFE of `$a[] =`. Keyed-only can stay `\array_replace`.
+
+---
+
+## Open design questions (from r/PHP launch feedback, 2026-11)
+
+Asked for in the public beta announcement thread. Neither is high priority; both need more thought before
+they can be scheduled.
+
+### 22. Mapping production errors and stack traces back to `.tyhp` lines
+
+**Wanted 2026-11-03.** Not scheduled. In production, PHP errors, uncaught exceptions, and error trackers
+(Sentry, Bugsnag, Flare) report the compiled `.php` file and line. Today nothing maps those back to the
+`.tyhp` source.
+
+What exists:
+
+- `build.generateSourcemap` (default `false`) writes standard v3 `{file}.php.map` files and appends a
+  `//# sourceMappingURL=` comment (Story 17; `Tyhp/TyhpLang/Emitter/SourceMap/`).
+- Only `tyhp xdebug_proxy` reads them (`Tyhp/XDebugProxy/SourceMap/`), to translate breakpoints and stack
+  frames for a debugger.
+- Story 29 (reflection API) is sourcemap-backed, but it is about reflection, not error reports.
+
+Candidate shapes (none chosen):
+
+- **Offline CLI.** `tyhp` command that reads a PHP stack trace (text or JSON) plus the `.map` files and
+  prints it with `.tyhp` paths and lines. Cheapest; no runtime cost; works with any tracker export.
+- **Runtime helper in `tyhp/core`.** Rewrites a `\Throwable`'s trace (or a formatted string) using maps
+  shipped with the build. Needs a PHP sourcemap decoder and the `.map` files deployed to production.
+- **Error-tracker integration.** Upload maps to the tracker, the way JavaScript builds do. Tracker source-map
+  support is aimed at JavaScript (verify per tracker), so this likely means a per-tracker plugin or `before_send` hook built on
+  the runtime helper.
+
+**Unresolved questions:**
+
+- Do maps ship to production at all? They are off by default, can embed source (`build.sourcemapIncludeContent`),
+  and add files to every deploy. A separate artifact (`dist` vs `maps`) may be needed.
+- Line granularity: do the current maps cover every line a PHP error can report (lowered constructs,
+  `_functions.php`, runtime registration), or only statement starts?
+- Does this belong in the compiler (CLI), `tyhp/core` (runtime), or a separate package?
+- Interaction with release/minified profiles and Story 22.1 docblocks, which change emitted line numbers.
+
+### 23. Constructing structs with named arguments
+
+**Wanted 2026-11-03.** Not scheduled. Structs are built with `new Alias() with [...]`:
+
+```tyhp
+type Opts = struct {
+    string $name;
+    int $retries = 3;
+};
+
+Opts $o = new Opts() with [name => 'ann'];
+```
+
+A reader asked for constructor-style named arguments, which look like class construction in PHP 8:
+
+```tyhp
+Opts $o = new Opts(name: 'ann');
+```
+
+If added, it would be sugar next to `with`, not a replacement: same array output (folded to a literal when
+every value is constant, `\array_replace` otherwise), same required-field checks (a missing field without a
+default is an error), same unknown-key errors.
+
+**Unresolved questions:**
+
+- Is a second spelling worth it? `with` already works for construction and for copy-and-update; two forms
+  for construction means docs and diagnostics must cover both.
+- Positional arguments (`new Point(1.0, 2.0)`)? Struct fields are declared in order, but positional
+  construction breaks silently when fields are reordered. Probably named-only.
+- Mixing: `new Opts(name: 'ann') with [retries => 5]` — allowed, or one form per expression?
+- Readers may take `new Opts(...)` for a class constructor call. Is that a feature (familiar) or a hazard
+  (it suggests a class, a `__construct`, and object identity, none of which exist)?
+- Spread (`new Opts(...$args)`) and computed names — likely rejected, matching struct `with`.
 
 ---
 

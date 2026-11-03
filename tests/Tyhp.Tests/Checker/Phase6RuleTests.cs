@@ -1769,6 +1769,24 @@ public class Phase6RuleTests
     }
 
     [Fact]
+    public void Check_WithReadonlyFinalClass_Php82_Reports4140Not4400()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            final class Color {
+                public function __construct(public readonly int $alpha) {}
+            }
+
+            function demo(): Color {
+                return new Color(255) with [alpha => 128];
+            }
+            """, requireNoBindErrors: true, phpVersion: "8.2");
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerWithReadonlyFinalClass);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyWithRequiresPhp83);
+    }
+
+    [Fact]
     public void Check_WithReadonlyClone_Php84_WithExperimental_AllowsNonFinal()
     {
         var diagnostics = CompileAndCheck("""
@@ -1803,6 +1821,199 @@ public class Phase6RuleTests
         diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerCloneWithReadonlyRequiresConfig);
         diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithReadonlyFinalClass);
         diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithReadonlyInPlace);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyWithRequiresPhp83);
+    }
+
+    [Fact]
+    public void Check_WithReadonlyNew_Php82_Reports4400()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Color {
+                public readonly int $alpha;
+
+                public function __construct() {
+                    $this->alpha = 255;
+                }
+            }
+
+            function demo(): Color {
+                return new Color() with [alpha => 128];
+            }
+            """, requireNoBindErrors: true, phpVersion: "8.2");
+
+        var errors = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerReadonlyWithRequiresPhp83)
+            .ToList();
+        errors.Should().ContainSingle();
+        errors[0].Message.Should().Contain("`alpha`").And.Contain("`8.2`").And.Contain("8.3");
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerCloneWithReadonlyRequiresConfig);
+    }
+
+    [Fact]
+    public void Check_WithReadonlyNew_Php83_Allows()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Color {
+                public readonly int $alpha;
+
+                public function __construct() {
+                    $this->alpha = 255;
+                }
+            }
+
+            function demo(): Color {
+                return new Color() with [alpha => 128];
+            }
+            """, requireNoBindErrors: true, phpVersion: "8.3");
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyWithRequiresPhp83);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyClassCloneWithRequiresPhp85);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithReadonlyFinalClass);
+    }
+
+    [Fact]
+    public void Check_WithReadonlyNew_ReadonlyClass_Php82_Reports4400()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            readonly class Color {
+                public function __construct(public int $alpha) {}
+            }
+
+            function demo(): Color {
+                return new Color(255) with [alpha => 128];
+            }
+            """, requireNoBindErrors: true, phpVersion: "8.2");
+
+        var errors = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerReadonlyWithRequiresPhp83)
+            .ToList();
+        errors.Should().ContainSingle();
+        errors[0].Message.Should().Contain("`alpha`").And.Contain("`8.2`");
+    }
+
+    [Fact]
+    public void Check_WithReadonlyNew_ReadonlyClass_Php83_Allows()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            readonly class Color {
+                public function __construct(public int $alpha) {}
+            }
+
+            function demo(): Color {
+                return new Color(255) with [alpha => 128];
+            }
+            """, requireNoBindErrors: true, phpVersion: "8.3");
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyWithRequiresPhp83);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyClassCloneWithRequiresPhp85);
+    }
+
+    [Fact]
+    public void Check_WithReadonlyClone_Php82_Experimental_Reports4400()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Box {
+                public function __construct(public readonly int $w, public readonly int $h) {}
+            }
+
+            function demo(Box $b): Box {
+                return clone $b with [w => 7];
+            }
+            """, requireNoBindErrors: true, phpVersion: "8.2", experimentalReadonlyCloneWith: true);
+
+        var errors = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerReadonlyWithRequiresPhp83)
+            .ToList();
+        errors.Should().ContainSingle();
+        errors[0].Message.Should().Contain("`w`").And.Contain("`8.2`");
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerCloneWithReadonlyRequiresConfig);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyClassCloneWithRequiresPhp85);
+    }
+
+    [Fact]
+    public void Check_WithReadonlyClone_RequiredConstructor_Php83_Experimental_Allows()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Box {
+                public function __construct(public readonly int $w, public readonly int $h) {}
+            }
+
+            function demo(Box $b): Box {
+                return clone $b with [w => 7];
+            }
+            """, requireNoBindErrors: true, phpVersion: "8.3", experimentalReadonlyCloneWith: true);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyWithRequiresPhp83);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerCloneWithReadonlyRequiresConfig);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyClassCloneWithRequiresPhp85);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithReadonlyFinalClass);
+    }
+
+    [Fact]
+    public void Check_WithReadonlyClone_ReadonlyClass_Php84_Experimental_Reports4401()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            readonly class Box {
+                public function __construct(public int $w, public int $h) {}
+            }
+
+            function demo(Box $b): Box {
+                return clone $b with [w => 7];
+            }
+            """, requireNoBindErrors: true, phpVersion: "8.4", experimentalReadonlyCloneWith: true);
+
+        var errors = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerReadonlyClassCloneWithRequiresPhp85)
+            .ToList();
+        errors.Should().ContainSingle();
+        errors[0].Message.Should().Contain("`Box`").And.Contain("`8.4`").And.Contain("8.5");
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerCloneWithReadonlyRequiresConfig);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyWithRequiresPhp83);
+    }
+
+    [Fact]
+    public void Check_WithReadonlyClone_ReadonlyClass_Php82_Reports4401()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            readonly class Box {
+                public function __construct(public int $w, public int $h) {}
+            }
+
+            function demo(Box $b): Box {
+                return clone $b with [w => 7];
+            }
+            """, requireNoBindErrors: true, phpVersion: "8.2");
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerReadonlyClassCloneWithRequiresPhp85);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerCloneWithReadonlyRequiresConfig);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyWithRequiresPhp83);
+    }
+
+    [Fact]
+    public void Check_WithReadonlyClone_ReadonlyClass_Php85_Allows()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            readonly class Box {
+                public function __construct(public int $w, public int $h) {}
+            }
+
+            function demo(Box $b): Box {
+                return clone $b with [w => 7];
+            }
+            """, requireNoBindErrors: true, phpVersion: "8.5");
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyClassCloneWithRequiresPhp85);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerReadonlyWithRequiresPhp83);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerCloneWithReadonlyRequiresConfig);
     }
 
     [Fact]

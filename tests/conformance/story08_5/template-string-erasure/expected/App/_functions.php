@@ -8,10 +8,7 @@ declare(strict_types=1);
 
 namespace App;
 
-function ApiMethod(): \Tyhp\Type
-{
-    return \Tyhp\Type::string();
-}
+\Tyhp\Type::register('App\\ApiMethod', fn () => \Tyhp\Type::string());
 
 function demo(): void
 {

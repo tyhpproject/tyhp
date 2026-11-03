@@ -287,12 +287,12 @@ public class ExtensionMethodEmitterTests
     {
         var php = CompileAndEmit("""
             <?tyhp
-            extension StringExtensions extends string {
-                function shout(): string {
+            extension StringExtensions extends ?string {
+                function shout(): ?string {
                     return $this;
                 }
             }
-            function yell(?string $text): string {
+            function yell(?string $text): ?string {
                 return $text->shout();
             }
             """);

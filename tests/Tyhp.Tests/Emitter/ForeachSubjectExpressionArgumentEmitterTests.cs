@@ -35,6 +35,7 @@ public class ForeachSubjectExpressionArgumentEmitterTests
             """);
 
         result.Errors.Should().BeEmpty();
-        result.Php.Should().Contain("foreach (FeRepo::names(new \\Tyhp\\Expression(");
+        result.Php.Should().Contain(
+            "foreach (FeRepo::names(\\Tyhp\\Expr::param('p', \\Person::class)->age->gt(18)->backedBy(fn(\\Person $p): bool => $p->age > 18)) as $name)");
     }
 }

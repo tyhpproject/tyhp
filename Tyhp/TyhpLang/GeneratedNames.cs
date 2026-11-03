@@ -39,6 +39,15 @@ namespace Tyhp.TyhpLang
         public const string GenericInitHook = "__initGenerics" + GenericVariantSuffix;
 
         /// <summary>
+        /// Creates <c>$__tyhpGeneric</c> on a <c>readonly class</c>. Declared on the topmost generic
+        /// level — the property's declaring scope, which is the only place a readonly property may be
+        /// initialized — and called from every level in the chain, including after
+        /// <c>newInstanceWithoutConstructor()</c>. The name ends in <see cref="GenericVariantSuffix"/>
+        /// so a user method of the same name is rejected with the other reserved generic names.
+        /// </summary>
+        public const string GenericBagBoot = "__bootGenericBag" + GenericVariantSuffix;
+
+        /// <summary>
         /// Cached <c>ReflectionClass</c> backing the generic instantiation factory. Uncached, a
         /// reflection allocation per instantiation is a measurable regression against plain
         /// <c>new</c>.

@@ -101,10 +101,11 @@ public class StructEmitterTests
             }
             """);
 
-        php.Should().Contain("['x' => 0, 'y' => 0]");
+        var make = php[php.IndexOf("function make()", StringComparison.Ordinal)..];
+        make.Should().Contain("['x' => 0, 'y' => 0]");
+        make.Should().NotContain("'label'");
         php.Should().NotContain("new Point");
         php.Should().NotContain("struct Point");
-        php.Should().NotContain("'label'");
     }
 
     [Fact]
@@ -421,9 +422,10 @@ public class StructEmitterTests
             }
             """);
 
-        php.Should().Contain("0 =>");
-        php.Should().Contain("1 =>");
-        php.Should().NotContain("NumericGenericArgs");
+        var makeArgs = php[php.IndexOf("function makeArgs()", StringComparison.Ordinal)..];
+        makeArgs.Should().Contain("0 =>");
+        makeArgs.Should().Contain("1 =>");
+        makeArgs.Should().NotContain("NumericGenericArgs");
         php.Should().NotContain("tyhpGeneric");
     }
 

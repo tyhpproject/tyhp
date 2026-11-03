@@ -107,7 +107,7 @@
         "stdout": "yes\nno\n1\n",
         "emittedContains": [
           "\\Tyhp\\Type::is($withNow, \\Tyhp\\Type::ref('ClockShape'))",
-          "\\Tyhp\\Type::register('ClockShape', fn () => \\Tyhp\\Type::shape()->method('now'))"
+          "\\Tyhp\\Type::register('ClockShape', fn () => \\Tyhp\\Type::shape()->method('now')->returns(\\Tyhp\\Type::int()))"
         ],
         "emittedNotContains": [
           "instanceof ClockShape",
@@ -183,8 +183,8 @@
         "errorCount": 0,
         "stdout": "yes\n",
         "emittedContains": [
-          "\\Tyhp\\Type::union(\\Tyhp\\Type::int(), \\Tyhp\\Type::string())",
-          "\\Tyhp\\Type::is($x, IntOrString())"
+          "\\Tyhp\\Type::register('IntOrString', fn () => \\Tyhp\\Type::union(\\Tyhp\\Type::int(), \\Tyhp\\Type::string()))",
+          "\\Tyhp\\Type::is($x, \\Tyhp\\Type::ref('IntOrString'))"
         ],
         "emittedNotContains": ["\\is_string($x)"]
       }

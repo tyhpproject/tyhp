@@ -50,6 +50,40 @@ public interface ITyhpParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitTyhpFile([NotNull] TyhpParser.TyhpFileContext context);
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpFileChunkInline</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpFileChunk"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpFileChunkInline([NotNull] TyhpParser.TyhpFileChunkInlineContext context);
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpFileChunkPhp</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpFileChunk"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpFileChunkPhp([NotNull] TyhpParser.TyhpFileChunkPhpContext context);
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpFileChunkCode</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpFileChunk"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpFileChunkCode([NotNull] TyhpParser.TyhpFileChunkCodeContext context);
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpFileChunkClose</c>
+	/// labeled alternative in <see cref="TyhpParser.tyhpFileChunk"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpFileChunkClose([NotNull] TyhpParser.TyhpFileChunkCloseContext context);
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpRejectedPhpBlock"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpRejectedPhpBlock([NotNull] TyhpParser.TyhpRejectedPhpBlockContext context);
+	/// <summary>
 	/// Visit a parse tree produced by the <c>tyhpTaglessFile</c>
 	/// labeled alternative in <see cref="TyhpParser.tyhpTaglessSrcFile"/>.
 	/// </summary>
@@ -94,6 +128,12 @@ public interface ITyhpParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitTyhpInlineOutputStatement([NotNull] TyhpParser.TyhpInlineOutputStatementContext context);
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="TyhpParser.phpInlineOutputStatement"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitPhpInlineOutputStatement([NotNull] TyhpParser.PhpInlineOutputStatementContext context);
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.tyhpdefTopStatementList"/>.
 	/// </summary>
@@ -1780,12 +1820,6 @@ public interface ITyhpParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitPhpInlineOutput([NotNull] TyhpParser.PhpInlineOutputContext context);
-	/// <summary>
-	/// Visit a parse tree produced by <see cref="TyhpParser.phpInlineOutputStatement"/>.
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	Result VisitPhpInlineOutputStatement([NotNull] TyhpParser.PhpInlineOutputStatementContext context);
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="TyhpParser.phpInlineOutputStatementGrammarAddon"/>.
 	/// </summary>

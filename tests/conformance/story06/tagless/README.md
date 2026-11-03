@@ -10,7 +10,7 @@ Requires `source.tagless: true` in `tyhp.json` or `--source:tagless=true` on the
 | Fixture | Tagless enabled | Expected |
 |---------|-----------------|----------|
 | `tagless_function.tyhp` | yes | 0 errors (parses without `<?tyhp`) |
-| `tagless_with_open_tag.tyhp` | yes | 0 errors (open tag still allowed) |
+| `tagless_with_open_tag.tyhp` | yes | 0 errors (the file starts with `<?tyhp`, so it uses the tagged entry) |
 | `tagless_tyhpdef.tyhpdef` | yes | 0 errors (parses without `<?tyhpdef`) |
 | `tagless_close_tag_error.tyhp` | yes | `TYHP1004` at the `?>` line (may also report parse follow-on errors) |
 | `tagless_function.tyhp` | no (default) | 0 errors (classic mode: content without `<?tyhp` is treated as inline HTML, unchanged from pre-tagless behavior) |

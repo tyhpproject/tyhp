@@ -107,6 +107,9 @@ namespace Tyhp.Domain.Exceptions
             VisitorMissingRequiredNode = 2003,
             VisitorUnsupportedConstruct = 2004,
 
+            /// <summary>A <c>&lt;?php</c> block in a <c>.tyhp</c> file. PHP code belongs in a <c>.php</c> file.</summary>
+            PhpOpenTagNotAllowedInTyhpFile = 2005,
+
             #endregion Visitor / AST Tree Generation
 
             #region Binder
@@ -401,7 +404,10 @@ namespace Tyhp.Domain.Exceptions
             CheckerPromotedPropertyNoType = 4105,
             CheckerPromotedPropertyInAbstract = 4106,
             CheckerPromotedVariadic = 4107,
-            CheckerReadonlyClassMutableProperty = 4108,
+
+            // 4108 was CheckerReadonlyClassMutableProperty: it rejected a property of a `readonly class`
+            // without its own `readonly`. Retired because PHP makes every instance property of a
+            // readonly class readonly, and the binder now marks them so. Do not reuse the number.
             CheckerReadonlyClassStaticProperty = 4109,
 
             // Enum / interface / trait errors
@@ -789,6 +795,21 @@ namespace Tyhp.Domain.Exceptions
             /// use <see cref="CheckerMixedRequiresNarrowing"/> (TYHP4160).
             /// </summary>
             CheckerUnresolvedReceiver = 4197,
+
+            /// <summary>
+            /// Property read/write, method call, or struct/object indexing through a receiver whose
+            /// type admits <c>null</c> (<c>?T</c>, <c>T|null</c>) without prior narrowing.
+            /// <c>?-&gt;</c> and existence probes (<c>isset</c> / <c>??</c> / <c>empty</c>) on
+            /// property and index reads are exempt.
+            /// </summary>
+            CheckerPossiblyNullReceiver = 4198,
+
+            /// <summary>
+            /// A template string hole is not a string, <c>int</c>, or <c>float</c> type (or a
+            /// literal, template, symbol-name type, alias, or union of them), or is written as an
+            /// expression rather than a type.
+            /// </summary>
+            CheckerTemplateStringUnsupportedHole = 4199,
 
             // Code-quality warnings (4200+ range)
             CheckerUnusedVariable = 4200,
@@ -1219,7 +1240,47 @@ namespace Tyhp.Domain.Exceptions
             /// </summary>
             CheckerCannotInferTypeArgument = 4377,
 
-            // 4378–4399 reserved for Stories 25, 26, 27 follow-ups
+            /// <summary>
+            /// A non-static readonly property (declared <c>readonly</c> or in a <c>readonly</c>
+            /// class) has a default value while <c>output.phpVersion</c> is below 8.6. PHP before
+            /// 8.6 rejects the class at load time. Promoted constructor parameters are not
+            /// affected: their default is a parameter default.
+            /// </summary>
+            CheckerReadonlyPropertyDefaultRequiresPhp86 = 4378,
+
+            /// <summary>
+            /// An enum declares <c>__debugInfo()</c> while <c>output.phpVersion</c> is below 8.6.
+            /// PHP before 8.6 rejects the enum at load time.
+            /// </summary>
+            CheckerEnumDebugInfoRequiresPhp86 = 4379,
+
+            /// <summary>
+            /// A <c>readonly class</c> uses a trait that declares a static property or an instance
+            /// property without <c>readonly</c>. PHP rejects the class when it is loaded. Reported
+            /// only when <c>output.phpVersion</c> is 8.2 or newer, which is when readonly classes
+            /// exist. Readonly instance properties on the trait are allowed.
+            /// </summary>
+            CheckerReadonlyClassTraitProperty = 4380,
+
+            // 4381–4399 reserved for Stories 25, 26, 27 follow-ups
+
+            /// <summary>
+            /// Readonly <c>new … with</c>, or experimental readonly <c>clone … with</c> on a
+            /// class that is not itself readonly, while <c>output.phpVersion</c> is below 8.3.
+            /// The lowering assigns the property from a subclass <c>__clone()</c>. PHP rejects
+            /// that assignment before 8.3, and a <c>readonly class</c> wrapper is
+            /// <c>new readonly class</c>, which is also 8.3.
+            /// </summary>
+            CheckerReadonlyWithRequiresPhp83 = 4400,
+
+            /// <summary>
+            /// <c>clone … with</c> on a property of a <c>readonly class</c> while
+            /// <c>output.phpVersion</c> is below 8.5. The experimental wrapper has to extend
+            /// the class and keep the override list off the instance. A non-readonly class
+            /// cannot extend a readonly class, and a readonly subclass cannot hold that list.
+            /// PHP 8.5 native <c>clone()</c> does not need the wrapper.
+            /// </summary>
+            CheckerReadonlyClassCloneWithRequiresPhp85 = 4401,
 
             // Deprecation warnings (4500+ range)
             CheckerDeprecatedUsage = 4500,
@@ -1302,6 +1363,12 @@ namespace Tyhp.Domain.Exceptions
             /// layouts this compiler implements (currently <c>[1]</c>).
             /// </summary>
             EmitterGenericRuntimeLayoutUnsupported = 5023,
+
+            /// <summary>
+            /// An <c>fn</c> passed to an <c>Expression&lt;…&gt;</c> target has a body construct the
+            /// expression-tree emitter cannot rebuild, so no tree can be emitted for it.
+            /// </summary>
+            EmitterExpressionTreeUnsupportedNode = 5024,
 
             #endregion Emitter
 
@@ -1392,6 +1459,12 @@ namespace Tyhp.Domain.Exceptions
 
             /// <summary>An <c>output.publishContent</c> src pattern matched no files.</summary>
             BuildPublishContentUnmatched = 7107,
+
+            /// <summary>
+            /// A compiled <c>tyhp/*</c> runtime package is required, but no <c>80N.X.Y</c> release
+            /// line is published for <c>output.phpVersion</c>, so no Composer constraint is written.
+            /// </summary>
+            BuildRuntimePackageNoPhpRelease = 7108,
 
             #endregion CLI — build action (7100–7199)
 

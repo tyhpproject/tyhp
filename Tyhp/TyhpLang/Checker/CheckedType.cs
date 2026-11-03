@@ -61,6 +61,14 @@ namespace Tyhp.TyhpLang.Checker
 
         public IBaseSymbol ResolvedSymbol { get; }
 
+        /// <summary>
+        /// Literal text and hole types of the double-quoted interpolation this <c>string</c> was
+        /// inferred from. Template-string assignability matches it against the target pattern;
+        /// every other check sees plain <c>string</c>. Not part of equality or
+        /// <see cref="DisplayName"/>.
+        /// </summary>
+        public TemplateStringPattern? InterpolationPattern { get; init; }
+
         public CheckedTypeKind Kind => CheckedTypeKind.Simple;
 
         // Builtins are keywords (bool, true, int, …) — spell them bare, not as `\true`.

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace App;
 
+\Tyhp\Type::register('App\\Point', fn () => \Tyhp\Type::struct()->optional('x', \Tyhp\Type::int())->optional('y', \Tyhp\Type::string()));
+
 function takeStructKey(string $k): string
 {
     return $k;

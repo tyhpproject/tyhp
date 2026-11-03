@@ -158,6 +158,9 @@ namespace Tyhp.TyhpLang.Checker
         public ICheckedType ResolveExpressionType(IBase2Ast expr, CheckerState state) =>
             _typeInferrer.InferExpressionType(expr, state);
 
+        internal ICheckedType ResolveChainReceiverType(IBase2Ast receiver, CheckerState state) =>
+            _typeInferrer.InferChainReceiverType(receiver, state);
+
         /// <summary>
         /// Value type of an index / destructure read on <paramref name="receiverType"/>
         /// (same as <c>$obj[$k]</c>).
@@ -658,21 +661,21 @@ namespace Tyhp.TyhpLang.Checker
                 return;
             }
 
+            // A template string type's encaps list spells a pattern, not a runtime interpolation;
+            // its holes are type names resolved with the type itself.
             var suppressChildren = _rules.Dispatch(node, state, _ruleContext, _diagnostics);
-            if (suppressChildren)
+            if (!suppressChildren && node is not TyhpTemplateStringTypeAst)
             {
-                CheckAttributes(node, state);
-                return;
-            }
-
-            foreach (var child in node.AstChildren)
-            {
-                if (child is not null)
+                foreach (var child in node.AstChildren)
                 {
-                    CheckNode(child, state);
+                    if (child is not null)
+                    {
+                        CheckNode(child, state);
+                    }
                 }
             }
 
+            TypeCompatibilityRule.InvalidateAssignedMemberPath(node, state);
             CheckAttributes(node, state);
         }
 

@@ -13,9 +13,6 @@ namespace Tyhp.TyhpLang.Checker
             blockState.IsInAsyncContext = true;
             blockState.IsInsideClosure = true;
             blockState.IsTypeGuardFunction = false;
-            blockState.IsInLoopContext = false;
-            blockState.LoopDepth = 0;
-            blockState.IsInSwitchContext = false;
             blockState.HasReturnedOnAllPaths = false;
             blockState.ExpectedClosureType = null;
             blockState.IsAsyncReturnScope = true;

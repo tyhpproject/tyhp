@@ -3081,6 +3081,7 @@ namespace Tyhp.TyhpLang.Emitter
                         : null,
                     this._context.ExpressionTypes,
                     typedVar,
+                    this.ReportExpressionTreeUnsupported,
                     out var expressionRewritten)
                 && expressionRewritten is IBase2Ast expressionAst)
             {
@@ -3089,6 +3090,22 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             return typedVar;
+        }
+
+        /// <summary>
+        /// An <c>Expression</c> target whose <c>fn</c> body the tree rewrite cannot express. The
+        /// <c>fn</c> would otherwise reach PHP as a plain <c>\Closure</c>.
+        /// </summary>
+        private void ReportExpressionTreeUnsupported(IBase2Ast node, string construct)
+        {
+            var fileName = node.OwningFile?.Identifier
+                ?? this._context.CurrentSourceFile?.Identifier
+                ?? "";
+            this._context.Diagnostics.AddErrorFromAst(
+                MessageCode.EmitterExpressionTreeUnsupportedNode,
+                node,
+                fileName,
+                construct);
         }
 
         /// <summary>
@@ -3176,7 +3193,7 @@ namespace Tyhp.TyhpLang.Emitter
                     continue;
                 }
 
-                // fn => \Tyhp\PropertyPath::from(...)
+                // fn => \Tyhp\PropertyPath::on(...)->…->backedBy(fn)
                 if (PropertyPathEmissionHelper.TryRewriteInlineFn(
                         arg.Expression,
                         param.DeclaredType,
@@ -3194,7 +3211,7 @@ namespace Tyhp.TyhpLang.Emitter
                     continue;
                 }
 
-                // fn => \Tyhp\Expression::lambda(...)
+                // fn => \Tyhp\Expr::param(...)->…->backedBy(fn)
                 if (ExpressionTreeEmissionHelper.TryRewriteInlineFn(
                         arg.Expression,
                         param.DeclaredType,
@@ -3205,6 +3222,7 @@ namespace Tyhp.TyhpLang.Emitter
                             : null,
                         this._context.ExpressionTypes,
                         arg,
+                        this.ReportExpressionTreeUnsupported,
                         out var expressionRewritten)
                     && expressionRewritten is IBase2Ast expressionAst)
                 {

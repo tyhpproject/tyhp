@@ -22,26 +22,38 @@ import PhpParser;
 
 // #include "shared/Tyhpdef.rules.g4#1"
 
+// Chunks stay in source order: inline HTML, `<?=` echoes, `<?tyhp` blocks, and
+// the `?>` that separates them. A `<?php` block is its own chunk so the visitor
+// can reject it without treating the PHP as Tyhp.
 tyhpSrcFile
-    : (startingInlineOutput+=tyhpInlineOutput)*
-        (firstCodeBlock=tyhpCodeBlock
-        (T_CLOSE_TAG codeBlocks+=tyhpCodeBlock)* T_CLOSE_TAG?)?
-        (endingInlineOutput+=tyhpInlineOutput)* EOF                             #tyhpFile
+    : chunks+=tyhpFileChunk* EOF                                                #tyhpFile
     ;
 
-// Tagless entry points (Story 06, Phase 7). Used instead of tyhpSrcFile /
-// tyhpdefSrcFile when `source.tagless` is enabled. The open tag is optional and
-// there is no inline output / closing tag, so a `?>` cannot appear (it is not
-// in this rule's follow set). The leading action sets the parser language mode
-// so that semantic predicates behave identically whether or not a literal open
-// tag is present.
+tyhpFileChunk
+    : Output=tyhpInlineOutput                                                   #tyhpFileChunkInline
+    | Rejected=tyhpRejectedPhpBlock                                             #tyhpFileChunkPhp
+    | Code=tyhpCodeBlock                                                        #tyhpFileChunkCode
+    | T_CLOSE_TAG                                                               #tyhpFileChunkClose
+    ;
+
+// A `<?php … ?>` block in a `.tyhp` file. The interior is not a Tyhp statement
+// list, so it is not type-checked or emitted. Non-greedy so the block ends at
+// the next `?>`.
+tyhpRejectedPhpBlock
+    : T_OPEN_TAG .*? T_CLOSE_TAG
+    ;
+
+// Tagless `.tyhp` entry. Used instead of tyhpSrcFile when `source.tagless` is
+// enabled, except for a file whose first six characters are `<?tyhp`, which
+// uses tyhpSrcFile. This rule has no open tag and no inline output / closing
+// tag, so a `?>` cannot appear (it is not in this rule's follow set). The
+// leading action sets the parser language mode.
 tyhpTaglessSrcFile
 locals [_languageMode:string = ""]
     : {
         this._languageMode = "tyhp";
         _localctx._languageMode = this._languageMode;
       }
-        T_TYHP_OPEN_TAG?
         StatementList=topStatementListWithRequiredFinalTerminal?
         EOF                                                                     #tyhpTaglessFile
     ;
@@ -65,15 +77,31 @@ locals [_languageMode:string = ""]
     ;
 
 tyhpInlineOutput
-    // all items here are the same as echoing out the content
+    // HTML, or `<?= … ?>` parsed as an echo. phpEchoBlock sets the parser mode to
+    // "php" before the predicate runs, so the echo is accepted in a `.tyhp` file.
     : InlineHtml=T_INLINE_HTML
     | PhpEchoBlock=phpEchoBlock {this.isLanguageMode("php")}?
-    | PhpBlock=phpBlock (T_CLOSE_TAG | T_SYM_SEMICOLON)+
     ;
 
+// Inside a statement (function body, control-flow block). `.php` keeps the
+// imported rule's `?> … <?php` form via the override below. `.tyhp` reopens
+// with `<?tyhp`. A `<?php` block is parsed only so it can be rejected.
 tyhpInlineOutputStatement
-    : T_CLOSE_TAG InlineOutput+=tyhpInlineOutput+ T_TYHP_OPEN_TAG
+    : T_CLOSE_TAG InlineOutput+=tyhpInlineOutput* (
+          T_TYHP_OPEN_TAG
+        | Rejected=tyhpRejectedPhpBlock After+=tyhpInlineOutput* T_TYHP_OPEN_TAG?
+      )
+        { this._languageMode = "tyhp"; }
+    ;
+
+// ! OVERRIDE
+// A `.tyhp` file reopens with `<?tyhp`. A `<?php` block there is rejected.
+// A `.php` file keeps `?> … <?php`.
+phpInlineOutputStatement
+    : {this.isLanguageMode("tyhp")}? Reopen=tyhpInlineOutputStatement
+    | T_CLOSE_TAG InlineOutput+=phpInlineOutput+ T_OPEN_TAG
     | T_INLINE_HTML
+    | phpInlineOutputStatementGrammarAddon
     ;
 
 //#endregion Tyhp Root

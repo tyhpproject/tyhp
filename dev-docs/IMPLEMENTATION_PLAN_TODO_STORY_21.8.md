@@ -7,7 +7,7 @@
 
 > **Branch:** TBD
 > **Generated:** 2026-09-02
-> **Last design lock:** 2026-09-02 — Layer 3 audit plus post-audit decisions (checker items in this story; remaining ceilings in `FOUND_BUGS.md` / `DESIGN_OPEN_QUESTIONS.md` / `DECISIONS.md` / Story 31 Idea 14).
+> **Last design lock:** 2026-09-02 — Layer 3 audit plus post-audit decisions (checker items in this story; remaining ceilings in `FOUND_BUGS.md` / `DESIGN_OPEN_QUESTIONS.md` / `DECISIONS.md` / Story 43).
 > **Status:** **Design locked.** Implement after 21.7.
 > **Prerequisites:** Story 21 (overlay load order: stubs then hand), Story 21.6 (Core Closure/Fiber/Generator/ArrayAccess already overlaid).
 > **Consumers:** every Tyhp program that calls PHP builtins through `tyhpdef/php`; Story 30 (docs).
@@ -97,7 +97,7 @@ PHP `DateTime + DateInterval` is a TypeError. Comparison (`==`, `<=>`, …) is n
 - Native `operator []` on ArrayAccess, `operator count()` on Countable — `DECISIONS.md`.
 - FOUND_BUGS #4 (intersection `A&B` → `never`) and #7 (TYHP4330 double-report) — stay in FOUND_BUGS, not this story.
 - Runtime-flag and format-string ceilings — `DESIGN_OPEN_QUESTIONS.md`.
-- Runtime `is Closure<…>` / `is Fiber<…>` — Story 31 Idea 14.
+- Runtime `is Closure<…>` / `is Fiber<…>` — Story 43.
 - Fiber `suspend` as `TResume` — rejected in 21.6 (`DECISIONS.md`).
 
 ---
@@ -532,7 +532,7 @@ Decided 2026-09-02. Overlay work in this story still **hides** the L1 harvest bu
 | `sprintf` / `sscanf` / `pack` / `unpack` format strings | Revisit later. `DESIGN_OPEN_QUESTIONS.md`. |
 | `compact` / `extract` / `settype` / `get_defined_vars` | Leave as harvested. Manual review list in `DESIGN_OPEN_QUESTIONS.md`. |
 | User `implements Traversable` | Done in 21.6. |
-| Runtime `is Closure<…>` / `is Fiber<…>` | Story 31 Idea 14. |
+| Runtime `is Closure<…>` / `is Fiber<…>` | Story 43. |
 
 ---
 
@@ -550,7 +550,7 @@ Decided 2026-09-02. Overlay work in this story still **hides** the L1 harvest bu
 | FOUND_BUGS #6 / #8 / #10 | Closed by Phase 6 checker companions |
 | FOUND_BUGS #4 / #7 / #11 | Stay in FOUND_BUGS; not this story |
 | 30 | User-facing DateTime operator docs |
-| 31 Idea 14 | Runtime `is Closure<…>` / `is Fiber<…>` — leave there |
+| 43 | Runtime `is Closure<…>` / `is Fiber<…>` — leave there |
 
 ---
 

@@ -263,13 +263,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 CheckerHelpers.ReportError(context, state, method, MessageCode.CheckerMemberModifierConflict, "abstract", "final");
             }
 
-            if (state.EnclosingObject?.ObjectKind == PhpTypeDeclType.Enum
-                && string.Equals(method.Identifier, "__construct", StringComparison.OrdinalIgnoreCase))
-            {
-                CheckerHelpers.ReportError(
-                    diagnostics, state, method, MessageCode.CheckerEnumMethodNotAllowed, "__construct");
-            }
-
+            CheckEnumMagicMethod(method, state, context, diagnostics);
             CheckEnumEngineMethodRedeclare(method, state, diagnostics);
 
             // `__construct`/`__destruct` can never declare a return type and PHP forbids `return <value>;`
@@ -477,6 +471,67 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 CheckerHelpers.ReportError(
                     diagnostics, state, method, MessageCode.CheckerMissingReturnStatement, method.Identifier);
+            }
+        }
+
+        /// <summary>
+        /// Magic methods PHP rejects on an enum at every version (TYHP4024).
+        /// </summary>
+        private static readonly HashSet<string> EnumForbiddenMagicMethods = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "__construct", "__destruct", "__clone", "__get", "__set", "__isset", "__unset",
+            "__toString", "__serialize", "__unserialize", "__sleep", "__wakeup", "__set_state",
+        };
+
+        /// <summary>
+        /// TYHP4024 for a magic method PHP never allows on an enum; TYHP4379 for
+        /// <c>__debugInfo</c>, which PHP allows on enums from 8.6. Harvested <c>.tyhpdef</c>
+        /// shells describe an existing API and are skipped, except for <c>__construct</c>.
+        /// </summary>
+        private static void CheckEnumMagicMethod(
+            PhpMethodDeclAst method,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (state.EnclosingObject is not { ObjectKind: PhpTypeDeclType.Enum } enumSymbol
+                || method.Identifier is not { Length: > 0 } name)
+            {
+                return;
+            }
+
+            if (string.Equals(name, "__construct", StringComparison.OrdinalIgnoreCase))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics, state, method, MessageCode.CheckerEnumMethodNotAllowed, name);
+                return;
+            }
+
+            if (string.Equals(method.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase)
+                || (enumSymbol.DeclaringAstNode is PhpObjectTypeDeclAst enumDecl
+                    && string.Equals(enumDecl.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            if (EnumForbiddenMagicMethods.Contains(name))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics, state, method, MessageCode.CheckerEnumMethodNotAllowed, name);
+                return;
+            }
+
+            var targetVersion = TargetPhpVersionText(context);
+            if (string.Equals(name, "__debugInfo", StringComparison.OrdinalIgnoreCase)
+                && !IsPhpVersionAtLeast(targetVersion, 8, 6))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    method,
+                    MessageCode.CheckerEnumDebugInfoRequiresPhp86,
+                    enumSymbol.Name,
+                    targetVersion);
             }
         }
 

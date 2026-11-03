@@ -1,7 +1,5 @@
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
-using Tyhp.TyhpLang.Binder;
-using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Enum;
 using Tyhp.TyhpLang.Parser;
 
@@ -10,13 +8,18 @@ namespace Tyhp.TyhpLang.Checker
     /// <summary>Resolves interpolation-hole expressions in template-string types to checked types.</summary>
     internal static class TemplateStringHoleResolver
     {
+        /// <summary>
+        /// <paramref name="resolveName"/> resolves a type name written in a hole (<c>${string}</c>,
+        /// <c>${ApiMethod}</c>, <c>${\App\ApiMethod}</c>, <c>${Wrap&lt;'a'&gt;}</c>).
+        /// <paramref name="reportUnsupported"/> receives each hole (or union member) that is not a
+        /// type name, a string or number literal, or a union of them; it resolves as unresolved.
+        /// </summary>
         public static ICheckedType Resolve(
             IExpression holeExpr,
-            IBase2Ast contextNode,
             CheckerState state,
-            SymbolTree symbolTree,
-            GlobalScope globalScope,
-            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType)
+            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType,
+            Func<PhpNameAst, ICheckedType> resolveName,
+            Action<IExpression> reportUnsupported)
         {
             if (holeExpr is ITypeExpression typeExpr)
             {
@@ -25,7 +28,7 @@ namespace Tyhp.TyhpLang.Checker
 
             if (holeExpr is PhpNameAst name)
             {
-                return ResolveIdentifier(name.ValueString ?? string.Empty, contextNode, state, symbolTree, globalScope, resolveType);
+                return resolveName(name);
             }
 
             if (holeExpr is TokenValueAst token)
@@ -42,22 +45,18 @@ namespace Tyhp.TyhpLang.Checker
                     }
                 }
 
-                if (token.ValueInt64 is TyhpParser.T_STRING or TyhpParser.T_STRING_VARNAME)
+                if (token.ValueInt64 is TyhpParser.T_STRING or TyhpParser.T_STRING_VARNAME
+                    && token is Base2Ast tokenNode
+                    && !string.IsNullOrEmpty(token.ValueString))
                 {
-                    return ResolveIdentifier(
-                        token.ValueString ?? string.Empty,
-                        contextNode,
-                        state,
-                        symbolTree,
-                        globalScope,
-                        resolveType);
+                    return resolveName(PhpNameAst.CreateFromContext(token.ValueString, tokenNode));
                 }
             }
 
             if (holeExpr is PhpBinaryOpAst binary && binary.Operator?.ValueInt64 == TyhpParser.T_SYM_PIPE)
             {
-                var left = Resolve(binary.Left!, contextNode, state, symbolTree, globalScope, resolveType);
-                var right = Resolve(binary.Right!, contextNode, state, symbolTree, globalScope, resolveType);
+                var left = Resolve(binary.Left!, state, resolveType, resolveName, reportUnsupported);
+                var right = Resolve(binary.Right!, state, resolveType, resolveName, reportUnsupported);
                 return CheckedTypes.UnionTypes([left, right]);
             }
 
@@ -69,24 +68,47 @@ namespace Tyhp.TyhpLang.Checker
                     new SimpleCheckedType(new Binder.Symbols.BuiltInTypeSymbol("string")));
             }
 
+            if (TryResolveNumericLiteral(holeExpr, out var numeric))
+            {
+                return numeric;
+            }
+
+            reportUnsupported(holeExpr);
             return CheckedTypes.Unresolved;
         }
 
-        private static ICheckedType ResolveIdentifier(
-            string identifier,
-            IBase2Ast contextNode,
-            CheckerState state,
-            SymbolTree symbolTree,
-            GlobalScope globalScope,
-            Func<ITypeExpression, CheckerState, bool, bool, ICheckedType> resolveType)
+        /// <summary><c>${1|2}</c>, <c>${-3}</c>, <c>${2.5}</c>: int and float literal hole types.</summary>
+        private static bool TryResolveNumericLiteral(IExpression holeExpr, out ICheckedType type)
         {
-            if (string.IsNullOrEmpty(identifier))
+            var negate = false;
+            if (holeExpr is PhpUnaryOpAst { Operand: PhpScalarAst operand } unary
+                && unary.Operator?.ValueString is "-" or "+")
             {
-                return CheckedTypes.Unresolved;
+                negate = unary.Operator.ValueString == "-";
+                holeExpr = operand;
             }
 
-            var builtinAst = PhpBuiltinTypeAst.Create(identifier, contextNode);
-            return resolveType(builtinAst, state, false, true);
+            switch (holeExpr)
+            {
+                case PhpScalarAst { ScalarType: PhpScalarType.Float, ValueDecimal: decimal value }:
+                    type = new LiteralCheckedType(
+                        negate ? -value : value,
+                        new SimpleCheckedType(new Binder.Symbols.BuiltInTypeSymbol("float")));
+                    return true;
+                case PhpScalarAst
+                {
+                    ScalarType: PhpScalarType.Integer or PhpScalarType.OctalNumber
+                        or PhpScalarType.HexNumber or PhpScalarType.BinaryNumber,
+                    ValueInt64: long number,
+                }:
+                    type = new LiteralCheckedType(
+                        negate ? -number : number,
+                        new SimpleCheckedType(new Binder.Symbols.BuiltInTypeSymbol("int")));
+                    return true;
+                default:
+                    type = CheckedTypes.Unresolved;
+                    return false;
+            }
         }
     }
 }

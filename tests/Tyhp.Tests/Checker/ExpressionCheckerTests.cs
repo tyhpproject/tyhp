@@ -316,7 +316,7 @@ public class ExpressionCheckerTests
     }
 
     [Fact]
-    public void Check_NullSafeMethodCall_Reports4322()
+    public void Check_NullSafeMethodCall_NoError()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
@@ -329,8 +329,8 @@ public class ExpressionCheckerTests
             }
             """);
 
-        diagnostics.Errors.Should().Contain(
-            d => d.Code == MessageCode.CheckerExpressionUnsupportedNode);
+        diagnostics.Errors.Should().BeEmpty(
+            string.Join(", ", diagnostics.Errors.Select(e => $"{e.Code}: {e.Message}")));
     }
 
     [Fact]

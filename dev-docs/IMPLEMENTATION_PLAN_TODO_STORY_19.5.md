@@ -684,7 +684,7 @@ Align final names with VS Code `package.json` `contributes.configuration` **and*
 | **10 / 13** | `build` / `lint` / `init` CLI actions used by tasks/run configs and workspace UX |
 | **22** | Web playground — separate; not these plugins (and currently deferred) |
 | **30** | Docs polish + future Marketplace publish decision (VS Code and/or JetBrains) |
-| **31 Idea 10** | Plugin TextMate island highlighting consumes Story 19.5 clients |
+| **39** | Plugin TextMate island highlighting consumes Story 19.5 clients |
 
 ---
 

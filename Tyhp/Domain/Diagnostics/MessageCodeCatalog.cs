@@ -156,8 +156,10 @@ namespace Tyhp.Domain.Diagnostics
         /// Splits an authored long-form body into prose paragraphs and fenced code blocks.
         /// </summary>
         /// <remarks>
-        /// Prose paragraphs collapse soft line wraps to a single line. Fenced <c>```</c> blocks keep
-        /// their internal newlines so docs and <c>tyhp --explain</c> can render examples faithfully.
+        /// Prose paragraphs collapse soft line wraps to a single line, except that each Markdown list
+        /// item (<c>- </c>, <c>* </c>, <c>+ </c>, <c>1. </c>) starts its own line. Fenced <c>```</c>
+        /// blocks keep their internal newlines so docs and <c>tyhp --explain</c> can render examples
+        /// faithfully.
         /// </remarks>
         public static IEnumerable<LongFormBlock> SplitLongFormBlocks(string text)
         {
@@ -178,11 +180,23 @@ namespace Tyhp.Domain.Diagnostics
                     return;
                 }
 
-                var paragraph = string.Join(' ', prose.Select(l => l.Trim()).Where(l => l.Length > 0));
-                prose.Clear();
-                if (paragraph.Length > 0)
+                var paragraphLines = new List<string>();
+                foreach (var line in prose.Select(l => l.Trim()).Where(l => l.Length > 0))
                 {
-                    blocks.Add(new LongFormBlock(paragraph, isCodeFence: false));
+                    if (paragraphLines.Count == 0 || IsListItemLine(line))
+                    {
+                        paragraphLines.Add(line);
+                    }
+                    else
+                    {
+                        paragraphLines[^1] += " " + line;
+                    }
+                }
+
+                prose.Clear();
+                if (paragraphLines.Count > 0)
+                {
+                    blocks.Add(new LongFormBlock(string.Join('\n', paragraphLines), isCodeFence: false));
                 }
             }
 
@@ -221,6 +235,9 @@ namespace Tyhp.Domain.Diagnostics
             FlushProse();
             return blocks;
         }
+
+        private static bool IsListItemLine(string trimmedLine) =>
+            System.Text.RegularExpressions.Regex.IsMatch(trimmedLine, @"^(?:[-*+]|\d+\.)\s");
 
         /// <summary>
         /// Localized display name for a category (via <c>CLI_ExplainCategory*</c> keys).

@@ -12,6 +12,7 @@ namespace App;
 
 class User
 {
+    #[\Tyhp\PropertyType('App\\User\\NameType')]
     public string $name = "";
     public function getId(): int
     {

@@ -91,6 +91,7 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             rewritten = ExpressionTreeEmissionHelper.CallInstance(chain, "backedBy", [closure], context);
+            ExpressionTreeEmissionHelper.RecordRewrittenInlineFn(rewritten, closure);
             return true;
         }
 
@@ -241,6 +242,11 @@ namespace Tyhp.TyhpLang.Emitter
             ICheckedType type,
             Func<string?, string?, string> formatClassFqn)
         {
+            if (SpellFullCheckedType(type, formatClassFqn) is { } full)
+            {
+                return full;
+            }
+
             var isNullable = false;
             while (type is NullableCheckedType nullable)
             {
@@ -268,15 +274,182 @@ namespace Tyhp.TyhpLang.Emitter
                 declared = nullable.InnerType;
             }
 
-            if (CheckerHelpers.TryGetObjectDeclaration(declared) is { } obj)
+            if (CheckerHelpers.TryGetObjectDeclaration(declared) is { IsStruct: false } obj)
             {
                 var fqn = formatClassFqn(obj.FullyQualifiedName, obj.Name);
-                return EmittedPhpExprAst.Create(fqn + "::class", context);
+                var full = SpellFullCheckedType(declared, formatClassFqn);
+                if (full is null || full == fqn.TrimStart('\\'))
+                {
+                    return EmittedPhpExprAst.Create(fqn + "::class", context);
+                }
+
+                return PhpScalarAst.CreateStringFromContext(context, full);
             }
 
             return PhpScalarAst.CreateStringFromContext(
                 context,
                 SpellCheckedTypeAsRuntimeString(type, formatClassFqn));
+        }
+
+        /// <summary>
+        /// <c>\Tyhp\Type::parse()</c> spelling of <paramref name="type"/> with type arguments,
+        /// unions and structs kept (<c>array&lt;App\Post&gt;</c>, <c>?App\Table&lt;App\Blog&gt;</c>,
+        /// <c>struct App\Address</c>). Null when a part cannot be spelled at runtime
+        /// (type parameters, literals, callable shapes, <c>static</c>).
+        /// </summary>
+        internal static string? SpellFullCheckedType(
+            ICheckedType type,
+            Func<string?, string?, string> formatClassFqn)
+        {
+            switch (type)
+            {
+                case NullableCheckedType nullable:
+                    var inner = SpellFullCheckedType(nullable.InnerType, formatClassFqn);
+                    if (inner is null || inner is "mixed" or "null" || inner.StartsWith('?'))
+                    {
+                        return inner;
+                    }
+
+                    if (inner.Contains('|'))
+                    {
+                        return inner + "|null";
+                    }
+
+                    return inner.Contains('&') ? "(" + inner + ")|null" : "?" + inner;
+                case GenericCheckedType generic:
+                    var head = SpellFullCheckedType(generic.BaseType, formatClassFqn);
+                    if (head is null || head.Contains('|') || head.Contains('&') || head.StartsWith('?'))
+                    {
+                        return null;
+                    }
+
+                    var args = new List<string>();
+                    foreach (var arg in generic.TypeArguments)
+                    {
+                        if (SpellFullCheckedType(arg, formatClassFqn) is not { } argText)
+                        {
+                            return null;
+                        }
+
+                        args.Add(argText);
+                    }
+
+                    return args.Count == 0 || args.All(a => a == "mixed")
+                        ? head
+                        : head + "<" + string.Join(", ", args) + ">";
+                case UnionCheckedType union:
+                    return JoinFullCheckedTypes(union.Members, "|", formatClassFqn);
+                case IntersectionCheckedType { IsOverloadSet: false } intersection:
+                    return JoinFullCheckedTypes(intersection.Members, "&", formatClassFqn);
+                case LiteralCheckedType { Value: null }:
+                    return "null";
+                case SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol }:
+                    return null;
+                case SimpleCheckedType { ResolvedSymbol: ObjectDeclarationSymbol obj }:
+                    var fqn = formatClassFqn(obj.FullyQualifiedName, obj.Name).TrimStart('\\');
+                    return obj.IsStruct ? "struct " + fqn : fqn;
+                case SimpleCheckedType { ResolvedSymbol: BuiltInTypeSymbol builtin }:
+                    var name = builtin.Name.Trim().TrimStart('\\').ToLowerInvariant();
+                    return RuntimeParsableBuiltins.Contains(name) ? name : null;
+                case SpecialCheckedType special when special.IsMixed:
+                    return "mixed";
+                case SpecialCheckedType special when special.IsVoid:
+                    return "void";
+                case SpecialCheckedType special when special.IsNever:
+                    return "never";
+                default:
+                    return null;
+            }
+        }
+
+        private static readonly HashSet<string> RuntimeParsableBuiltins = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "string", "int", "float", "bool", "true", "false", "null", "void", "mixed", "never",
+            "object", "callable", "iterable", "resource", "array", "decimal",
+        };
+
+        private static string? JoinFullCheckedTypes(
+            IReadOnlyList<ICheckedType> members,
+            string separator,
+            Func<string?, string?, string> formatClassFqn)
+        {
+            var parts = new List<string>();
+            var hasNull = false;
+            foreach (var member in members)
+            {
+                if (SpellFullCheckedType(member, formatClassFqn) is not { } text)
+                {
+                    return null;
+                }
+
+                if (separator == "|")
+                {
+                    foreach (var part in SplitUnionSpelling(text))
+                    {
+                        if (part == "null")
+                        {
+                            hasNull = true;
+                        }
+                        else if (!parts.Contains(part))
+                        {
+                            parts.Add(member is IntersectionCheckedType ? "(" + part + ")" : part);
+                        }
+                    }
+
+                    continue;
+                }
+
+                parts.Add(text);
+            }
+
+            if (parts.Contains("mixed"))
+            {
+                return separator == "|" ? "mixed" : null;
+            }
+
+            if (parts.Count == 0)
+            {
+                return hasNull ? "null" : null;
+            }
+
+            var joined = string.Join(separator, parts);
+            if (!hasNull)
+            {
+                return joined;
+            }
+
+            return parts.Count == 1 && !parts[0].StartsWith('(') ? "?" + joined : joined + "|null";
+        }
+
+        private static IEnumerable<string> SplitUnionSpelling(string text)
+        {
+            if (text.StartsWith('?'))
+            {
+                return [text[1..], "null"];
+            }
+
+            var parts = new List<string>();
+            var depth = 0;
+            var start = 0;
+            for (var i = 0; i < text.Length; i++)
+            {
+                switch (text[i])
+                {
+                    case '<' or '(':
+                        depth++;
+                        break;
+                    case '>' or ')':
+                        depth--;
+                        break;
+                    case '|' when depth == 0:
+                        parts.Add(text[start..i]);
+                        start = i + 1;
+                        break;
+                }
+            }
+
+            parts.Add(text[start..]);
+            return parts;
         }
 
         internal static string SpellTypeAsRuntimeString(
@@ -424,6 +597,13 @@ namespace Tyhp.TyhpLang.Emitter
             Func<string?, string?, string> formatClassFqn,
             Base2Ast context)
         {
+            var authoredParamType = closure.Parameters?.GetAllNotNull().FirstOrDefault()?.Type;
+            if ((PropertyTypeStampSupport.TrySpellLossy(sourceTypeExpr)
+                    ?? PropertyTypeStampSupport.TrySpellLossy(authoredParamType)) is { } detailed)
+            {
+                return PhpScalarAst.CreateStringFromContext(context, detailed);
+            }
+
             // Prefer PropertyPath<callable(T): R> type args when still present (pre-erasure).
             if (sourceTypeExpr is not null
                 && resolveTypeSymbol(sourceTypeExpr) is ObjectDeclarationSymbol fromGeneric)
@@ -433,7 +613,6 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             // Authored fn parameter annotation.
-            var authoredParamType = closure.Parameters?.GetAllNotNull().FirstOrDefault()?.Type;
             if (authoredParamType is not null
                 && resolveTypeSymbol(authoredParamType) is ObjectDeclarationSymbol fromParam)
             {

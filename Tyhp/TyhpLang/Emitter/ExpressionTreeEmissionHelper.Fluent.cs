@@ -51,13 +51,27 @@ namespace Tyhp.TyhpLang.Emitter
             public List<IExpression> Args { get; init; } = [];
         }
 
+        /// <summary>
+        /// The first node a rewrite could not express. Children are rewritten before their parent
+        /// gives up, so this is the innermost failing node.
+        /// </summary>
+        private sealed class RewriteFailure
+        {
+            public IBase2Ast? Node { get; set; }
+
+            public string? Kind { get; set; }
+        }
+
         private sealed class RewriteScope
         {
+            public RewriteFailure Failure { get; init; } = new();
             public Dictionary<string, ParameterInfo> Parameters { get; init; } = new(StringComparer.OrdinalIgnoreCase);
             public bool IncludeIndex { get; init; }
             public ParameterInfo? Primary { get; init; }
             public IReadOnlyDictionary<IBase2Ast, ICheckedType>? ExpressionTypes { get; init; }
             public Func<string?, string?, string> FormatClassFqn { get; init; } = null!;
+            public Func<ITypeExpression?, Binder.Symbols.Interfaces.IBaseSymbol?> ResolveTypeSymbol { get; init; } = null!;
+            public Func<PhpInlineFunctionAst, InferredClosureSignature?>? GetInferredSignature { get; init; }
             public Base2Ast Context { get; init; } = null!;
         }
 
@@ -66,10 +80,14 @@ namespace Tyhp.TyhpLang.Emitter
             Dictionary<string, ParameterInfo> parameters,
             IReadOnlyDictionary<IBase2Ast, Tyhp.TyhpLang.Checker.ICheckedType>? expressionTypes,
             Func<string?, string?, string> formatClassFqn,
-            Base2Ast context)
+            Func<ITypeExpression?, Binder.Symbols.Interfaces.IBaseSymbol?> resolveTypeSymbol,
+            Func<PhpInlineFunctionAst, InferredClosureSignature?>? getInferredSignature,
+            Base2Ast context,
+            RewriteFailure failure)
         {
             var scope = new RewriteScope
             {
+                Failure = failure,
                 Parameters = parameters,
                 IncludeIndex = parameters.Count > 1 || parameters.Values.Any(p => p.Index != 0),
                 Primary = parameters.Count == 0
@@ -77,14 +95,27 @@ namespace Tyhp.TyhpLang.Emitter
                     : parameters.Values.OrderBy(p => p.Index).First(),
                 ExpressionTypes = expressionTypes,
                 FormatClassFqn = formatClassFqn,
+                ResolveTypeSymbol = resolveTypeSymbol,
+                GetInferredSignature = getInferredSignature,
                 Context = context,
             };
-            return AsChain(Rewrite(body, scope), scope);
+            return Rewrite(body, scope);
         }
 
-        private static FluentChain? AsChain(FluentChain? chain, RewriteScope scope)
+        /// <summary>
+        /// Records <paramref name="node"/> as the construct the tree cannot express (unless an inner
+        /// node was already recorded) and returns null. <paramref name="kind"/> names the construct
+        /// when the node's own description would be misleading.
+        /// </summary>
+        private static FluentChain? Fail(IBase2Ast? node, RewriteScope scope, string? kind = null)
         {
-            return chain;
+            if (scope.Failure.Node is null && node is not null)
+            {
+                scope.Failure.Node = node;
+                scope.Failure.Kind = kind;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -113,6 +144,11 @@ namespace Tyhp.TyhpLang.Emitter
             if (expression is null)
             {
                 return null;
+            }
+
+            if (expression is IBase2Ast node && RewrittenInlineFns.TryGetValue(node, out var sourceFn))
+            {
+                return RewriteNestedLambda(sourceFn, scope);
             }
 
             switch (expression)
@@ -145,10 +181,150 @@ namespace Tyhp.TyhpLang.Emitter
                 case PhpDereferenceableAst deref:
                     return RewriteDerefFluent(deref, scope);
 
+                case PhpInlineFunctionAst nested:
+                    return RewriteNestedLambda(nested, scope);
+
+                case PhpArrayAst array:
+                    return RewriteArrayLiteral(array.ArrayPairs, scope);
+
+                case PhpArrayPairListAst pairList:
+                    return RewriteArrayLiteral(pairList, scope);
+
                 default:
-                    return null;
+                    return Fail(expression, scope);
             }
         }
+
+        /// <summary>
+        /// A nested arrow fn becomes <c>Expr::closure([param builders], body, returnType)</c>.
+        /// Its parameters shadow same-named outer parameters inside its body; outer parameters
+        /// and captures stay visible.
+        /// </summary>
+        private static FluentChain? RewriteNestedLambda(PhpInlineFunctionAst nested, RewriteScope scope)
+        {
+            if (!nested.IsArrowFunction)
+            {
+                return Fail(nested, scope, "closure");
+            }
+
+            if (!PropertyPathSupport.TryGetArrowBodyExpression(nested, out var body))
+            {
+                return Fail(nested, scope, "statement body");
+            }
+
+            var own = BuildParameterInfos(
+                nested,
+                scope.GetInferredSignature?.Invoke(nested),
+                scope.ResolveTypeSymbol,
+                scope.FormatClassFqn,
+                scope.Context);
+            var ordered = own.Values.OrderBy(p => p.Index).ToList();
+            var parameters = new Dictionary<string, ParameterInfo>(scope.Parameters, StringComparer.OrdinalIgnoreCase);
+            foreach (var info in ordered)
+            {
+                parameters[info.Name] = info;
+            }
+
+            var nestedScope = new RewriteScope
+            {
+                Failure = scope.Failure,
+                Parameters = parameters,
+                IncludeIndex = scope.IncludeIndex || ordered.Count > 1,
+                Primary = ordered.Count > 0 ? ordered[0] : scope.Primary,
+                ExpressionTypes = scope.ExpressionTypes,
+                FormatClassFqn = scope.FormatClassFqn,
+                ResolveTypeSymbol = scope.ResolveTypeSymbol,
+                GetInferredSignature = scope.GetInferredSignature,
+                Context = scope.Context,
+            };
+
+            var bodyChain = Rewrite(body, nestedScope);
+            if (bodyChain is null)
+            {
+                return null;
+            }
+
+            var args = new List<IExpression>
+            {
+                BuildArray(ordered.Select(p => RenderChain(ParamChain(p, nestedScope), scope.Context)), scope.Context),
+                RenderChain(bodyChain, scope.Context),
+            };
+            var returnType = LookupTypeSpelling(body, scope.ExpressionTypes, scope.FormatClassFqn);
+            if (returnType != "mixed")
+            {
+                args.Add(PhpScalarAst.CreateStringFromContext(scope.Context, returnType));
+            }
+
+            return StaticExprCall("closure", args, scope);
+        }
+
+        /// <summary>
+        /// An array literal becomes <c>Expr::arrayOf([values], [keys])</c>. Keys are a list when
+        /// every item is keyed, otherwise a position-to-key map for the keyed items only.
+        /// </summary>
+        private static FluentChain? RewriteArrayLiteral(PhpArrayPairListAst? pairs, RewriteScope scope)
+        {
+            var values = new List<IExpression>();
+            var keys = new List<(int Position, IExpression Key)>();
+            foreach (var pair in pairs?.GetAllTrimmingTrailingSkippedSlots() ?? [])
+            {
+                if (pair.IsExpansion || pair.IsSkippedSlot || pair.ValueExpr is null)
+                {
+                    return Fail(pair, scope, pair.IsExpansion ? "array spread" : "array literal");
+                }
+
+                if (pair.KeyExpr is { } keyExpr)
+                {
+                    var key = RewriteCore(keyExpr, scope);
+                    if (key is null)
+                    {
+                        return null;
+                    }
+
+                    keys.Add((values.Count, RenderOperand(key, scope)));
+                }
+
+                var value = RewriteCore(pair.ValueExpr, scope);
+                if (value is null)
+                {
+                    return null;
+                }
+
+                values.Add(RenderOperand(value, scope));
+            }
+
+            var args = new List<IExpression> { BuildArray(values, scope.Context) };
+            if (keys.Count == values.Count && keys.Count > 0)
+            {
+                args.Add(BuildArray(keys.Select(k => k.Key), scope.Context));
+            }
+            else if (keys.Count > 0)
+            {
+                var keyPairs = keys
+                    .Select(k => PhpArrayPairAst.CreateFromContext(
+                        keyExpr: EmittedPhpExprAst.Create(k.Position.ToString(), scope.Context),
+                        valueExpr: k.Key,
+                        isExpansion: false,
+                        scope.Context))
+                    .ToList();
+                args.Add(PhpArrayAst.CreateFromContext(
+                    PhpArrayPairListAst.Create(keyPairs, scope.Context),
+                    isShortSyntax: true,
+                    scope.Context));
+            }
+
+            return StaticExprCall("arrayOf", args, scope);
+        }
+
+        private static FluentChain StaticExprCall(string method, IReadOnlyList<IExpression> args, RewriteScope scope)
+            => new()
+            {
+                Base = PropertyPathEmissionHelper.BuildLambdaCall(
+                    @"\Tyhp\Expr",
+                    method,
+                    args.Select(a => PhpArgumentAst.CreateFromContext(a, scope.Context)).ToList(),
+                    scope.Context),
+            };
 
         private static object? RewriteVariableFluent(PhpVariableAst variable, RewriteScope scope)
         {
@@ -218,9 +394,8 @@ namespace Tyhp.TyhpLang.Emitter
                 return null;
             }
 
-            var whenTrue = ternary.TrueExpr is null
-                ? (object)EmittedPhpExprAst.Create("null", scope.Context)
-                : RewriteCore(ternary.TrueExpr, scope);
+            // `$a ?: $b` yields `$a` when it is truthy, so the true branch is the condition again.
+            var whenTrue = RewriteCore(ternary.TrueExpr ?? ternary.Condition, scope);
             var whenFalse = RewriteCore(ternary.FalseExpr, scope);
             if (whenTrue is null || whenFalse is null)
             {
@@ -254,10 +429,15 @@ namespace Tyhp.TyhpLang.Emitter
                 || IsInstanceOfText(opText))
             {
                 var operand = Rewrite(binary.Left, scope);
-                var target = SpellInstanceofTarget(binary.Right, scope.FormatClassFqn, scope.Context);
-                if (operand is null || target is null)
+                if (operand is null)
                 {
                     return null;
+                }
+
+                var target = SpellInstanceofTarget(binary.Right, scope.FormatClassFqn, scope.Context);
+                if (target is null)
+                {
+                    return Fail(binary.Right ?? (IBase2Ast)binary, scope, "instanceof");
                 }
 
                 return ApplyTip(operand, "is", [target], scope);
@@ -272,7 +452,7 @@ namespace Tyhp.TyhpLang.Emitter
             var method = BinaryMethod(opText);
             if (method is null)
             {
-                return null;
+                return Fail(binary, scope, opText.Length > 0 ? opText : null);
             }
 
             if (method is "and" or "or" or "xor")
@@ -339,12 +519,13 @@ namespace Tyhp.TyhpLang.Emitter
                     scope);
             }
 
+            var opText = NormalizeUnaryOperator(unary.Operator?.ValueString ?? "", token);
             if (!unary.IsPrefix)
             {
-                return null;
+                return Fail(unary, scope, opText);
             }
 
-            var method = NormalizeUnaryOperator(unary.Operator?.ValueString ?? "", token) switch
+            var method = opText switch
             {
                 "!" => "not",
                 "-" => "neg",
@@ -354,7 +535,7 @@ namespace Tyhp.TyhpLang.Emitter
             };
             if (method is null)
             {
-                return null;
+                return Fail(unary, scope, opText);
             }
 
             return ApplyTip(operand, method, [], scope);
@@ -362,6 +543,16 @@ namespace Tyhp.TyhpLang.Emitter
 
         private static FluentChain? RewriteNewFluent(PhpNewAst newExpr, RewriteScope scope)
         {
+            if (newExpr.AnonymousClass is not null)
+            {
+                return Fail(newExpr, scope, "anonymous class");
+            }
+
+            if (ExpressionTreeSupport.IsDynamicClassReference(newExpr.ClassName))
+            {
+                return Fail(newExpr.ClassName, scope, "dynamic class");
+            }
+
             var args = RewriteCallArgs(newExpr.Arguments, scope);
             if (args is null)
             {
@@ -388,18 +579,23 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (deref.Suffix is PhpCallAst call)
             {
+                if (CheckerHelpers.IsFirstClassCallableArgumentList(call.Arguments))
+                {
+                    return Fail(call, scope, "first-class callable");
+                }
+
                 if (deref.Base is PhpDereferenceableAst inner
                     && inner.Suffix is PhpInstanceMemberAccessAst member)
                 {
-                    if (IsNullSafeAccessor(member.Accessor))
+                    var methodName = GetMemberName(member.MemberName);
+                    if (methodName is null)
                     {
-                        return null;
+                        return Fail(member, scope, "dynamic member");
                     }
 
                     var objectChain = Rewrite(inner.Base as IExpression, scope);
-                    var methodName = GetMemberName(member.MemberName);
                     var args = RewriteCallArgs(call.Arguments, scope);
-                    if (objectChain is null || methodName is null || args is null)
+                    if (objectChain is null || args is null)
                     {
                         return null;
                     }
@@ -408,12 +604,18 @@ namespace Tyhp.TyhpLang.Emitter
                         objectChain,
                         "call",
                         [PhpScalarAst.CreateStringFromContext(scope.Context, methodName), ..args],
-                        scope);
+                        scope,
+                        nullSafe: IsNullSafeAccessor(member.Accessor));
                 }
 
                 if (deref.Base is PhpDereferenceableAst staticInner
                     && TryGetStaticMemberName(staticInner.Suffix, out var staticMethodName))
                 {
+                    if (ExpressionTreeSupport.IsDynamicClassReference(staticInner.Base))
+                    {
+                        return Fail(staticInner.Base, scope, "dynamic class");
+                    }
+
                     var args = RewriteCallArgs(call.Arguments, scope);
                     if (staticMethodName is null || args is null)
                     {
@@ -436,14 +638,19 @@ namespace Tyhp.TyhpLang.Emitter
                     return chain;
                 }
 
-                return null;
+                return Fail(deref, scope, "function call");
             }
 
             if (deref.Suffix is PhpInstanceMemberAccessAst property)
             {
-                var objectNode = RewriteCore(deref.Base as IExpression, scope);
                 var propertyName = GetMemberName(property.MemberName);
-                if (objectNode is null || propertyName is null)
+                if (propertyName is null)
+                {
+                    return Fail(property, scope, "dynamic member");
+                }
+
+                var objectNode = RewriteCore(deref.Base as IExpression, scope);
+                if (objectNode is null)
                 {
                     return null;
                 }
@@ -473,6 +680,11 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (deref.Suffix is PhpArrayAccessAst arrayAccess)
             {
+                if (arrayAccess.IndexExpression is null)
+                {
+                    return Fail(arrayAccess, scope, "array append");
+                }
+
                 var arrayChain = Rewrite(deref.Base as IExpression, scope);
                 var index = RewriteCore(arrayAccess.IndexExpression, scope);
                 if (arrayChain is null || index is null)
@@ -485,7 +697,10 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (deref.Suffix is PhpStaticMemberAccessAst or PhpClassConstantAccessAst)
             {
-                return deref;
+                // Read when the chain is built, so the class must be written by name.
+                return ExpressionTreeSupport.IsDynamicClassReference(deref.Base)
+                    ? Fail(deref.Base, scope, "dynamic class")
+                    : deref;
             }
 
             if (deref.Suffix is null)
@@ -493,7 +708,7 @@ namespace Tyhp.TyhpLang.Emitter
                 return RewriteCore(deref.Base as IExpression, scope);
             }
 
-            return null;
+            return Fail(deref, scope, "dereference");
         }
 
         private static List<IExpression>? RewriteCallArgs(PhpArgumentListAst? arguments, RewriteScope scope)
@@ -511,6 +726,18 @@ namespace Tyhp.TyhpLang.Emitter
                     continue;
                 }
 
+                if (arg.IsVariadic)
+                {
+                    Fail(arg, scope, "argument unpacking");
+                    return null;
+                }
+
+                if (arg.Name is not null)
+                {
+                    Fail(arg, scope, "named argument");
+                    return null;
+                }
+
                 var rewritten = RewriteCore(arg.Expression, scope);
                 if (rewritten is null)
                 {
@@ -526,16 +753,23 @@ namespace Tyhp.TyhpLang.Emitter
         /// <summary>
         /// Tip operators (<c>eq</c>, <c>not</c>, <c>plus</c>, …) apply to the current value.
         /// A chain that already contains <c>and</c>/<c>or</c>/<c>then</c> is wrapped in
-        /// <c>expr</c> so the operator applies to that whole result.
+        /// <c>expr</c> so the operator applies to that whole result. With
+        /// <paramref name="nullSafe"/>, <c>nullSafe()</c> is placed directly before the tip.
         /// </summary>
         private static FluentChain ApplyTip(
             FluentChain chain,
             string method,
             IReadOnlyList<IExpression> args,
-            RewriteScope scope)
+            RewriteScope scope,
+            bool nullSafe = false)
         {
             if (!chain.HasCombiner)
             {
+                if (nullSafe)
+                {
+                    chain.Steps.Add(new CallStep { Method = "nullSafe" });
+                }
+
                 chain.Steps.Add(new CallStep { Method = method, Args = [..args] });
                 return chain;
             }
@@ -551,6 +785,11 @@ namespace Tyhp.TyhpLang.Emitter
                 Method = "expr",
                 Args = [RenderChain(chain, scope.Context)],
             });
+            if (nullSafe)
+            {
+                host.Steps.Add(new CallStep { Method = "nullSafe" });
+            }
+
             host.Steps.Add(new CallStep { Method = method, Args = [..args] });
             host.HasCombiner = CombinerMethods.Contains(method);
             return host;

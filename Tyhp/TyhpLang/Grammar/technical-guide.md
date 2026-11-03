@@ -220,7 +220,7 @@ Both lexers include `shared/PhpLexer.body.g4` (all of its modes) and `shared/Tyh
   `implements`, which means the word itself is being used as a name there)
 - Tyhp-only: `internal` (hard keyword in `_languageMode == "tyhp"` only — not PHP, not tyhpdef; identifier uses go through `nameTokenValueGrammarAddon` / `tyhpSemiReserved`), `with`, `using`, `is`, `typeof`, `nameof`, `variable_exists`, `:=`
 
-**`ST_TYHP_TAGLESS`** — used when `source.tagless` is enabled and the file starts with a literal open tag. `ConfigureTagless` lives on `TyhpLexer.GrammarMethods.cs` and is emitted onto `TyhpdefLexer` by `compile_grammar_emit_partials.py` (class rename only). `.tyhpdef` tagless files call it on `TyhpdefLexer` with language mode `"tyhpdef"`. The mode consumes optional `<?tyhp` (`TyhpLexer` only) or `<?tyhpdef` (both lexers), then switches to `ST_IN_SCRIPTING`. No path back to inline HTML; closing `?>` is rejected by the tagless **parser** entry rules (they omit `T_CLOSE_TAG`). If there is no open tag, ConfigureTagless starts directly in `ST_IN_SCRIPTING` so line/column tracking stays correct.
+**`ST_TYHP_TAGLESS`** — used when `source.tagless` is enabled and the file starts with a literal open tag. `ConfigureTagless` lives on `TyhpLexer.GrammarMethods.cs` and is emitted onto `TyhpdefLexer` by `compile_grammar_emit_partials.py` (class rename only). `.tyhpdef` tagless files call it on `TyhpdefLexer` with language mode `"tyhpdef"`. The mode consumes optional `<?tyhp` (`TyhpLexer` only) or `<?tyhpdef` (both lexers), then switches to `ST_IN_SCRIPTING`. `tyhpTaglessSrcFile` does not match `T_TYHP_OPEN_TAG`, so a tagless `.tyhp` parse does not accept that token. `tyhpdefTaglessSrcFile` still matches optional `T_TYHPDEF_OPEN_TAG`. No path back to inline HTML; closing `?>` is rejected by the tagless **parser** entry rules (they omit `T_CLOSE_TAG`). If there is no open tag, ConfigureTagless starts directly in `ST_IN_SCRIPTING` so line/column tracking stays correct. A `.tyhp` file in a tagless project whose first six characters are `<?tyhp` never reaches this mode: `TaglessEntryPoint` routes it to the tagged lexer start and `tyhpSrcFile`, which is how a template is written (`<?tyhp?>` opens an empty first section through `closeTagAhead()`).
 
 Tyhp-only keyword rules (`internal`, `with`, `using`, `typeof`, `nameof`, `variable_exists`, `:=`, and the `<?tyhp` open tags) are written in `TyhpLexer.g4` and are not included by `TyhpdefLexer`.
 
@@ -239,8 +239,8 @@ Actions called from `.g4` (`prepareLess`, `doPreparedLess`, `streamLA`, `closeTa
 | Rule | Parser that walks the file | Use |
 |------|----------------------------|-----|
 | `phpSrcFile` | `TyhpParser` (imported from `PhpParser`) | `.php` |
-| `tyhpSrcFile` | `TyhpParser` | Tagged `.tyhp` (`<?tyhp` … optional close tags / inline output) |
-| `tyhpTaglessSrcFile` | `TyhpParser` | Tagless `.tyhp`; optional `T_TYHP_OPEN_TAG`; no inline HTML / close tag. Leading action sets parser `_languageMode = "tyhp"` |
+| `tyhpSrcFile` | `TyhpParser` | Tagged `.tyhp`. A sequence of inline HTML, `<?=` echoes, `<?tyhp` blocks, and `?>`, in source order. A `<?php` block is a chunk the visitor rejects (TYHP2005). `<?=` stays an echo. |
+| `tyhpTaglessSrcFile` | `TyhpParser` | Tagless `.tyhp`; no open tag, no inline HTML / close tag. A `.tyhp` file whose first six characters are `<?tyhp` uses `tyhpSrcFile` instead (`TaglessEntryPoint`). Leading action sets parser `_languageMode = "tyhp"` |
 | `tyhpdefSrcFile` | `TyhpdefParser` | Tagged `.tyhpdef` |
 | `tyhpdefTaglessSrcFile` | `TyhpdefParser` | Tagless `.tyhpdef`; optional `T_TYHPDEF_OPEN_TAG`. Leading action sets parser `_languageMode = "tyhp"` |
 | `tyhpdefBlock` | reached from `tyhpdefSrcFile` | Sets parser `_languageMode = "tyhp"` after `T_TYHPDEF_OPEN_TAG` |
@@ -673,7 +673,7 @@ Generics reuse comparison tokens. Several overrides exist specifically because s
 5. **Rename `#labels` without updating visitors** — silent wrong AST or missing overrides.
 6. **Leave an addon as ε** — use `T_NO_GRAMMAR_ADDON_0000` / `noGrammarAddon` pattern for unused stubs.
 7. **Assume parser `_languageMode` is `"tyhpdef"` inside a tyhpdef file** — `tyhpdefBlock` and `tyhpdefTaglessSrcFile` assign `"tyhp"`. Lexer `_languageMode` on `<?tyhpdef` is `"tyhpdef"`. `GetCurrentLanguageMode` returns `"tyhpdef"` for a `TyhpdefParser` block or tagless-file context. Tyhpdef-only keyword gating belongs on the lexer.
-8. **Tagless + `?>`** — closing tags are not in the tagless entry follow set; also rejected via lexer `closeTagHandler` when `_taglessMode` is set (see lexer partial / Story 06 comments in the `.g4`).
+8. **Tagless + `?>`** — closing tags are not in the tagless entry follow set; also rejected via lexer `closeTagHandler` when `_taglessMode` is set. A template in a tagless project starts with `<?tyhp` as the first six characters, which selects `tyhpSrcFile`, where `?>` is allowed.
 9. **Alternative order** — left-recursive expression rules and addon placement matter; a Tyhp alternative lower in the rule may never win. Validate with real parse tests, not only “the tokens are accepted.”
 10. **Tyhpdef hooked properties vs PHP `hookedProperty`** — tyhpdef must stay on `tyhpdefHookedProperty` / `tyhpdefPropertyHook` (semicolon bodies only; optional `?? expr` before `{`). Reusing `hookedProperty` would accept brace and `=>` bodies in `.tyhpdef`.
 

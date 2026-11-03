@@ -133,6 +133,11 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
             // is published in tagless mode, its files omit the open tag and forbid the closing tag,
             // so they must be lexed/parsed via the dedicated tagless start mode + entry rules.
             var taglessEnabled = tagless && mode != ParseMode.Php;
+            if (mode == ParseMode.Tyhp)
+            {
+                // In a tagless project a `.tyhp` file that starts with `<?tyhp` is a tagged file.
+                taglessEnabled = TaglessEntryPoint.UsesTaglessEntryPoint(tagless, content);
+            }
             var taglessLanguageMode = mode switch
             {
                 ParseMode.Tyhpdef => "tyhpdef",

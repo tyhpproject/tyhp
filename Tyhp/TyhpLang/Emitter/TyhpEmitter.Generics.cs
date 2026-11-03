@@ -128,7 +128,7 @@ namespace Tyhp.TyhpLang.Emitter
                 provider,
                 EmitType.FunctionStatement,
                 [
-                    "$this->tyhpBootTraits();",
+                    this.GenericBagBootStatement(),
                     "if ($this->__tyhpGeneric->needsInit()) {",
                     $"    self::{GeneratedNames.GenericInitHook}({nulls});",
                     "}",

@@ -67,7 +67,7 @@ namespace Tyhp.TyhpLang.Checker
         /// True when <paramref name="source"/> can reach <paramref name="target"/> via a matching
         /// <c>operator convert</c> that emit rewrites at call / return / <c>new</c> sites
         /// (convert-to instance <c>__to{T}()</c> or convert-from static <c>__from</c>).
-        /// Does <em>not</em> implement Story 31 Idea 2 <c>*Convertible</c> acceptance — only the
+        /// Does <em>not</em> implement Story 32 <c>*Convertible</c> acceptance — only the
         /// declared convert operator forms AliasConverter already rewrites.
         /// </summary>
         public static bool IsAssignableViaOperatorConvert(

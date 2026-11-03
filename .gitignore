@@ -35,9 +35,13 @@ tyhp-build-state.json
 .release-in-progress
 .tyhp.csproj.release.*
 
-# Local-only (keep on disk, do not ship)
-.cursor/
-# Sibling-checkout paths for Story 27.3 (machine-local; already covered by .cursor/).
+# Local-only (keep on disk, do not ship), except the shared changelog rule
+.cursor/*
+!.cursor/rules/
+.cursor/rules/*
+!.cursor/rules/changelog.mdc
+*/**/.cursor/
+# Sibling-checkout paths for Story 27.3 (machine-local; already covered by .cursor/rules/*).
 # Do not `git add -f` .cursor/rules/sibling-repos.mdc.
 .cursor/rules/sibling-repos.mdc
 sponsorship/

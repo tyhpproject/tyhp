@@ -1242,6 +1242,56 @@ namespace Tyhp.TyhpLang.Checker.Rules
         }
 
         /// <summary>
+        /// True when a receiver of <paramref name="type"/> may hold <c>null</c>: <c>?T</c>,
+        /// <c>T|null</c>, or <c>null</c> itself. Unresolved and unnarrowed <c>mixed</c> are not
+        /// (TYHP4197 / TYHP4160 cover those).
+        /// </summary>
+        public static bool IsPossiblyNullReceiverType(ICheckedType type)
+        {
+            if (TypeComparer.IsUnresolvedType(type) || IsUnnarrowedMixed(type))
+            {
+                return false;
+            }
+
+            return type switch
+            {
+                NullableCheckedType => true,
+                LiteralCheckedType { Value: null } => true,
+                UnionCheckedType union => union.Members.Any(IsPossiblyNullReceiverType),
+                _ => IsBuiltInName(type, "null"),
+            };
+        }
+
+        /// <summary>
+        /// Reports TYHP4198 when the receiver of <paramref name="access"/> (<c>-&gt;name</c>,
+        /// <c>-&gt;m()</c>, <c>[…]</c>) may be <c>null</c>. Existence probes (<c>isset</c> /
+        /// <c>??</c> / <c>empty</c>) tolerate a null receiver for property and index reads, so
+        /// they skip unless <paramref name="evenInExistenceProbe"/> (method calls still throw).
+        /// </summary>
+        public static bool ReportPossiblyNullReceiver(
+            DiagnosticBag diagnostics,
+            CheckerState state,
+            IBase2Ast receiver,
+            ICheckedType type,
+            string access,
+            bool evenInExistenceProbe = false)
+        {
+            if ((state.IsExistenceProbeContext && !evenInExistenceProbe)
+                || !IsPossiblyNullReceiverType(type))
+            {
+                return false;
+            }
+
+            ReportError(
+                diagnostics, state, receiver, MessageCode.CheckerPossiblyNullReceiver, access, type.DisplayName);
+            return true;
+        }
+
+        public static bool IsNullSafeAccessor(TokenValueAst? accessor) =>
+            accessor?.ValueInt64 == Parser.TyhpParser.T_NULLSAFE_OBJECT_OPERATOR
+            || string.Equals(accessor?.ValueString, "?->", StringComparison.Ordinal);
+
+        /// <summary>
         /// True when an error-severity diagnostic already sits on <paramref name="node"/> or
         /// inside its source span (cascade suppression for Unresolved member access).
         /// </summary>
@@ -1329,20 +1379,37 @@ namespace Tyhp.TyhpLang.Checker.Rules
         /// Types PHP will stringify: scalars, and objects/interfaces that implement
         /// <c>\Stringable</c> or declare instance <c>__toString</c> (engine auto-implement).
         /// Unions are stringable when every member is. Nullable wrappers are not unwrapped —
-        /// <c>?T</c> is not stringable even when <c>T</c> is.
+        /// <c>?T</c> is not stringable even when <c>T</c> is; string conversion sites use
+        /// <see cref="IsStringConvertibleType"/>.
         /// </summary>
         public static bool IsStringableType(
             ICheckedType type,
             SymbolTree symbolTree,
-            GlobalScope globalScope)
+            GlobalScope globalScope) =>
+            IsStringableType(type, symbolTree, globalScope, depth: 0);
+
+        private static bool IsStringableType(
+            ICheckedType type,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            int depth)
         {
             if (type is UnionCheckedType union)
             {
                 return union.Members.Count > 0
-                    && union.Members.All(member => IsStringableType(member, symbolTree, globalScope));
+                    && union.Members.All(member => IsStringableType(member, symbolTree, globalScope, depth));
             }
 
-            if (IsScalarType(type) || IsBuiltInName(type, "string"))
+            // A constrained type parameter stringifies like its upper bound.
+            if (type is SimpleCheckedType
+                {
+                    ResolvedSymbol: GenericTypeParameterSymbol { ResolvedConstraint: { } constraint }
+                })
+            {
+                return depth < 16 && IsStringableType(constraint, symbolTree, globalScope, depth + 1);
+            }
+
+            if (IsScalarType(type) || IsBuiltInName(type, "string") || type is TemplateStringCheckedType)
             {
                 return true;
             }
@@ -1366,6 +1433,52 @@ namespace Tyhp.TyhpLang.Checker.Rules
         }
 
         /// <summary>
+        /// Whether <c>.</c> / <c>.=</c>, an interpolation hole, <c>echo</c>, or <c>print</c> can
+        /// convert a value of <paramref name="type"/> to string. PHP converts <c>null</c> to
+        /// <c>''</c>, so only the non-null part has to be <see cref="IsStringableType"/>.
+        /// </summary>
+        public static bool IsStringConvertibleType(
+            ICheckedType type,
+            SymbolTree symbolTree,
+            GlobalScope globalScope) =>
+            IsNullType(type) || IsStringableType(WithoutNull(type), symbolTree, globalScope);
+
+        /// <summary>
+        /// Reports TYHP4120 on <paramref name="node"/> when <paramref name="type"/> fails
+        /// <see cref="IsStringConvertibleType"/>. Every string conversion site reports through here.
+        /// </summary>
+        public static void CheckStringConversion(
+            IBase2Ast node,
+            ICheckedType type,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (!IsStringConvertibleType(type, context.SymbolTree, context.GlobalScope))
+            {
+                ReportError(diagnostics, state, node, MessageCode.CheckerConcatNonStringable, type.DisplayName);
+            }
+        }
+
+        /// <summary>
+        /// <paramref name="type"/> without its <c>null</c> part (<c>?T</c> → <c>T</c>,
+        /// <c>A|B|null</c> → <c>A|B</c>). A type that is only <c>null</c> is returned unchanged.
+        /// </summary>
+        public static ICheckedType WithoutNull(ICheckedType type) =>
+            type switch
+            {
+                NullableCheckedType nullable => WithoutNull(nullable.InnerType),
+                UnionCheckedType union when union.Members.Any(member => !IsNullType(member)) =>
+                    CheckedTypes.UnionTypes(
+                        union.Members.Where(member => !IsNullType(member)).Select(WithoutNull).ToList()),
+                _ => type,
+            };
+
+        /// <summary>The <c>null</c> type itself (literal or builtin spelling), not a nullable type.</summary>
+        public static bool IsNullType(ICheckedType type) =>
+            type is LiteralCheckedType { Value: null } || IsBuiltInName(type, "null");
+
+        /// <summary>
         /// Interpolation holes stringify like <c>echo</c> / concat. Literal chunks are skipped.
         /// </summary>
         public static void CheckEncapsListStringable(
@@ -1381,12 +1494,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     continue;
                 }
 
-                var holeType = context.ResolveExpressionType(hole, state);
-                if (!IsStringableType(holeType, context.SymbolTree, context.GlobalScope))
-                {
-                    ReportError(
-                        diagnostics, state, hole, MessageCode.CheckerConcatNonStringable, holeType.DisplayName);
-                }
+                CheckStringConversion(hole, context.ResolveExpressionType(hole, state), state, context, diagnostics);
             }
         }
 
@@ -1888,13 +1996,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return true;
             }
 
-            for (var scope = callSite; scope is not null; scope = scope.ParentScope)
+            if (GetOwningFileScope(callSite) is { } file
+                && (file.DeclaredExtensions.Contains(owner) || file.ImportedExtensions.Contains(owner)))
             {
-                if (scope is FileScope file
-                    && (file.DeclaredExtensions.Contains(owner) || file.ImportedExtensions.Contains(owner)))
-                {
-                    return true;
-                }
+                return true;
             }
 
             return globalScope.GloballyActivatedExtensions.Contains(owner);
@@ -1910,13 +2015,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return 0;
             }
 
-            for (var scope = callSite; scope is not null; scope = scope.ParentScope)
+            if (GetOwningFileScope(callSite) is { } file)
             {
-                if (scope is not FileScope file)
-                {
-                    continue;
-                }
-
                 if (file.DeclaredExtensions.Contains(owner))
                 {
                     return 300;
@@ -1949,13 +2049,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return true;
             }
 
-            for (var scope = callSite; scope is not null; scope = scope.ParentScope)
+            if (GetOwningFileScope(callSite) is { ExtensionUseHiddenMembers: { } hidden }
+                && hidden.Contains(methodName))
             {
-                if (scope is FileScope { ExtensionUseHiddenMembers: { } hidden }
-                    && hidden.Contains(methodName))
-                {
-                    return true;
-                }
+                return true;
             }
 
             return globalScope.ExtensionUseHiddenMembers is { } globalHidden

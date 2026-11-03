@@ -1,5 +1,6 @@
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
+using Tyhp.Domain.Services;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Resolution;
@@ -234,8 +235,55 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
-            // clone ... with on readonly requires the experimental opt-in for PHP < 8.5.
-            // new ... with always has a non-reflection anonymous-class strategy (no opt-in).
+            var targetVersion = TargetPhpVersionText(context);
+
+            // Subclass __clone() may reassign a readonly property from PHP 8.3
+            // (IS_PROP_REINITABLE). `new readonly class` is the same version, so a
+            // readonly class uses that wrapper for `new … with` on 8.3 and 8.4.
+            if (form == WithForm.New && !IsPhpVersionAtLeast(targetVersion, 8, 3))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    withExpr,
+                    MessageCode.CheckerReadonlyWithRequiresPhp83,
+                    propertyName,
+                    targetVersion);
+                return;
+            }
+
+            // A readonly class can only be extended by a readonly class, which cannot
+            // hold the override list (no static property, no mutable property). Native
+            // clone() on PHP 8.5 does not need that subclass.
+            if (form == WithForm.Clone
+                && (objectDecl.Visibility & MemberModifier.Readonly) != 0)
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    withExpr,
+                    MessageCode.CheckerReadonlyClassCloneWithRequiresPhp85,
+                    objectDecl.Name,
+                    targetVersion);
+                return;
+            }
+
+            // The same __clone() assignment is illegal on PHP 8.2 even when the
+            // experimental flag is on. Enabling the flag would still fatal.
+            if (form == WithForm.Clone && !IsPhpVersionAtLeast(targetVersion, 8, 3))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    withExpr,
+                    MessageCode.CheckerReadonlyWithRequiresPhp83,
+                    propertyName,
+                    targetVersion);
+                return;
+            }
+
+            // clone ... with on readonly requires the experimental opt-in for PHP 8.3–8.4.
+            // new ... with uses the anonymous-class __clone wrapper with no opt-in.
             if (form == WithForm.Clone
                 && !context.Options.ExperimentalReadonlyCloneWith)
             {
@@ -247,6 +295,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     propertyName);
             }
         }
+
+        private static string TargetPhpVersionText(CheckerRuleContext context)
+            => string.IsNullOrWhiteSpace(context.Options.PhpVersion)
+                ? CompilationOptions.DefaultPhpVersionWhenUnset
+                : context.Options.PhpVersion.Trim();
 
         private static bool IsPhpVersionAtLeast(string? version, int major, int minor)
         {

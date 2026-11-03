@@ -1256,12 +1256,21 @@ namespace Tyhp.TyhpLang.Checker
             || type is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol }
             || Rules.CheckerHelpers.IsBuiltInName(type, "int")
             || Rules.CheckerHelpers.IsBuiltInName(type, "string")
+            || IsStringSymbolNameType(type)
             || (type is UnionCheckedType union
                 && union.Members.All(m =>
                     m.Kind == CheckedTypeKind.Unresolved
                     || m is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol }
                     || Rules.CheckerHelpers.IsBuiltInName(m, "int")
-                    || Rules.CheckerHelpers.IsBuiltInName(m, "string")));
+                    || Rules.CheckerHelpers.IsBuiltInName(m, "string")
+                    || IsStringSymbolNameType(m)));
+
+        /// <summary>
+        /// Symbol-name types (<c>__PropertyName&lt;T&gt;</c>, <c>__ClassName&lt;T&gt;</c>, …) are strings,
+        /// so they are valid array keys. <c>__TyhpInternal&lt;T&gt;</c> wraps another type and is not one.
+        /// </summary>
+        private static bool IsStringSymbolNameType(ICheckedType type) =>
+            SymbolNameTypeHelper.IsSymbolNameType(type) && !SymbolNameTypeHelper.IsTyhpInternal(type);
 
         private static bool IsClassInterfaceOrStruct(ICheckedType type, SymbolTree symbolTree, GlobalScope globalScope) =>
             // In-scope / unbound type parameters are allowed here the same way

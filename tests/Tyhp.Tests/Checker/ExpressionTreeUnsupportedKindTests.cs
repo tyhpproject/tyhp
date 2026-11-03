@@ -20,8 +20,7 @@ public class ExpressionTreeUnsupportedKindTests
         """;
 
     [Theory]
-    [InlineData("[1, 2]", "array literal")]
-    [InlineData("[...[1]]", "array literal")]
+    [InlineData("[...[1]]", "array spread")]
     [InlineData("isset($u->nick)", "isset")]
     [InlineData("empty($u->nick)", "empty")]
     [InlineData("nameof(User::$age)", "nameof")]
@@ -58,7 +57,7 @@ public class ExpressionTreeUnsupportedKindTests
             """);
 
         result.Errors.Should().BeEmpty();
-        result.Php.Should().Contain("'nick', '?string'), '?string', 'bool')");
+        result.Php.Should().Contain("\\Tyhp\\Expr::param('u', \\User::class)->nick->is('?string')->backedBy(");
     }
 
     [Fact]

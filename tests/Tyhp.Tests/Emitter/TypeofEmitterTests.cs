@@ -103,9 +103,10 @@ public class TypeofEmitterTests
             function f(): void { $t = typeof(array<int>); }
             """);
 
-        php.Should().Contain(
-            "\\Tyhp\\Type::generic('array', new \\Tyhp\\NamedType('TValue', \\Tyhp\\Type::int()))");
-        php.Should().NotContain("NamedType('TKey'");
+        // `listOf` labels its sole argument `TValue`; `mapOf` would add a `TKey`.
+        php.Should().Contain("\\Tyhp\\Type::listOf(\\Tyhp\\Type::int())");
+        php.Should().NotContain("mapOf(");
+        php.Should().NotContain("'TKey'");
         php.Should().NotContain("typeof(");
     }
 
@@ -118,8 +119,8 @@ public class TypeofEmitterTests
             """);
 
         php.Should().Contain(
-            "\\Tyhp\\Type::generic('iterable', new \\Tyhp\\NamedType('TValue', \\Tyhp\\Type::string()))");
-        php.Should().NotContain("NamedType('TKey'");
+            "\\Tyhp\\Type::generic('iterable')->param('TValue', \\Tyhp\\Type::string())");
+        php.Should().NotContain("'TKey'");
         php.Should().NotContain("typeof(");
     }
 
@@ -131,9 +132,8 @@ public class TypeofEmitterTests
             function f(): void { $t = typeof(array<string, int>); }
             """);
 
-        php.Should().Contain(
-            "\\Tyhp\\Type::generic('array', new \\Tyhp\\NamedType('TKey', \\Tyhp\\Type::string()), "
-            + "new \\Tyhp\\NamedType('TValue', \\Tyhp\\Type::int()))");
+        // `mapOf(key, value)` labels its arguments `TKey` and `TValue`.
+        php.Should().Contain("\\Tyhp\\Type::mapOf(\\Tyhp\\Type::string(), \\Tyhp\\Type::int())");
         php.Should().NotContain("typeof(");
     }
 

@@ -772,7 +772,7 @@ These rows in `PHP_LANGUAGE_HOOKS.md` stay **Open** there (not scheduled in 21.1
 | `\JsonSerializable`, `\Serializable`, session handler interfaces | Stubs only; no new syntax | Skip |
 | SplPriorityQueue / DateTime operators / Closure alias bounds / Tuple index / WeakMap `$map[] =` / const-int overloads | Already assigned; overlays exist in tree | Story **21.8** (tick the hooks checklist there, do not duplicate here) |
 | `iterable` / `\Iterator` / `\IteratorAggregate` / `\WeakReference` “Partial” leftover | Feeds from 21.6 / 21.8 generics; not a missing syntax family | No new story unless a failing fixture appears |
-| Operator overloads / `*Convertible` / implicit convert | Already assigned | Story **09** / Story **31** Idea 2 |
+| Operator overloads / `*Convertible` / implicit convert | Already assigned | Story **09** / Story **32** |
 | `(decimal)` cast | Checker-gaps backlog, not a PHP engine hook | `CHECKER_GAPS.md` / later |
 
 ---

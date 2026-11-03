@@ -142,6 +142,12 @@ namespace Tyhp.TyhpLang.Checker.Rules
             ICheckedType parameterType,
             CheckerState callState)
         {
+            if (TryPickUnionClosureType(parameterType) is { } fromUnion)
+            {
+                callState.ExpectedClosureType = fromUnion;
+                return;
+            }
+
             if (CallableArityFacetBuilder.IsCallableFacetType(parameterType)
                 || TryAsCallable(parameterType) is not null)
             {
@@ -157,10 +163,50 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
         }
 
+        /// <summary>
+        /// For <c>Expression&lt;callable(T): R&gt;|(callable(T): R)</c> and similar unions, the
+        /// callable member types the inline fn; otherwise the first Expression / PropertyPath
+        /// member's callable shape does.
+        /// </summary>
+        internal static ICheckedType? TryPickUnionClosureType(ICheckedType type)
+        {
+            if (type is not UnionCheckedType union
+                || CallableArityFacetBuilder.IsCallableFacetType(type)
+                || !union.Members.Any(m => PropertyPathSupport.IsPropertyPathType(m) || ExpressionTreeSupport.IsExpressionType(m)))
+            {
+                return null;
+            }
+
+            foreach (var member in union.Members)
+            {
+                if (CallableArityFacetBuilder.IsCallableFacetType(member) || TryAsCallable(member) is not null)
+                {
+                    return member;
+                }
+            }
+
+            foreach (var member in union.Members)
+            {
+                if (PropertyPathSupport.TryMapToCallable(member, out var mapped)
+                    || ExpressionTreeSupport.TryMapToCallable(member, out mapped))
+                {
+                    return mapped;
+                }
+            }
+
+            return null;
+        }
+
         public static void SetExpectedClosureTypeFromAnnotation(
             ICheckedType variableType,
             CheckerState state)
         {
+            if (TryPickUnionClosureType(variableType) is { } fromUnion)
+            {
+                state.ExpectedClosureType = fromUnion;
+                return;
+            }
+
             if (CallableArityFacetBuilder.IsCallableFacetType(variableType)
                 || TryAsCallable(variableType) is not null)
             {

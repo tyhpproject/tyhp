@@ -1558,6 +1558,46 @@ public class TyhpCodeTyhpdefGeneratorTests
     }
 
     [Fact]
+    public void Library_TemplateStringAliases_KeepPatternWithQualifiedHoles()
+    {
+        using var project = new TestProjectBuilder();
+        project
+            .WithTyhpJson("""
+                {
+                    "type": "library",
+                    "include": ["**/*.tyhp"],
+                    "output": { "path": "build/" }
+                }
+                """)
+            .WithTyhpFile("routes.tyhp", """
+                <?tyhp
+                namespace Lib\Http;
+                type Method = 'GET'|'POST';
+                type Path = "/${string}";
+                type Route = "${Method} ${Path}";
+                type Tagged<T> = "<${T}>";
+                type Ids = "${'a'|'b'}+, ${int}";
+                type Page = "p${1|-2|2.5}";
+                """);
+
+        var result = project.RunBuild();
+        result.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", result.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
+
+        var def = File.ReadAllText(Path.Combine(project.ProjectDirectory, "package.tyhpdef"));
+        def.Should().Contain("type Path = \"/${string}\";");
+        def.Should().Contain("type Route = \"${\\Lib\\Http\\Method} ${\\Lib\\Http\\Path}\";");
+        def.Should().Contain("type Tagged<T> = \"<${T}>\";");
+        def.Should().Contain("type Ids = \"${'a'|'b'}+, ${int}\";");
+        def.Should().Contain("type Page = \"p${1|-2|2.5}\";");
+
+        var parsed = ParserTestHelper.ParseTyhpdefContent(def);
+        parsed.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", parsed.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}"))
+            + "\n--- generated ---\n" + def);
+    }
+
+    [Fact]
     public void Library_AuthoredGlobalUse_PersistsInPackageTyhpdef()
     {
         using var project = new TestProjectBuilder();
@@ -1719,7 +1759,11 @@ public class TyhpCodeTyhpdefGeneratorTests
             }
             """);
 
-        php.Should().Contain("DecimalCoercible()");
+        var libraryPhp = File.ReadAllText(Path.Combine(library.ProjectDirectory, "build", "Lib", "_functions.php"));
+        libraryPhp.Should().Contain("\\Tyhp\\Type::register('Lib\\\\DecimalCoercible', ");
+
+        php.Should().Contain("$t = \\Tyhp\\Type::ref('Lib\\\\DecimalCoercible');");
+        php.Should().Contain("\\Tyhp\\Type::is($x, \\Tyhp\\Type::ref('Lib\\\\DecimalCoercible'))");
         php.Should().NotContain("\\Tyhp\\Type::union(");
     }
 

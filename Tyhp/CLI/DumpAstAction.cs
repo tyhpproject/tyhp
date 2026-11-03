@@ -4,6 +4,7 @@ using Tyhp.Domain.Diagnostics;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Binder.BuiltIn;
 using Tyhp.TyhpLang.Enum;
+using Tyhp.TyhpLang.Parser;
 
 namespace Tyhp.CLI
 {
@@ -91,6 +92,10 @@ namespace Tyhp.CLI
 
             var mode = DebugCommandSupport.ResolveParseMode(filePath, this._modeOverride);
             var taglessEnabled = this._project.Tagless && mode != ParseMode.Php;
+            if (mode == ParseMode.Tyhp)
+            {
+                taglessEnabled = TaglessEntryPoint.UsesTaglessEntryPoint(this._project.Tagless, content);
+            }
 
             fileObject["parseMode"] = mode.ToString();
             fileObject["tagless"] = taglessEnabled;

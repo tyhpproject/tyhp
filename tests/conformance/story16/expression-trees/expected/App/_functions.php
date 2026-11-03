@@ -14,7 +14,7 @@ function take(\Tyhp\Expression $pred): void {}
 
 function demo(): void
 {
-    sortBy(new \Tyhp\Expression(body: new \Tyhp\Expression\BinaryExpression(new \Tyhp\Expression\PropertyAccessExpression(new \Tyhp\Expression\ParameterExpression('a', \App\User::class, 0), 'lastName', 'string'), '<=>', new \Tyhp\Expression\PropertyAccessExpression(new \Tyhp\Expression\ParameterExpression('b', \App\User::class, 1), 'lastName', 'string'), '-1|0|1'), parameters: [new \Tyhp\Expression\ParameterExpression('a', \App\User::class, 0), new \Tyhp\Expression\ParameterExpression('b', \App\User::class, 1)], callable: fn(\App\User $a, \App\User $b): int => $a->lastName <=> $b->lastName, returnType: 'int'));
-    take(new \Tyhp\Expression(body: new \Tyhp\Expression\InstanceofExpression(new \Tyhp\Expression\PropertyAccessExpression(new \Tyhp\Expression\ParameterExpression('u', \App\User::class, 0), 'value', 'mixed'), 'int', 'bool'), parameters: [new \Tyhp\Expression\ParameterExpression('u', \App\User::class, 0)], callable: fn(\App\User $u): bool => \Tyhp\Type::is($u->value, \Tyhp\Type::int()), returnType: 'bool'));
+    sortBy(\Tyhp\Expr::param('a', \App\User::class, 0)->lastName->spaceship(\Tyhp\Expr::param('b', \App\User::class, 1)->lastName)->backedBy(fn(\App\User $a, \App\User $b): int => $a->lastName <=> $b->lastName));
+    take(\Tyhp\Expr::param('u', \App\User::class)->prop('value')->is('int')->backedBy(fn(\App\User $u): bool => \Tyhp\Type::is($u->value, \Tyhp\Type::int())));
     $col = 'lastName';
 }

@@ -58,6 +58,7 @@ Several projects add types to PHP in different ways. The docs compare Tyhp with 
 - [PHPStan and Psalm](https://tyhplang.com/faq_general.html) (static analyzers)
 - [Hack / HHVM](https://tyhplang.com/other_hack.html)
 - [TypePHP (Swoole AOT)](https://tyhplang.com/other_typephp.html)
+- [TypePHP (Runtime Type Checker)](https://tyhplang.com/other_typephp_runtime.html)
 - [PXP](https://tyhplang.com/other_pxp.html)
 - [ReactPHP](https://tyhplang.com/other_reactphp.html) (async)
 - [TypeScript](https://tyhplang.com/other_typescript.html)

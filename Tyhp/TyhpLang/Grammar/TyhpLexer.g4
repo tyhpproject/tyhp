@@ -45,6 +45,8 @@ mode ST_CHECK_FOR_OTHER_OPEN_TAGS_LEXER_ADDON;
 // #include "shared/Tyhpdef.lexer-addons.g4#1"
     INITIAL_T_OPEN_TYHP_TAG_EOF:        'tyhp' WHITESPACE* EOF -> type(T_TYHP_OPEN_TAG), popMode;
     INITIAL_T_OPEN_TYHP_TAG:            'tyhp' WHITESPACE_SINGLE {this._languageMode = "tyhp";} -> type(T_TYHP_OPEN_TAG), mode(ST_IN_SCRIPTING);
+    // `<?tyhp?>`: an empty section whose close tag follows the open tag directly.
+    INITIAL_T_OPEN_TYHP_TAG_CLOSED:     'tyhp' {this.closeTagAhead()}? {this._languageMode = "tyhp";} -> type(T_TYHP_OPEN_TAG), mode(ST_IN_SCRIPTING);
 
 mode ST_IN_SCRIPTING;
 // #include "shared/Tyhpdef.lexer-addons.g4#2"
@@ -56,17 +58,17 @@ mode ST_IN_SCRIPTING;
     T_TYHP_USING_EQUAL              options{caseInsensitive=true;}:
                                         ':' '=' {this._languageMode == "tyhp"}? -> type(T_TYHP_USING_EQUAL);
 
-// Tagless source mode (Story 06, Phase 7).
+// Tagless source mode.
 // The lexer is started in this mode (in code, via ConfigureTagless) only when
 // `source.tagless` is enabled AND the file begins with a literal open tag. The mode
 // consumes that optional open tag and transitions into ST_IN_SCRIPTING. When there is
 // no open tag, ConfigureTagless instead starts the lexer directly in ST_IN_SCRIPTING so
 // the whole file is lexed natively (which keeps line/column tracking correct).
 // There is no transition back to inline output, so a closing `?>` is rejected by the
-// parser (its tagless entry rule omits T_CLOSE_TAG).
+// parser (its tagless entry rule omits T_CLOSE_TAG). A tagless project parses a `.tyhp`
+// file that starts with `<?tyhp` as a tagged file instead, which can close and reopen.
 mode ST_TYHP_TAGLESS;
     TAGLESS_LEADING_WHITESPACE:         WHITESPACE -> skip;
 // #include "shared/Tyhpdef.lexer-addons.g4#4"
     TAGLESS_TYHP_OPEN_TAG_EOF:          '<?tyhp' WHITESPACE* EOF {this._languageMode = "tyhp";} -> type(T_TYHP_OPEN_TAG), mode(ST_IN_SCRIPTING);
     TAGLESS_TYHP_OPEN_TAG:              '<?tyhp' WHITESPACE_SINGLE {this._languageMode = "tyhp";} -> type(T_TYHP_OPEN_TAG), mode(ST_IN_SCRIPTING);
-

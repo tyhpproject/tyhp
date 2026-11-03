@@ -738,7 +738,31 @@ namespace Tyhp.TyhpLang.Emitter
                 return EmitItem.Empty(inlineOutput, emitType, parent);
             }
 
-            return EmitItem.Line(inlineOutput, EmitType.OutsideItems, "?>" + inlineOutput.Content + "<?php", parent);
+            // OutsideItems sorts before every other emit type, so HTML would leave the
+            // statement sequence it was parsed in. A `.tyhp` file keeps the surrounding
+            // statement emit type and therefore source order. A `.php` file stays on
+            // OutsideItems.
+            var htmlEmitType = this.InlineHtmlFollowsStatementOrder()
+                ? emitType
+                : EmitType.OutsideItems;
+            return EmitItem.Line(inlineOutput, htmlEmitType, "?>" + inlineOutput.Content + "<?php", parent);
+        }
+
+        /// <summary>
+        /// Inline HTML in a <c>.tyhp</c> file is part of the statement sequence. Sorting it as
+        /// <see cref="EmitType.OutsideItems"/> would print every HTML fragment before the code
+        /// and echoes that belong between those fragments.
+        /// </summary>
+        private bool InlineHtmlFollowsStatementOrder()
+        {
+            var output = this._context.CurrentOutputFile;
+            var name = output?.SourceFileName;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = output?.SourceFileAst?.Identifier;
+            }
+
+            return name != null && name.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase);
         }
 
         private EmitItem EmitInlineOutputList(PhpInlineOutputListAst inlineList, EmitItem parent, EmitType emitType)

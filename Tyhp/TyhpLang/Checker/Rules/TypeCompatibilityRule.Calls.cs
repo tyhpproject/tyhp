@@ -173,13 +173,15 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 string? methodName;
                 bool staticOnly;
                 var allowInstanceForwarding = false;
+                var nullSafeCall = false;
                 ICheckedType receiverType;
                 switch (chain.Suffix)
                 {
                     case PhpInstanceMemberAccessAst instanceAccess:
                         methodName = GetExpressionText(instanceAccess.MemberName);
                         staticOnly = false;
-                        receiverType = context.ResolveExpressionType(chain.Base, state);
+                        nullSafeCall = CheckerHelpers.IsNullSafeAccessor(instanceAccess.Accessor);
+                        receiverType = context.ResolveChainReceiverType(chain.Base, state);
                         break;
                     case PhpStaticMemberAccessAst staticAccess:
                         methodName = GetExpressionText(staticAccess.Member);
@@ -236,14 +238,33 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         return;
                     }
 
-                    if (TryResolveMethod(
-                            receiverType,
-                            methodName,
-                            staticOnly,
+                    var methodResolved = TryResolveMethod(
+                        receiverType,
+                        methodName,
+                        staticOnly,
+                        state,
+                        context,
+                        out var method,
+                        allowInstanceForwarding);
+
+                    // An unresolved name that some extension declares may target a nullable type
+                    // this lookup missed, so only a resolved method proves the receiver must be non-null.
+                    if (!staticOnly
+                        && !nullSafeCall
+                        && (methodResolved
+                            ? !ExtensionReceiverAcceptsNull(method!, receiverType, state, context)
+                            : !context.SymbolTree.ExtensionMethodIndex.ContainsKey(methodName)))
+                    {
+                        CheckerHelpers.ReportPossiblyNullReceiver(
+                            diagnostics,
                             state,
-                            context,
-                            out var method,
-                            allowInstanceForwarding))
+                            chain.Base ?? deref,
+                            receiverType,
+                            "->" + methodName + "()",
+                            evenInExistenceProbe: true);
+                    }
+
+                    if (methodResolved)
                     {
                         // PHP invokes `__call` / `__callStatic` with the method name and the
                         // argument array. The source call's arguments are not parameters of
@@ -1131,7 +1152,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             DiagnosticBag diagnostics)
         {
             CheckNestedCalleeIfNeeded(deref.Base, state, context);
-            var receiverType = context.ResolveExpressionType(deref.Base as IExpression ?? deref, state);
+            var receiverType = context.ResolveChainReceiverType(deref.Base as IExpression ?? deref, state);
             if (CheckerHelpers.ReportMixedRequiresNarrowing(
                     diagnostics, state, deref.Base ?? deref, receiverType, evenInExistenceProbe: true))
             {
@@ -1148,6 +1169,12 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (memberName is null)
             {
                 return;
+            }
+
+            if (!CheckerHelpers.IsNullSafeAccessor(memberAccess.Accessor))
+            {
+                CheckerHelpers.ReportPossiblyNullReceiver(
+                    diagnostics, state, deref.Base ?? deref, receiverType, "->" + memberName);
             }
 
             if (TryResolveProperty(receiverType, memberName, context, out var property))
@@ -1241,7 +1268,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 context.CheckNode(indexNode, state);
             }
 
-            var receiverType = context.ResolveExpressionType(deref.Base as IExpression ?? deref, state);
+            var receiverType = context.ResolveChainReceiverType(deref.Base as IExpression ?? deref, state);
             if (CheckerHelpers.ReportMixedRequiresNarrowing(
                     diagnostics, state, deref.Base, receiverType))
             {
@@ -1257,6 +1284,14 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (CheckerHelpers.IsUnnarrowedMixed(receiverType))
             {
                 return;
+            }
+
+            // Indexing a null array/string only yields null; struct fields and `ArrayAccess`
+            // offsets are member contracts.
+            if (IsStructOrObjectIndexReceiver(receiverType))
+            {
+                CheckerHelpers.ReportPossiblyNullReceiver(
+                    diagnostics, state, deref.Base, receiverType, "[]");
             }
 
             if (!TryDescribeIndexableReceiver(
@@ -1407,6 +1442,40 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 CheckedTypes.Null.DisplayName,
                 offsetType.DisplayName);
         }
+
+        /// <summary>
+        /// An extension method receives its receiver as the <c>$this</c> parameter, so a target
+        /// that admits null (<c>extends ?string</c>, <c>extends null|string</c>) accepts a
+        /// possibly null receiver.
+        /// </summary>
+        private static bool ExtensionReceiverAcceptsNull(
+            ObjectMethodSymbol method,
+            ICheckedType receiverType,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            var receiver = method.Parameters.FirstOrDefault(parameter =>
+                string.Equals(parameter.Name, "$this", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(parameter.Name, "this", StringComparison.OrdinalIgnoreCase));
+            if (receiver?.DeclaredType is not { } declared)
+            {
+                return false;
+            }
+
+            var target = context.ResolveMemberDeclaredType(declared, receiverType, state, method);
+            return TypeComparer.IsUnresolvedType(target)
+                || CheckerHelpers.IsUnnarrowedMixed(target)
+                || CheckerHelpers.IsPossiblyNullReceiverType(target);
+        }
+
+        private static bool IsStructOrObjectIndexReceiver(ICheckedType receiverType) =>
+            receiverType switch
+            {
+                NullableCheckedType nullable => IsStructOrObjectIndexReceiver(nullable.InnerType),
+                UnionCheckedType union => union.Members.Any(IsStructOrObjectIndexReceiver),
+                StructCheckedType => true,
+                _ => CheckerHelpers.TryGetObjectDeclaration(receiverType) is not null,
+            };
 
         private static bool IsIntegerAliasStruct(ICheckedType receiverType)
         {
@@ -3221,7 +3290,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     && ContainsUnboundCalleeGeneric(memberResolved, calleeMethod.GenericParameters))
                 {
                     return PreserveShapeForUnboundCalleeGenerics(
-                        memberResolved, calleeMethod.GenericParameters, closureArgument);
+                        memberResolved,
+                        calleeMethod.GenericParameters,
+                        closureArgument,
+                        CollectVoidAdmittingGenerics(calleeMethod.GenericParameters, paramResolveState, context));
                 }
 
                 return memberResolved;
@@ -3243,7 +3315,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 if (ContainsUnboundCalleeGeneric(resolved, calleeFunction.GenericParameters))
                 {
                     return PreserveShapeForUnboundCalleeGenerics(
-                        resolved, calleeFunction.GenericParameters, closureArgument);
+                        resolved,
+                        calleeFunction.GenericParameters,
+                        closureArgument,
+                        CollectVoidAdmittingGenerics(calleeFunction.GenericParameters, paramResolveState, context));
                 }
 
                 return resolved;
@@ -3514,10 +3589,16 @@ namespace Tyhp.TyhpLang.Checker.Rules
         /// (<c>__ClassName&lt;T&gt;</c>, …) keep the brand with <c>T</c> defaulted to <c>object</c>
         /// so a non-name like <c>1</c> is still rejected.
         /// </summary>
+        /// <param name="voidAdmitting">
+        /// Unbound parameters whose constraint admits <c>void</c>
+        /// (<c>T extends __Awaited&lt;void|mixed&gt;</c>). Their covariant placeholder is
+        /// <c>void|mixed</c>, so <c>Promise&lt;void&gt;</c> reaches a <c>Promise&lt;T&gt;</c> slot.
+        /// </param>
         private static ICheckedType PreserveShapeForUnboundCalleeGenerics(
             ICheckedType type,
             IReadOnlyList<GenericTypeParameterSymbol> genericParameters,
-            bool closureArgument = false)
+            bool closureArgument = false,
+            IReadOnlySet<GenericTypeParameterSymbol>? voidAdmitting = null)
         {
             // Keep PropertyPath / Expression wrappers: collapsing those to mixed drops
             // Story 16 inline-fn conversion (`select<R>(Expression<callable(T): R>)` + `fn ($u) => …`).
@@ -3546,17 +3627,73 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return CheckedTypes.Mixed;
             }
 
-            return TrySubstituteUnboundShape(type, genericParameters, covariant: true, out var shaped)
+            return TrySubstituteUnboundShape(type, genericParameters, covariant: true, out var shaped, voidAdmitting)
                 ? shaped
                 : CheckedTypes.Mixed;
         }
+
+        /// <summary>
+        /// The callee type parameters whose declared bound has a <c>void</c> member
+        /// (<c>void|mixed</c>, <c>__Awaited&lt;void|mixed&gt;</c>), or null when none does.
+        /// </summary>
+        private static HashSet<GenericTypeParameterSymbol>? CollectVoidAdmittingGenerics(
+            IReadOnlyList<GenericTypeParameterSymbol> genericParameters,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            HashSet<GenericTypeParameterSymbol>? admitting = null;
+            CheckerState? constraintState = null;
+            foreach (var parameter in genericParameters)
+            {
+                if (parameter.Constraint is null)
+                {
+                    continue;
+                }
+
+                var bound = parameter.ResolvedConstraint;
+                if (bound is null)
+                {
+                    if (constraintState is null)
+                    {
+                        constraintState = state.Fork();
+                        constraintState.FunctionGenerics = genericParameters;
+                        constraintState.IsGenericConstraintPosition = true;
+                    }
+
+                    bound = context.ResolveTypeAnnotation(parameter.Constraint, constraintState);
+                }
+
+                if (BoundHasVoidMember(bound))
+                {
+                    (admitting ??= []).Add(parameter);
+                }
+            }
+
+            return admitting;
+        }
+
+        private static bool BoundHasVoidMember(ICheckedType bound) =>
+            bound switch
+            {
+                NullableCheckedType nullable => BoundHasVoidMember(nullable.InnerType),
+                UnionCheckedType union => union.Members.Any(BoundHasVoidMember),
+                _ => TypeComparer.IsVoidType(bound),
+            };
+
+        private static ICheckedType CovariantPlaceholder(
+            GenericTypeParameterSymbol parameter,
+            IReadOnlySet<GenericTypeParameterSymbol>? voidAdmitting) =>
+            voidAdmitting?.Contains(parameter) == true
+                ? CheckedTypes.UnionTypes(CheckedTypes.Void, CheckedTypes.Mixed)
+                : CheckedTypes.Mixed;
 
         /// <summary>
         /// Rebuilds <paramref name="type"/> with each unbound callee generic replaced by the weakest
         /// placeholder for its position, keeping the structural shape (<c>array&lt;TKey, TValue&gt;</c>
         /// becomes <c>array&lt;mixed, mixed&gt;</c>, <c>callable(TValue): TResult</c> becomes
         /// <c>callable(never): mixed</c>). A covariant position takes <c>mixed</c> (every argument
-        /// satisfies it); a callable parameter slot is contravariant and takes <c>never</c> (every
+        /// satisfies it), or <c>void|mixed</c> for a parameter in <paramref name="voidAdmitting"/>;
+        /// a callable parameter slot is contravariant and takes <c>never</c> (every
         /// callback parameter type satisfies it). A bare unbound parameter, alone or as a union arm,
         /// accepts anything. Returns false for shapes this substitution does not model
         /// (parameter packs, deferred utilities, object shapes); the caller then stays gradual.
@@ -3565,7 +3702,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             ICheckedType type,
             IReadOnlyList<GenericTypeParameterSymbol> genericParameters,
             bool covariant,
-            out ICheckedType result)
+            out ICheckedType result,
+            IReadOnlySet<GenericTypeParameterSymbol>? voidAdmitting = null)
         {
             result = type;
             if (!ContainsUnboundCalleeGeneric(type, genericParameters))
@@ -3575,18 +3713,21 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             switch (type)
             {
-                case SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol }:
-                    result = covariant ? CheckedTypes.Mixed : CheckedTypes.Never;
+                case SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol bare }:
+                    result = covariant ? CovariantPlaceholder(bare, voidAdmitting) : CheckedTypes.Never;
                     return true;
 
                 case NullableCheckedType nullable:
                 {
-                    if (!TrySubstituteUnboundShape(nullable.InnerType, genericParameters, covariant, out var inner))
+                    if (!TrySubstituteUnboundShape(nullable.InnerType, genericParameters, covariant, out var inner, voidAdmitting))
                     {
                         return false;
                     }
 
-                    result = TypeComparer.IsMixedType(inner) || TypeComparer.IsNeverType(inner)
+                    result = TypeComparer.IsMixedType(inner)
+                        || TypeComparer.IsNeverType(inner)
+                        || inner is UnionCheckedType { Members: var innerMembers }
+                            && innerMembers.Any(TypeComparer.IsMixedType)
                         ? inner
                         : new NullableCheckedType(inner);
                     return true;
@@ -3594,18 +3735,26 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
                 case UnionCheckedType union:
                 {
-                    if (union.Members.Any(m =>
-                            m is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol gp }
-                            && genericParameters.Contains(gp)))
+                    var bareArms = union.Members
+                        .OfType<SimpleCheckedType>()
+                        .Select(m => m.ResolvedSymbol)
+                        .OfType<GenericTypeParameterSymbol>()
+                        .Where(genericParameters.Contains)
+                        .ToList();
+                    if (bareArms.Count > 0)
                     {
-                        result = covariant ? CheckedTypes.Mixed : CheckedTypes.Never;
+                        result = covariant
+                            ? bareArms
+                                .Select(arm => CovariantPlaceholder(arm, voidAdmitting))
+                                .Aggregate(CheckedTypes.UnionTypes)
+                            : CheckedTypes.Never;
                         return true;
                     }
 
                     var members = new List<ICheckedType>(union.Members.Count);
                     foreach (var member in union.Members)
                     {
-                        if (!TrySubstituteUnboundShape(member, genericParameters, covariant, out var mapped))
+                        if (!TrySubstituteUnboundShape(member, genericParameters, covariant, out var mapped, voidAdmitting))
                         {
                             return false;
                         }
@@ -3622,7 +3771,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     var members = new List<ICheckedType>(intersection.Members.Count);
                     foreach (var member in intersection.Members)
                     {
-                        if (!TrySubstituteUnboundShape(member, genericParameters, covariant, out var mapped))
+                        if (!TrySubstituteUnboundShape(member, genericParameters, covariant, out var mapped, voidAdmitting))
                         {
                             return false;
                         }
@@ -3654,7 +3803,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     var args = new List<ICheckedType>(generic.TypeArguments.Count);
                     foreach (var argument in generic.TypeArguments)
                     {
-                        if (!TrySubstituteUnboundShape(argument, genericParameters, covariant, out var mapped))
+                        if (!TrySubstituteUnboundShape(argument, genericParameters, covariant, out var mapped, voidAdmitting))
                         {
                             return false;
                         }
@@ -3671,7 +3820,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     var parameters = new List<ICheckedType>(callable.ParameterTypes.Count);
                     foreach (var parameter in callable.ParameterTypes)
                     {
-                        if (!TrySubstituteUnboundShape(parameter, genericParameters, !covariant, out var mapped))
+                        if (!TrySubstituteUnboundShape(parameter, genericParameters, !covariant, out var mapped, voidAdmitting))
                         {
                             return false;
                         }
@@ -3679,7 +3828,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         parameters.Add(mapped);
                     }
 
-                    if (!TrySubstituteUnboundShape(callable.ReturnType, genericParameters, covariant, out var returnType))
+                    if (!TrySubstituteUnboundShape(callable.ReturnType, genericParameters, covariant, out var returnType, voidAdmitting))
                     {
                         return false;
                     }
@@ -3698,7 +3847,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     var mappedTypes = new Dictionary<string, ICheckedType>(structure.Properties.Count);
                     foreach (var pair in structure.Properties)
                     {
-                        if (!TrySubstituteUnboundShape(pair.Value.Type, genericParameters, covariant, out var mapped))
+                        if (!TrySubstituteUnboundShape(pair.Value.Type, genericParameters, covariant, out var mapped, voidAdmitting))
                         {
                             return false;
                         }

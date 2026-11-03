@@ -1,0 +1,28 @@
+---
+description: Add a CHANGELOG.md line with each user-visible change; review the entries in commits the user asks for and before scripts/release.sh
+alwaysApply: true
+---
+
+# CHANGELOG.md
+
+`CHANGELOG.md` (Keep a Changelog) lists user-visible changes to the compiler, CLI, and language server. It covers this repo only. Runtime packages, docs, the AI dev guide, IDE clients, and examples have their own changelogs in their own repos.
+
+## When you make a change
+
+- When a change you make is visible to users (or, for scripts and tooling, to maintainers), add one line for it under `## [Unreleased]` as part of the same change, before you report the work done. Use the matching group: `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, `### Security`. Create the group if it is missing.
+- Write for Tyhp users: syntax, checking, diagnostics, CLI commands and flags, emitted PHP, LSP behavior. Cite a diagnostic code, bug, or PR only when it helps the reader.
+- Tests, refactors, and internal tooling with no behavior change may be left out.
+- Editing `CHANGELOG.md` is a normal file edit and needs no commit; `git-readonly-unless-asked.mdc` still applies. Re-read the file right before editing, since other agents may be adding entries.
+
+## When the user asks you to commit
+
+- Review the `[Unreleased]` entries against the diff being committed rather than writing them from scratch: add lines for changes that have none, and condense or correct lines the diff no longer matches. Keep entries for other in-progress work.
+- Include the CHANGELOG edit in the commit the user asked for. Never commit just to update it.
+
+## When the user asks you to release
+
+`scripts/release.sh <version>` (see `scripts/release.sh --help` for the keywords, such as `prerelease`, `beta`, `release`, `patch`, or an explicit `X.Y.Z[-pre]`) requires a clean tree, bumps every version copy in its `VERSION_FILES` list, commits, tags `vX.Y.Z`, pushes that tag, and creates the GitHub Release. It refuses to run unless `CHANGELOG.md` has a non-empty `## [X.Y.Z] - YYYY-MM-DD` section, which becomes the release body. Before running it:
+
+1. Determine the version it will release (the explicit argument, or the keyword's result; `--dry-run` shows it; ask if unsure).
+2. Move the `[Unreleased]` entries under `## [X.Y.Z] - YYYY-MM-DD` (no `v` prefix, release date) and leave an empty `## [Unreleased]` above it.
+3. Commit that change as part of the release the user asked for, then run the script.

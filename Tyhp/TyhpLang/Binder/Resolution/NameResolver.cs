@@ -590,9 +590,12 @@ namespace Tyhp.TyhpLang.Binder.Resolution
                 {
                     // A template-string type (`"prefix-${T}-suffix"`) is not a symbol reference —
                     // the checker resolves its precise pattern via `TemplateStringCheckedType`
-                    // (see TypeInferrer.TemplateStrings.cs), entirely independent of this binder
-                    // pass. Bind it to the `string` builtin here purely so a bare template-string
-                    // parameter/return type does not report a spurious 3019/3020 "unresolved type".
+                    // (see TypeInferrer.TemplateStrings.cs). Bind it to the `string` builtin here
+                    // so a bare template-string parameter/return type does not report a spurious
+                    // 3019/3020 "unresolved type". Hole names that are declared types are bound
+                    // from this scope, so imports and the declaring namespace apply wherever the
+                    // checker later expands the template.
+                    BindTemplateHoleNames(templateType.EncapsList, fromScope);
                     var stringSymbol = ((IBaseScope)_globalScope).FindChildSymbolByName("string");
                     if (stringSymbol != null)
                     {
@@ -700,6 +703,42 @@ namespace Tyhp.TyhpLang.Binder.Resolution
         /// <c>type Node = object { public function parent(): ?Node; }</c> bind because the
         /// alias symbol is already registered.
         /// </summary>
+        private void BindTemplateHoleNames(PhpEncapsListAst? encaps, IBaseScope fromScope)
+        {
+            foreach (var part in encaps?.GetAllNotNull() ?? [])
+            {
+                BindTemplateHole(part as IBase2Ast, fromScope);
+            }
+        }
+
+        private void BindTemplateHole(IBase2Ast? hole, IBaseScope fromScope)
+        {
+            switch (hole)
+            {
+                case PhpNameAst { ValueString: { Length: > 0 } written } name:
+                {
+                    var named = PhpNamedTypeAst.WrapClassName(PhpNameAst.CreateFromContext(written, name), name);
+                    var symbol = ResolveNamedType(named, fromScope);
+                    if (symbol is TypeAliasSymbol or ObjectTypeAliasSymbol or ObjectDeclarationSymbol)
+                    {
+                        RecordResolution(name, symbol);
+                    }
+
+                    if (name.AstGrammarAddons.TryGetValue("identifier", out var typeArgs))
+                    {
+                        ResolveTypesInAst(typeArgs, fromScope, 0);
+                    }
+
+                    break;
+                }
+
+                case PhpBinaryOpAst binary:
+                    BindTemplateHole(binary.Left, fromScope);
+                    BindTemplateHole(binary.Right, fromScope);
+                    break;
+            }
+        }
+
         private void ResolveTypesInAst(IBase2Ast? node, IBaseScope fromScope, int depth)
         {
             if (node is null || depth > 500)

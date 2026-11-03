@@ -26,7 +26,7 @@ namespace Tyhp.TyhpLang.Checker
                     return InferScalar(scalar);
 
                 case PhpEncapsListAst encapsList:
-                    return InferEncapsList(encapsList);
+                    return InferEncapsList(encapsList, state);
 
                 case PhpNameAst nameExpr:
                     return InferNamedConstant(nameExpr, state);
@@ -257,11 +257,11 @@ namespace Tyhp.TyhpLang.Checker
             };
         }
 
-        private static ICheckedType InferEncapsList(PhpEncapsListAst encapsList)
+        private ICheckedType InferEncapsList(PhpEncapsListAst encapsList, CheckerState state)
         {
             if (!PhpStringLiteralHelper.TryGetStaticLiteral(encapsList, out var literal))
             {
-                return CheckedTypes.String;
+                return InferInterpolation(encapsList, state);
             }
 
             return new LiteralCheckedType(literal, new SimpleCheckedType(new BuiltInTypeSymbol("string")));
@@ -928,7 +928,12 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         private static ICheckedType WidenLiteral(ICheckedType type) =>
-            type is LiteralCheckedType literal ? literal.UnderlyingType : type;
+            type switch
+            {
+                LiteralCheckedType literal => literal.UnderlyingType,
+                SimpleCheckedType { InterpolationPattern: not null } => CheckedTypes.String,
+                _ => type,
+            };
 
         /// <summary>
         /// Empty-array bottom type: both key and value are <c>never</c> so covariant
@@ -1224,6 +1229,8 @@ namespace Tyhp.TyhpLang.Checker
         /// <see cref="TypeNarrowingRule.ApplyConditionNarrowing"/> applied to a single-condition
         /// arm (the idiomatic <c>match (true) { \is_string($x) => … }</c> form). Multi-condition
         /// arms are OR'd by PHP and are not narrowed (positive OR is unsound for one variable).
+        /// For <c>match (true)</c>, each arm's conditions and body also see every earlier condition
+        /// negatively narrowed (<c>default</c>: every condition), since PHP tries arms in order.
         ///
         /// Arm bodies are synthesized as <c>return &lt;expr&gt;</c> unary ops
         /// (<c>PhpParserAstVisitor.VisitMatchArm</c>). Those returns produce the match value — not
@@ -1255,6 +1262,9 @@ namespace Tyhp.TyhpLang.Checker
             var filterArms = ArrayAccessShapeSupport.IsTrackingPerKeyCoverage(state)
                 && subjectType is LiteralCheckedType;
             var hasMatchingSpecificArm = false;
+            // `match (true)` tries arms in order, so an arm runs only after every earlier
+            // condition failed (`default`: every condition).
+            var matchOnTrue = TypeNarrowingRule.IsTrueSubject(conditional.Expression as IExpression);
             if (filterArms)
             {
                 foreach (var candidate in arms)
@@ -1312,13 +1322,32 @@ namespace Tyhp.TyhpLang.Checker
                 armState.IsInSwitchContext = true;
                 armState.HasReturnedOnAllPaths = false;
 
+                var failedConditions = matchOnTrue
+                    ? TypeNarrowingRule.FailedArmConditions(arms, arm)
+                    : new List<IExpression>();
+                foreach (var failed in failedConditions)
+                {
+                    TypeNarrowingRule.ApplyConditionNarrowing(
+                        failed, armState, this, _symbolTree, _globalScope, positive: false);
+                }
+
                 if (arm.Conditions is not null)
                 {
                     foreach (var condition in arm.Conditions.GetAllNotNull())
                     {
                         // Probe: progressive `&&`/`||` narrowing must not mutate the pre-match state.
                         var probe = state.Split(ScopeType.CodeBlock);
+                        foreach (var failed in failedConditions)
+                        {
+                            TypeNarrowingRule.ApplyConditionNarrowing(
+                                failed, probe, this, _symbolTree, _globalScope, positive: false);
+                        }
+
                         _checker.CheckNode(condition, probe);
+                        if (matchOnTrue)
+                        {
+                            failedConditions.Add(condition);
+                        }
                     }
                 }
 

@@ -170,6 +170,7 @@ namespace Tyhp.TyhpLang.Emitter
             if (objectDecl.Body != null)
             {
                 this.EmitGenericObjectTraitUseIfNeeded(objectDecl, block);
+                this.EmitReadonlyGenericBagIfNeeded(objectDecl, block);
                 this.EmitPropertyAccessorsTraitUseIfNeeded(objectDecl, block);
 
                 var members = objectDecl.Body.GetAllNotNull().ToList();

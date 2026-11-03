@@ -247,8 +247,10 @@ public class InitActionTests : IDisposable
         composer.GetProperty("require-dev").GetProperty("tyhpdef/php").GetString().Should().Be("@dev");
         composer.GetProperty("require").GetProperty("tyhp/core").GetString().Should().Be("@dev");
         composer.GetProperty("require").TryGetProperty("tyhpdef/php", out _).Should().BeFalse();
+        ComposerJsonService.TryEncodeRuntimePackageVersion("8.4", RuntimePackageVersions.Php, out var encodedPhp)
+            .Should().BeTrue();
         composer.GetProperty("require-dev").GetProperty("tyhpdef/php").GetString()
-            .Should().NotBe(ComposerJsonService.EncodeRuntimePackageVersion("8.4", RuntimePackageVersions.Php));
+            .Should().NotBe(encodedPhp);
         composer.GetProperty("require-dev").GetProperty("tyhp/compiler").GetString()
             .Should().Be(ComposerJsonService.ResolveCompilerPackageVersion());
 

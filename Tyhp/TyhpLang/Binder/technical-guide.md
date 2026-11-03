@@ -23,7 +23,7 @@ Parse (parallel) → Bind (single-threaded) → Check → (later) Emit
 
 Binding is skipped for a source file when that file produced parse errors. Other files that parsed still bind. Checking runs when bind produced a non-null `GlobalScope` unless `SkipChecking` is set; bind errors do not skip check. The checker wraps the bound `GlobalScope` in a `SymbolTree` and continues to use `NameResolver` for member/extension lookups. `tyhp symbol_tree` runs this bind (`SkipChecking`) and dumps the resulting declarations as JSON.
 
-Design intent for the two-pass shape (declaration then full-tree resolution) is also documented in `IMPLEMENTATION_PLAN_TODO_STORY_31.md` (proposed deferred-resolution optimization; **not** implemented in current `TyhpBinder.Bind()`).
+Design intent for the two-pass shape (declaration then full-tree resolution) is also documented in `IMPLEMENTATION_PLAN_TODO_STORY_31.md` Appendix A (proposed deferred-resolution optimization; **not** implemented in current `TyhpBinder.Bind()`).
 
 ---
 
@@ -341,6 +341,8 @@ Anonymous classes use `IObjectDeclarationScopeParent.AddObjectDeclarationChildSc
 `BindEnumCase` marks `ObjectConstantSymbol.IsEnumCase` and stores the case's `= value` expression on `ValueExpression` (null when the case is unbacked). Compiled-library `package.tyhpdef` generation spells that expression as the case's `BackingValue`.
 
 Constructor parameter promotion creates both a parameter `VariableSymbol` and an `ObjectPropertySymbol` keyed with `$` prefix. Promoted `PropertyHooks` get the same hook flags as class-body properties.
+
+In a `readonly class` (`IsReadonlyClassScope`), every instance property and promoted parameter gets `MemberModifier.Readonly` in its `ObjectPropertySymbol.Visibility`, whether or not it repeats the modifier, as PHP does. Static properties are left as written; the checker reports them (TYHP4109). Consumers that read readonly from the symbol (TYHP4021, `with` validation and emit, splicing, LSP, generated tyhpdefs) therefore treat these properties as readonly.
 
 Property hook flags on `ObjectPropertySymbol` (Tyhp and tyhpdef, via `ApplyPropertyHookFlags`):
 

@@ -42,15 +42,16 @@ namespace Tyhp.Domain.Services
 
         /// <summary>
         /// Merges runtime package <c>require</c> entries into an existing or new <c>composer.json</c>.
+        /// False when an error was reported and the file was not written.
         /// </summary>
-        public void MergeRuntimePackages(
+        public bool MergeRuntimePackages(
             string outputDirectory,
             Project project,
             IReadOnlyList<string> requiredPackages)
         {
             if (requiredPackages.Count == 0)
             {
-                return;
+                return true;
             }
 
             var composerPath = Path.Combine(outputDirectory, "composer.json");
@@ -72,7 +73,7 @@ namespace Tyhp.Domain.Services
                         0,
                         composerPath,
                         ex.Message);
-                    return;
+                    return false;
                 }
             }
             else
@@ -83,12 +84,16 @@ namespace Tyhp.Domain.Services
                 };
             }
 
-            MergeRequireSection(root, requiredPackages.ToList(), project);
+            if (!this.MergeRequireSection(root, requiredPackages.ToList(), project))
+            {
+                return false;
+            }
 
             try
             {
                 Directory.CreateDirectory(outputDirectory);
                 File.WriteAllText(composerPath, root.ToJsonString(JsonWriteOptions) + Environment.NewLine);
+                return true;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -99,6 +104,7 @@ namespace Tyhp.Domain.Services
                     0,
                     composerPath,
                     ex.Message);
+                return false;
             }
         }
 
@@ -166,7 +172,10 @@ namespace Tyhp.Domain.Services
             var requiredPackages = DetermineRequiredPackages(outputFiles, emitContext);
 
             MergeAutoloadSection(root, psr4Mappings, functionFiles);
-            MergeRequireSection(root, requiredPackages, project);
+            if (!this.MergeRequireSection(root, requiredPackages, project))
+            {
+                return;
+            }
 
             try
             {
@@ -351,7 +360,23 @@ namespace Tyhp.Domain.Services
             autoload["files"] = filesNode;
         }
 
-        private static void MergeRequireSection(JsonObject root, List<string> requiredPackages, Project project)
+        /// <summary>
+        /// Adds a <c>require</c> entry per package. False, with TYHP7108 reported and
+        /// <paramref name="root"/> unchanged, when a compiled package has no release line for
+        /// <c>output.phpVersion</c>.
+        /// </summary>
+        private bool MergeRequireSection(JsonObject root, List<string> requiredPackages, Project project)
+            => this.MergeRequireSection(root, requiredPackages, project, BuildRuntimePackagePathMap());
+
+        /// <summary>
+        /// Same merge against an explicit runtime package path map (tests). An empty map means
+        /// every package resolves from Packagist.
+        /// </summary>
+        internal bool MergeRequireSection(
+            JsonObject root,
+            List<string> requiredPackages,
+            Project project,
+            IReadOnlyDictionary<string, string> runtimePackages)
         {
             var packages = new List<string>(requiredPackages);
             if (!packages.Contains(PhpStubsPackage, StringComparer.Ordinal))
@@ -361,13 +386,11 @@ namespace Tyhp.Domain.Services
 
             if (packages.Count == 0)
             {
-                return;
+                return true;
             }
 
-            var runtimePackages = BuildRuntimePackagePathMap();
-            var require = root["require"] as JsonObject ?? new JsonObject();
-            var anyRuntimeRequired = false;
-            var anyPrerelease = false;
+            var constraints = new List<(string Package, string Constraint)>();
+            var allResolved = true;
 
             foreach (var package in packages)
             {
@@ -377,6 +400,35 @@ namespace Tyhp.Domain.Services
                 var constraint = runtimePackages.ContainsKey(package)
                     ? sourceVersion
                     : ResolvePackagistConstraint(package, project.PhpVersion, sourceVersion);
+                if (constraint is null)
+                {
+                    this._diagnostics.AddError(
+                        Domain.Exceptions.MessageCode.BuildRuntimePackageNoPhpRelease,
+                        "tyhp.json",
+                        0,
+                        0,
+                        package,
+                        project.PhpVersion,
+                        RuntimePackageVersions.PublishedPhpVersions[0],
+                        RuntimePackageVersions.PublishedPhpVersions[^1]);
+                    allResolved = false;
+                    continue;
+                }
+
+                constraints.Add((package, constraint));
+            }
+
+            if (!allResolved)
+            {
+                return false;
+            }
+
+            var require = root["require"] as JsonObject ?? new JsonObject();
+            var anyRuntimeRequired = false;
+            var anyPrerelease = false;
+
+            foreach (var (package, constraint) in constraints)
+            {
                 require[package] = constraint;
                 anyPrerelease = anyPrerelease || constraint.Contains('-', StringComparison.Ordinal);
                 if (runtimePackages.ContainsKey(package))
@@ -402,6 +454,8 @@ namespace Tyhp.Domain.Services
             {
                 ApplyPrereleaseStability(root);
             }
+
+            return true;
         }
 
         /// <summary>
@@ -1084,8 +1138,10 @@ namespace Tyhp.Domain.Services
         /// Packagist constraint for a runtime package when path repositories are not used.
         /// <c>tyhpdef/*</c> publishes its <c>composer.json</c> version as-is;
         /// compiled <c>tyhp/*</c> helpers are <c>80N.X.Y</c> for <paramref name="phpVersion"/>.
+        /// Returns <see langword="null"/> for a compiled package when no <c>80N</c> line is
+        /// published for <paramref name="phpVersion"/>.
         /// </summary>
-        internal static string ResolvePackagistConstraint(
+        internal static string? ResolvePackagistConstraint(
             string packageName,
             string phpVersion,
             string packageSourceVersion)
@@ -1096,49 +1152,65 @@ namespace Tyhp.Domain.Services
                 return string.IsNullOrEmpty(source) ? packageSourceVersion : source;
             }
 
-            return EncodeRuntimePackageVersion(phpVersion, packageSourceVersion);
+            return TryEncodeRuntimePackageVersion(phpVersion, packageSourceVersion, out var version)
+                ? version
+                : null;
         }
 
         /// <summary>
         /// Maps <c>output.phpVersion</c> plus a compiled runtime package's independent <c>X.Y</c>
-        /// to the Packagist artifact version <c>80N.X.Y</c>.
+        /// to the Packagist artifact version <c>80N.X.Y</c>. False when no <c>80N</c> line is
+        /// published for <paramref name="phpVersion"/>.
         /// </summary>
-        internal static string EncodeRuntimePackageVersion(string phpVersion, string packageSourceVersion)
+        internal static bool TryEncodeRuntimePackageVersion(
+            string phpVersion,
+            string packageSourceVersion,
+            out string version)
         {
-            var phpMajor = PhpVersionToPackageMajor(phpVersion);
-            var source = packageSourceVersion.Trim();
-            if (string.IsNullOrEmpty(source))
+            version = "";
+            if (!TryGetPackageMajor(phpVersion, out var phpMajor))
             {
-                return $"{phpMajor}.0.0";
+                return false;
             }
 
-            return phpMajor + "." + source;
+            var source = packageSourceVersion.Trim();
+            version = string.IsNullOrEmpty(source) ? $"{phpMajor}.0.0" : phpMajor + "." + source;
+            return true;
         }
 
+        /// <summary>
+        /// Root <c>require.php</c> for <c>tyhp init</c>: <c>~8.N.0</c> for a PHP minor with a
+        /// published runtime line, otherwise the oldest PHP version the runtime packages run on.
+        /// </summary>
         internal static string PhpConstraintForPhpVersion(string phpVersion)
         {
             var trimmed = phpVersion.Trim();
-            return trimmed switch
-            {
-                "8.2" => "~8.2.0",
-                "8.3" => "~8.3.0",
-                "8.4" => "~8.4.0",
-                "8.5" => "~8.5.0",
-                _ => ">=8.2",
-            };
+            return RuntimePackageVersions.PublishedPhpVersions.Contains(trimmed, StringComparer.Ordinal)
+                ? $"~{trimmed}.0"
+                : ">=" + RuntimePackageVersions.PublishedPhpVersions[0];
         }
 
-        internal static string PhpVersionToPackageMajor(string phpVersion)
+        /// <summary>
+        /// The <c>80N</c> package major for <paramref name="phpVersion"/> (<c>8.5</c> or
+        /// <c>8.5.1</c> → <c>805</c>). False when compiled <c>tyhp/*</c> packages publish no
+        /// line for that PHP minor (<see cref="RuntimePackageVersions.PublishedPhpVersions"/>).
+        /// </summary>
+        internal static bool TryGetPackageMajor(string phpVersion, out string packageMajor)
         {
-            var trimmed = phpVersion.Trim();
-            return trimmed switch
+            packageMajor = "";
+            if (!TyhpLang.Versioning.PhpVersion.TryParse(phpVersion, out var parsed))
             {
-                "8.2" => "802",
-                "8.3" => "803",
-                "8.4" => "804",
-                "8.5" => "805",
-                _ => "804",
-            };
+                return false;
+            }
+
+            var minor = $"{parsed.Major}.{parsed.Minor}";
+            if (!RuntimePackageVersions.PublishedPhpVersions.Contains(minor, StringComparer.Ordinal))
+            {
+                return false;
+            }
+
+            packageMajor = ConfigInterpolator.ToPhpId(minor);
+            return true;
         }
 
         private static string? GetNamespaceName(object? namespaceStatement)

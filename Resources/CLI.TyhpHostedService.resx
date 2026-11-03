@@ -257,8 +257,8 @@
     <comment>Checker enum case type mismatch</comment>
   </data>
   <data name="ERROR_TYHP4024" xml:space="preserve">
-    <value>Enum cannot have a constructor</value>
-    <comment>Checker enum method not allowed</comment>
+    <value>Enum cannot declare magic method `{0}`</value>
+    <comment>Checker enum method not allowed. {0} = magic method name</comment>
   </data>
   <data name="ERROR_TYHP4025" xml:space="preserve">
     <value>`{0}` is `{1}` and cannot be accessed from `{2}`</value>
@@ -536,6 +536,10 @@
     <value>Spread operator requires an iterable type, found `{0}`</value>
     <comment>Checker spread non iterable</comment>
   </data>
+  <data name="EXPLAIN_TYHP4096" xml:space="preserve">
+    <value>A call argument spread (`f(...$x)`) needs an array or other iterable; a `mixed` value must be narrowed first.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4096</comment>
+  </data>
   <data name="ERROR_TYHP4097" xml:space="preserve">
     <value>`$this` cannot be used in static context</value>
     <comment>Checker this in static context</comment>
@@ -556,6 +560,24 @@
     <value>Symbol `{0}` is not found for type `{1}`</value>
     <comment>Checker symbol-name literal does not resolve to an in-scope symbol</comment>
   </data>
+  <data name="EXPLAIN_TYHP4101" xml:space="preserve">
+    <value>A property read, method call, or static member access names a symbol its receiver type does not have. This covers instance members of a fully-known class or interface (including bare `object`, which has no members) as well as scalar and other built-in receivers. The error is not reported when the class has a magic accessor (`__get`, `__call`, `__callStatic`), when part of its ancestry is unresolved, or when the member name is dynamic (`$obj-&gt;{$name}`).
+
+Inside the branch of `\property_exists($obj, 'name')` or `\method_exists($obj, 'name')` with a literal name, that member is known to exist.
+
+For a scalar or other built-in receiver, or a class, this is also what you see when the method belongs to an extension that is not in scope in the current file. A project-source extension applies in the file that declares it, in files that import it with `use extension`, and everywhere when a file declares it with `global use extension`.
+
+```tyhp
+&lt;?tyhp
+
+// In a file that neither declares nor imports an extension with `shout()` on string:
+string $s = 'c';
+echo $s-&gt;shout();   // Error: Symbol `shout` is not found for type `string`
+```
+
+Fix: Add `use extension \Your\Extension;` to the file, or call a method the type has.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4101</comment>
+  </data>
   <data name="ERROR_TYHP4104" xml:space="preserve">
     <value>`goto` is prohibited in Tyhp</value>
     <comment>Checker goto prohibited</comment>
@@ -572,13 +594,24 @@
     <value>Variadic parameter cannot be a promoted property</value>
     <comment>Checker promoted variadic</comment>
   </data>
-  <data name="ERROR_TYHP4108" xml:space="preserve">
-    <value>Mutable property `{0}` in readonly class</value>
-    <comment>Checker readonly class mutable property</comment>
-  </data>
   <data name="ERROR_TYHP4109" xml:space="preserve">
-    <value>Static property in readonly class</value>
+    <value>Readonly class `{1}` cannot declare static property `{0}`</value>
     <comment>Checker readonly class static property</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4109" xml:space="preserve">
+    <value>Every instance property of a `readonly class` is readonly, and PHP does not allow static properties in a readonly class at all. PHP rejects the class when it is loaded.
+
+```tyhp
+&lt;?tyhp
+readonly class Config {
+    public static int $instances = 0;   // Error: static property in a readonly class
+
+    public function __construct(public string $name) {}
+}
+```
+
+Fix: Move the static state to a separate, non-readonly class, or use a class constant.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4109</comment>
   </data>
   <data name="ERROR_TYHP4110" xml:space="preserve">
     <value>Backed enum case `{0}` must have a value</value>
@@ -615,6 +648,19 @@
   <data name="ERROR_TYHP4118" xml:space="preserve">
     <value>Overload signature is not compatible with implementation signature</value>
     <comment>Checker overload signature incompatible</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4118" xml:space="preserve">
+    <value>Every overload signature must describe calls the implementation accepts: the arity must fit, each parameter type of the signature must be assignable to the implementation's parameter type, and the signature's return type and the implementation's return type must be assignable in at least one direction. An override of an `abstract` overload set is checked against every signature. Widen the implementation's parameter types or align its return type.
+
+```tyhp
+&lt;?tyhp
+function narrow(int $a): int;
+function narrow(string $a): string;
+function narrow(int $a): int {   // the implementation does not accept `string`
+    return $a;
+}
+```</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4118</comment>
   </data>
   <data name="WARNING_TYHP4119" xml:space="preserve">
     <value>Comparing types `{0}` and `{1}` has no meaningful comparison</value>
@@ -834,7 +880,9 @@ Nullable properties (and properties with defaults) remain optional at constructi
   <data name="EXPLAIN_TYHP4160" xml:space="preserve">
     <value>`mixed` is Tyhp's strict top type: any value may be assigned to it, but it cannot be used in type-specific operations until narrowed.
 
-Narrow with a type guard (`instanceof` / `is`, `\is_string()`, `\is_int()`, a user-defined `$param is T` guard, or a null check) before member access, calls, indexing, arithmetic, bitwise ops, string concatenation, or similar. Comparison and `instanceof`/`is` themselves are allowed so narrowing remains possible.
+Narrow with a type guard (`instanceof` / `is`, `\is_string()`, `\is_int()`, a user-defined `$param is T` guard, or a null check) before member access (including the receiver of `$m-&gt;p ?? 1` and `$m-&gt;p ??= 1`), calls, indexing, `$m::class`, array spread (`[...$m]`), arithmetic, bitwise ops, string concatenation, ordering comparisons (`&lt;`, `&lt;=`, `&gt;`, `&gt;=`, `&lt;=&gt;`), or similar. Equality (`==`, `===`, `!=`, `!==`), `??`, casts, and `instanceof`/`is` themselves are allowed so narrowing remains possible.
+
+Guards can be combined: after `\is_int($m) || $m === null`, `$m` is `?int`.
 
 Assignment and return already reject passing `mixed` where a more specific type is required (TYHP4008 / TYHP4009 / TYHP4010).</value>
     <comment>Long-form explanation for tyhp --explain TYHP4160</comment>
@@ -926,12 +974,12 @@ Late-static binding names the late-bound class; it does not invent or rebind gen
 
 Use:
 - bare `static` for fluent / LSB returns that should follow the late-bound class
-- `self&lt;...&gt;` or the declaring class name for factories that stamp method generics onto the class (e.g. `_async&lt;T&gt;(...): self&lt;T&gt;`)
+- `self&lt;...&gt;` or the declaring class name for factories that stamp method generics onto the class (e.g. `_async&lt;T&gt;(...): self&lt;__Awaited&lt;T&gt;&gt;`)
 - `parent&lt;...&gt;` when an explicit parent instantiation is required
 
 ```tyhp
-final class Promise&lt;TReturn extends void|mixed = void&gt; {
-    public static function _async&lt;T extends void|mixed&gt;(callable(): T $fn): self&lt;T&gt; { /* ... */ }
+final class Promise&lt;TReturn extends __Awaited&lt;void|mixed&gt; = __Awaited&lt;mixed&gt;&gt; {
+    public static function _async&lt;T extends void|mixed&gt;(callable(): T $fn): self&lt;__Awaited&lt;T&gt;&gt; { /* ... */ }
     public function then&lt;TResult&gt;(callable(TReturn): TResult $cb): static { /* ... */ }
 }
 ```</value>
@@ -1142,6 +1190,50 @@ final class Promise&lt;TReturn extends void|mixed = void&gt; {
 
 This diagnostic is omitted when the receiver subtree already has an error (for example `unknownFn()-&gt;x` reports only the undefined function). Unnarrowed `mixed` uses TYHP4160, not this code. Assignability of unresolved values is unchanged.</value>
     <comment>Long-form explanation for tyhp --explain TYHP4197</comment>
+  </data>
+  <data name="ERROR_TYHP4198" xml:space="preserve">
+    <value>Cannot access `{0}` on a possibly null value of type `{1}`</value>
+    <comment>Checker member access / method call / struct or object index on a receiver whose type admits null</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4198" xml:space="preserve">
+    <value>Values are non-nullable by default, so a `?T` / `T|null` value must be checked before its members are used. Reading or writing a property, calling a method, or indexing a struct or `ArrayAccess` object through a receiver that may be `null` is an error at runtime (PHP throws for method calls and property writes, and warns and yields `null` for property reads).
+
+```tyhp
+function findUser(int $id): ?User { /* … */ }
+
+$user = findUser(2);
+echo $user-&gt;name;          // TYHP4198
+
+if ($user !== null) {
+    echo $user-&gt;name;      // OK: narrowed to User
+}
+echo $user?-&gt;name ?? '';   // OK: null-safe access
+```
+
+Narrow the receiver first (`!== null`, `instanceof` / `is`, an early `return` / `throw`, a type guard), or use `?-&gt;` when `null` should propagate. Property and index reads inside `isset`, `empty`, and the left side of `??` / `??=` may use a possibly null receiver; method calls there still require a non-null receiver. A method call result cannot be narrowed by checking it once; assign it to a variable and check the variable.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4198</comment>
+  </data>
+  <data name="ERROR_TYHP4199" xml:space="preserve">
+    <value>Template hole must be a string, int, or float type, or a literal or union of them; found {0}</value>
+    <comment>Checker template string hole that is not a type with a string form, or is written as an expression</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4199" xml:space="preserve">
+    <value>A template string type matches text, so each `${…}` hole must name a type whose values have a string form: `string`, `int`, `float`, a literal of one of them (`'GET'`, `3`, `2.5`), a template string or symbol-name type, a type parameter constrained to one of these, an alias for any of them, or a union of them. Types without a string form (`array`, `bool`, `null`, `mixed`, `object`, classes, enums, callables) cannot be matched against text, and a hole written as an expression (a variable, a call, a class constant, an operator, or an inline template) is not a type.
+
+```tyhp
+type Tagged = "tag-${bool}";        // TYHP4199
+type Keyed  = "key-${$name}";       // TYHP4199
+type Nested = "a-${"b${int}"}";     // TYHP4199
+
+type Flag   = 'on'|'off';
+type Toggle = "tag-${Flag}";        // OK: string literals
+type Items  = "${int} items";       // OK
+type Inner  = "b${int}";
+type Outer  = "a-${Inner}";         // OK: name the inner template with an alias
+```
+
+Name the set of strings you mean with a string, numeric, or literal type, and give a nested template its own alias.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4199</comment>
   </data>
   <data name="ERROR_TYHP4213" xml:space="preserve">
     <value>Declaration existence gate must check for `{0}` (fully-qualified name or `__NAMESPACE__.'\Name'`)</value>
@@ -1520,21 +1612,202 @@ declare(php="&gt;=8.3") {
     <value>Type argument `{0}` for `{1}` must be an already-awaited type (not a promise, a union with a promise member, or a type parameter that could hold one, such as an unconstrained one or one bounded by `mixed`); use a settled type, or constrain the type parameter with `extends __Awaited&lt;…&gt;`</value>
     <comment>Checker — type argument for an `extends __Awaited&lt;…&gt;` parameter is not settled</comment>
   </data>
+  <data name="EXPLAIN_TYHP4373" xml:space="preserve">
+    <value>A type parameter declared `T extends __Awaited&lt;…&gt;` holds only a type that is its own awaited type, so `Promise&lt;T&gt;` can never be a promise of a promise. `Promise&lt;Promise&lt;int&gt;&gt;`, `Promise&lt;int|Promise&lt;string&gt;&gt;`, and `Promise&lt;T&gt;` for an unconstrained `T` (or a `T` bounded only by `mixed` or `object`) are rejected, because such a `T` could itself be a promise. `Promise&lt;mixed&gt;` and `Promise&lt;object&gt;` are accepted. Use the settled type (`Promise&lt;int&gt;`), or constrain your own type parameter the same way:
+
+```tyhp
+&lt;?tyhp
+function collect&lt;T extends __Awaited&lt;void|mixed&gt;&gt;(array&lt;Promise&lt;T&gt;&gt; $promises): array&lt;T&gt; {
+    // ...
+}
+```</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4373</comment>
+  </data>
   <data name="ERROR_TYHP4374" xml:space="preserve">
     <value>No overload of `{0}` matches this call. Overloads: {1}</value>
     <comment>Checker overload no match. {0} is the callee name, {1} the overload signatures separated by semicolons</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4374" xml:space="preserve">
+    <value>A call to an overloaded function or method must match one of the declared overload signatures; the implementation's own signature is not callable. The first signature, in declaration order, whose parameters accept the arguments as written is used. Only when none does are the signatures tried again with the implicit `operator convert` conversions an ordinary call applies (see TYHP4375). If no signature accepts the arguments even with those conversions, the error lists every signature.
+
+A callable value such as `$fn = describe(...)` is called through the signatures it was created from: `$fn(5)` is accepted when an argument fits a signature as written, or when it is a type that converts implicitly to that signature's parameter at that position (see TYHP4376). Any other argument reports this error, listing the signatures.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4374</comment>
   </data>
   <data name="ERROR_TYHP4375" xml:space="preserve">
     <value>The call to `{0}` is ambiguous: no overload accepts the arguments as written, and more than one accepts them only through implicit conversion to different types. Overloads: {1}. Convert an argument explicitly (for example with a cast) to choose one</value>
     <comment>Checker overload ambiguous. {0} is the callee name, {1} the candidate overload signatures separated by semicolons</comment>
   </data>
+  <data name="EXPLAIN_TYHP4375" xml:space="preserve">
+    <value>When no overload accepts a call as written, the compiler tries the overloads again, allowing the implicit `operator convert` conversions an ordinary call applies (class-owned and extension conversions, and conversion to a scalar such as `int`, unless the conversion is hidden with `operator convert hide`). If several overloads accept the call only through conversion, they are narrowed in two steps:
+
+1. An overload that converts only some of the arguments another overload converts, and converts those to the same types, is preferred over it.
+2. Among the remaining overloads, if they all convert the arguments to the same types, the first declared is used. If they convert to different types, the call is ambiguous.
+
+Convert the argument yourself (for example `new Money(5)`) so that one overload accepts it as written, and the ambiguity disappears.
+
+```tyhp
+&lt;?tyhp
+final class Money {
+    public function __construct(public int $cents) {}
+    operator convert(int $value) { return new self($value); }
+}
+
+final class Meters {
+    public function __construct(public int $value) {}
+    operator convert(int $value) { return new self($value); }
+}
+
+function measure(Money $m): string;
+function measure(Meters $m): string;
+function measure(Money|Meters $a): string {
+    return 'measured';
+}
+
+function run(): void {
+    echo measure(5);             // error: both overloads need a conversion of 5
+    echo measure(new Money(5));  // OK: accepted as written
+}
+```</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4375</comment>
+  </data>
   <data name="ERROR_TYHP4376" xml:space="preserve">
     <value>The first-class callable `{0}(...)` cannot convert a `{1}` argument at position {2}: no overload accepts it as written, and the overloads convert it to different types (`{3}`). Call the overload directly, or pass an argument that one overload accepts</value>
     <comment>Checker overload callable ambiguous conversion. {0} is the callee name, {1} the source type, {2} the 1-based parameter position, {3} the target types separated by commas</comment>
   </data>
+  <data name="EXPLAIN_TYHP4376" xml:space="preserve">
+    <value>A first-class callable of an overloaded function or method converts its arguments the way an ordinary call does, one parameter position at a time. At each position:
+
+- A type that some overload accepts as written there is passed as it is.
+- Any other type that converts implicitly to an overload's parameter is converted to it, and the callable accepts that type.
+- A type that would convert to a *different* type in different overloads cannot be converted, because the callable does not know which overload the caller means.
+
+This error reports the third case, at the `(...)` of the first-class callable. Call the overload directly with an argument that one overload accepts, or give the overloads the same parameter type at that position.
+
+```tyhp
+&lt;?tyhp
+final class Money {
+    public function __construct(public int $cents) {}
+    operator convert(int $value) { return new self($value); }
+}
+
+final class Meters {
+    public function __construct(public int $value) {}
+    operator convert(int $value) { return new self($value); }
+}
+
+function measure(Money $m): string;
+function measure(Meters $m): string;
+function measure(Money|Meters $a): string {
+    return 'measured';
+}
+
+$fn = measure(...); // error: an int converts to Money and to Meters
+```</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4376</comment>
+  </data>
   <data name="ERROR_TYHP4377" xml:space="preserve">
     <value>Cannot infer type argument `{0}` for `{1}`. Specify it explicitly</value>
     <comment>Checker — a generic call left type parameter {0} of {1} unbound, with no expected type and no default</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4377" xml:space="preserve">
+    <value>A generic call whose type parameter is not fixed by an explicit type argument, by the arguments, or by the type expected at the call (the variable, parameter, or return the call is used as) uses the parameter's declared default. When there is no default either, the call reports this error. Write the type argument explicitly (`make&lt;int&gt;()`).
+
+```tyhp
+&lt;?tyhp
+class Box&lt;T&gt; {
+    public function __construct(public ?T $value = null) {}
+}
+function make&lt;T&gt;(): Box&lt;T&gt; { return new Box&lt;T&gt;(); }
+function makeD&lt;T = int&gt;(): Box&lt;T&gt; { return new Box&lt;T&gt;(); }
+
+function demo(): void {
+    $a = make();            // error: T cannot be inferred
+    Box&lt;int&gt; $b = make();   // T is int, from the variable type
+    Box&lt;int&gt; $c = makeD();  // T is int, the declared default
+}
+```</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4377</comment>
+  </data>
+  <data name="ERROR_TYHP4378" xml:space="preserve">
+    <value>A default value on readonly property `{0}` requires PHP `8.6` or later; target is `{1}`</value>
+    <comment>Checker — readonly property default below PHP 8.6. {0} = property name with `$`, {1} = output.phpVersion</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4378" xml:space="preserve">
+    <value>PHP 8.6 lets a readonly property declare a default value, which counts as its one initialization. Earlier PHP versions reject the class when it is loaded ("cannot have default value"). Tyhp emits the declaration as written, so it reports this error when `output.phpVersion` is below 8.6. This covers properties declared `readonly` and every property of a `readonly class`.
+
+Set the value in the constructor instead, or make it a promoted constructor parameter. A promoted parameter's default is a parameter default, which works on every target:
+
+```tyhp
+&lt;?tyhp
+final class Point {
+    public function __construct(public readonly int $x = 0) {}
+}
+```</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4378</comment>
+  </data>
+  <data name="ERROR_TYHP4379" xml:space="preserve">
+    <value>`__debugInfo()` on enum `{0}` requires PHP `8.6` or later; target is `{1}`</value>
+    <comment>Checker — enum __debugInfo below PHP 8.6. {0} = enum name, {1} = output.phpVersion</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4379" xml:space="preserve">
+    <value>PHP 8.6 lets an enum declare `__debugInfo()`, which controls what `var_dump()` shows for its cases. Earlier PHP versions reject the enum when it is loaded ("cannot include magic method __debugInfo"), so Tyhp reports this error when `output.phpVersion` is below 8.6. The other magic methods PHP does not allow on enums are TYHP4024 at every target.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4379</comment>
+  </data>
+  <data name="ERROR_TYHP4380" xml:space="preserve">
+    <value>Readonly class `{0}` cannot use trait with non-readonly property `{1}::{2}`</value>
+    <comment>Checker readonly class trait property. {0} = class name, {1} = trait name, {2} = property name with $</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4380" xml:space="preserve">
+    <value>A `readonly class` may use a trait only when every property the trait contributes is a readonly instance property. PHP rejects the class when it is loaded if the trait declares a property without `readonly`, or a static property (a static property cannot be readonly). The same trait is fine on a class that is not readonly.
+
+This is reported when `output.phpVersion` is 8.2 or newer, the versions that have readonly classes. Mark the trait property `readonly`, or move a static property to a class that is not readonly.
+
+```tyhp
+&lt;?tyhp
+trait Counts {
+    public readonly int $hits;
+}
+
+readonly class UsesCounts {
+    use Counts;
+
+    public function __construct() {
+        $this-&gt;hits = 0;
+    }
+}
+```</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4380 (readonly class trait property)</comment>
+  </data>
+  <data name="ERROR_TYHP4400" xml:space="preserve">
+    <value>Readonly `with` on property `{0}` requires PHP `8.3` or later; target is `{1}`</value>
+    <comment>Checker — readonly new/clone with below PHP 8.3. {0} = property name, {1} = output.phpVersion</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4400" xml:space="preserve">
+    <value>PHP 8.3 lets `__clone()` assign a readonly property again. That is how `new … with` on a readonly property is lowered when `output.phpVersion` is below 8.5, and how experimental `clone … with` is lowered for a class that is not readonly. PHP 8.2 rejects the assignment ("Cannot modify readonly property") and cannot parse `new readonly class`, so Tyhp reports this error instead of emitting code that fails when it runs.
+
+Raise `output.phpVersion` to 8.3 or newer, or pass the final values to the constructor.
+
+```tyhp
+&lt;?tyhp
+class Color {
+    public function __construct(public readonly int $alpha) {}
+}
+
+function make(): Color {
+    return new Color(128);
+}
+```</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4400</comment>
+  </data>
+  <data name="ERROR_TYHP4401" xml:space="preserve">
+    <value>Clone `with` on readonly class `{0}` requires PHP `8.5` or later; target is `{1}`</value>
+    <comment>Checker — clone with on a readonly class below PHP 8.5. {0} = class name, {1} = output.phpVersion</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4401" xml:space="preserve">
+    <value>Below PHP 8.5, `clone … with` on a readonly property is lowered to a subclass that applies the new values from `__clone()`. A `readonly class` can only be extended by another readonly class, and that subclass cannot store the override list (a readonly class cannot declare a static property or a mutable one). PHP 8.5 `clone($obj, […])` does not need the subclass.
+
+Raise `output.phpVersion` to 8.5. `new … with` on the same class is available from PHP 8.3.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4401</comment>
   </data>
   <data name="WARNING_TYHP4500" xml:space="preserve">
     <value>`{0}` is deprecated{1}</value>
@@ -1673,21 +1946,51 @@ declare(php="&gt;=8.3") {
     <value>Overload signature `{0}` has no implementation; overload signatures must be followed directly by a declaration with a body</value>
     <comment>Binder overload missing implementation. {0} is the function or method name</comment>
   </data>
+  <data name="EXPLAIN_TYHP3031" xml:space="preserve">
+    <value>Bodyless signatures of the same function or method name form an overload set only when a declaration with a body follows them directly (interface and `abstract` method sets are the exception: the signatures are the whole set). Add the implementation after the last signature.
+
+```tyhp
+&lt;?tyhp
+function area(int $r): float;
+function area(int $w, int $h): float;
+// Error: no implementation follows. Add:
+// function area(int $a, int $b = 0): float {
+//     return $b === 0 ? 3.14159 * $a * $a : (float) ($a * $b);
+// }
+```</value>
+    <comment>Long-form explanation for tyhp --explain TYHP3031</comment>
+  </data>
   <data name="ERROR_TYHP3032" xml:space="preserve">
     <value>Overload signature `{0}` must be declared directly before its implementation, with no other declarations in between</value>
     <comment>Binder overload not adjacent to its implementation. {0} is the function or method name</comment>
+  </data>
+  <data name="EXPLAIN_TYHP3032" xml:space="preserve">
+    <value>Keep the signatures and the implementation of one overload set together, in that order, with nothing declared between them.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP3032</comment>
   </data>
   <data name="WARNING_TYHP3033" xml:space="preserve">
     <value>`{0}` has a single overload signature; declare at least two overloads, or remove it and use the implementation's own signature</value>
     <comment>Binder lone overload signature. {0} is the function or method name</comment>
   </data>
+  <data name="EXPLAIN_TYHP3033" xml:space="preserve">
+    <value>An overload set with one signature hides the implementation's signature without adding a second call shape.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP3033</comment>
+  </data>
   <data name="ERROR_TYHP3034" xml:space="preserve">
     <value>Overload signature `{0}` has the same parameters and return type as an earlier overload</value>
     <comment>Binder duplicate overload signature. {0} is the function or method name</comment>
   </data>
+  <data name="EXPLAIN_TYHP3034" xml:space="preserve">
+    <value>The first matching overload signature always wins, so an identical later signature can never be selected. Remove it or change its parameter types.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP3034</comment>
+  </data>
   <data name="ERROR_TYHP3035" xml:space="preserve">
     <value>Overload signature `{0}` must use the same modifiers (static, visibility, async, abstract, final) as the rest of its overload set</value>
     <comment>Binder overload modifier mismatch. {0} is the function or method name</comment>
+  </data>
+  <data name="EXPLAIN_TYHP3035" xml:space="preserve">
+    <value>Every signature of a method overload set and its implementation share one set of modifiers.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP3035</comment>
   </data>
   <data name="ERROR_TYHP3036" xml:space="preserve">
     <value>Overload signatures are not supported on constructors or destructors (`{0}`); declare separate factory methods or use optional parameters</value>
@@ -1728,6 +2031,10 @@ declare(php="&gt;=8.3") {
   <data name="ERROR_TYHP2004" xml:space="preserve">
     <value>Language construct `{0}` is not yet supported</value>
     <comment>Visitor unsupported construct</comment>
+  </data>
+  <data name="ERROR_TYHP2005" xml:space="preserve">
+    <value>`&lt;?php` is not allowed in a `.tyhp` file; put PHP code in a `.php` file</value>
+    <comment>A &lt;?php block inside a .tyhp file. Shown at the PHP open tag.</comment>
   </data>
   <data name="ERROR_TYHP3001" xml:space="preserve">
     <value>Unknown binder error: {0}</value>
@@ -1864,6 +2171,16 @@ This is non-fatal. If mappings look wrong in a debugger, report the generated an
   <data name="ERROR_TYHP5023" xml:space="preserve">
     <value>`#[\Tyhp\GenericRuntime]` layouts `{0}` have no intersection with this compiler{1}</value>
     <comment>Emitter cannot dispatch a GenericRuntime whose layouts do not include a supported key. Args: layouts list, optional "; compiled by `{compiler}`" suffix</comment>
+  </data>
+  <data name="ERROR_TYHP5024" xml:space="preserve">
+    <value>Cannot emit an expression tree for this fn: `{0}` has no tree form; simplify the fn body</value>
+    <comment>Emitter could not rebuild an Expression fn body as a tree, so it refuses to keep a plain closure. Args: construct name</comment>
+  </data>
+  <data name="EXPLAIN_TYHP5024" xml:space="preserve">
+    <value>An inline `fn` passed where `Expression&lt;callable(...): R&gt;` is expected is compiled into an expression tree. The emitter found a construct in the body that it cannot rebuild as a tree node. Emitting the `fn` as an ordinary closure would hand the callee a value with no tree, so the build stops instead.
+
+The checker normally reports unsupported bodies as TYHP4322 before emit. Seeing TYHP5024 means the checker accepted a construct the emitter does not support; please report it with the `fn` body named in the message. Rewriting that part of the body with the forms listed under TYHP4322 avoids the error.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP5024</comment>
   </data>
   <data name="ERROR_TYHP7200" xml:space="preserve">
     <value>File not found: `{0}`</value>
@@ -4729,6 +5046,10 @@ xdebug.idekey = tyhp</value>
     <value>`build.structBacking` is `{0}`; structs are always PHP arrays, so the setting is ignored. Remove it from tyhp.json</value>
     <comment>Retired build.structBacking option set to a class name. {0} = configured value</comment>
   </data>
+  <data name="EXPLAIN_TYHP6010" xml:space="preserve">
+    <value>`tyhp.json` sets `build.structBacking` to a value other than `"array"`. Structs always compile to plain PHP associative arrays, so the build ignores the value. Delete the `build.structBacking` entry (or leave it as `"array"`).</value>
+    <comment>Long-form explanation for tyhp --explain TYHP6010</comment>
+  </data>
   <data name="ERROR_TYHP7000" xml:space="preserve">
     <value>Unknown install target `{0}`; known targets: `{1}`</value>
     <comment>InstallUnknownTarget. {0} = requested target, {1} = known target list</comment>
@@ -4784,6 +5105,10 @@ xdebug.idekey = tyhp</value>
   <data name="WARNING_TYHP7107" xml:space="preserve">
     <value>Publish content src `{0}` matched no files</value>
     <comment>output.publishContent src unmatched</comment>
+  </data>
+  <data name="ERROR_TYHP7108" xml:space="preserve">
+    <value>Runtime package `{0}` has no release for PHP `{1}`; compiled `tyhp/*` packages are published for PHP `{2}` through `{3}`</value>
+    <comment>BuildRuntimePackageNoPhpRelease. {0} = package name, {1} = output.phpVersion, {2} = oldest published PHP version, {3} = newest published PHP version</comment>
   </data>
   <data name="INFO_TYHP7101" xml:space="preserve">
     <value>No source files found matching include patterns</value>
@@ -5740,7 +6065,9 @@ function process(int $id): void { }
 process("abc");  // Error: Argument of type 'string' not assignable to 'int'
 ```
 
-Fix: Pass a value of the correct type, or cast the argument explicitly.</value>
+Fix: Pass a value of the correct type, or cast the argument explicitly.
+
+An implicit [`operator convert`](tyhp_1600_operatorOverloads.md) lets a call pass a convertible argument, but a conversion declared in an extension applies only where the extension is active (the declaring file, a file with `use extension`, or any file once `global use extension` is declared). Elsewhere the same call reports this error. A variable declared `callable(Money): string` and a closure also keep their exact parameter types, so passing a convertible argument to either reports this error.</value>
     <comment>Long-form explanation for TYHP4010 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP4011" xml:space="preserve">
@@ -5756,7 +6083,9 @@ function getStatus(bool $active): string {
 }
 ```
 
-Fix: Add a return statement for every code path, including `else` branches and after loops.</value>
+Fix: Add a return statement for every code path, including `else` branches and after loops.
+
+A `switch` returns on every path when it has a `default` case and every case returns or throws, either directly or by falling through into a case that does. A `break` that leaves the switch, or a missing `default`, leaves a path that continues after the switch.</value>
     <comment>Long-form explanation for TYHP4011 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP4012" xml:space="preserve">
@@ -5865,21 +6194,27 @@ class MySingleton extends Singleton { }  // Error: Cannot extend final class
     <comment>Long-form explanation for TYHP4020 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP4021" xml:space="preserve">
-    <value>A `readonly` property is being assigned outside of the constructor.
+    <value>A `readonly` property is assigned where PHP does not allow it. PHP lets a readonly property be initialized once, from inside its declaring class (and, from PHP 8.4, a subclass). This error is reported for a write through a receiver other than `$this` inside the class, and for a write from a function, the file scope, or an unrelated class. Every instance property of a `readonly class` is readonly, whether or not it repeats the modifier.
+
+A property with an explicit set visibility such as `public(set)` is not reported.
 
 ```tyhp
 &lt;?tyhp
-class User {
-    public function __construct(
-        public readonly string $name
-    ) {}
+readonly class User {
+    public function __construct(public string $name) {}
 
-    public function rename(string $newName): void {
-        $this-&gt;name = $newName;  // Error: Cannot assign to readonly property
+    public function copyFrom(User $other): void {
+        $other-&gt;name = $this-&gt;name;  // Error: Cannot assign to readonly property `name`
     }
 }
-```</value>
-    <comment>Long-form explanation for TYHP4021 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
+
+function rename(User $user): void {
+    $user-&gt;name = 'Ada';  // Error: Cannot assign to readonly property `name`
+}
+```
+
+Fix: Create a modified copy with `clone $user with [name =&gt; 'Ada']`, or set the value in the constructor.</value>
+    <comment>Long-form explanation for TYHP4021 (tyhp --explain)</comment>
   </data>
   <data name="EXPLAIN_TYHP4022" xml:space="preserve">
     <value>Code attempts to create an instance of an abstract class with `new`.</value>
@@ -5897,8 +6232,10 @@ enum Status: string {
     <comment>Long-form explanation for TYHP4023 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP4024" xml:space="preserve">
-    <value>An enum declares a method that is not allowed (e.g., a constructor).</value>
-    <comment>Long-form explanation for TYHP4024 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
+    <value>PHP does not allow an enum to declare these magic methods, and rejects the enum when it is loaded: `__construct`, `__destruct`, `__clone`, `__get`, `__set`, `__isset`, `__unset`, `__toString`, `__serialize`, `__unserialize`, `__sleep`, `__wakeup`, and `__set_state`. Enums may declare `__call`, `__callStatic`, and `__invoke`.
+
+`__debugInfo()` is allowed on enums from PHP 8.6. Below that `output.phpVersion` it is reported as TYHP4379.</value>
+    <comment>Long-form explanation for TYHP4024 (tyhp --explain)</comment>
   </data>
   <data name="EXPLAIN_TYHP4025" xml:space="preserve">
     <value>A private or protected member is accessed from outside its allowed scope.
@@ -5923,12 +6260,16 @@ $a-&gt;balance;  // Error: Cannot access private member 'balance'
     <comment>Long-form explanation for TYHP4027 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP4028" xml:space="preserve">
-    <value>The `await` keyword is used inside a function that is not marked as `async`.
+    <value>The `await` keyword, or `using await`, is used inside a function that is not marked as `async`.
 
 ```tyhp
 &lt;?tyhp
 function fetchData(): string {
     return await getRemoteData();  // Error: await outside of async function
+}
+
+function closeAll(): void {
+    using await ($conn = new AsyncConnection()) { }  // Error: using await outside async code
 }
 ```
 
@@ -5940,13 +6281,16 @@ Fix: Mark the function as `async`: `async function fetchData(): Promise&lt;strin
     <comment>Long-form explanation for TYHP4029 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP4030" xml:space="preserve">
-    <value>A resource bound with `:=`, `using` or `using await` has a type that does not implement the `IsDisposable` interface.
+    <value>The disposable assignment operator `:=`, a `using` block, or a `using await` block is used with a class that implements neither `IsDisposable` nor `AsyncIsDisposable`.
 
 ```tyhp
 &lt;?tyhp
 class PlainObject { }
 $obj := new PlainObject();
 // Error: ':=' requires the type to implement IsDisposable
+
+using (PlainObject $p = new PlainObject()) { }
+// Error: same requirement
 ```</value>
     <comment>Long-form explanation for TYHP4030 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
@@ -5959,7 +6303,7 @@ $obj := new PlainObject();
     <comment>Long-form explanation for TYHP4032 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
   </data>
   <data name="EXPLAIN_TYHP4035" xml:space="preserve">
-    <value>A type argument provided for a generic parameter does not meet the declared constraint.
+    <value>A type argument provided for a generic parameter does not meet the declared constraint. A `mixed` argument binds the parameter to `mixed`, so it fails any constraint other than `mixed`; narrow the value first.
 
 ```tyhp
 &lt;?tyhp
@@ -6316,6 +6660,10 @@ Fix: Check the `include` and `exclude` patterns in `tyhp.json`. Ensure your sour
     <value>An `output.publishContent` src pattern was unmatched: it matched no files. Set `required` to true if a missing match should fail the build.</value>
     <comment>Long-form explanation for TYHP7107 (tyhp --explain)</comment>
   </data>
+  <data name="EXPLAIN_TYHP7108" xml:space="preserve">
+    <value>With `build.updateComposer`, the build adds a Composer constraint for each compiled `tyhp/*` runtime package the output uses. Those packages are published once per PHP minor version as `80N.X.Y`; for example, `tyhp/core` `805.0.3` is the PHP 8.5 build. When no build is published for `output.phpVersion`, there is no correct constraint, so the build reports this error and leaves `composer.json` unchanged rather than requiring another PHP version's build. Set `output.phpVersion` to one of the listed versions.</value>
+    <comment>Long-form explanation for TYHP7108 (tyhp --explain)</comment>
+  </data>
   <data name="EXPLAIN_TYHP7200" xml:space="preserve">
     <value>The `--file` argument to `tyhp lint` specifies a file path that does not exist.</value>
     <comment>Long-form explanation for TYHP7200 (tyhp --explain); recovered from pre-generated diagnostics_reference.md</comment>
@@ -6501,7 +6849,9 @@ int $count = "hello";
 // Error: Cannot assign type 'string' to type 'int'
 ```
 
-Make the two types agree: widen or change the declared type, convert the value explicitly, or narrow a nullable or union type with a guard before the assignment.</value>
+Make the two types agree: widen or change the declared type, convert the value explicitly, or narrow a nullable or union type with a guard before the assignment.
+
+A generic class written without type arguments is `Box&lt;mixed&gt;` when it is assigned to an instantiation of the same class, so `Box&lt;int&gt; $b = $raw;` with a `Box $raw` reports this error, as do the same assignment through an argument (TYHP4010) or a return (TYHP4009). The reverse direction is fine. See [Generic Types Without Type Arguments](tyhp_0500_generics.md#generic-types-without-type-arguments).</value>
     <comment>Long-form explanation for TYHP4008 (tyhp --explain); blank line separates paragraphs; example recovered from pre-generated docs; example recovered from pre-generated docs</comment>
   </data>
   <data name="EXPLAIN_TYHP4300" xml:space="preserve">
@@ -6646,7 +6996,7 @@ Use only `-&gt;` or `?-&gt;` property accesses starting at the parameter — `ta
     <comment>Long-form explanation for TYHP4321 (tyhp --explain); blank line separates paragraphs</comment>
   </data>
   <data name="EXPLAIN_TYHP4322" xml:space="preserve">
-    <value>The inline `fn` body contains an expression kind that cannot be represented in an expression tree. Assignments, `await`, `yield`, `match`, `instanceof`/`is`, nested `fn`/closures, free function calls, `throw`, and similar constructs are rejected so the emitted tree stays a faithful, inspectable data structure.
+    <value>The inline `fn` body contains an expression kind that cannot be represented in an expression tree. Assignments, `await`, `yield`, `match`, `function` closures, array spread (`...$xs`), free function calls, `throw`, and similar constructs are rejected so the emitted tree stays a faithful, inspectable data structure. A nested arrow `fn` is part of the tree; its parameters cannot be by-reference, variadic, or defaulted, and its body follows the same rules.
 
 ```tyhp
 &lt;?tyhp
@@ -6655,7 +7005,7 @@ function takes(\Tyhp\Expression&lt;callable(User $u): bool&gt; $pred): void {}
 takes(fn ($u) =&gt; await $u-&gt;load());
 ```
 
-Simplify the body to supported forms: property/method access, operators, casts, ternary/`??`, array access, `new`, literals, and definitely-assigned captures.</value>
+Simplify the body to supported forms: property/method access (including `?-&gt;`), operators, casts, `instanceof`/`is`, ternary/`??`, array access, array literals, nested arrow `fn`, `new`, literals, and definitely-assigned captures. See [Parsable Lambdas and Expression Trees](tyhp_3000_parsableLambdas.md#unsupported-expression-types) for the full list.</value>
     <comment>Long-form explanation for TYHP4322 (tyhp --explain); blank line separates paragraphs</comment>
   </data>
   <data name="EXPLAIN_TYHP4323" xml:space="preserve">

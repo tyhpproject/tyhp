@@ -279,11 +279,27 @@ namespace Tyhp.TyhpLang.Binder
             return methodSymbol;
         }
 
+        /// <summary>
+        /// PHP makes every instance property of a <c>readonly class</c> readonly, including
+        /// promoted constructor parameters, whether or not the member repeats the modifier.
+        /// </summary>
+        private static bool IsReadonlyClassScope(ObjectDeclarationScope objScope) =>
+            objScope.DeclarationSymbol is ObjectDeclarationSymbol
+            {
+                ObjectKind: PhpTypeDeclType.Class,
+                IsStruct: false,
+            } declSymbol
+            && declSymbol.Visibility.HasFlag(MemberModifier.Readonly);
+
         private void BindPropertyDecl(PhpPropertyDeclAst propDecl, ObjectDeclarationScope objScope)
         {
             var modifiers = ConvertModifiers(propDecl.Modifiers);
             var type = propDecl.Type;
             var isStatic = modifiers.HasFlag(MemberModifier.Static);
+            if (!isStatic && IsReadonlyClassScope(objScope))
+            {
+                modifiers |= MemberModifier.Readonly;
+            }
 
             if (propDecl.Properties == null) return;
 
@@ -705,12 +721,18 @@ namespace Tyhp.TyhpLang.Binder
                     // member table.
                     var propMemberName = paramName.StartsWith('$') ? paramName : "$" + paramName;
 
+                    var propModifiers = paramModifiers;
+                    if (!paramModifiers.HasFlag(MemberModifier.Static) && IsReadonlyClassScope(objScope))
+                    {
+                        propModifiers |= MemberModifier.Readonly;
+                    }
+
                     var propSymbol = new ObjectPropertySymbol(
                         propMemberName,
                         sourceFile: _currentFileName,
                         declaringNode: param,
                         symbolType: propSymbolType,
-                        visibility: paramModifiers
+                        visibility: propModifiers
                     );
 
                     propSymbol.DeclaredType = param.Type;

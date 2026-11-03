@@ -541,19 +541,122 @@ public class ComposerJsonServiceTests
             .Should().BeEquivalentTo(["tyhp/async", "tyhp/decimal", "tyhpdef/php"]);
     }
 
-    [Fact]
-    public void EncodeRuntimePackageVersion_KeepsMinorPatchAndMapsPhpMajor()
+    [Theory]
+    [InlineData("8.2", "0.0", "802.0.0")]
+    [InlineData("8.3", "0.0", "803.0.0")]
+    [InlineData("8.4", "1.2", "804.1.2")]
+    [InlineData("8.5", "0.0", "805.0.0")]
+    [InlineData(" 8.5 ", "", "805.0.0")]
+    [InlineData("8.4.1", "0.3", "804.0.3")]
+    public void TryEncodeRuntimePackageVersion_KeepsMinorPatchAndMapsPhpMajor(
+        string phpVersion,
+        string sourceVersion,
+        string expected)
     {
-        ComposerJsonService.EncodeRuntimePackageVersion("8.2", "0.0")
-            .Should().Be("802.0.0");
-        ComposerJsonService.EncodeRuntimePackageVersion("8.3", "0.0")
-            .Should().Be("803.0.0");
-        ComposerJsonService.EncodeRuntimePackageVersion("8.4", "1.2")
-            .Should().Be("804.1.2");
-        ComposerJsonService.EncodeRuntimePackageVersion("8.5", "0.0")
-            .Should().Be("805.0.0");
-        ComposerJsonService.PhpConstraintForPhpVersion("8.3").Should().Be("~8.3.0");
-        ComposerJsonService.PhpConstraintForPhpVersion("9.9").Should().Be(">=8.2");
+        ComposerJsonService.TryEncodeRuntimePackageVersion(phpVersion, sourceVersion, out var version)
+            .Should().BeTrue();
+        version.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("8.0")]
+    [InlineData("8.1")]
+    [InlineData("8.6")]
+    [InlineData("9.0")]
+    [InlineData("")]
+    [InlineData("latest")]
+    public void TryEncodeRuntimePackageVersion_UnpublishedPhpVersion_ReturnsFalse(string phpVersion)
+    {
+        ComposerJsonService.TryEncodeRuntimePackageVersion(phpVersion, "0.1", out _).Should().BeFalse();
+        ComposerJsonService.TryGetPackageMajor(phpVersion, out _).Should().BeFalse();
+        ComposerJsonService.ResolvePackagistConstraint("tyhp/core", phpVersion, "0.1").Should().BeNull();
+        ComposerJsonService.ResolvePackagistConstraint("tyhpdef/php", phpVersion, "0.0.1").Should().Be("0.0.1");
+    }
+
+    [Theory]
+    [InlineData("8.2", "~8.2.0")]
+    [InlineData("8.3", "~8.3.0")]
+    [InlineData("8.4", "~8.4.0")]
+    [InlineData("8.5", "~8.5.0")]
+    [InlineData("8.1", ">=8.2")]
+    [InlineData("9.9", ">=8.2")]
+    public void PhpConstraintForPhpVersion_UsesPublishedRuntimeLines(string phpVersion, string expected)
+    {
+        ComposerJsonService.PhpConstraintForPhpVersion(phpVersion).Should().Be(expected);
+    }
+
+    [Fact]
+    public void MergeRequireSection_UnpublishedPhpVersion_Reports7108AndLeavesManifestUnchanged()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var project = CreateProjectWithPhpVersion(tempDir, "8.1");
+            var diagnostics = new DiagnosticBag();
+            var root = new System.Text.Json.Nodes.JsonObject { ["name"] = "acme/app" };
+
+            var merged = new ComposerJsonService(diagnostics).MergeRequireSection(
+                root,
+                ["tyhp/core", "tyhpdef/php"],
+                project,
+                new Dictionary<string, string>());
+
+            merged.Should().BeFalse();
+            root.ContainsKey("require").Should().BeFalse();
+            var errors = diagnostics.Errors
+                .Where(d => d.Code == MessageCode.BuildRuntimePackageNoPhpRelease)
+                .ToList();
+            errors.Should().ContainSingle();
+            errors[0].Message.Should().Contain("`tyhp/core`").And.Contain("`8.1`").And.Contain("`8.2` through `8.5`");
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void MergeRequireSection_PublishedPhpVersion_WritesPackagistLine()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var project = CreateProjectWithPhpVersion(tempDir, "8.5");
+            var diagnostics = new DiagnosticBag();
+            var root = new System.Text.Json.Nodes.JsonObject { ["name"] = "acme/app" };
+
+            var merged = new ComposerJsonService(diagnostics).MergeRequireSection(
+                root,
+                ["tyhp/core"],
+                project,
+                new Dictionary<string, string>());
+
+            merged.Should().BeTrue();
+            diagnostics.HasErrors.Should().BeFalse();
+            root["require"]!["tyhp/core"]!.GetValue<string>()
+                .Should().Be("805." + RuntimePackageVersions.Core);
+            root["require"]!["tyhpdef/php"]!.GetValue<string>().Should().Be(RuntimePackageVersions.Php);
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    private static Project CreateProjectWithPhpVersion(string projectPath, string phpVersion)
+    {
+        var projectFile = Path.Combine(projectPath, "tyhp.json");
+        File.WriteAllText(projectFile, "{}");
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["*project_file_path"] = projectFile,
+                ["output:path"] = "build/",
+                ["output:phpVersion"] = phpVersion,
+            })
+            .Build();
+        return new Project(configuration);
     }
 
     [Fact]

@@ -245,6 +245,66 @@ public class DefiniteAssignmentRuleTests
         diagnostics.Errors.Should().BeEmpty();
     }
 
+    [Fact]
+    public void Check_AssignedInTry_CatchAlwaysThrows_DoesNotReport4014()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(): int {
+                int $x;
+                try {
+                    $x = \intdiv(4, 2);
+                } catch (\Throwable $e) {
+                    throw new \RuntimeException('failed', 0, $e);
+                }
+                return $x;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerVariablePossiblyUndefined);
+    }
+
+    [Fact]
+    public void Check_AssignedInTry_CatchFallsThrough_Reports4014()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(): int {
+                int $x;
+                try {
+                    $x = \intdiv(4, 2);
+                } catch (\Throwable $e) {
+                    (void)$e;
+                }
+                return $x;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerVariablePossiblyUndefined);
+    }
+
+    [Fact]
+    public void Check_AssignedInTryAndEveryFallThroughCatch_DoesNotReport4014()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(): int {
+                int $x;
+                try {
+                    $x = \intdiv(4, 2);
+                } catch (\DivisionByZeroError $e) {
+                    (void)$e;
+                    $x = 0;
+                } catch (\Throwable $e) {
+                    return -1;
+                }
+                return $x;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerVariablePossiblyUndefined);
+    }
+
     private static DiagnosticBag CompileAndCheck(string content)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));

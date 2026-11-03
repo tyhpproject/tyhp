@@ -45,6 +45,9 @@ public class GenericObjectEmitterTests
 
         php.Should().Contain(@"use \Tyhp\Concerns\HasGenerics;");
         php.Should().NotContain(@"use \Tyhp\Concerns\BootsTraits;");
+        php.Should().NotContain("__bootGenericBag__tyhpGeneric");
+        php.Should().Contain(
+            "private static ?\\ReflectionClass $__reflectedClass__tyhpGeneric = null;");
 
         // Mechanism C: type arguments arrive through the init hook rather than through hidden
         // constructor parameters, and bindings are keyed by the class that declared them.
@@ -250,9 +253,8 @@ public class GenericObjectEmitterTests
             """);
 
         php.Should().Contain(@"use \Tyhp\Concerns\HasGenerics;");
-        php.Should().Contain("__tyhpGeneric->setPropertyType('isset'");
+        php.Should().Contain(@"__tyhpGeneric->setPropertyType('isset', \Tyhp\Type::nullable(\Tyhp\Type::closure()))");
         php.Should().Contain("__tyhpGeneric->setPropertyType('value'");
-        php.Should().Contain(@"\Tyhp\Type::generic(\Closure::class");
     }
 
     [Fact]
@@ -707,6 +709,253 @@ public class GenericObjectEmitterTests
         php.Should().Contain("$this->value = $value;");
         php.Should().Contain("$this->__tyhpGeneric->enablePropertyChecks();");
         php.Should().Contain("($this->__tyhpGeneric->resolvedType(\\Box::class, 'T'))");
+    }
+
+    [Theory]
+    [InlineData("8.2")]
+    [InlineData("8.4")]
+    public void Emit_ReadonlyClassFreeGenericProperty_GetsNoSyntheticSetCheck(string phpVersion)
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            readonly class Box<T> {
+                public function __construct(public T $value) {}
+
+                public function describe(): \Tyhp\Type {
+                    return typeof(T);
+                }
+            }
+            """, phpVersion: phpVersion);
+
+        php.Should().NotContain("checkProperty('value'");
+        php.Should().NotContain("set(mixed $value)");
+        php.Should().NotContain("UsesPropertyAccessors");
+        php.Should().NotContain("HasGenerics");
+        php.Should().NotContain("tyhpBootTraits");
+        php.Should().NotContain("private static ?\\ReflectionClass");
+        php.Should().Contain("public \\Tyhp\\GenericObject $__tyhpGeneric;");
+        php.Should().Contain("$this->__bootGenericBag__tyhpGeneric();");
+        php.Should().Contain("static $__reflectedClass__tyhpGeneric = null;");
+    }
+
+    [Fact]
+    public void Emit_ReadonlyGenericClass_StoresBagOnAnInstanceProperty()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            readonly class Box<T> {
+                public function describe(): \Tyhp\Type {
+                    return typeof(T);
+                }
+            }
+
+            readonly class Named<T> extends Box<T> {
+                public function again(): \Tyhp\Type {
+                    return typeof(T);
+                }
+            }
+            """);
+
+        php.Should().NotContain("HasGenerics");
+        php.Should().NotContain("tyhpBootTraits");
+        php.Should().NotContain("private static");
+        php.Should().Contain("public \\Tyhp\\GenericObject $__tyhpGeneric;");
+        System.Text.RegularExpressions.Regex.Matches(php, "protected function __bootGenericBag__tyhpGeneric\\(\\)")
+            .Count
+            .Should()
+            .Be(1, "the boot method is declared only on the topmost generic level");
+        php.Should().Contain("if (!isset($this->__tyhpGeneric)) {");
+        php.Should().Contain("$this->__tyhpGeneric = new \\Tyhp\\GenericObject();");
+        php.Should().Contain("$this->__bootGenericBag__tyhpGeneric();");
+        php.Should().Contain("static $__reflectedClass__tyhpGeneric = null;");
+        php.Should().Contain("parent::__initGenerics__tyhpGeneric(");
+        php.Should().Contain("__tyhpGeneric->resolvedType(\\Box::class, 'T')");
+        php.Should().Contain("__tyhpGeneric->resolvedType(\\Named::class, 'T')");
+    }
+
+    [Fact]
+    public void Emit_ReadonlyGenericClassWithoutTracking_SkipsBag()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            readonly class Box<T> {
+                public function identity(T $value): T {
+                    return $value;
+                }
+            }
+            """);
+
+        php.Should().NotContain("__tyhpGeneric");
+        php.Should().NotContain("HasGenerics");
+        php.Should().NotContain("__bootGenericBag");
+    }
+
+    [Trait("Category", "PHP")]
+    [Fact]
+    public void Emit_ReadonlyGenericClass_LoadsAndTracksTypesWhenExecuted()
+    {
+        if (!PhpToolchain.IsPhpAvailable())
+        {
+            return;
+        }
+
+        var output = CompileAndRun("""
+            <?tyhp
+            namespace Probe;
+
+            readonly class Box<T> {
+                public function __construct(public T $value) {}
+
+                public function zero(): mixed {
+                    return default(T);
+                }
+            }
+
+            readonly class Named<T> extends Box<T> {
+                public function again(): mixed {
+                    return default(T);
+                }
+            }
+
+            function run(): void {
+                $box = new Box<int>(7);
+                var_dump($box->zero());
+                $clone = clone $box;
+                var_dump($clone->zero());
+                var_dump($clone->value);
+
+                $named = new Named<string>("hi");
+                var_dump($named->zero());
+                var_dump($named->again());
+                $namedClone = clone $named;
+                var_dump($namedClone->zero());
+                var_dump($namedClone->value);
+            }
+            """);
+
+        output.Should().Be(
+            """
+            int(0)
+            int(0)
+            int(7)
+            string(0) ""
+            string(0) ""
+            string(0) ""
+            string(2) "hi"
+
+            """.ReplaceLineEndings("\n"));
+    }
+
+    [Trait("Category", "PHP")]
+    [Fact]
+    public void Emit_ReadonlyGenericClasses_KeepSeparateBagsAndFactoryCaches()
+    {
+        if (!PhpToolchain.IsPhpAvailable())
+        {
+            return;
+        }
+
+        var output = CompileAndRun("""
+            <?tyhp
+            namespace Probe;
+
+            readonly class Box<T> {
+                public function __construct(public T $value) {}
+
+                public function zero(): mixed {
+                    return default(T);
+                }
+            }
+
+            readonly class Pair<T> {
+                public function __construct(public T $value) {}
+
+                public function zero(): mixed {
+                    return default(T);
+                }
+            }
+
+            readonly class Middle<T> extends Box<T> {}
+
+            readonly class Leaf<T> extends Middle<T> {
+                public function leafZero(): mixed {
+                    return default(T);
+                }
+            }
+
+            readonly class StringBox extends Box<string> {}
+
+            abstract readonly class Shape<T> {
+                public function __construct(public T $size) {}
+
+                public function sizeZero(): mixed {
+                    return default(T);
+                }
+            }
+
+            final readonly class Square<T> extends Shape<T> {
+                public function __construct(T $size, public string $label): parent($size) {}
+
+                public function squareZero(): mixed {
+                    return default(T);
+                }
+            }
+
+            function run(): void {
+                // Repeated factory calls on one class, with different type arguments, share one
+                // reflection cache but not one bag.
+                $a = new Box<int>(1);
+                $b = new Box<string>("x");
+                $c = new Box<int>(2);
+                var_dump($a->zero());
+                var_dump($b->zero());
+                var_dump($c->zero());
+
+                // A second class keeps its own cache.
+                $p = new Pair<float>(1.5);
+                var_dump($p->zero());
+                var_dump(get_class($p));
+                var_dump($a->value);
+
+                $leaf = new Leaf<bool>(true);
+                var_dump($leaf->zero());
+                var_dump($leaf->leafZero());
+                $leafClone = clone $leaf;
+                var_dump($leafClone->zero());
+                var_dump($leafClone->leafZero());
+
+                $sb = new StringBox("s");
+                var_dump($sb->zero());
+                var_dump((clone $sb)->zero());
+
+                $sq = new Square<int>(3, "sq");
+                var_dump($sq->sizeZero());
+                var_dump($sq->squareZero());
+                var_dump((clone $sq)->squareZero());
+                var_dump($sq->label);
+            }
+            """);
+
+        output.Should().Be(
+            """
+            int(0)
+            string(0) ""
+            int(0)
+            float(0)
+            string(10) "Probe\Pair"
+            int(1)
+            bool(false)
+            bool(false)
+            bool(false)
+            bool(false)
+            string(0) ""
+            string(0) ""
+            int(0)
+            int(0)
+            int(0)
+            string(2) "sq"
+
+            """.ReplaceLineEndings("\n"));
     }
 
     [Fact]

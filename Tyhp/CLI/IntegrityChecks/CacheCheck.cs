@@ -1,6 +1,7 @@
 using Tyhp.Config;
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Services;
+using Tyhp.TyhpLang.Parser;
 
 namespace Tyhp.CLI.IntegrityChecks
 {
@@ -117,7 +118,12 @@ namespace Tyhp.CLI.IntegrityChecks
                     continue;
                 }
 
-                var currentHash = AstCacheService.ComputeContentHash(content, tagless);
+                // Match CompilationService: the hash records the entry point the file was parsed with.
+                var fileTagless = absoluteSource.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase)
+                    ? tagless
+                    : absoluteSource.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase)
+                        && TaglessEntryPoint.UsesTaglessEntryPoint(tagless, content);
+                var currentHash = AstCacheService.ComputeContentHash(content, fileTagless);
                 if (!string.Equals(currentHash, entry.ContentHash, StringComparison.OrdinalIgnoreCase))
                 {
                     stale++;

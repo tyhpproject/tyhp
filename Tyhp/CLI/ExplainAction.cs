@@ -68,16 +68,9 @@ namespace Tyhp.CLI
 
             foreach (var block in MessageCodeCatalog.SplitLongFormBlocks(longForm))
             {
-                if (block.IsCodeFence)
+                foreach (var blockLine in block.Text.Split('\n'))
                 {
-                    foreach (var fenceLine in block.Text.Split('\n'))
-                    {
-                        lines.Add("  " + fenceLine);
-                    }
-                }
-                else
-                {
-                    lines.Add("  " + block.Text);
+                    lines.Add("  " + blockLine);
                 }
             }
 

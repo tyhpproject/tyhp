@@ -140,11 +140,25 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 var elseState = beforeBranch.Split(ScopeType.CodeBlock);
                 ApplyConditionNarrowing(ifAst.Condition, elseState, context, positive: false);
                 CheckStatement(ifAst.ElseStatement, elseState, context, diagnostics);
-                // Join then⋈else first, then absorb — merging each into the pre-if state would
-                // count the unassigned entry state as a third path and never clear 4014 when both
-                // arms assign.
-                thenState.Merge(elseState);
-                state.AbsorbJoinedVariables(thenState);
+                // An arm that always returns/throws/breaks/continues does not reach the
+                // continuation, so only the other arm's state flows on (same as the no-else case).
+                // Otherwise join then⋈else first, then absorb — merging each into the pre-if state
+                // would count the unassigned entry state as a third path and never clear 4014 when
+                // both arms assign.
+                if (elseState.HasReturnedOnAllPaths && !thenState.HasReturnedOnAllPaths)
+                {
+                    state.AbsorbJoinedVariables(thenState);
+                }
+                else if (thenState.HasReturnedOnAllPaths && !elseState.HasReturnedOnAllPaths)
+                {
+                    state.AbsorbJoinedVariables(elseState);
+                }
+                else
+                {
+                    thenState.Merge(elseState);
+                    state.AbsorbJoinedVariables(thenState);
+                }
+
                 state.HasReturnedOnAllPaths = thenState.HasReturnedOnAllPaths && elseState.HasReturnedOnAllPaths;
             }
             else
@@ -281,7 +295,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
         {
             var loopState = state.Split(ScopeType.CodeBlock);
             loopState.IsInLoopContext = true;
-            loopState.LoopDepth = state.LoopDepth + 1;
+            var loopScope = new BreakableScope(isSwitch: false);
+            loopState.BreakableScopes = [.. state.BreakableScopes, loopScope];
 
             switch (loop.LoopType)
             {
@@ -364,47 +379,27 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     break;
             }
 
+            // The loop ends when its test fails: before the first iteration, after the body, or
+            // after a `continue` to it. A `break` to it leaves without testing again.
             state.Merge(loopState);
+            foreach (var continued in loopScope.ContinueStates)
+            {
+                state.Merge(continued);
+            }
+
             state.HasReturnedOnAllPaths = false;
 
-            // Exiting `while` / `do` means the condition is false, unless `break` left early.
+            // Exiting `while` / `do` by the test means the condition is false.
             // `while (!\is_int($m)) { $m = 1; }` therefore leaves `$m` as `int`.
-            if (loop.LoopType is PhpLoopType.While or PhpLoopType.DoWhile
-                && !ContainsBreak(loop.Body))
+            if (loop.LoopType is PhpLoopType.While or PhpLoopType.DoWhile)
             {
                 ApplyConditionNarrowing(loop.Condition, state, context, positive: false);
             }
-        }
 
-        /// <summary>
-        /// True when <paramref name="node"/> contains a <c>break</c> that is not inside a
-        /// nested function or closure. A nested <c>break</c> still suppresses exit narrowing:
-        /// it may target this loop (<c>break 2</c>).
-        /// </summary>
-        private static bool ContainsBreak(IBase2Ast? node)
-        {
-            if (node is null
-                || node is PhpInlineFunctionAst
-                or PhpFunctionDeclAst
-                or PhpMethodDeclAst)
+            foreach (var broken in loopScope.BreakStates)
             {
-                return false;
+                state.Merge(broken);
             }
-
-            if (node is PhpJumpStatementAst { JumpType: PhpJumpType.Break })
-            {
-                return true;
-            }
-
-            foreach (var child in node.AstChildren)
-            {
-                if (child is not null && ContainsBreak(child))
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         private static void CheckStatement(
@@ -429,6 +424,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 // terminate through this check. Without it, `if ($c) exit; else exit;` would not
                 // mark either arm as terminated, and code after the if would be missed as dead.
                 context.MarkTerminatedIfNeverReturning(statement, state);
+                context.ApplyAssertNarrowing(statement, state);
             }
         }
 
@@ -565,9 +561,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     }
 
                     ValidateJumpLevel(jump, state, context, diagnostics);
+                    RecordJumpTarget(jump, state);
                     // Abrupt completion: control leaves this block (loop iteration / switch arm).
                     // Same signal as return/throw so CheckIf can absorb only the negative-narrowed
-                    // arm after `if (!guard) { break; }` / `if ($x === null) { break; }`.
+                    // arm after `if (!guard) { break; }` / `if ($x === null) { break; }`. Where
+                    // control goes next is recorded on the targeted loop or switch.
                     state.HasReturnedOnAllPaths = true;
                     break;
                 case PhpJumpType.Continue:
@@ -577,6 +575,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     }
 
                     ValidateJumpLevel(jump, state, context, diagnostics);
+                    RecordJumpTarget(jump, state);
                     // Abrupt completion: skips the rest of this iteration. Enables early-exit
                     // narrowing for `if (!guard) { continue; }` (Top-type #2).
                     state.HasReturnedOnAllPaths = true;
@@ -618,9 +617,49 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             _ = context.ResolveExpressionType(jump.Expression, state);
-            if (jump.Expression is PhpScalarAst scalar && scalar.ValueInt64 is long level && level > state.LoopDepth)
+            if (jump.Expression is PhpScalarAst scalar
+                && scalar.ValueInt64 is long level
+                && level > state.BreakableScopes.Count)
             {
                 CheckerHelpers.ReportError(context, state, jump, MessageCode.CheckerBreakOutsideLoop, level);
+            }
+        }
+
+        /// <summary>
+        /// Records the state at a reachable <c>break N</c> / <c>continue N</c> on the loop or
+        /// switch it targets (loops and switches both count toward <c>N</c>). A <c>continue</c>
+        /// that targets a switch acts as <c>break</c>. A non-literal level is recorded on every
+        /// enclosing construct.
+        /// </summary>
+        private static void RecordJumpTarget(PhpJumpStatementAst jump, CheckerState state)
+        {
+            var scopes = state.BreakableScopes;
+            if (state.HasReturnedOnAllPaths || scopes.Count == 0)
+            {
+                return;
+            }
+
+            var isContinue = jump.JumpType == PhpJumpType.Continue;
+            if (jump.Expression is null or PhpScalarAst { ValueInt64: not null })
+            {
+                var level = jump.Expression is PhpScalarAst { ValueInt64: long written } ? written : 1;
+                if (level >= 1 && level <= scopes.Count)
+                {
+                    Record(scopes[scopes.Count - (int)level]);
+                }
+
+                return;
+            }
+
+            foreach (var scope in scopes)
+            {
+                Record(scope);
+            }
+
+            void Record(BreakableScope target)
+            {
+                var exits = isContinue && !target.IsSwitch ? target.ContinueStates : target.BreakStates;
+                exits.Add(state.Fork());
             }
         }
 
@@ -671,7 +710,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
 
             var arms = conditional.Arms?.GetAllNotNull().ToList() ?? [];
-            CheckerState? joined = null;
+            var switchOnTrue = TypeNarrowingRule.IsTrueSubject(conditional.Expression as IExpression);
+            var switchScope = new BreakableScope(isSwitch: true);
+            IReadOnlyList<BreakableScope> armScopes = [.. state.BreakableScopes, switchScope];
             CheckerState? fallThroughState = null;
             SwitchArmGuardBaseline? fallThroughGuardBaseline = null;
 
@@ -695,7 +736,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     // rejected (FOUND #10). Do not treat the joined entry as abrupt.
                     var directEntry = state.Split(ScopeType.CodeBlock);
                     directEntry.IsInSwitchContext = true;
+                    directEntry.BreakableScopes = armScopes;
                     directEntry.HasReturnedOnAllPaths = false;
+                    ApplyFailedSwitchArmsNarrowing(switchOnTrue, arms, arm, directEntry, context);
                     ApplySwitchArmConditionNarrowing(arm, directEntry, context);
                     armState.Merge(directEntry);
                     armState.HasReturnedOnAllPaths = false;
@@ -704,19 +747,34 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 {
                     armState = state.Split(ScopeType.CodeBlock);
                     armState.IsInSwitchContext = true;
+                    armState.BreakableScopes = armScopes;
                     armState.HasReturnedOnAllPaths = false;
+                    ApplyFailedSwitchArmsNarrowing(switchOnTrue, arms, arm, armState, context);
                     fallThroughGuardBaseline = ApplySwitchArmConditionNarrowing(arm, armState, context);
                 }
 
-                // Conditions are checked against the pre-switch state (un-narrowed), matching
-                // InferMatch — the case label expression is not itself under the arm's narrowing.
+                // Conditions are checked against the pre-switch state, matching InferMatch — the
+                // case label expression is not under its own arm's narrowing. In `switch (true)`
+                // it is under the negation of every label evaluated before it.
                 // Use a probe so progressive `&&`/`||` narrowing cannot mutate the pre-switch state.
                 if (arm.Conditions is not null)
                 {
+                    var failedConditions = switchOnTrue
+                        ? TypeNarrowingRule.FailedArmConditions(arms, arm)
+                        : new List<IExpression>();
                     foreach (var condition in arm.Conditions.GetAllNotNull())
                     {
                         var probe = state.Split(ScopeType.CodeBlock);
+                        foreach (var failed in failedConditions)
+                        {
+                            ApplyConditionNarrowing(failed, probe, context, positive: false);
+                        }
+
                         context.CheckNode(condition, probe);
+                        if (switchOnTrue)
+                        {
+                            failedConditions.Add(condition);
+                        }
                     }
                 }
 
@@ -733,35 +791,49 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 {
                     fallThroughState = null;
                     fallThroughGuardBaseline = null;
-                    if (joined is null)
-                    {
-                        joined = armState;
-                    }
-                    else
-                    {
-                        joined.Merge(armState);
-                    }
                 }
+            }
+
+            // Control reaches the code after the switch from each `break` to it (recorded at the
+            // jump), from the last arm when it falls off the end, and — without `default` — when
+            // no case matches. Arms that return, throw, or jump further out do not.
+            CheckerState? exit = null;
+            foreach (var broken in switchScope.BreakStates)
+            {
+                JoinExit(ref exit, broken);
             }
 
             if (fallThroughState is not null)
             {
-                if (joined is null)
+                JoinExit(ref exit, fallThroughState);
+            }
+
+            var hasDefault = arms.Any(arm => arm.IsDefault);
+            if (exit is not null)
+            {
+                if (hasDefault)
                 {
-                    joined = fallThroughState;
+                    state.AbsorbJoinedVariables(exit);
                 }
                 else
                 {
-                    joined.Merge(fallThroughState);
+                    state.Merge(exit);
                 }
             }
 
-            if (joined is not null)
-            {
-                state.Merge(joined);
-            }
+            state.HasReturnedOnAllPaths = exit is null && hasDefault;
+        }
 
-            state.HasReturnedOnAllPaths = false;
+        private static void JoinExit(ref CheckerState? exit, CheckerState path)
+        {
+            if (exit is null)
+            {
+                exit = path;
+            }
+            else
+            {
+                exit.Merge(path);
+            }
         }
 
         /// <summary>
@@ -775,6 +847,30 @@ namespace Tyhp.TyhpLang.Checker.Rules
         private sealed record SwitchArmGuardBaseline(
             Dictionary<string, (ICheckedType? Pre, bool PreIsPossiblyNull, ICheckedType? Post, bool PostIsPossiblyNull)> Variables,
             Dictionary<string, (ICheckedType? Pre, ICheckedType? Post)> Properties);
+
+        /// <summary>
+        /// In <c>switch (true)</c>, an arm entered by its own label runs only after every earlier
+        /// case label failed (<c>default</c>: every case label), so each of those labels narrows
+        /// negatively. Applied before the arm's own guard and kept when the arm falls through:
+        /// those labels also failed on the path into the next arm.
+        /// </summary>
+        private static void ApplyFailedSwitchArmsNarrowing(
+            bool switchOnTrue,
+            IReadOnlyList<PhpConditionalArmAst> arms,
+            PhpConditionalArmAst arm,
+            CheckerState armState,
+            CheckerRuleContext context)
+        {
+            if (!switchOnTrue)
+            {
+                return;
+            }
+
+            foreach (var failed in TypeNarrowingRule.FailedArmConditions(arms, arm))
+            {
+                ApplyConditionNarrowing(failed, armState, context, positive: false);
+            }
+        }
 
         /// <summary>
         /// Applies positive condition narrowing for a single-condition switch arm. Default arms and

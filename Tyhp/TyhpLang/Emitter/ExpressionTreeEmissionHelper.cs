@@ -10,17 +10,19 @@ using Tyhp.TyhpLang.Parser;
 namespace Tyhp.TyhpLang.Emitter
 {
     /// <summary>
-    /// Builds a <c>\Tyhp\Expression::lambda(...)</c> call for inline expression-tree
-    /// arrow functions targeting <c>Expression&lt;TCallableShape&gt;</c> parameters.
-    /// The helper infers the return type from the closure and the tree body, so the
-    /// call does not pass <c>returnType</c>.
+    /// Rewrites inline expression-tree arrow functions targeting <c>Expression&lt;TCallableShape&gt;</c>
+    /// parameters into a fluent <c>\Tyhp\Expr::param(...)->…->backedBy(fn)</c> chain. The runtime
+    /// reads the return type from the backing closure and the tree body, so the chain does not
+    /// pass one. The supported body shapes are the ones <see cref="ExpressionTreeSupport"/> accepts.
     /// </summary>
     internal static partial class ExpressionTreeEmissionHelper
     {
         /// <summary>
         /// When <paramref name="expectedType"/> is <c>Expression&lt;…&gt;</c> (not PropertyPath) and
         /// <paramref name="expression"/> is an arrow fn, returns the rewritten
-        /// <c>\Tyhp\Expression::lambda(...)</c> call.
+        /// <c>\Tyhp\Expr::…->backedBy(fn)</c> chain. When the body has a construct the chain cannot
+        /// express, <paramref name="reportUnsupported"/> receives that node and its construct name
+        /// and the method returns false; the caller must not keep the <c>fn</c> as a closure.
         /// </summary>
         public static bool TryRewriteInlineFn(
             IExpression expression,
@@ -30,6 +32,7 @@ namespace Tyhp.TyhpLang.Emitter
             Func<PhpInlineFunctionAst, InferredClosureSignature?>? getInferredSignature,
             IReadOnlyDictionary<IBase2Ast, ICheckedType>? expressionTypes,
             Base2Ast context,
+            Action<IBase2Ast, string>? reportUnsupported,
             out IExpression rewritten)
         {
             rewritten = expression;
@@ -63,14 +66,20 @@ namespace Tyhp.TyhpLang.Emitter
                 formatClassFqn,
                 context);
 
+            var failure = new RewriteFailure();
             var chain = RewriteFluent(
                 body,
                 parameterInfos,
                 expressionTypes,
                 formatClassFqn,
-                context);
+                resolveTypeSymbol,
+                getInferredSignature,
+                context,
+                failure);
             if (chain is null)
             {
+                var node = failure.Node ?? body as IBase2Ast ?? closure;
+                reportUnsupported?.Invoke(node, failure.Kind ?? ExpressionTreeSupport.DescribeUnsupported(node));
                 return false;
             }
 
@@ -79,7 +88,24 @@ namespace Tyhp.TyhpLang.Emitter
                 "backedBy",
                 [closure],
                 context);
+            RecordRewrittenInlineFn(rewritten, closure);
             return true;
+        }
+
+        /// <summary>
+        /// Emitted <c>…->backedBy(fn)</c> chains (Expression and PropertyPath) mapped to the source
+        /// <c>fn</c>. Call arguments are rewritten bottom-up, so an enclosing tree meets an inner
+        /// argument that is already a chain and rebuilds it from the source <c>fn</c> as a nested lambda.
+        /// </summary>
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IBase2Ast, PhpInlineFunctionAst>
+            RewrittenInlineFns = new();
+
+        internal static void RecordRewrittenInlineFn(IExpression rewritten, PhpInlineFunctionAst closure)
+        {
+            if (rewritten is IBase2Ast node)
+            {
+                RewrittenInlineFns.AddOrUpdate(node, closure);
+            }
         }
 
         public static bool IsExpressionTypeExpression(
@@ -161,18 +187,6 @@ namespace Tyhp.TyhpLang.Emitter
             return result;
         }
 
-        private static IExpression BuildParameterExpressionNode(ParameterInfo info, Base2Ast context)
-            => NewExpressionNode(
-                @"\Tyhp\Expression\ParameterExpression",
-                [
-                    PhpScalarAst.CreateStringFromContext(context, info.Name),
-                    // Type arg may already be parented on another ParameterExpression; re-spell
-                    // via EmittedPhpExprAst / clone-safe scalar when needed.
-                    CloneTypeArg(info.TypeArg, context),
-                    EmittedPhpExprAst.Create(info.Index.ToString(), context),
-                ],
-                context);
-
         private static IExpression CloneTypeArg(IExpression typeArg, Base2Ast context)
         {
             if (typeArg is EmittedPhpExprAst emitted)
@@ -196,6 +210,11 @@ namespace Tyhp.TyhpLang.Emitter
             Func<string?, string?, string> formatClassFqn,
             Base2Ast context)
         {
+            if (PropertyTypeStampSupport.TrySpellLossy(authoredType) is { } detailed)
+            {
+                return PhpScalarAst.CreateStringFromContext(context, detailed);
+            }
+
             if (authoredType is not null
                 && resolveTypeSymbol(authoredType) is ObjectDeclarationSymbol fromAuthored)
             {
@@ -224,496 +243,6 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             return PhpScalarAst.CreateStringFromContext(context, "mixed");
-        }
-
-        private static IExpression? RewriteNode(
-            IExpression? expression,
-            HashSet<string> paramNames,
-            Dictionary<string, ParameterInfo> parameters,
-            IReadOnlyDictionary<IBase2Ast, ICheckedType>? expressionTypes,
-            Func<string?, string?, string> formatClassFqn,
-            Base2Ast context)
-        {
-            if (expression is null)
-            {
-                return null;
-            }
-
-            switch (expression)
-            {
-                case PhpDereferenceableExpressionAst paren when paren.Expression is IExpression inner:
-                    return RewriteNode(inner, paramNames, parameters, expressionTypes, formatClassFqn, context);
-
-                case PhpVariableAst variable:
-                    return RewriteVariable(
-                        variable,
-                        paramNames,
-                        parameters,
-                        expressionTypes,
-                        formatClassFqn,
-                        context);
-
-                case PhpScalarAst:
-                case PhpMagicConstantAst:
-                case PhpEncapsListAst encapsLiteral when ExpressionTreeSupport.IsConstantStringLiteral(encapsLiteral):
-                case PhpEncapsStringAst:
-                case PhpNameAst literalName when ExpressionTreeSupport.IsLiteralConstantName(literalName):
-                    return NewExpressionNode(
-                        @"\Tyhp\Expression\ConstantExpression",
-                        [
-                            expression,
-                            PhpScalarAst.CreateStringFromContext(
-                                context,
-                                // The checker types a string literal as its own text; that text is already
-                                // the constant's value, so the type slot names the base type instead.
-                                expression is PhpEncapsListAst or PhpEncapsStringAst
-                                    ? "string"
-                                    : LookupTypeSpelling(expression, expressionTypes, formatClassFqn)),
-                        ],
-                        context);
-
-                case PhpTernaryOpAst ternary:
-                {
-                    var condition = RewriteNode(
-                        ternary.Condition, paramNames, parameters, expressionTypes, formatClassFqn, context);
-                    var ifTrue = ternary.TrueExpr is null
-                        ? EmittedPhpExprAst.Create("null", context)
-                        : RewriteNode(
-                            ternary.TrueExpr, paramNames, parameters, expressionTypes, formatClassFqn, context);
-                    var ifFalse = RewriteNode(
-                        ternary.FalseExpr, paramNames, parameters, expressionTypes, formatClassFqn, context);
-                    if (condition is null || ifTrue is null || ifFalse is null)
-                    {
-                        return null;
-                    }
-
-                    return NewExpressionNode(
-                        @"\Tyhp\Expression\TernaryExpression",
-                        [
-                            condition,
-                            ifTrue,
-                            ifFalse,
-                            PhpScalarAst.CreateStringFromContext(
-                                context,
-                                LookupTypeSpelling(ternary, expressionTypes, formatClassFqn)),
-                        ],
-                        context);
-                }
-
-                case PhpBinaryOpAst binary:
-                    return RewriteBinary(
-                        binary, paramNames, parameters, expressionTypes, formatClassFqn, context);
-
-                case PhpUnaryOpAst unary:
-                    return RewriteUnary(
-                        unary, paramNames, parameters, expressionTypes, formatClassFqn, context);
-
-                case PhpNewAst newExpr:
-                    return RewriteNew(
-                        newExpr, paramNames, parameters, expressionTypes, formatClassFqn, context);
-
-                case PhpDereferenceableAst deref:
-                    return RewriteDereferenceable(
-                        deref, paramNames, parameters, expressionTypes, formatClassFqn, context);
-
-                default:
-                    return null;
-            }
-        }
-
-        private static IExpression RewriteVariable(
-            PhpVariableAst variable,
-            HashSet<string> paramNames,
-            Dictionary<string, ParameterInfo> parameters,
-            IReadOnlyDictionary<IBase2Ast, ICheckedType>? expressionTypes,
-            Func<string?, string?, string> formatClassFqn,
-            Base2Ast context)
-        {
-            var name = CheckerHelpers.GetVariableName(variable);
-            if (!string.IsNullOrEmpty(name)
-                && parameters.TryGetValue(name, out var parameter))
-            {
-                return BuildParameterExpressionNode(parameter, context);
-            }
-
-            // Captures / other variables become ConstantExpression with the variable AST as value.
-            return NewExpressionNode(
-                @"\Tyhp\Expression\ConstantExpression",
-                [
-                    variable,
-                    PhpScalarAst.CreateStringFromContext(
-                        context,
-                        LookupTypeSpelling(variable, expressionTypes, formatClassFqn)),
-                ],
-                context);
-        }
-
-        private static IExpression? RewriteBinary(
-            PhpBinaryOpAst binary,
-            HashSet<string> paramNames,
-            Dictionary<string, ParameterInfo> parameters,
-            IReadOnlyDictionary<IBase2Ast, ICheckedType>? expressionTypes,
-            Func<string?, string?, string> formatClassFqn,
-            Base2Ast context)
-        {
-            var opText = binary.Operator?.ValueString ?? "";
-            var token = (int)(binary.Operator?.ValueInt64 ?? -1);
-            if (PhpBinaryOperatorExtensions.FromToken(token, opText) == PhpBinaryOperator.InstanceOf
-                || IsInstanceOfText(opText))
-            {
-                var operand = RewriteNode(
-                    binary.Left, paramNames, parameters, expressionTypes, formatClassFqn, context);
-                var targetType = SpellInstanceofTarget(binary.Right, formatClassFqn, context);
-                if (operand is null || targetType is null)
-                {
-                    return null;
-                }
-
-                return NewExpressionNode(
-                    @"\Tyhp\Expression\InstanceofExpression",
-                    [
-                        operand,
-                        targetType,
-                        PhpScalarAst.CreateStringFromContext(
-                            context,
-                            LookupTypeSpelling(binary, expressionTypes, formatClassFqn)),
-                    ],
-                    context);
-            }
-
-            var left = RewriteNode(
-                binary.Left, paramNames, parameters, expressionTypes, formatClassFqn, context);
-            var right = RewriteNode(
-                binary.Right, paramNames, parameters, expressionTypes, formatClassFqn, context);
-            if (left is null || right is null)
-            {
-                return null;
-            }
-
-            if (PhpBinaryOperatorExtensions.FromToken(token, opText) == PhpBinaryOperator.Coalesce
-                || opText == "??")
-            {
-                return NewExpressionNode(
-                    @"\Tyhp\Expression\CoalesceExpression",
-                    [
-                        left,
-                        right,
-                        PhpScalarAst.CreateStringFromContext(
-                            context,
-                            LookupTypeSpelling(binary, expressionTypes, formatClassFqn)),
-                    ],
-                    context);
-            }
-
-            return NewExpressionNode(
-                @"\Tyhp\Expression\BinaryExpression",
-                [
-                    left,
-                    PhpScalarAst.CreateStringFromContext(context, opText),
-                    right,
-                    PhpScalarAst.CreateStringFromContext(
-                        context,
-                        LookupTypeSpelling(binary, expressionTypes, formatClassFqn)),
-                ],
-                context);
-        }
-
-        private static IExpression? RewriteUnary(
-            PhpUnaryOpAst unary,
-            HashSet<string> paramNames,
-            Dictionary<string, ParameterInfo> parameters,
-            IReadOnlyDictionary<IBase2Ast, ICheckedType>? expressionTypes,
-            Func<string?, string?, string> formatClassFqn,
-            Base2Ast context)
-        {
-            var operand = RewriteNode(
-                unary.Operand, paramNames, parameters, expressionTypes, formatClassFqn, context);
-            if (operand is null)
-            {
-                return null;
-            }
-
-            var token = (int)(unary.Operator?.ValueInt64 ?? -1);
-            var castText = unary.Operator?.ValueString;
-            if (IsCastToken(token, castText))
-            {
-                return NewExpressionNode(
-                    @"\Tyhp\Expression\CastExpression",
-                    [
-                        PhpScalarAst.CreateStringFromContext(context, CastTokenToTypeName(token, castText)),
-                        operand,
-                    ],
-                    context);
-            }
-
-            var opText = unary.Operator?.ValueString ?? "";
-            return NewExpressionNode(
-                @"\Tyhp\Expression\UnaryExpression",
-                [
-                    PhpScalarAst.CreateStringFromContext(context, NormalizeUnaryOperator(opText, token)),
-                    operand,
-                    EmittedPhpExprAst.Create(unary.IsPrefix ? "true" : "false", context),
-                    PhpScalarAst.CreateStringFromContext(
-                        context,
-                        LookupTypeSpelling(unary, expressionTypes, formatClassFqn)),
-                ],
-                context);
-        }
-
-        private static IExpression? RewriteNew(
-            PhpNewAst newExpr,
-            HashSet<string> paramNames,
-            Dictionary<string, ParameterInfo> parameters,
-            IReadOnlyDictionary<IBase2Ast, ICheckedType>? expressionTypes,
-            Func<string?, string?, string> formatClassFqn,
-            Base2Ast context)
-        {
-            var classArg = SpellClassNameAsCtorArg(newExpr.ClassName, formatClassFqn, context);
-            var args = RewriteArgumentNodes(
-                newExpr.Arguments, paramNames, parameters, expressionTypes, formatClassFqn, context);
-            if (args is null)
-            {
-                return null;
-            }
-
-            return NewExpressionNode(
-                @"\Tyhp\Expression\NewExpression",
-                [
-                    classArg,
-                    BuildArray(args, context),
-                ],
-                context);
-        }
-
-        private static IExpression? RewriteDereferenceable(
-            PhpDereferenceableAst deref,
-            HashSet<string> paramNames,
-            Dictionary<string, ParameterInfo> parameters,
-            IReadOnlyDictionary<IBase2Ast, ICheckedType>? expressionTypes,
-            Func<string?, string?, string> formatClassFqn,
-            Base2Ast context)
-        {
-            if (deref.Base is PhpDereferenceableExpressionAst paren && deref.Suffix is null)
-            {
-                return RewriteNode(
-                    paren.Expression, paramNames, parameters, expressionTypes, formatClassFqn, context);
-            }
-
-            if (deref.Suffix is PhpCallAst call)
-            {
-                if (deref.Base is PhpDereferenceableAst inner
-                    && inner.Suffix is PhpInstanceMemberAccessAst member)
-                {
-                    // Checker rejects `?->method()`; do not emit a plain MethodCallExpression.
-                    if (IsNullSafeAccessor(member.Accessor))
-                    {
-                        return null;
-                    }
-
-                    var objectNode = RewriteNode(
-                        inner.Base as IExpression,
-                        paramNames,
-                        parameters,
-                        expressionTypes,
-                        formatClassFqn,
-                        context);
-                    var methodName = GetMemberName(member.MemberName);
-                    var args = RewriteArgumentNodes(
-                        call.Arguments, paramNames, parameters, expressionTypes, formatClassFqn, context);
-                    if (objectNode is null || methodName is null || args is null)
-                    {
-                        return null;
-                    }
-
-                    return NewExpressionNode(
-                        @"\Tyhp\Expression\MethodCallExpression",
-                        [
-                            objectNode,
-                            PhpScalarAst.CreateStringFromContext(context, methodName),
-                            BuildArray(args, context),
-                            PhpScalarAst.CreateStringFromContext(
-                                context,
-                                LookupTypeSpelling(deref, expressionTypes, formatClassFqn)),
-                        ],
-                        context);
-                }
-
-                if (deref.Base is PhpDereferenceableAst staticInner
-                    && TryGetStaticMemberName(staticInner.Suffix, out var staticMethodName))
-                {
-                    // Class::method(...) — usually PhpClassConstantAccessAst at parse time.
-                    var classArg = SpellClassNameAsCtorArg(
-                        staticInner.Base as IClassNameReference,
-                        formatClassFqn,
-                        context);
-                    var args = RewriteArgumentNodes(
-                        call.Arguments, paramNames, parameters, expressionTypes, formatClassFqn, context);
-                    if (staticMethodName is null || args is null)
-                    {
-                        return null;
-                    }
-
-                    return NewExpressionNode(
-                        @"\Tyhp\Expression\StaticMethodCallExpression",
-                        [
-                            classArg,
-                            PhpScalarAst.CreateStringFromContext(context, staticMethodName),
-                            BuildArray(args, context),
-                            PhpScalarAst.CreateStringFromContext(
-                                context,
-                                LookupTypeSpelling(deref, expressionTypes, formatClassFqn)),
-                        ],
-                        context);
-                }
-
-                return null;
-            }
-
-            if (deref.Suffix is PhpInstanceMemberAccessAst property)
-            {
-                var objectNode = RewriteNode(
-                    deref.Base as IExpression,
-                    paramNames,
-                    parameters,
-                    expressionTypes,
-                    formatClassFqn,
-                    context);
-                var propertyName = GetMemberName(property.MemberName);
-                if (objectNode is null || propertyName is null)
-                {
-                    return null;
-                }
-
-                var nullSafe = property.Accessor?.ValueInt64 == TyhpParser.T_NULLSAFE_OBJECT_OPERATOR
-                    || string.Equals(property.Accessor?.ValueString, "?->", StringComparison.Ordinal);
-                var className = nullSafe
-                    ? @"\Tyhp\Expression\NullSafeAccessExpression"
-                    : @"\Tyhp\Expression\PropertyAccessExpression";
-
-                return NewExpressionNode(
-                    className,
-                    [
-                        objectNode,
-                        PhpScalarAst.CreateStringFromContext(context, propertyName),
-                        PhpScalarAst.CreateStringFromContext(
-                            context,
-                            LookupTypeSpelling(deref, expressionTypes, formatClassFqn)),
-                    ],
-                    context);
-            }
-
-            if (deref.Suffix is PhpArrayAccessAst arrayAccess)
-            {
-                var arrayNode = RewriteNode(
-                    deref.Base as IExpression,
-                    paramNames,
-                    parameters,
-                    expressionTypes,
-                    formatClassFqn,
-                    context);
-                var indexNode = RewriteNode(
-                    arrayAccess.IndexExpression,
-                    paramNames,
-                    parameters,
-                    expressionTypes,
-                    formatClassFqn,
-                    context);
-                if (arrayNode is null || indexNode is null)
-                {
-                    return null;
-                }
-
-                return NewExpressionNode(
-                    @"\Tyhp\Expression\ArrayAccessExpression",
-                    [
-                        arrayNode,
-                        indexNode,
-                        PhpScalarAst.CreateStringFromContext(
-                            context,
-                            LookupTypeSpelling(deref, expressionTypes, formatClassFqn)),
-                    ],
-                    context);
-            }
-
-            if (deref.Suffix is PhpStaticMemberAccessAst or PhpClassConstantAccessAst)
-            {
-                // Class::CONST (PhpClassConstantAccessAst) / Class::$var — ConstantExpression.
-                return NewExpressionNode(
-                    @"\Tyhp\Expression\ConstantExpression",
-                    [
-                        deref,
-                        PhpScalarAst.CreateStringFromContext(
-                            context,
-                            LookupTypeSpelling(deref, expressionTypes, formatClassFqn)),
-                    ],
-                    context);
-            }
-
-            if (deref.Suffix is null)
-            {
-                return RewriteNode(
-                    deref.Base as IExpression,
-                    paramNames,
-                    parameters,
-                    expressionTypes,
-                    formatClassFqn,
-                    context);
-            }
-
-            return null;
-        }
-
-        private static List<IExpression>? RewriteArgumentNodes(
-            PhpArgumentListAst? arguments,
-            HashSet<string> paramNames,
-            Dictionary<string, ParameterInfo> parameters,
-            IReadOnlyDictionary<IBase2Ast, ICheckedType>? expressionTypes,
-            Func<string?, string?, string> formatClassFqn,
-            Base2Ast context)
-        {
-            var result = new List<IExpression>();
-            if (arguments is null)
-            {
-                return result;
-            }
-
-            foreach (var arg in arguments.GetAllNotNull())
-            {
-                if (arg.Expression is null)
-                {
-                    continue;
-                }
-
-                var rewritten = RewriteNode(
-                    arg.Expression,
-                    paramNames,
-                    parameters,
-                    expressionTypes,
-                    formatClassFqn,
-                    context);
-                if (rewritten is null)
-                {
-                    return null;
-                }
-
-                result.Add(rewritten);
-            }
-
-            return result;
-        }
-
-        private static IExpression NewExpressionNode(
-            string classFqn,
-            IEnumerable<IExpression> ctorArgs,
-            Base2Ast context)
-        {
-            var args = PhpArgumentListAst.Create(
-                ctorArgs.Select(a => PhpArgumentAst.CreateFromContext(a, context)),
-                context);
-            return PhpNewAst.CreateFromContext(
-                PhpNameAst.CreateFromContext(classFqn, context),
-                args,
-                context);
         }
 
         private static PhpArrayAst BuildArray(IEnumerable<IExpression> values, Base2Ast context)
@@ -745,21 +274,6 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             return "mixed";
-        }
-
-        private static HashSet<string> GetParameterNames(PhpInlineFunctionAst closure)
-        {
-            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var param in closure.Parameters?.GetAllNotNull() ?? [])
-            {
-                var name = param.Name?.TrimStart('$');
-                if (!string.IsNullOrEmpty(name))
-                {
-                    names.Add(name);
-                }
-            }
-
-            return names;
         }
 
         private static string? GetMemberName(IExpression? memberName) =>

@@ -61,7 +61,8 @@ namespace Tyhp.TyhpLang.Emitter
             {
                 if (attributeNode is PhpAttributeAst attribute
                     && !NoEmitAttributeSupport.ShouldOmitAttributeUsage(attribute)
-                    && !GenericRuntimeAttributeSupport.IsGenericRuntimeAttribute(attribute))
+                    && !GenericRuntimeAttributeSupport.IsGenericRuntimeAttribute(attribute)
+                    && !PropertyTypeStampSupport.IsPropertyTypeAttribute(attribute))
                 {
                     lines.Add(this.FormatAttributeLine(attribute));
                 }
@@ -73,8 +74,23 @@ namespace Tyhp.TyhpLang.Emitter
                 lines.Add(stamp);
             }
 
+            var propertyType = TryFormatPropertyTypeStamp(attributeSource);
+            if (propertyType is not null)
+            {
+                lines.Add(propertyType);
+            }
+
             return lines;
         }
+
+        private static string? TryFormatPropertyTypeStamp(IBase2Ast source) =>
+            source switch
+            {
+                PhpPropertyDeclAst property => PropertyTypeStampSupport.TryFormatAttributeLine(property.Type),
+                PhpParameterAst promoted when promoted.Modifiers is { } modifiers && modifiers.Modifiers.Any()
+                    => PropertyTypeStampSupport.TryFormatAttributeLine(promoted.Type),
+                _ => null,
+            };
 
         private string FormatAttributeLine(PhpAttributeAst attribute)
         {

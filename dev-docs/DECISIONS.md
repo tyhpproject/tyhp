@@ -218,7 +218,7 @@ the instance. Document that analogy. Do not rename.
 ### Public tagline “typed superset” — DECIDED (Story 21.12 E)
 
 User-facing prose says Tyhp is a **typed superset** of PHP, not “strongly typed.” The checker is
-strict *inside Tyhp*; erased contracts are advisory at the PHP boundary (Idea 4 / Idea 15).
+strict *inside Tyhp*; erased contracts are advisory at the PHP boundary (Story 22.1 docblocks / Story 44).
 
 ### Emitter as a transformer pipeline — REJECTED for now (DOQ §18)
 

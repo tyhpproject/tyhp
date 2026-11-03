@@ -78,6 +78,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 CheckInheritedAbstractMethods(objectType, objectSymbol, objectState, context, diagnostics);
                 CheckInterfaceImplementation(objectType, objectSymbol, objectState, context, diagnostics);
                 CheckTraitRequirements(objectType, objectSymbol, objectState, context, diagnostics);
+                if (declKind == PhpTypeDeclType.Class)
+                {
+                    CheckReadonlyClassTraitProperties(objectType, objectSymbol, objectState, context, diagnostics);
+                }
             }
 
             if (declKind == PhpTypeDeclType.Enum)
@@ -816,6 +820,126 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// TYHP4380: PHP rejects a <c>readonly class</c> that uses a trait property which is static
+        /// or not <c>readonly</c> ("cannot use trait with a non-readonly property"). Readonly
+        /// instance properties are allowed. The class itself is not valid PHP before 8.2, so this
+        /// is not reported on earlier targets.
+        /// </summary>
+        private static void CheckReadonlyClassTraitProperties(
+            PhpObjectTypeDeclAst objectType,
+            ObjectDeclarationSymbol objectSymbol,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (objectSymbol.IsStruct
+                || (objectSymbol.Visibility & MemberModifier.Readonly) == 0
+                || !IsPhpVersionAtLeast(TargetPhpVersionText(context), 8, 2))
+            {
+                return;
+            }
+
+            var traits = TypeComparer.ResolveUsedTraits(
+                objectSymbol, context.SymbolTree, context.GlobalScope, out _);
+            if (traits.Count == 0)
+            {
+                return;
+            }
+
+            var useSiteByTrait = MapReadonlyClassTraitUseSites(objectType, objectSymbol, context);
+            var className = objectType.IsAnonymousClass || string.IsNullOrEmpty(objectSymbol.Name)
+                ? "anonymous class"
+                : objectSymbol.Name;
+
+            foreach (var trait in traits)
+            {
+                var site = useSiteByTrait.TryGetValue(trait, out var useSite)
+                    ? (IBase2Ast)useSite
+                    : objectType;
+
+                foreach (var member in trait.Members.Values)
+                {
+                    if (member is not ObjectPropertySymbol property
+                        || IsReadonlyInstanceProperty(property))
+                    {
+                        continue;
+                    }
+
+                    var propertyName = property.Name.StartsWith('$')
+                        ? property.Name
+                        : "$" + property.Name;
+                    if (propertyName.Length <= 1)
+                    {
+                        continue;
+                    }
+
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        site,
+                        MessageCode.CheckerReadonlyClassTraitProperty,
+                        className,
+                        trait.Name,
+                        propertyName);
+                }
+            }
+        }
+
+        /// <summary>
+        /// True for an instance trait property declared <c>readonly</c>. A <c>readonly class</c>
+        /// may use those. Static properties are never readonly in PHP, so they are not exempt.
+        /// </summary>
+        private static bool IsReadonlyInstanceProperty(ObjectPropertySymbol property)
+        {
+            var isStatic = property.SymbolType == SymbolType.StaticObjectProperty
+                || (property.Visibility & MemberModifier.Static) != 0;
+            return !isStatic && (property.Visibility & MemberModifier.Readonly) != 0;
+        }
+
+        /// <summary>
+        /// The <c>use</c> clause in <paramref name="objectType"/> that pulls each trait in, including
+        /// a trait reached only through another trait. The diagnostic points at that clause.
+        /// </summary>
+        private static Dictionary<ObjectDeclarationSymbol, PhpTraitUseAst> MapReadonlyClassTraitUseSites(
+            PhpObjectTypeDeclAst objectType,
+            ObjectDeclarationSymbol objectSymbol,
+            CheckerRuleContext context)
+        {
+            var map = new Dictionary<ObjectDeclarationSymbol, PhpTraitUseAst>();
+            if (objectType.Body is null)
+            {
+                return map;
+            }
+
+            var scope = objectSymbol.ContainingScope ?? context.GlobalScope;
+            foreach (var member in objectType.Body.GetAllNotNull())
+            {
+                if (member is not PhpTraitUseAst { TraitNames: { } traitNames } use)
+                {
+                    continue;
+                }
+
+                foreach (var className in traitNames.GetAllNotNull())
+                {
+                    if (TypeComparer.ResolveClassNameSymbol(className, scope, context.SymbolTree)
+                        is not ObjectDeclarationSymbol trait)
+                    {
+                        continue;
+                    }
+
+                    map.TryAdd(trait, use);
+                    foreach (var nested in TypeComparer.ResolveUsedTraits(
+                                 trait, context.SymbolTree, context.GlobalScope, out _))
+                    {
+                        map.TryAdd(nested, use);
+                    }
+                }
+            }
+
+            return map;
         }
 
         // Interface methods are deliberately not included: CheckInterfaceImplementation owns them, and

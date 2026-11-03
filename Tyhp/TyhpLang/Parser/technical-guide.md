@@ -144,6 +144,7 @@ Open-tag routing:
 - `<?php` / `<?=` → PHP / phpEcho language mode (shared PHP lexer body)
 - `<?` then push `ST_CHECK_FOR_OTHER_OPEN_TAGS_LEXER_ADDON`. `TyhpLexer` recognizes `tyhp` and `tyhpdef`. `TyhpdefLexer` recognizes `tyhpdef`.
 - Tagless: optional start in `ST_TYHP_TAGLESS`. `TyhpLexer` consumes `<?tyhp` or `<?tyhpdef`. `TyhpdefLexer` consumes `<?tyhpdef`.
+- `<?tyhp?>` (no whitespace before `?>`) opens an empty section (`closeTagAhead()`).
 
 ### Channels
 
@@ -167,12 +168,13 @@ Contextual keywords (`type`, `extension`, `async`, `operator`, `void`, `partial`
 
 `ConfigureTagless(enabled, languageMode, diagnostics?, fileName?)` is defined on `TyhpLexer` and emitted onto `TyhpdefLexer`. Call it on the lexer that will read the file. Compilation of a tagless `.tyhpdef` file passes `"tyhpdef"`; a tagless `.tyhp` file passes `"tyhp"`.
 
-- If disabled: clear tagless state.
+- If disabled: clear tagless state and return to the default (inline HTML) mode with an empty language mode, because `Reset` may already have applied the previous file's tagless start mode.
 - If enabled: `ApplyTaglessStartMode()`:
-  - Literal `<?tyhp` (`TyhpLexer`) or `<?tyhpdef` (both lexers) at start (optional leading whitespace) → `Mode(ST_TYHP_TAGLESS)` so the tag is consumed.
+  - Literal `<?tyhp` (`TyhpLexer`) or `<?tyhpdef` (both lexers) at start (optional leading whitespace) → `Mode(ST_TYHP_TAGLESS)` so the tag is consumed. `tyhpTaglessSrcFile` does not match `T_TYHP_OPEN_TAG`, so that token is not a tagless `.tyhp` open tag. `tyhpdefTaglessSrcFile` still matches optional `T_TYHPDEF_OPEN_TAG`.
   - Otherwise → set `_languageMode` to the tagless language mode and `Mode(ST_IN_SCRIPTING)` (no synthetic token).
 - `<?php` is **not** treated as a tagless open tag (left for scripting-mode lexing).
 - Closing `?>` in tagless: lexer still may emit close-tag behavior; `closeTagHandler` can add `LexerCloseTagNotAllowedInTaglessMode` (1004). Tagless **parser** entry rules omit `T_CLOSE_TAG` / inline HTML so `?>` is not in the expected follow set.
+- Entry-point choice: before the lexer runs, `TaglessEntryPoint.UsesTaglessEntryPoint(projectTagless, content)` is false for a `.tyhp` file whose first six characters are `<?tyhp`. Such a file is configured with `ConfigureTagless(enabled: false, …)` and parsed with `tyhpSrcFile`, so it can close a section with `?>`, hold inline HTML and `<?=`, and reopen with `<?tyhp`. Any other `.tyhp` file in a tagless project is code (`tyhpTaglessSrcFile`). `CompilationService`, `Tyhpdef.ParseContent`, `TokenizeAction`, `DumpAstAction`, and `CacheCheck` all use it. `.tyhpdef` files are not affected.
 
 ### `NextToken` post-processing (why it exists)
 
@@ -204,13 +206,13 @@ On `?>`, enqueues a synthetic `T_SYM_SEMICOLON` so the parser can treat close-ta
 |------|------------|-----------|
 | `phpSrcFile` | `TyhpParser` | `.php` / other / `ParseMode.Php` |
 | `tyhpSrcFile` | `TyhpParser` | `.tyhp` (tagged; allows inline HTML / close tags) |
-| `tyhpTaglessSrcFile` | `TyhpParser` | `.tyhp` + `source.tagless` |
+| `tyhpTaglessSrcFile` | `TyhpParser` | `.tyhp` + `source.tagless`, and the file does not start with `<?tyhp`. No open tag |
 | `tyhpdefSrcFile` | `TyhpdefParser` | `.tyhpdef` (tagged) |
 | `tyhpdefTaglessSrcFile` | `TyhpdefParser` | `.tyhpdef` + `source.tagless` |
 
 `TyhpParser` still contains `tyhpdefSrcFile`, `tyhpdefTaglessSrcFile`, and `tyhpdefBlock`, plus `tyhpdefDeprecatedOrObsolete`, `tyhpdefClassStatement`, and the class-body rules `.tyhp` object shapes call. `.tyhpdef` files do not enter `TyhpParser`. `tyhpdefClassConstDecl` / `tyhpdefClassConstList` exist only on `TyhpParser`.
 
-Tagged files: the open-tag block (`tyhpBlock` or `tyhpdefBlock`) sets **parser** language mode, then the statement list. Tagless: optional open tag token, one statement list, no inline output.
+Tagged files: the open-tag block (`tyhpBlock` or `tyhpdefBlock`) sets **parser** language mode, then the statement list. Tagless `.tyhp` (`tyhpTaglessSrcFile`): language mode, one statement list, no open tag, no inline output. Tagless `.tyhpdef`: optional `T_TYHPDEF_OPEN_TAG`, one statement list. In a tagless project a `.tyhp` file whose first six characters are `<?tyhp` is not parsed with `tyhpTaglessSrcFile`; it uses `tyhpSrcFile` (see `TaglessEntryPoint`).
 
 ### Parser `_languageMode` vs lexer `_languageMode` (critical asymmetry)
 

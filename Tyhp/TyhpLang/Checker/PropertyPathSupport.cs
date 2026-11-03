@@ -135,6 +135,18 @@ namespace Tyhp.TyhpLang.Checker
         }
 
         /// <summary>
+        /// Maps <c>PropertyPath&lt;TCallableShape&gt;</c> or <c>Expression&lt;TCallableShape&gt;</c>
+        /// to the callable facet of <c>TCallableShape</c>. Both are built from the inline
+        /// <c>fn</c> passed for them, so that <c>fn</c> types and binds generics like a plain
+        /// <c>callable</c> argument.
+        /// </summary>
+        public static bool TryMapPropertyPathOrExpressionToCallable(
+            ICheckedType type,
+            out CallableCheckedType callable)
+            => TryMapToCallable(type, out callable)
+                || ExpressionTreeSupport.TryMapToCallable(type, out callable);
+
+        /// <summary>
         /// First type argument of an <c>Expression</c> / <c>PropertyPath</c> instantiation is
         /// <c>TCallableShape</c>. Bare (open) forms have no arguments.
         /// </summary>

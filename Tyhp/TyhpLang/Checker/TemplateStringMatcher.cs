@@ -71,11 +71,7 @@ namespace Tyhp.TyhpLang.Checker
                         return false;
                     }
 
-                    if (!TypeComparer.IsSubtypeOf(
-                            childHole.HoleType,
-                            parentHole.HoleType,
-                            symbolTree,
-                            globalScope))
+                    if (!HoleTypeWithin(childHole.HoleType, parentHole.HoleType, symbolTree, globalScope, budget))
                     {
                         return false;
                     }
@@ -87,6 +83,229 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// True when every string the interpolation <paramref name="source"/> can produce is a member
+        /// of <paramref name="target"/>. Source literal text must match target text exactly. A target
+        /// hole that accepts any <c>string</c> absorbs any non-empty run of source text and holes,
+        /// except a run made only of holes that include <c>''</c>; a narrower target hole takes one
+        /// source hole of an assignable type or literal text it matches.
+        /// </summary>
+        public static bool InterpolationMatches(
+            TemplateStringPattern source,
+            TemplateStringPattern target,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            TemplateStringMatchBudget budget)
+        {
+            if (target.Complexity > budget.MaxSteps)
+            {
+                budget.MarkExceeded();
+                return false;
+            }
+
+            var items = new List<InterpolationItem>();
+            FlattenInterpolation(source.Segments, items, depth: 0);
+            return new InterpolationMatch(items, target.Segments, symbolTree, globalScope, budget).Match(0, 0);
+        }
+
+        private readonly record struct InterpolationItem(char Char, ICheckedType? Hole);
+
+        // A hole with a single string literal type is that text. A nested template whose segments
+        // all occur exactly once is spliced in, so `"{$path}?q"` with `$path: "api/${string}"`
+        // is matched as `api/` followed by a `string` hole.
+        private static void FlattenInterpolation(
+            IReadOnlyList<TemplateStringSegment> segments,
+            List<InterpolationItem> items,
+            int depth)
+        {
+            foreach (var segment in segments)
+            {
+                switch (segment)
+                {
+                    case TemplateStringSegment.LiteralSegment literal:
+                        foreach (var ch in literal.Text)
+                        {
+                            items.Add(new InterpolationItem(ch, null));
+                        }
+
+                        break;
+                    case TemplateStringSegment.HoleSegment { HoleType: LiteralCheckedType { Value: string text } } hole
+                        when hole.Quantifier.Min == 1 && hole.Quantifier.Max == 1:
+                        foreach (var ch in text)
+                        {
+                            items.Add(new InterpolationItem(ch, null));
+                        }
+
+                        break;
+                    case TemplateStringSegment.HoleSegment { HoleType: TemplateStringCheckedType nested } hole
+                        when depth < 8
+                             && hole.Quantifier.Min == 1
+                             && hole.Quantifier.Max == 1
+                             && nested.Pattern.Segments.All(IsSingleOccurrence):
+                        FlattenInterpolation(nested.Pattern.Segments, items, depth + 1);
+                        break;
+                    case TemplateStringSegment.HoleSegment hole:
+                        items.Add(new InterpolationItem('\0', hole.HoleType));
+                        break;
+                }
+            }
+        }
+
+        private static bool IsSingleOccurrence(TemplateStringSegment segment) =>
+            segment is TemplateStringSegment.LiteralSegment
+            || segment is TemplateStringSegment.HoleSegment { Quantifier: { Min: 1, Max: 1 } };
+
+        private sealed class InterpolationMatch(
+            List<InterpolationItem> items,
+            IReadOnlyList<TemplateStringSegment> segments,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            TemplateStringMatchBudget budget)
+        {
+            public bool Match(int pos, int segmentIndex)
+            {
+                if (!budget.TryConsumeStep())
+                {
+                    return false;
+                }
+
+                if (segmentIndex >= segments.Count)
+                {
+                    return pos == items.Count;
+                }
+
+                switch (segments[segmentIndex])
+                {
+                    case TemplateStringSegment.LiteralSegment literal:
+                        if (pos + literal.Text.Length > items.Count)
+                        {
+                            return false;
+                        }
+
+                        for (var i = 0; i < literal.Text.Length; i++)
+                        {
+                            if (items[pos + i].Hole is not null || items[pos + i].Char != literal.Text[i])
+                            {
+                                return false;
+                            }
+                        }
+
+                        return Match(pos + literal.Text.Length, segmentIndex + 1);
+                    case TemplateStringSegment.HoleSegment hole:
+                        return MatchHole(pos, segmentIndex, hole, 0, AcceptsAnyString(hole.HoleType));
+                    default:
+                        return false;
+                }
+            }
+
+            private bool MatchHole(
+                int pos,
+                int segmentIndex,
+                TemplateStringSegment.HoleSegment hole,
+                int consumed,
+                bool acceptsAnyString)
+            {
+                if (!budget.TryConsumeStep())
+                {
+                    return false;
+                }
+
+                if (consumed >= hole.Quantifier.Min && Match(pos, segmentIndex + 1))
+                {
+                    return true;
+                }
+
+                if (hole.Quantifier.Max != int.MaxValue && consumed >= hole.Quantifier.Max)
+                {
+                    return false;
+                }
+
+                for (var end = items.Count; end > pos; end--)
+                {
+                    if (!budget.TryConsumeStep())
+                    {
+                        return false;
+                    }
+
+                    if (CanFill(pos, end, hole.HoleType, acceptsAnyString)
+                        && MatchHole(end, segmentIndex, hole, consumed + 1, acceptsAnyString))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            private bool CanFill(int pos, int end, ICheckedType holeType, bool acceptsAnyString)
+            {
+                if (acceptsAnyString)
+                {
+                    return HasTextOrNonEmptyHole(pos, end);
+                }
+
+                if (end - pos == 1
+                    && items[pos].Hole is { } sourceHole
+                    && (TypeComparer.IsAssignableTo(sourceHole, holeType, symbolTree, globalScope)
+                        || HoleTypeWithin(sourceHole, holeType, symbolTree, globalScope, budget)))
+                {
+                    return true;
+                }
+
+                if (holeType is TemplateStringCheckedType nestedTarget)
+                {
+                    return new InterpolationMatch(
+                            items.GetRange(pos, end - pos),
+                            nestedTarget.Pattern.Segments,
+                            symbolTree,
+                            globalScope,
+                            budget)
+                        .Match(0, 0);
+                }
+
+                if (end - pos == 1 && items[pos].Hole is not null)
+                {
+                    return false;
+                }
+
+                var text = new System.Text.StringBuilder(end - pos);
+                for (var i = pos; i < end; i++)
+                {
+                    if (items[i].Hole is not null)
+                    {
+                        return false;
+                    }
+
+                    text.Append(items[i].Char);
+                }
+
+                return SubstringMatchesHoleType(text.ToString(), holeType, symbolTree, globalScope, budget);
+            }
+
+            private bool AcceptsAnyString(ICheckedType holeType) =>
+                holeType is not UnresolvedCheckedType
+                && TypeComparer.IsAssignableTo(CheckedTypes.String, holeType, symbolTree, globalScope);
+
+            // A target hole covers at least one character. A source hole whose type includes `''`
+            // (a possibly-null value) may contribute nothing, so a run of only such holes cannot fill it.
+            private bool HasTextOrNonEmptyHole(int pos, int end)
+            {
+                for (var i = pos; i < end; i++)
+                {
+                    if (items[i].Hole is not { } hole || !IncludesEmptyText(hole))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            private static bool IncludesEmptyText(ICheckedType hole) =>
+                hole is LiteralCheckedType { Value: "" }
+                || (hole is UnionCheckedType union && union.Members.Any(IncludesEmptyText));
         }
 
         private static bool MatchSegments(
@@ -185,16 +404,93 @@ namespace Tyhp.TyhpLang.Checker
                        union.Members.Any(m => m is LiteralCheckedType { Value: "" });
             }
 
+            switch (holeType)
+            {
+                case TemplateStringCheckedType template:
+                    return Matches(slice, template.Pattern, symbolTree, globalScope, budget);
+                case UnionCheckedType union:
+                    return union.Members.Any(
+                        member => SubstringMatchesHoleType(slice, member, symbolTree, globalScope, budget));
+                case LiteralCheckedType literal when TryFormatNumericLiteral(literal, out var numericText):
+                    return slice == numericText;
+            }
+
+            if (Rules.CheckerHelpers.IsBuiltInName(holeType, "int"))
+            {
+                return TemplateStringNumericText.IsIntText(slice);
+            }
+
+            if (Rules.CheckerHelpers.IsBuiltInName(holeType, "float"))
+            {
+                return TemplateStringNumericText.IsFloatText(slice);
+            }
+
             var literalType = new LiteralCheckedType(
                 slice,
                 new SimpleCheckedType(new Binder.Symbols.BuiltInTypeSymbol("string")));
+            return TypeComparer.IsAssignableTo(literalType, holeType, symbolTree, globalScope);
+        }
 
-            if (holeType is TemplateStringCheckedType template)
+        /// <summary>The <c>(string)</c> text of an <c>int</c> or <c>float</c> literal type.</summary>
+        internal static bool TryFormatNumericLiteral(LiteralCheckedType literal, out string text)
+        {
+            switch (literal.Value)
             {
-                return Matches(slice, template.Pattern, symbolTree, globalScope, budget);
+                case long l:
+                    text = TemplateStringNumericText.FormatInt(l);
+                    return true;
+                case int i:
+                    text = TemplateStringNumericText.FormatInt(i);
+                    return true;
+                case decimal m:
+                    text = TemplateStringNumericText.FormatFloat((double)m);
+                    return true;
+                case double d:
+                    text = TemplateStringNumericText.FormatFloat(d);
+                    return true;
+                default:
+                    text = "";
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// True when every string a <paramref name="child"/> hole produces fits a
+        /// <paramref name="parent"/> hole: by subtyping, or because the parent accepts the text of
+        /// each child literal, or the decimal text of an <c>int</c> / <c>float</c>.
+        /// </summary>
+        private static bool HoleTypeWithin(
+            ICheckedType child,
+            ICheckedType parent,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            TemplateStringMatchBudget budget)
+        {
+            if (TypeComparer.IsSubtypeOf(child, parent, symbolTree, globalScope))
+            {
+                return true;
             }
 
-            return TypeComparer.IsAssignableTo(literalType, holeType, symbolTree, globalScope);
+            switch (child)
+            {
+                case UnionCheckedType union:
+                    return union.Members.Count > 0
+                        && union.Members.All(member => HoleTypeWithin(member, parent, symbolTree, globalScope, budget));
+                case LiteralCheckedType { Value: string text }:
+                    return SubstringMatchesHoleType(text, parent, symbolTree, globalScope, budget);
+                case LiteralCheckedType literal when TryFormatNumericLiteral(literal, out var numericText):
+                    return SubstringMatchesHoleType(numericText, parent, symbolTree, globalScope, budget);
+            }
+
+            var isInt = Rules.CheckerHelpers.IsBuiltInName(child, "int");
+            if (!isInt && !Rules.CheckerHelpers.IsBuiltInName(child, "float"))
+            {
+                return false;
+            }
+
+            return (parent is not UnresolvedCheckedType
+                    && TypeComparer.IsAssignableTo(CheckedTypes.String, parent, symbolTree, globalScope))
+                || (isInt && Rules.CheckerHelpers.IsBuiltInName(parent, "float"));
         }
 
         private static bool QuantifierWithin(TemplateStringQuantifier child, TemplateStringQuantifier parent) =>
@@ -296,6 +592,9 @@ namespace Tyhp.TyhpLang.Checker
                 case LiteralCheckedType { Value: string s }:
                     yield return s;
                     break;
+                case LiteralCheckedType literal when TryFormatNumericLiteral(literal, out var numericText):
+                    yield return numericText;
+                    break;
                 case UnionCheckedType union:
                     foreach (var member in union.Members)
                     {
@@ -317,6 +616,15 @@ namespace Tyhp.TyhpLang.Checker
                     if (Rules.CheckerHelpers.IsBuiltInName(holeType, "string"))
                     {
                         yield return "x";
+                    }
+                    else if (Rules.CheckerHelpers.IsBuiltInName(holeType, "int"))
+                    {
+                        yield return "0";
+                        yield return "-7";
+                    }
+                    else if (Rules.CheckerHelpers.IsBuiltInName(holeType, "float"))
+                    {
+                        yield return "1.5";
                     }
 
                     break;
