@@ -1,0 +1,17 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\Merge;
+
+class User {}
+
+/**
+ * Builds a user.
+ *
+ * @throws \RuntimeException
+ * @tyhpEmitterStart(onCall)
+ * /@@ inheritFrom(\App\Other::make) @@/
+ * @return \App\Merge\User
+ */
+function make(array<int, User> $ids): User {
+    return new User();
+}

@@ -10,11 +10,17 @@ namespace App;
 
 \Tyhp\Type::register('App\\Point', fn () => \Tyhp\Type::struct()->optional('x', \Tyhp\Type::int())->optional('y', \Tyhp\Type::int()));
 
+/**
+ * @return array{x?: int, y?: int}
+ */
 function origin(): array
 {
     return ['x' => 0, 'y' => 0];
 }
 
+/**
+ * @param array{x?: int, y?: int} $p
+ */
 function usePoint(array $p): int
 {
     return $p['x'];

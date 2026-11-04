@@ -23,7 +23,9 @@ public class InternalModifierEmitterTests
 
         php.Should().Contain("class Foo");
         php.Should().NotContain("public class");
-        php.Should().NotContain("internal");
+        php.Should().NotContain("internal class");
+        php.Should().NotContain("internal function");
+        php.Should().Contain("@internal");
         php.Should().Contain("public function bar()");
     }
 
@@ -42,7 +44,9 @@ public class InternalModifierEmitterTests
         php.Should().NotContain("public function helper");
         php.Should().Contain("const TAG");
         php.Should().NotContain("public const TAG");
-        php.Should().NotContain("internal");
+        php.Should().NotContain("internal function");
+        php.Should().NotContain("internal const");
+        php.Should().Contain("@internal");
     }
 
     [Fact]
@@ -60,7 +64,9 @@ public class InternalModifierEmitterTests
 
         php.Should().Contain("public readonly int $x");
         php.Should().Contain("public const C");
-        php.Should().NotContain("internal");
+        php.Should().NotContain("internal readonly");
+        php.Should().NotContain("internal const");
+        php.Should().Contain("@internal");
     }
 
     [Fact]

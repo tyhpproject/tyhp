@@ -1,0 +1,17 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\StructCard;
+
+type User = struct {
+    string $name = "";
+};
+
+function userCard(User $user): void { ?>
+    <h1><?= $user->name ?></h1>
+<?tyhp }
+
+function main(): void {
+    userCard(new User() with [name => "Ada"]);
+}
+
+main();

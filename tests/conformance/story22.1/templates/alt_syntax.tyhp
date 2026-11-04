@@ -1,0 +1,22 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\AltSyntax;
+
+function render(array<string> $items, bool $show): void {
+    if ($show):
+        ?>
+        <p>shown</p>
+        <?tyhp
+    endif;
+    foreach ($items as string $item):
+        ?>
+        <li><?= $item ?></li>
+        <?tyhp
+    endforeach;
+}
+
+function main(): void {
+    render(["a", "b"], true);
+}
+
+main();

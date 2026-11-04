@@ -1,0 +1,24 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\Generics;
+
+class User {}
+
+interface Store<T> {
+}
+
+class Box<T> {
+    public function get(T $value): T {
+        return $value;
+    }
+}
+
+class IntBox extends Box<int> {
+}
+
+class UserStore implements Store<User> {
+}
+
+function take(array<int, User> $ids): int {
+    return 0;
+}

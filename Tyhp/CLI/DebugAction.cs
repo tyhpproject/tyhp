@@ -420,8 +420,13 @@ namespace Tyhp.CLI
             lexer.RemoveErrorListeners();
             var lexerErrorListener = new TyhpAntlrErrorListener<int>(diagnostics);
             lexer.AddErrorListener(lexerErrorListener);
+            var tyhpEcho = fileName != null
+                && fileName.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase)
+                && !fileName.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase);
+            lexer.ConfigureEchoInTyhp(tyhpEcho);
 
             var parser = new TyhpParser(new CommonTokenStream(lexer));
+            parser.ConfigureTyhpEcho(tyhpEcho);
             parser.RemoveErrorListeners();
             var parserErrorListener = new TyhpAntlrErrorListener<IToken>(diagnostics);
             parser.AddErrorListener(parserErrorListener);

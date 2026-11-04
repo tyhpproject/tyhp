@@ -1470,6 +1470,22 @@ namespace Tyhp.TyhpLang.Binder.Resolution
             {
                 ResolveTypesInAst(nameArgs, fromScope, 0);
             }
+
+            // `class IntBox extends Box<int>` stores `<int>` on the class-name `identifier`
+            // addon, not on a type-name addon. Resolve those arguments so their symbols are
+            // available when spelling `@extends` / `@implements`.
+            if (typeNode is PhpNamedTypeAst { Name: IBase2Ast className }
+                && className.AstGrammarAddons.TryGetValue("identifier", out var classNameArgs)
+                && classNameArgs is not null)
+            {
+                ResolveTypesInAst(classNameArgs, fromScope, 0);
+            }
+
+            if (typeNode.AstGrammarAddons.TryGetValue("identifier", out var identifierArgs)
+                && identifierArgs is not null)
+            {
+                ResolveTypesInAst(identifierArgs, fromScope, 0);
+            }
         }
 
         private IBaseSymbol? ResolveNamedType(PhpNamedTypeAst namedType, IBaseScope fromScope)

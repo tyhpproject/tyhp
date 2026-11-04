@@ -1,0 +1,7 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\AllMode;
+
+function ping(int $x): int {
+    return $x;
+}

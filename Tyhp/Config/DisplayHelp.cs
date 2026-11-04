@@ -390,6 +390,8 @@ namespace Tyhp.Config
             HelpFormatting.Option("output.comments", "CLI_BuildHelpConfigOutputComments");
             HelpFormatting.Option("output.phpVersion", "CLI_BuildHelpConfigOutputPhpVersion");
             HelpFormatting.Option("output.strictTypes", "CLI_BuildHelpConfigOutputStrictTypes");
+            HelpFormatting.Option("emit.docblocks", "CLI_BuildHelpConfigEmitDocblocks");
+            HelpFormatting.Option("emit.docblockDialect", "CLI_BuildHelpConfigEmitDocblockDialect");
             HelpFormatting.Option("psr4", "CLI_BuildHelpConfigPsr4");
             HelpFormatting.Option("checker.*", "CLI_BuildHelpConfigChecker");
             HelpFormatting.Option("build.*", "CLI_BuildHelpConfigBuild");

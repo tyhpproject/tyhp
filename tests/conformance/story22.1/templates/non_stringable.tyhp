@@ -1,0 +1,4 @@
+<?tyhp
+function render(array<string> $items): void { ?>
+<?= $items ?>
+<?tyhp }

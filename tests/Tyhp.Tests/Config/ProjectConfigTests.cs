@@ -23,6 +23,8 @@ public class ProjectConfigTests
         project.Output.PhpVersionWasDefaulted.Should().BeTrue();
         project.Output.StrictTypes.Should().BeTrue();
         project.Output.IncludeComments.Should().BeTrue();
+        project.Emission.Docblocks.Should().Be(DocblockEmitMode.LossyOnly);
+        project.Emission.DocblockDialect.Should().Be(DocblockDialect.Both);
         project.Build.GenerateTyhpdef.Should().BeFalse();
         project.Build.CleanBeforeBuild.Should().BeFalse();
         project.Build.StrictMode.Should().BeFalse();

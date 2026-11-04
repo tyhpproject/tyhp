@@ -1,0 +1,13 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\CommentsOff;
+
+class User {}
+
+/**
+ * Summary prose that must not be emitted.
+ *
+ * @throws \RuntimeException
+ */
+function take(array<int, User> $ids): void {
+}

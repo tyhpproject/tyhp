@@ -1,0 +1,11 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\Directives;
+
+/**
+ * @tyhpEmitterStart(onCall)
+ * /@@ inheritFrom(\Tyhp\Disposable::__using) @@/
+ */
+function ping(int $x): int {
+    return $x;
+}

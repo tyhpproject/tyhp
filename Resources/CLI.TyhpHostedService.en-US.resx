@@ -3474,6 +3474,14 @@ The checker normally reports unsupported bodies as TYHP4322 before emit. Seeing 
     <value>Whether emitted PHP includes source comments (boolean)</value>
     <comment>Build help tyhp.json output.comments</comment>
   </data>
+  <data name="CLI_BuildHelpConfigEmitDocblocks" xml:space="preserve">
+    <value>Static-analysis docblocks (@param, @return, @var, @template, ...) generated from checked types: "lossy-only" (default), "all", or "off"</value>
+    <comment>Build help tyhp.json emit.docblocks</comment>
+  </data>
+  <data name="CLI_BuildHelpConfigEmitDocblockDialect" xml:space="preserve">
+    <value>Tag dialect for generated docblocks: "both" (default), "phpstan", "psalm", or "phpdoc"</value>
+    <comment>Build help tyhp.json emit.docblockDialect</comment>
+  </data>
   <data name="CLI_BuildHelpConfigOutputPhpVersion" xml:space="preserve">
     <value>Target PHP version string (e.g. 8.4)</value>
     <comment>Build help tyhp.json output.phpVersion</comment>

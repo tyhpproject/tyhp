@@ -1522,14 +1522,27 @@ namespace Tyhp.TyhpLang.Emitter
 
         private IBase2Ast TransformNamedType(PhpNamedTypeAst namedType)
         {
-            if (StructEmissionHelper.ResolveStructFromNamedType(namedType, this._context.GlobalScope) is not null)
+            if (StructEmissionHelper.ResolveStructFromNamedType(namedType, this._context.GlobalScope) is { } structSymbol)
             {
                 if (this._typeofTypeExprDepth > 0)
                 {
                     return namedType;
                 }
 
-                return PhpBuiltinTypeAst.Create("array", namedType);
+                var erased = PhpBuiltinTypeAst.Create("array", namedType);
+                erased.BoundSymbol = structSymbol;
+                if (namedType.AstGrammarAddons.TryGetValue("typeName", out var typeName) && typeName is not null)
+                {
+                    erased.WithGrammarAddon("typeName", typeName);
+                }
+
+                if (namedType.Name?.AstGrammarAddons.TryGetValue("identifier", out var identifier) == true
+                    && identifier is not null)
+                {
+                    erased.WithGrammarAddon("identifier", identifier);
+                }
+
+                return erased;
             }
 
             if (namedType.Name is PhpNameAst name)

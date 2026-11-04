@@ -17,6 +17,9 @@ class Box
     use \Tyhp\Concerns\HasGenerics;
 
     private static ?\ReflectionClass $__reflectedClass__tyhpGeneric = null;
+    /**
+     * @var ?T
+     */
     private mixed $item = null {
         set(mixed $value) {
             $this->__tyhpGeneric->checkProperty('item', $value);
@@ -39,10 +42,16 @@ class Box
         $__tyhp_obj->__construct();
         return $__tyhp_obj;
     }
+    /**
+     * @param T $value
+     */
     public function set(mixed $value): void
     {
         $this->item = $value;
     }
+    /**
+     * @return ?T
+     */
     public function get(): mixed
     {
         return $this->item;

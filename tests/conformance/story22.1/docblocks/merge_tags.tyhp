@@ -1,0 +1,15 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\MergeTags;
+
+class User {}
+
+/**
+ * Loads users.
+ *
+ * @throws \RuntimeException when the store is down
+ * @throws \LogicException when the ids are invalid
+ * @param array<int, User> $ids the ids, never empty
+ *        and not the $other list
+ */
+function load(array<int, User> $ids, array<string, User> $byName): void {}

@@ -23,6 +23,13 @@ namespace Tyhp.TyhpLang.Emitter
         public string? NamespacePrefix { get; }
         public bool StrictTypes { get; }
         public bool IncludeComments { get; }
+
+        /// <summary><c>emit.docblocks</c>. Default <see cref="DocblockEmitMode.LossyOnly"/>.</summary>
+        public DocblockEmitMode DocblockMode { get; } = DocblockEmitMode.LossyOnly;
+
+        /// <summary><c>emit.docblockDialect</c>. Default <see cref="DocblockDialect.Both"/>.</summary>
+        public DocblockDialect DocblockDialect { get; } = DocblockDialect.Both;
+
         public string TargetPhpVersion { get; }
         public string? EntryPointAutoloader { get; }
         /// <summary>
@@ -38,6 +45,8 @@ namespace Tyhp.TyhpLang.Emitter
             this.NamespacePrefix = null;
             this.StrictTypes = true;
             this.IncludeComments = true;
+            this.DocblockMode = DocblockEmitMode.LossyOnly;
+            this.DocblockDialect = DocblockDialect.Both;
             this.TargetPhpVersion = "8.4";
             this.EntryPointAutoloader = null;
             this.EntryPointAutoloaderMap = null;
@@ -53,6 +62,8 @@ namespace Tyhp.TyhpLang.Emitter
             this.NamespacePrefix = project.Output.NamespacePrefix;
             this.StrictTypes = project.Output.StrictTypes;
             this.IncludeComments = project.Output.IncludeComments;
+            this.DocblockMode = project.Emission.Docblocks;
+            this.DocblockDialect = project.Emission.DocblockDialect;
             this.TargetPhpVersion = project.PhpVersion;
             this.SourceRoot = project.GetProjectPath();
 

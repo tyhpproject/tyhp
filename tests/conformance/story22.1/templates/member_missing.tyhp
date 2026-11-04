@@ -1,0 +1,4 @@
+<?tyhp
+function render(int $count): void { ?>
+<p><?= $count->foo ?></p>
+<?tyhp }

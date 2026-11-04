@@ -1,0 +1,17 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\ClassCard;
+
+class Person {
+    public function __construct(public string $name) {}
+}
+
+function userCard(Person $user): void { ?>
+    <h1><?= $user->name ?></h1>
+<?tyhp }
+
+function main(): void {
+    userCard(new Person("Ada"));
+}
+
+main();

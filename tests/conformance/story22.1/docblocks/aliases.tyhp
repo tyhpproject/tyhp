@@ -1,0 +1,17 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\Aliases\Models;
+
+class User {}
+
+namespace App\Aliases;
+
+use App\Aliases\Models\User as U;
+
+class Collection<T> {
+    public function add(T $item): void {
+    }
+}
+
+function take(Collection<U> $items): void {
+}

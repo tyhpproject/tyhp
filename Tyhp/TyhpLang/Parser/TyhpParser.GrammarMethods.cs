@@ -8,10 +8,32 @@ using Antlr4.Runtime;
     public partial class TyhpParser : Parser {
         protected string _languageMode = "";
 
+        /// <summary>
+        /// <c>&lt;?=</c> in a <c>.tyhp</c> file is a Tyhp echo. <c>phpEchoBlock</c>
+        /// assigns <c>_languageMode = "php"</c> so the shared echo production matches;
+        /// Tyhp expression predicates stay active while that expression is parsed.
+        /// </summary>
+        private bool _tyhpEcho;
+
         public long LanguageModeTotalTime = 0L;
         public long LanguageModeTotalCalls = 0L;
 
+        /// <summary>
+        /// Enables Tyhp expressions inside <c>&lt;?=</c> for a <c>.tyhp</c> file.
+        /// </summary>
+        public void ConfigureTyhpEcho(bool enabled)
+        {
+            this._tyhpEcho = enabled;
+        }
+
         public bool isLanguageMode(string mode) {
+            if (this._tyhpEcho
+                && mode == "tyhp"
+                && this._languageMode == "php")
+            {
+                return true;
+            }
+
             return _languageMode == mode;
         }
 

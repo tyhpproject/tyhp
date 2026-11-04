@@ -1,0 +1,11 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\Heritage\Lib;
+
+trait Stash<T> {
+    public function put(T $x): void {}
+}
+
+interface Marker<T> {}
+
+class Plain {}

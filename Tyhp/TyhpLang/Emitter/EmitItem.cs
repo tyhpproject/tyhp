@@ -17,6 +17,32 @@ namespace Tyhp.TyhpLang.Emitter
 
         public Ast.Interfaces.IBase2Ast Provider {get; set;}
 
+        /// <summary>
+        /// Placed at the start of a line whose text is output, not code: inline HTML in a template.
+        /// Every place that indents emitted lines leaves such a line alone (see
+        /// <see cref="IndentLine"/>), so the HTML prints exactly as written. The marker is removed
+        /// from the final PHP text by <see cref="StripNoIndentMarkers"/>.
+        /// </summary>
+        public const char NoIndentMarker = '\u0001';
+
+        /// <summary>
+        /// Prefixes <paramref name="line"/> with <paramref name="indent"/> unless it is empty
+        /// (no trailing whitespace on blank lines) or begins with <see cref="NoIndentMarker"/>.
+        /// </summary>
+        public static string IndentLine(string indent, string line)
+            => line.Length == 0 || line[0] == NoIndentMarker ? line : indent + line;
+
+        /// <summary>
+        /// Marks every line after the first in <paramref name="html"/> as output so indenting
+        /// passes keep it as written.
+        /// </summary>
+        public static string MarkNoIndent(string html)
+            => html.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", "\n" + NoIndentMarker);
+
+        /// <summary>Removes every <see cref="NoIndentMarker"/> from final PHP text.</summary>
+        public static string StripNoIndentMarkers(string php)
+            => php.IndexOf(NoIndentMarker) < 0 ? php : php.Replace(NoIndentMarker.ToString(), "");
+
         public EmitItem(
             Ast.Interfaces.IBase2Ast provider,
             Enum.EmitType emitType,
@@ -259,7 +285,7 @@ namespace Tyhp.TyhpLang.Emitter
                 {
                     // Preserve intentional blank lines inside a piece, but never emit trailing
                     // whitespace on an otherwise empty line (PER-CS §2.3).
-                    segments.Add(line.Length == 0 ? "" : indent + line);
+                    segments.Add(IndentLine(indent, line));
                 }
             }
         }
@@ -357,7 +383,7 @@ namespace Tyhp.TyhpLang.Emitter
             string line,
             Ast.Interfaces.IBase2Ast? provider)
         {
-            string segment = line.Length == 0 ? "" : indent + line;
+            string segment = IndentLine(indent, line);
 
             if (segments.Count > 0)
             {
@@ -366,12 +392,14 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (line.Length > 0)
             {
-                if (indent.Length > 0)
+                var keepsIndent = line[0] != NoIndentMarker;
+                if (keepsIndent && indent.Length > 0)
                 {
                     collector.AddContent(indent, null);
                 }
 
-                collector.AddContent(line, provider);
+                // The marker is removed from the final PHP text, so it is not counted here.
+                collector.AddContent(StripNoIndentMarkers(line), provider);
             }
 
             segments.Add(segment);

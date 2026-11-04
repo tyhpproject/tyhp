@@ -108,7 +108,7 @@ Edit `TyhpLexer.GrammarMethods.cs` and `TyhpParser.GrammarMethods.cs`. The next 
 
 **`TyhpParser.GrammarMethods.cs`** — `partial class TyhpParser : Parser`:
 
-- `_languageMode` + `isLanguageMode(string)`
+- `_languageMode` + `isLanguageMode(string)`. `ConfigureTyhpEcho` makes `isLanguageMode("tyhp")` true while `phpEchoBlock` has assigned `"php"`, so a `<?=` echo in a `.tyhp` file parses Tyhp expressions. `.php` files leave the flag off.
 - `isHideKeyword(IToken)` / `isObjectKeyword(IToken)` / `isStructKeyword(IToken)` — contextual `T_STRING` spellings
 - `isThisVariable(IToken)` / `extensionReceiverAhead()` / `extensionLegacyReceiverAhead()` — `&$this` receiver annotation vs per-member `extends Type $this` on extension-block callables (`tyhpExtensionCallableParameters`)
 - `looksLikeObjectShape()` — `type Name = object { … }` vs bare `object`
@@ -141,7 +141,7 @@ Default mode handles open tags and inline HTML. Scripting keywords live in `ST_I
 
 Open-tag routing:
 
-- `<?php` / `<?=` → PHP / phpEcho language mode (shared PHP lexer body)
+- `<?php` → PHP language mode. `<?=` → `phpEcho` in a `.php` file (shared PHP lexer body). In a `.tyhp` file the same tag is reassigned to `tyhp` after the shared rule runs (`ConfigureEchoInTyhp`), so `is`, `typeof`, `with`, and `nameof` reclassify inside the echo. `.php` files stay `phpEcho`.
 - `<?` then push `ST_CHECK_FOR_OTHER_OPEN_TAGS_LEXER_ADDON`. `TyhpLexer` recognizes `tyhp` and `tyhpdef`. `TyhpdefLexer` recognizes `tyhpdef`.
 - Tagless: optional start in `ST_TYHP_TAGLESS`. `TyhpLexer` consumes `<?tyhp` or `<?tyhpdef`. `TyhpdefLexer` consumes `<?tyhpdef`.
 - `<?tyhp?>` (no whitespace before `?>`) opens an empty section (`closeTagAhead()`).
@@ -158,8 +158,8 @@ Set when an open tag is recognized (or by `ConfigureTagless` when starting tagle
 
 | Value | Effect (examples) |
 |-------|-------------------|
-| `"php"` / `"phpEcho"` | PHP scripting |
-| `"tyhp"` | Tyhp keywords: `with`, `using`, `is`, `typeof`, `nameof`, `variable_exists`, `:=`, plus shared Tyhp keywords |
+| `"php"` / `"phpEcho"` | PHP scripting. `<?=` in a `.php` file uses `phpEcho`. |
+| `"tyhp"` | Tyhp keywords: `with`, `using`, `is`, `typeof`, `nameof`, `variable_exists`, `:=`, plus shared Tyhp keywords. `<?=` in a `.tyhp` file uses this mode. |
 | `"tyhpdef"` | Shared Tyhp keywords (`struct`, `type`, `async`, …) **plus** `deprecated` / `obsolete` / `partial` / `extern` / `omit`; **not** the Tyhp-only keyword set above |
 
 Contextual keywords (`type`, `extension`, `async`, `operator`, `void`, `partial`, `extern`, `omit`, `deprecated`, `obsolete`) use `prepareLess` + `streamLA` so identifier contexts still produce `T_STRING` when the word is not being used as a declaration keyword. `struct` (like `object` / `hide`) is always `T_STRING`; parser predicates (`isStructKeyword`, `looksLikeStructShape`, `looksLikeAnonymousStruct`) decide keyword vs name. `parent` stays a hard keyword (`: parent(...)` vs `function parent()` are both followed by `(`).

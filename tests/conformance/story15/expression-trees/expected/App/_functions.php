@@ -8,6 +8,9 @@ declare(strict_types=1);
 
 namespace App;
 
+/**
+ * @param \Tyhp\PropertyPath<callable(object): string> $path
+ */
 function pathOf(\Tyhp\PropertyPath $path): string
 {
     return $path->getPath();

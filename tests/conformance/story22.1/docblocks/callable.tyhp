@@ -1,0 +1,7 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\CallableSig;
+
+function apply(callable(int): string $fn): string {
+    return $fn(1);
+}

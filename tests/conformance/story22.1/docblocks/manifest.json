@@ -1,0 +1,191 @@
+{
+  "suite": "story22.1/docblocks",
+  "description": "Generated PHPStan/Psalm docblocks for lossy declarations",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "generics_param",
+      "file": "generics.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Generics/_functions.php"
+      }
+    },
+    {
+      "id": "generics_template",
+      "file": "generics.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Generics/Box.php"
+      }
+    },
+    {
+      "id": "generics_interface_template",
+      "file": "generics.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Generics/Store.php"
+      }
+    },
+    {
+      "id": "generics_extends",
+      "file": "generics.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Generics/IntBox.php"
+      }
+    },
+    {
+      "id": "generics_implements",
+      "file": "generics.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Generics/UserStore.php"
+      }
+    },
+    {
+      "id": "struct_shape",
+      "file": "structs.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Structs/_functions.php"
+      }
+    },
+    {
+      "id": "class_string",
+      "file": "class_string.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/ClassString/_functions.php"
+      }
+    },
+    {
+      "id": "callable_signature",
+      "file": "callable.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/CallableSig/_functions.php"
+      }
+    },
+    {
+      "id": "lossy_only_skips_redundant",
+      "file": "lossy.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Lossy/_functions.php"
+      }
+    },
+    {
+      "id": "all_mode_emits_redundant",
+      "file": "all_mode.tyhp",
+      "config": { "emit:docblocks": "all" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/AllMode/_functions.php"
+      }
+    },
+    {
+      "id": "author_docblock_merge",
+      "file": "merge.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Merge/_functions.php"
+      }
+    },
+    {
+      "id": "directive_byte_identity",
+      "file": "directives.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Directives/_functions.php"
+      }
+    },
+    {
+      "id": "profile_debug",
+      "file": "profiles.tyhp",
+      "config": { "build:profile": "debug" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Profiles/_functions.php"
+      }
+    },
+    {
+      "id": "profile_balanced",
+      "file": "profiles.tyhp",
+      "config": { "build:profile": "balanced" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Profiles/_functions.php"
+      }
+    },
+    {
+      "id": "profile_release",
+      "file": "profiles.tyhp",
+      "config": { "build:profile": "release" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Profiles/_functions.php"
+      }
+    },
+    {
+      "id": "comments_off_keeps_tags",
+      "file": "comments_off.tyhp",
+      "config": { "output:comments": false },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/CommentsOff/_functions.php"
+      }
+    },
+    {
+      "id": "docblocks_off",
+      "file": "docblocks_off.tyhp",
+      "config": { "emit:docblocks": "off" },
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/DocblocksOff/_functions.php"
+      }
+    },
+    {
+      "id": "alias_expands_to_fqn",
+      "file": "aliases.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Aliases/_functions.php"
+      }
+    },
+    {
+      "id": "author_tags_repeat_and_wrap",
+      "file": "merge_tags.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/MergeTags/_functions.php"
+      }
+    },
+    {
+      "id": "union_spelling",
+      "file": "unions.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Unions/_functions.php"
+      }
+    },
+    {
+      "id": "heritage_trait_use_not_implements",
+      "file": "heritage_use.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Heritage/Holder.php"
+      }
+    },
+    {
+      "id": "alias_collection_template",
+      "file": "aliases.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Aliases/Collection.php"
+      }
+    }
+  ]
+}

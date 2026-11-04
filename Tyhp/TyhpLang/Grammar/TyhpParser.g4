@@ -77,8 +77,10 @@ locals [_languageMode:string = ""]
     ;
 
 tyhpInlineOutput
-    // HTML, or `<?= … ?>` parsed as an echo. phpEchoBlock sets the parser mode to
-    // "php" before the predicate runs, so the echo is accepted in a `.tyhp` file.
+    // HTML, or `<?= … ?>` parsed as a Tyhp echo. The lexer treats `<?=` in a
+    // `.tyhp` file as Tyhp, so keywords such as `is`, `typeof`, `with`, and
+    // `nameof` are active. phpEchoBlock assigns parser mode "php" so this
+    // alternative matches; Tyhp expression predicates stay active for the echo.
     : InlineHtml=T_INLINE_HTML
     | PhpEchoBlock=phpEchoBlock {this.isLanguageMode("php")}?
     ;

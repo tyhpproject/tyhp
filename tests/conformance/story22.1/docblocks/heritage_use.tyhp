@@ -1,0 +1,15 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\Heritage;
+
+use App\Heritage\Lib\Stash as S;
+use App\Heritage\Lib\Marker as M;
+use App\Heritage\Lib\Plain as P;
+
+class Holder implements M<P> {
+    use S<P>;
+
+    public function same(self $other): static {
+        return $this;
+    }
+}

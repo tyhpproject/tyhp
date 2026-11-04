@@ -529,7 +529,7 @@ namespace Tyhp.TyhpLang.Emitter
                 {
                     foreach (var line in content.Replace("\r\n", "\n").Split('\n'))
                     {
-                        lines.Add("    " + line);
+                        lines.Add(EmitItem.IndentLine("    ", line));
                     }
                 }
             }
@@ -742,10 +742,23 @@ namespace Tyhp.TyhpLang.Emitter
             // statement sequence it was parsed in. A `.tyhp` file keeps the surrounding
             // statement emit type and therefore source order. A `.php` file stays on
             // OutsideItems.
-            var htmlEmitType = this.InlineHtmlFollowsStatementOrder()
-                ? emitType
-                : EmitType.OutsideItems;
-            return EmitItem.Line(inlineOutput, htmlEmitType, "?>" + inlineOutput.Content + "<?php", parent);
+            if (!this.InlineHtmlFollowsStatementOrder())
+            {
+                return EmitItem.Line(
+                    inlineOutput,
+                    EmitType.OutsideItems,
+                    "?>" + inlineOutput.Content + "<?php",
+                    parent);
+            }
+
+            // Template HTML is printed, so the printer must not indent its lines: each line after
+            // the first is marked as output (EmitItem.NoIndentMarker). PHP drops one newline
+            // directly after `?>`; the source lexer already dropped the template's own, so a
+            // newline that begins the content is real output and needs a second one in front of it.
+            var content = inlineOutput.Content ?? string.Empty;
+            var closeTag = content.StartsWith('\n') || content.StartsWith('\r') ? "?>\n" : "?>";
+            var emitted = EmitItem.MarkNoIndent(closeTag + content + "<?php");
+            return EmitItem.Line(inlineOutput, emitType, emitted, parent);
         }
 
         /// <summary>

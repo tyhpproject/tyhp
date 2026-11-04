@@ -1,0 +1,13 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\Structs;
+
+type Money = struct {
+    int $cents;
+    string $currency = "USD";
+    ?string $note;
+};
+
+function price(Money $money): int {
+    return $money->cents;
+}

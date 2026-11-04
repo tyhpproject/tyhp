@@ -18,16 +18,6 @@ namespace Tyhp.TyhpLang.Emitter
         private const string PhpDeclareKey = "php";
         private const string TyhpPhpAttributeFqn = "\\Tyhp\\Php";
 
-        private EmitItem ApplyDocComment(IBase2Ast node, EmitItem item)
-        {
-            if (!this._context.Config.IncludeComments || string.IsNullOrWhiteSpace(node.DocComment))
-            {
-                return item;
-            }
-
-            return EmitItem.AttachDocComment(node.DocComment, item);
-        }
-
         /// <summary>
         /// Inserts <c>#[…]</c> lines onto <paramref name="target"/> after any leading docblock and
         /// before the declaration signature. PHP / PHPDoc convention is docblock → attributes →

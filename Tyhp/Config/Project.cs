@@ -148,6 +148,9 @@ namespace Tyhp.Config
         /// <summary>Output path and emitter targeting options.</summary>
         public OutputConfig Output { get; private set; } = new();
 
+        /// <summary>Generated static-analysis docblock options (<c>emit.*</c>).</summary>
+        public EmissionConfig Emission { get; private set; } = new();
+
         /// <summary>Build pipeline and optimization options.</summary>
         public BuildConfig Build { get; private set; } = new();
 
@@ -263,6 +266,7 @@ namespace Tyhp.Config
 
             this.Type = this.ParseProjectType();
             this.Output = new OutputConfig();
+            this.Emission = new EmissionConfig();
             this.Build = new BuildConfig();
             this.Checker = new CheckerConfig();
             this.TyhpdefOptions = new TyhpdefConfig();
@@ -270,6 +274,7 @@ namespace Tyhp.Config
 
             var warn = new Action<MessageCode, object[]>(this.WarnConfig);
             this.Output.ApplyFrom(this._configuration, warn);
+            this.Emission.ApplyFrom(this._configuration, warn);
             this.Build.ApplyFrom(this._configuration, warn);
             this.Checker.ApplyFrom(this._configuration);
             this.XDebugProxy.ApplyFrom(this._configuration);

@@ -256,6 +256,30 @@ public class EmitItemSourceMapTests
         php.Should().Be("class Foo\n{\n    use Bar;\n\n    public const X = 1;\n    public function m() {}\n}");
     }
 
+    [Fact]
+    public void EmitWithCollector_NoIndentLines_StayUnindentedAndMapsKeepLineCount()
+    {
+        var block = EmitItem.BlockBraceNextLine(Provider(1, 0), EmitType.RootStatement, "function demo(): void");
+        EmitItem.Line(
+            Provider(2, 4),
+            EmitType.FunctionStatement,
+            EmitItem.MarkNoIndent("?><p>\n  text\n<?php"),
+            block);
+
+        var expected = "function demo(): void\n{\n    ?><p>\n" + EmitItem.NoIndentMarker
+            + "  text\n" + EmitItem.NoIndentMarker + "<?php\n}";
+        block.emit(0).Should().Be(expected);
+
+        var collector = new SourceMapCollector();
+        block.emit(0, collector).Should().Be(expected);
+
+        // The marker is stripped from the final PHP text, so the collector does not count it.
+        var finalPhp = EmitItem.StripNoIndentMarkers(expected);
+        finalPhp.Should().Be("function demo(): void\n{\n    ?><p>\n  text\n<?php\n}");
+        collector.CurrentGeneratedLine.Should().Be(finalPhp.Count(c => c == '\n'));
+        collector.CurrentGeneratedColumn.Should().Be(finalPhp.Length - finalPhp.LastIndexOf('\n') - 1);
+    }
+
     private static EmitItem NestedFunctionTree()
     {
         var block = EmitItem.BlockBraceNextLine(

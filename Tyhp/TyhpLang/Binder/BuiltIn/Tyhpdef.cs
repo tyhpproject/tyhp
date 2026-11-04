@@ -184,6 +184,7 @@ namespace Tyhp.TyhpLang.Binder.BuiltIn
 
                 var tokenStream = new CommonTokenStream(tyhpLexer);
                 var tyhpParser = new TyhpParser(tokenStream, TextWriter.Null, TextWriter.Null);
+                tyhpParser.ConfigureTyhpEcho(mode == ParseMode.Tyhp);
                 tyhpParser.RemoveErrorListeners();
                 using var tyhpParserErrorListener = new TyhpAntlrErrorListener<IToken>(diagnostics, MessageCode.TyhpdefParseError);
                 tyhpParserErrorListener.SetFileName(fileName);

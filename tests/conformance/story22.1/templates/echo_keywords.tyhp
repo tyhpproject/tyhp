@@ -1,0 +1,21 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\EchoKeywords;
+
+class User {}
+
+type Card = struct {
+    string $name = "";
+};
+
+function show(mixed $x, Card $card): void { ?>
+    <span><?= $x is string ? $x : "" ?></span>
+    <b><?= ($card with [name => "Ada"])->name ?></b>
+    <i><?= nameof(User) ?></i>
+<?tyhp }
+
+function main(): void {
+    show("Ada", new Card() with [name => "Ada"]);
+}
+
+main();

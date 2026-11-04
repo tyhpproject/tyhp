@@ -1,0 +1,83 @@
+{
+  "suite": "story22.1/templates",
+  "description": "Tyhp echo tags in .tyhp templates",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "struct_card",
+      "file": "struct_card.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/StructCard/_functions.php"
+      }
+    },
+    {
+      "id": "class_card_functions",
+      "file": "class_card.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/ClassCard/_functions.php"
+      }
+    },
+    {
+      "id": "class_card_class",
+      "file": "class_card.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/ClassCard/Person.php"
+      }
+    },
+    {
+      "id": "echo_keywords",
+      "file": "echo_keywords.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/EchoKeywords/_functions.php"
+      }
+    },
+    {
+      "id": "echo_keywords_class",
+      "file": "echo_keywords.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/EchoKeywords/User.php"
+      }
+    },
+    {
+      "id": "alt_syntax",
+      "file": "alt_syntax.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/AltSyntax/_functions.php"
+      }
+    },
+    {
+      "id": "nested_html",
+      "file": "nested_html.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/Nested/_functions.php"
+      }
+    },
+    {
+      "id": "member_missing",
+      "file": "member_missing.tyhp",
+      "action": "lint",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4101]
+      }
+    },
+    {
+      "id": "non_stringable",
+      "file": "non_stringable.tyhp",
+      "action": "lint",
+      "expect": {
+        "errorCount": { "min": 1 },
+        "codes": [4120]
+      }
+    }
+  ]
+}

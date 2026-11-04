@@ -24,8 +24,8 @@ public class ClosureFiberEraseEmitterTests
             """);
 
         php.Should().Contain("function take(\\Closure $c, \\Fiber $f): void");
-        php.Should().NotContain("callable(int): string");
-        php.Should().NotContain("callable(): void");
+        php.Should().Contain("@param \\Closure<callable(int): string> $c");
+        php.Should().Contain("@param \\Fiber<int, callable(): void> $f");
         php.Should().NotContain("GenericObject");
         php.Should().NotContain("__generic_");
         php.Should().NotContain("HasGenerics");

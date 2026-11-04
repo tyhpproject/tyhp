@@ -147,6 +147,8 @@ Use these exact keys; do not invent synonyms in story docs.
 | `source.tagless` | Opt-in extension-driven source mode (Story 06, Phase 7). Default `false`. When `true`: `.tyhp` and `.tyhpdef` files may omit their open tag. A `.tyhp` file whose first six characters are `<?tyhp` uses the tagged entry; the tagless `.tyhp` entry has no open tag. Closing `?>` is an error in a tagless file. A `.tyhpdef` open tag stays optional. A future release may flip the default to `true`. |
 | `output.path` | Build output directory (e.g. `./build`) |
 | `output.namespacePrefix` | PHP namespace prefix for emitted code |
+| `emit.docblocks` | Generated static-analysis docblocks: `"lossy-only"` (default; a tag only when the PHP declaration drops type information), `"all"`, or `"off"`. On in every build profile, independent of `output.comments` |
+| `emit.docblockDialect` | `"both"` (default), `"phpstan"`, `"psalm"`, or `"phpdoc"`. Shared tags stay unprefixed; a prefixed `@phpstan-` / `@psalm-` tag is used only where the dialects diverge |
 | `type` | `"library"` triggers auto-generation of `extra.tyhp.package` on `composer.json` from the compiled public API |
 | `build.optimizations` | Per-module optimizer toggles (optimizer modules: Stories 23–24) |
 | `build.runtimeGenericChecks` | Emit runtime generic checks |

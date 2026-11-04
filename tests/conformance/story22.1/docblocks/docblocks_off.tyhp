@@ -1,0 +1,9 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\DocblocksOff;
+
+class User {}
+
+function take(array<int, User> $ids): int {
+    return 0;
+}

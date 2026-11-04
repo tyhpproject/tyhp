@@ -685,6 +685,11 @@ namespace Tyhp.Domain.Services
                 }
                 (parser.TokenStream as CommonTokenStream)?.SetTokenSource(lexer);
                 parser.Reset();
+                if (parser is TyhpParser tyhpEchoParser)
+                {
+                    tyhpEchoParser.ConfigureTyhpEcho(
+                        filePath.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase));
+                }
 
                 lexerErrorListener = new TyhpAntlrErrorListener<int>(diagnostics);
                 parserErrorListener = new TyhpAntlrErrorListener<IToken>(diagnostics);

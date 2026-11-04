@@ -498,7 +498,9 @@ namespace Tyhp.TyhpLang.Emitter
 
             var sb = new StringBuilder();
             this.AppendBodyChildren(sb, this.RootEmitItem, indentLevel, collector);
-            return sb.ToString();
+
+            // Template HTML lines carry a marker so indenting passes leave them as written.
+            return EmitItem.StripNoIndentMarkers(sb.ToString());
         }
 
         private void AppendBodyChildren(

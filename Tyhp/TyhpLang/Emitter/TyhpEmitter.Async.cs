@@ -190,7 +190,7 @@ namespace Tyhp.TyhpLang.Emitter
             var innerLines = DedentLines(innerBody);
             var innerBodyIndented = string.Join(
                 "\n",
-                innerLines.Select(l => l.Length == 0 ? "" : "    " + l));
+                innerLines.Select(l => EmitItem.IndentLine("    ", l)));
 
             if (string.IsNullOrEmpty(innerBodyIndented))
             {
@@ -216,9 +216,15 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             var common = lines
-                .Where(l => !string.IsNullOrWhiteSpace(l))
-                .Min(l => l.Length - l.TrimStart(' ').Length);
-            return lines.Select(l => l.Length >= common ? l[common..] : "").ToList();
+                .Where(l => !string.IsNullOrWhiteSpace(l) && l[0] != EmitItem.NoIndentMarker)
+                .Select(l => l.Length - l.TrimStart(' ').Length)
+                .DefaultIfEmpty(0)
+                .Min();
+
+            // Template HTML lines (marked as output) keep their text as written.
+            return lines
+                .Select(l => l.Length > 0 && l[0] == EmitItem.NoIndentMarker ? l : l.Length >= common ? l[common..] : "")
+                .ToList();
         }
 
         private static List<string> CollectAsyncBlockUseParts(TyhpAsyncBlockAst block)
@@ -475,14 +481,13 @@ namespace Tyhp.TyhpLang.Emitter
                 ? ""
                 : string.Join(
                     "\n",
-                    innerBody.Replace("\r\n", "\n").Split('\n').Select(l =>
-                        string.IsNullOrEmpty(l) ? "" : "    " + l));
+                    innerBody.Replace("\r\n", "\n").Split('\n').Select(l => EmitItem.IndentLine("    ", l)));
 
             var functionKeyword = inlineFn.ReturnsRef ? "function &" : "function ";
             var outerBody = string.IsNullOrEmpty(innerBodyIndented)
                 ? "return \\Tyhp\\Promise::_async(function ()" + useClause + originalReturn + " {});"
                 : "return \\Tyhp\\Promise::_async(function ()" + useClause + originalReturn + " {\n"
-                    + string.Join("\n", innerBodyIndented.Split('\n').Select(l => "    " + l))
+                    + string.Join("\n", innerBodyIndented.Split('\n').Select(l => l.Length > 0 && l[0] == EmitItem.NoIndentMarker ? l : "    " + l))
                     + "\n    });";
 
             return $"{staticPrefix}{functionKeyword}({paramsText}){outerUse}: \\Tyhp\\Promise {{\n    {outerBody}\n}}";

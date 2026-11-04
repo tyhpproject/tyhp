@@ -1,0 +1,13 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\ClassString;
+
+class User {}
+
+function make(__ClassName $name): string {
+    return $name;
+}
+
+function makeUser(__ClassName<User> $name): string {
+    return $name;
+}

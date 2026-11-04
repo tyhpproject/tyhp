@@ -8,8 +8,14 @@ declare(strict_types=1);
 
 namespace App;
 
+/**
+ * @param \Tyhp\Expression<callable(\App\User, \App\User): int> $cmp
+ */
 function sortBy(\Tyhp\Expression $cmp): void {}
 
+/**
+ * @param \Tyhp\Expression<callable(\App\User): bool> $pred
+ */
 function take(\Tyhp\Expression $pred): void {}
 
 function demo(): void

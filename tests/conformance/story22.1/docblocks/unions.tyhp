@@ -1,0 +1,15 @@
+<?tyhp
+declare(strict_types=1);
+namespace App\Unions;
+
+class User {}
+
+function reorder(int|string $x, string|int $y): int|string {
+    return $x;
+}
+
+function nested(array<int|string>|null $a, array<int|string, User> $map): array<int|string>|null {
+    return $a;
+}
+
+function callbacks(callable(int): string|null $a, callable(int): (string|int) $b): void {}

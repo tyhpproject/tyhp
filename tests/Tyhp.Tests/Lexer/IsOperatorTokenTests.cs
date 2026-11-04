@@ -93,13 +93,40 @@ public class IsOperatorTokenTests
             && t.Type != TyhpLexer.T_TYHP_IS);
     }
 
-    private static List<IToken> LexDefaultChannel(string source)
+    [Fact]
+    public void Lex_EchoInTyhpFile_ActivatesTyhpKeywords()
+    {
+        var tokens = LexDefaultChannel("""
+            <?= $x is string ? nameof($x) : typeof(User) ?>
+            <?= $card with [name => "Ada"] ?>
+            """, "page.tyhp");
+
+        tokens.Should().Contain(t => t.Type == TyhpLexer.T_TYHP_IS);
+        tokens.Should().Contain(t => t.Type == TyhpLexer.T_TYHP_NAMEOF);
+        tokens.Should().Contain(t => t.Type == TyhpLexer.T_TYHP_TYPEOF);
+        tokens.Should().Contain(t => t.Type == TyhpLexer.T_TYHP_WITH);
+    }
+
+    [Fact]
+    public void Lex_EchoInPhpFile_LeavesIsAsIdentifier()
+    {
+        var tokens = LexDefaultChannel("""
+            <?php
+            ?>
+            <?= $x is string ?>
+            """, "page.php");
+
+        tokens.Should().NotContain(t => t.Type == TyhpLexer.T_TYHP_IS);
+        tokens.Should().Contain(t => t.Type == TyhpLexer.T_STRING && t.Text == "is");
+    }
+
+    private static List<IToken> LexDefaultChannel(string source, string fileName = "test.tyhp")
     {
         var contentBytes = Encoding.UTF8.GetBytes(source);
         var inputStream = new AntlrInputStream(new MemoryStream(contentBytes));
         var lexer = new TyhpLexer(inputStream);
         lexer.RemoveErrorListeners();
-        lexer.ConfigureTagless(enabled: false, languageMode: string.Empty, new DiagnosticBag(), fileName: "test.tyhp");
+        lexer.ConfigureTagless(enabled: false, languageMode: string.Empty, new DiagnosticBag(), fileName: fileName);
 
         var stream = new CommonTokenStream(lexer);
         stream.Fill();

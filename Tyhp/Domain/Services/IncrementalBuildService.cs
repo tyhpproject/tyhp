@@ -254,6 +254,8 @@ namespace Tyhp.Domain.Services
             builder.AppendLine(project.Output.PhpVersion);
             builder.AppendLine(project.Output.StrictTypes.ToString());
             builder.AppendLine(project.Output.IncludeComments.ToString());
+            builder.AppendLine(project.Emission.Docblocks.ToString());
+            builder.AppendLine(project.Emission.DocblockDialect.ToString());
             builder.AppendLine(project.Output.PublishClean.ToString());
             foreach (var entry in project.Output.PublishContent)
             {

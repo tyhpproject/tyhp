@@ -1,3 +1,4 @@
+using Tyhp.Config;
 using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
@@ -902,6 +903,11 @@ namespace Tyhp.TyhpLang.Emitter
             PhpObjectTypeDeclAst objectDecl,
             EmitItem classBlock)
         {
+            if (this._context.Config.DocblockMode == DocblockEmitMode.Off)
+            {
+                return;
+            }
+
             if (!this.ShouldLowerPropertyAccessors() || !this.ObjectHasPendingHookedProperties())
             {
                 return;
@@ -945,6 +951,11 @@ namespace Tyhp.TyhpLang.Emitter
             PhpObjectTypeDeclAst objectDecl,
             EmitItem classBlock)
         {
+            if (this._context.Config.DocblockMode == DocblockEmitMode.Off)
+            {
+                return;
+            }
+
             if (this._currentObjectGenericParams.Count == 0)
             {
                 return;

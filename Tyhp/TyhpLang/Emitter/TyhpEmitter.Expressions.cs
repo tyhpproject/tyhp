@@ -1360,7 +1360,7 @@ namespace Tyhp.TyhpLang.Emitter
 
                 return lines.Count == 0
                     ? "{}"
-                    : "{\n" + string.Join("\n", lines.Select(l => "    " + l)) + "\n}";
+                    : "{\n" + string.Join("\n", lines.Select(l => EmitItem.IndentLine("    ", l))) + "\n}";
             }
             finally
             {

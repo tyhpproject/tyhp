@@ -1,0 +1,13 @@
+{
+  "include": [
+    "struct_card.tyhp",
+    "class_card.tyhp",
+    "echo_keywords.tyhp",
+    "alt_syntax.tyhp",
+    "nested_html.tyhp"
+  ],
+  "output": {
+    "path": "build/",
+    "phpVersion": "8.4"
+  }
+}

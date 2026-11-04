@@ -17,6 +17,9 @@ class Container
     use \Tyhp\Concerns\HasGenerics;
 
     private static ?\ReflectionClass $__reflectedClass__tyhpGeneric = null;
+    /**
+     * @var ?TValue
+     */
     private mixed $item = null {
         set(mixed $value) {
             $this->__tyhpGeneric->checkProperty('item', $value);
@@ -39,10 +42,16 @@ class Container
         $__tyhp_obj->__construct();
         return $__tyhp_obj;
     }
+    /**
+     * @param TValue $value
+     */
     public function set(mixed $value): void
     {
         $this->item = $value;
     }
+    /**
+     * @return ?TValue
+     */
     public function get(): mixed
     {
         return $this->item;

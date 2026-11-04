@@ -8,6 +8,11 @@ declare(strict_types=1);
 
 namespace App;
 
+/**
+ * @template T
+ * @param T $val
+ * @return T
+ */
 #[\Tyhp\GenericRuntime(erased: true, layouts: [1], compiler: "805.1.2.0")]
 function identity(mixed $val): mixed
 {
