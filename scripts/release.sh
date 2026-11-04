@@ -29,8 +29,8 @@ readonly EXPECTED_ASSETS=(
 
 # Every place the current compiler version is written, as "path|kind":
 #   csproj    <Version> in tyhp.csproj
-#   text      the full version (805.1.2-beta.3, also inside v805.1.2-beta.3)
-#   badge     the shields.io status badge (status-805.1.2--beta.3-)
+#   text      the full version (805.1.2-beta.4, also inside v805.1.2-beta.4)
+#   badge     the shields.io status badge (status-805.1.2--beta.4-)
 #   assembly  the compiler stamp compiler: "805.1.2.0" in emitted-PHP fixtures;
 #             it carries only X.Y.Z, so it changes only when X.Y.Z changes
 # CHANGELOG.md headings and the Makefile error example are history or examples
@@ -98,14 +98,14 @@ checked against dist/checksums.txt, and only then is it published.
         <Version> in tyhp.csproj. The current version itself releases without a
         bump commit (the version files must already hold it).
   prerelease
-        Next number on the current prerelease: 805.1.2-beta.3 -> 805.1.2-beta.4.
+        Next number on the current prerelease: 805.1.2-beta.4 -> 805.1.2-beta.5.
   alpha, beta, rc
         Bump the number when the current prerelease is on that channel, or move
-        to it: 805.1.2-beta.3 + beta -> 805.1.2-beta.4,
-        805.1.2-beta.3 + rc -> 805.1.2-rc.1. Refused on a stable version and
+        to it: 805.1.2-beta.4 + beta -> 805.1.2-beta.5,
+        805.1.2-beta.4 + rc -> 805.1.2-rc.1. Refused on a stable version and
         when moving back (rc -> beta).
   release
-        Finalize the current prerelease: 805.1.2-beta.3 -> 805.1.2.
+        Finalize the current prerelease: 805.1.2-beta.4 -> 805.1.2.
   patch, minor, major
         Semver bump of a stable version: 805.2.0 + patch -> 805.2.1.
         Refused while the current version is a prerelease, because the result

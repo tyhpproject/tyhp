@@ -4,6 +4,8 @@ Notable changes to the Tyhp compiler, CLI, and language server. The format follo
 
 ## [Unreleased]
 
+## [805.1.2-beta.4] - 2026-11-04
+
 ### Added
 
 - Emitted PHP includes PHPStan/Psalm docblock tags (`@param`, `@return`, `@var`, `@template`, `@extends`, `@implements`, `@internal`) where the PHP declaration drops type information. `emit.docblocks` defaults to `lossy-only` in every build profile; `all` emits a tag for every signature type and `off` emits none. `emit.docblockDialect` defaults to `both`. Author docblocks and emitter directives are kept; `output.comments: false` drops prose and keeps analysis tags.
