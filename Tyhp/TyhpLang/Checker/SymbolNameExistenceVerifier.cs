@@ -232,6 +232,23 @@ namespace Tyhp.TyhpLang.Checker
             return resolver.ResolveSymbol(varName, fromScope) is VariableSymbol;
         }
 
+        /// <summary>
+        /// True when <paramref name="memberName"/> is a declared property, method, class constant,
+        /// or enum case of <paramref name="ownerType"/>. Unknown owners are not rejected here.
+        /// </summary>
+        internal static bool HasDeclaredMember(ICheckedType ownerType, string memberName)
+        {
+            if (CheckerHelpers.TryGetObjectDeclaration(ownerType) is null)
+            {
+                return true;
+            }
+
+            return IsMemberName(memberName, ownerType, isProperty: true)
+                || IsMemberName(memberName, ownerType, isProperty: false)
+                || IsObjectConstant(memberName, ownerType)
+                || IsEnumCase(memberName, ownerType);
+        }
+
         private static bool IsMemberName(string literalValue, ICheckedType ownerType, bool isProperty)
         {
             var owner = CheckerHelpers.TryGetObjectDeclaration(ownerType);

@@ -71,6 +71,16 @@ namespace Tyhp.TyhpLang.Emitter
         // variable lookups resolve against the correct scope frame.
         private readonly Stack<IBase2Ast> _functionStack = new();
 
+        /// <summary>
+        /// Arrow <c>fn</c>s whose body is captured as an expression tree. Extension calls
+        /// inside them stay method calls until the tree is built; the backing closure is
+        /// spliced afterwards so <c>compile()</c> still runs the extension body.
+        /// </summary>
+        private readonly HashSet<PhpInlineFunctionAst> _expressionTreeLambdas =
+            new(ReferenceEqualityComparer.Instance);
+
+        private bool _forceExtensionSplice;
+
         // Checker types carried from an authored expression to the node that replaced it while
         // rewriting (see CarryCheckedTypeToReplacement). EmitContext.ExpressionTypes is read-only
         // and keyed by authored nodes, so rewritten nodes are recorded here.
@@ -135,6 +145,8 @@ namespace Tyhp.TyhpLang.Emitter
             this._typedTypeExprsByFunction.Clear();
             this._globalTypedTypeExprs.Clear();
             this._functionStack.Clear();
+            this._expressionTreeLambdas.Clear();
+            this._forceExtensionSplice = false;
             this._classStack.Clear();
             this._typeofTypeExprDepth = 0;
             AstWalker.WalkStatements(
@@ -779,6 +791,7 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             this.MarkStructReadExemptions(node);
+            this.NoteExpressionTreeLambda(node);
 
             // Expand statement-context object `with` inside blocks before children are walked.
             if (node is PhpStatementBlockAst block)
@@ -1163,12 +1176,12 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         private static ObjectDeclarationSymbol? FindObjectSymbol(IBaseScope? scope, string name)
-        {
-            if (scope is null)
-            {
-                return null;
-            }
+            => scope is null
+                ? null
+                : EmitLookupCache.GetOrSearch(EmitLookupKind.Object, scope, name, SearchObjectSymbol);
 
+        private static ObjectDeclarationSymbol? SearchObjectSymbol(IBaseScope scope, string name)
+        {
             if (scope.FindChildSymbolByName(name) is ObjectDeclarationSymbol direct && !direct.IsStruct)
             {
                 return direct;
@@ -1176,7 +1189,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             foreach (var childScope in scope.GetAllChildScopes())
             {
-                if (FindObjectSymbol(childScope, name) is { } found)
+                if (SearchObjectSymbol(childScope, name) is { } found)
                 {
                     return found;
                 }
@@ -1868,6 +1881,13 @@ namespace Tyhp.TyhpLang.Emitter
         private bool TryRewriteExtensionMethodCall(PhpDereferenceableAst callNode, out IBase2Ast rewritten)
         {
             rewritten = callNode;
+
+            // The tree has to see `$s->startsWith($prefix)` as a method call. Splicing first
+            // would leave `\str_starts_with(...)`, which has no tree form (TYHP5024).
+            if (!this._forceExtensionSplice && this.IsInsideExpressionTreeLambda())
+            {
+                return false;
+            }
 
             if (callNode.Suffix is not PhpCallAst call)
             {
@@ -3084,7 +3104,8 @@ namespace Tyhp.TyhpLang.Emitter
                 return typedVar;
             }
 
-            if (ExpressionTreeEmissionHelper.TryRewriteInlineFn(
+            if (assigned is PhpInlineFunctionAst assignedFn
+                && ExpressionTreeEmissionHelper.TryRewriteInlineFn(
                     assigned,
                     typedVar.TypeExpression,
                     this.ResolveTypeSymbolFromTypeExpression,
@@ -3099,10 +3120,158 @@ namespace Tyhp.TyhpLang.Emitter
                 && expressionRewritten is IBase2Ast expressionAst)
             {
                 this._context.RequirePackage("tyhp/lambda");
+                if (!this.IsInsideExpressionTreeLambda())
+                {
+                    this.SpliceExpressionClosure(assignedFn);
+                }
+
                 typedNode.ReplaceChild(assigned, expressionAst);
             }
 
             return typedVar;
+        }
+
+        /// <summary>
+        /// Records arrow <c>fn</c>s that will be rewritten to expression trees, before their
+        /// bodies are walked, so extension calls inside them are not spliced yet.
+        /// </summary>
+        private void NoteExpressionTreeLambda(IBase2Ast node)
+        {
+            if (node is PhpInlineFunctionAst arrow
+                && arrow.IsArrowFunction
+                && this.IsInsideExpressionTreeLambda())
+            {
+                this._expressionTreeLambdas.Add(arrow);
+            }
+
+            switch (node)
+            {
+                case PhpDereferenceableAst callNode when callNode.Suffix is PhpCallAst { Arguments: { } arguments }:
+                    if (this.TryResolveCalleeParameters(callNode, out var parameters, out _))
+                    {
+                        this.NoteExpressionTreeArguments(arguments, parameters);
+                    }
+
+                    break;
+                case PhpNewAst newExpr when newExpr.Arguments is { } ctorArgs
+                    && this.ResolveObjectDeclarationFromClassNameReference(newExpr.ClassName) is { } objectDecl
+                    && TryGetInstanceMethod(objectDecl, "__construct") is { } ctor:
+                    this.NoteExpressionTreeArguments(ctorArgs, ctor.Parameters);
+                    break;
+                case TyhpTypedVarExprAst typed
+                    when typed.AssignedExpression is PhpInlineFunctionAst assigned
+                    && assigned.IsArrowFunction
+                    && typed.TypeExpression is { } type
+                    && this.DeclaredTypeIsExpression(type):
+                    this._expressionTreeLambdas.Add(assigned);
+                    break;
+            }
+        }
+
+        private void NoteExpressionTreeArguments(
+            PhpArgumentListAst arguments,
+            IReadOnlyList<ParameterInfo> parameters)
+        {
+            var positionalIndex = 0;
+            foreach (var arg in arguments.GetAllNotNull())
+            {
+                if (arg.IsVariadic)
+                {
+                    continue;
+                }
+
+                ParameterInfo? param = null;
+                if (arg.Name?.ValueString is { } named)
+                {
+                    param = parameters.FirstOrDefault(p =>
+                        string.Equals(
+                            p.Name.TrimStart('$'),
+                            named.TrimStart('$'),
+                            StringComparison.OrdinalIgnoreCase));
+                }
+                else if (positionalIndex < parameters.Count)
+                {
+                    param = parameters[positionalIndex++];
+                }
+
+                if (param?.DeclaredType is { } declared
+                    && arg.Expression is PhpInlineFunctionAst fn
+                    && fn.IsArrowFunction
+                    && this.DeclaredTypeIsExpression(declared))
+                {
+                    this._expressionTreeLambdas.Add(fn);
+                }
+            }
+        }
+
+        private bool DeclaredTypeIsExpression(ITypeExpression type)
+        {
+            if (ExpressionTreeEmissionHelper.IsExpressionTypeExpression(
+                    type,
+                    this.ResolveTypeSymbolFromTypeExpression))
+            {
+                return true;
+            }
+
+            if (type is PhpTypeExpressionAst { TypeKind: PhpTypeKind.Union, Types: { } members })
+            {
+                foreach (var member in members.GetAllNotNull())
+                {
+                    if (this.DeclaredTypeIsExpression(member))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsInsideExpressionTreeLambda()
+        {
+            foreach (var frame in this._functionStack)
+            {
+                if (frame is PhpInlineFunctionAst fn && this._expressionTreeLambdas.Contains(fn))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Splices extension calls in a tree's backing closure after the tree has been built
+        /// from the unspliced method calls. Nested closures are included.
+        /// </summary>
+        private void SpliceExpressionClosure(PhpInlineFunctionAst closure)
+        {
+            if (closure.Body is not PhpStatementBlockAst body)
+            {
+                return;
+            }
+
+            var previous = this._forceExtensionSplice;
+            this._forceExtensionSplice = true;
+            try
+            {
+                AstWalker.TransformTree(body, this.SpliceExtensionNode);
+            }
+            finally
+            {
+                this._forceExtensionSplice = previous;
+            }
+        }
+
+        private IBase2Ast SpliceExtensionNode(IBase2Ast node)
+        {
+            if (node is PhpDereferenceableAst dereferenceable
+                && this.TryRewriteExtensionMethodCall(dereferenceable, out var rewritten))
+            {
+                return rewritten;
+            }
+
+            return node;
         }
 
         /// <summary>
@@ -3225,7 +3394,8 @@ namespace Tyhp.TyhpLang.Emitter
                 }
 
                 // fn => \Tyhp\Expr::param(...)->…->backedBy(fn)
-                if (ExpressionTreeEmissionHelper.TryRewriteInlineFn(
+                if (arg.Expression is PhpInlineFunctionAst argumentFn
+                    && ExpressionTreeEmissionHelper.TryRewriteInlineFn(
                         arg.Expression,
                         param.DeclaredType,
                         this.ResolveTypeSymbolFromTypeExpression,
@@ -3240,6 +3410,13 @@ namespace Tyhp.TyhpLang.Emitter
                     && expressionRewritten is IBase2Ast expressionAst)
                 {
                     this._context.RequirePackage("tyhp/lambda");
+                    // Nested trees are rebuilt from this fn. Splice only the outermost closure,
+                    // after that rebuild has read the unspliced method calls.
+                    if (!this.IsInsideExpressionTreeLambda())
+                    {
+                        this.SpliceExpressionClosure(argumentFn);
+                    }
+
                     argNode.ReplaceChild(arg.Expression, expressionAst);
                     continue;
                 }

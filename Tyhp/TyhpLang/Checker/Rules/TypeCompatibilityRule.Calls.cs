@@ -2817,17 +2817,19 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             if (ExternTypeUse.IsTyhpSource(state, arg))
             {
-                var externParams = ExternTypeUse.CollectExternSymbols(expectedParamType);
-                var reported = false;
-                foreach (var externParam in externParams)
+                var externParams = ExternTypeUse.CollectExternSymbols(expectedParamType).ToList();
+                if (externParams.Count > 0)
                 {
-                    ExternTypeUse.Report(diagnostics, state, arg, externParam);
-                    reported = true;
-                }
+                    var argumentType = context.ResolveExpressionType(arg.Expression, state);
+                    if (!ExternTypeUse.AssignsWithoutExtern(argumentType, expectedParamType, state, context))
+                    {
+                        foreach (var externParam in externParams)
+                        {
+                            ExternTypeUse.Report(diagnostics, state, arg, externParam);
+                        }
 
-                if (reported)
-                {
-                    return;
+                        return;
+                    }
                 }
             }
 

@@ -6,6 +6,7 @@ using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Scopes;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
+using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Checker;
 using Tyhp.TyhpLang.Enum;
 using Tyhp.TyhpLang.Parser;
@@ -551,6 +552,14 @@ namespace Tyhp.TyhpLang.Emitter
                 return nameObjectDecl;
             }
 
+            // A name the binder resolved to a class, built-in, or generic parameter is not a
+            // struct, even when a struct with the same short name exists in another namespace.
+            if (IsBoundToNonStructType(namedType.BoundSymbol)
+                || (namedType.Name is PhpNameAst boundName && IsBoundToNonStructType(boundName.BoundSymbol)))
+            {
+                return null;
+            }
+
             if (scope is null)
             {
                 return null;
@@ -634,7 +643,15 @@ namespace Tyhp.TyhpLang.Emitter
                 _ => namedType.Name?.Identifier,
             };
 
+        private static bool IsBoundToNonStructType(IBaseSymbol? bound) =>
+            bound is ObjectDeclarationSymbol { IsStruct: false }
+                or BuiltInTypeSymbol
+                or GenericTypeParameterSymbol;
+
         public static ObjectDeclarationSymbol? FindStructSymbol(IBaseScope scope, string name)
+            => EmitLookupCache.GetOrSearch(EmitLookupKind.Struct, scope, name, SearchStructSymbol);
+
+        private static ObjectDeclarationSymbol? SearchStructSymbol(IBaseScope scope, string name)
         {
             // Nested class-member structs are only `Owner\Name`, not an unqualified `Name`.
             if (scope.FindChildSymbolByName(name) is ObjectDeclarationSymbol direct
@@ -646,7 +663,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             foreach (var childScope in scope.GetAllChildScopes())
             {
-                if (FindStructSymbol(childScope, name) is { } found)
+                if (SearchStructSymbol(childScope, name) is { } found)
                 {
                     return found;
                 }

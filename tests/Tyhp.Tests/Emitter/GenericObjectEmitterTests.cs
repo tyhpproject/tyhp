@@ -370,6 +370,23 @@ public class GenericObjectEmitterTests
     }
 
     [Fact]
+    public void Emit_ClassTypeParameterClassConstant_UsesRuntimeClassNameLookup()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Repo<T> {
+                public function target(): string {
+                    return T::class;
+                }
+            }
+            """);
+
+        php.Should().Contain(
+            "\\ltrim($this->__tyhpGeneric->genericType(\\Repo::class, 'T')->getUnderlyingType()->getName() ?? '', '\\\\')");
+        php.Should().NotContain("T::class");
+    }
+
+    [Fact]
     [Trait("Category", "Story27")]
     public void Emit_FunctionNewTypeParameter_UsesVariantTypeName()
     {

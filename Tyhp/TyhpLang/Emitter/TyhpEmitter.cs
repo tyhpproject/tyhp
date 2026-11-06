@@ -166,6 +166,7 @@ namespace Tyhp.TyhpLang.Emitter
         public IReadOnlyList<PHPOutputFile> Emit(IEnumerable<SrcFileAst> parsedFiles)
         {
             var files = parsedFiles as IList<SrcFileAst> ?? parsedFiles.ToList();
+            using var lookupCache = EmitLookupCache.Activate();
 
             var outputFiles = new List<PHPOutputFile>();
 

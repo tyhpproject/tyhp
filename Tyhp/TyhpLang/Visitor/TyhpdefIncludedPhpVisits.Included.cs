@@ -2264,6 +2264,7 @@ namespace Tyhp.TyhpLang.Visitor
 
         public PhpNewAst VisitNewDereferenceable([NotNull] TyhpdefParser.NewDereferenceableContext context)
             => context switch {
+                TyhpdefParser.TyhpLazyNewContext tyhpLazyNewContext => this.VisitTyhpLazyNew(tyhpLazyNewContext),
                 TyhpdefParser.NewClassInstanceContext newClassInstanceContext => this.VisitNewClassInstance(newClassInstanceContext),
                 TyhpdefParser.NewAnonClassInstanceContext newAnonClassInstanceContext => this.VisitNewAnonClassInstance(newAnonClassInstanceContext),
                 TyhpdefParser.NewDereferenceableGrammarAddonHandlerContext newDereferenceableGrammarAddonHandlerContext => this.VisitNewDereferenceableGrammarAddonHandler(newDereferenceableGrammarAddonHandlerContext),
@@ -2284,6 +2285,18 @@ namespace Tyhp.TyhpLang.Visitor
                 this.VisitArgumentList(context.argumentList()),
                 context
             );
+
+
+        public override PhpNewAst VisitTyhpLazyNew([NotNull] TyhpdefParser.TyhpLazyNewContext context)
+        {
+            var created = PhpNewAst.Create(
+                this.VisitClassNameReference(context.Identifier),
+                this.VisitArgumentList(context.argumentList()),
+                context
+            );
+            created.IsLazy = true;
+            return created;
+        }
 
 
         public override PhpNewAst VisitNewAnonClassInstance([NotNull] TyhpdefParser.NewAnonClassInstanceContext context)
@@ -2311,6 +2324,7 @@ namespace Tyhp.TyhpLang.Visitor
 
         public PhpNewAst VisitNewNonDereferenceable([NotNull] TyhpdefParser.NewNonDereferenceableContext context)
             => context switch {
+                TyhpdefParser.TyhpLazyNewNonDereferenceableContext tyhpLazyNewNonDereferenceableContext => this.VisitTyhpLazyNewNonDereferenceable(tyhpLazyNewNonDereferenceableContext),
                 TyhpdefParser.NewClassInstanceNonDereferenceableContext newClassInstanceNonDereferenceableContext => this.VisitNewClassInstanceNonDereferenceable(newClassInstanceNonDereferenceableContext),
                 TyhpdefParser.NewNonDereferenceableGrammarAddonHandlerContext newNonDereferenceableGrammarAddonHandlerContext => this.VisitNewNonDereferenceableGrammarAddonHandler(newNonDereferenceableGrammarAddonHandlerContext),
                 _ => this.VisitNewNonDereferenceableAlt(context),
@@ -2330,6 +2344,18 @@ namespace Tyhp.TyhpLang.Visitor
                 null,
                 context
             );
+
+
+        public override PhpNewAst VisitTyhpLazyNewNonDereferenceable([NotNull] TyhpdefParser.TyhpLazyNewNonDereferenceableContext context)
+        {
+            var created = PhpNewAst.Create(
+                this.VisitClassNameReference(context.Identifier),
+                null,
+                context
+            );
+            created.IsLazy = true;
+            return created;
+        }
 
 
         public override PhpNewAst VisitNewNonDereferenceableGrammarAddonHandler([NotNull] TyhpdefParser.NewNonDereferenceableGrammarAddonHandlerContext context)

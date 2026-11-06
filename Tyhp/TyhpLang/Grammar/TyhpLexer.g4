@@ -24,6 +24,7 @@ tokens {
     T_TYHP_TYPE_ALIAS,
     T_TYHP_AWAIT,
     T_TYHP_WITH,
+    T_TYHP_LAZY,
     T_TYHP_OPERATOR,
     T_TYHP_VOID,
     T_TYHP_PARENT,
@@ -50,8 +51,9 @@ mode ST_CHECK_FOR_OTHER_OPEN_TAGS_LEXER_ADDON;
 
 mode ST_IN_SCRIPTING;
 // #include "shared/Tyhpdef.lexer-addons.g4#2"
-    // `internal`, `with`, `using`, `typeof`, `nameof`, and `variable_exists` lex as
-    // T_STRING and are reclassified in NextToken when the language mode is tyhp.
+    // `internal`, `with`, `using`, `typeof`, `nameof`, `variable_exists`, and `lazy`
+    // lex as T_STRING and are reclassified in NextToken when the language mode is tyhp.
+    // `lazy` becomes T_TYHP_LAZY only when the next default-channel token is T_NEW.
 // #include "shared/Tyhpdef.lexer-addons.g4#3"
     // `:=` stays predicated. Dropping it would split the token into `:` and `=` in PHP
     // and in tyhp unless NextToken merged them back.

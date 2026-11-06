@@ -8,6 +8,7 @@
 
         public PhpNewAst VisitNewDereferenceable([NotNull] TyhpParser.NewDereferenceableContext context)
             => context switch {
+                TyhpParser.TyhpLazyNewContext tyhpLazyNewContext => this.VisitTyhpLazyNew(tyhpLazyNewContext),
                 TyhpParser.NewClassInstanceContext newClassInstanceContext => this.VisitNewClassInstance(newClassInstanceContext),
                 TyhpParser.NewAnonClassInstanceContext newAnonClassInstanceContext => this.VisitNewAnonClassInstance(newAnonClassInstanceContext),
                 TyhpParser.NewDereferenceableGrammarAddonHandlerContext newDereferenceableGrammarAddonHandlerContext => this.VisitNewDereferenceableGrammarAddonHandler(newDereferenceableGrammarAddonHandlerContext),
@@ -28,6 +29,18 @@
                 this.VisitArgumentList(context.argumentList()),
                 context
             );
+
+
+        public override PhpNewAst VisitTyhpLazyNew([NotNull] TyhpParser.TyhpLazyNewContext context)
+        {
+            var created = PhpNewAst.Create(
+                this.VisitClassNameReference(context.Identifier),
+                this.VisitArgumentList(context.argumentList()),
+                context
+            );
+            created.IsLazy = true;
+            return created;
+        }
 
 
         public override PhpNewAst VisitNewAnonClassInstance([NotNull] TyhpParser.NewAnonClassInstanceContext context)

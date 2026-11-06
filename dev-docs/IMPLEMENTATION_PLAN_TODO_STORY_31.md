@@ -1,5 +1,11 @@
 # Implementation Plan: Story 31 — Tyhp Link (Compiled Autoloading & Linking)
 
+> **Pre-stable constraints (Story 29.1):** Part A makes typed symbol-name literals fully qualified and types
+> `nameof()` of top-level symbols as `string`, so Phase 3's `use … as` alias expansion is no longer needed; keep
+> only the lowering and relocation remap. Part B removes the emitted location of `internal` symbols from the interop
+> contract. Part E: an unprovable reference keeps the symbol in place and never fails a build that type-checks, and
+> the loader, bundling, and preload stay limited to `link.profile: "release"`.
+
 > **About this story:** Story 31 is **Tyhp Link**, the build-time linker and tiered runtime loader. It also keeps
 > [Appendix A](#appendix-a-eager-resolution-optimization-for-the-binder-two-pass), a binder name-resolution
 > performance optimization that shares the "resolve symbol references" theme.
@@ -31,7 +37,7 @@
 > Each lives in `IMPLEMENTATION_PLAN_TODO_STORY_NN.md`.
 
 > **Roadmap position:** Story 31 — **Tier 4 — Future plans**
-> **Direct dependencies (new numbering):** 06, 08, 08.5, 09, 11, 13, 15, 17, 18, 23, 24, 25
+> **Direct dependencies (new numbering):** 06, 08, 08.5, 09, 11, 13, 15, 17, 18, 23, 24, 25, 29.1
 > **New story:** created during autoloading/linking brainstorm; no legacy number.
 > **Conventions:** Diagnostic codes, config keys, and canonical paths are governed by `CONVENTIONS.md` (single
 > source of truth for diagnostic codes = `Tyhp/Domain/Exceptions/MessageCode.cs`); cite it rather than restating

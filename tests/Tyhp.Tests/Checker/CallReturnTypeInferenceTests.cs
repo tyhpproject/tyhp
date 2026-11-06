@@ -938,6 +938,37 @@ public class CallReturnTypeInferenceTests
             $"__PropertyName<Node> is a string key: {Describe(result.Diagnostics.Errors.ToList())}");
     }
 
+    [Fact]
+    public void StringAndIntLiteralUnions_AreArrayKeys()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            function accept(
+                array<'get'|'set', string> $hooks,
+                array<0|1, string> $bits,
+            ): void {}
+            """);
+
+        errors.Should().NotContain(
+            d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied,
+            $"literal unions are int|string keys: {Describe(errors)}");
+        errors.Should().BeEmpty(Describe(errors));
+    }
+
+    [Fact]
+    public void NonIntOrStringLiteralKeys_StillViolateArrayKeyConstraint()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            function floats(array<1.5, string> $a): void {}
+            function bools(array<true, string> $a): void {}
+            function mixedUnion(array<'a'|1.5, string> $a): void {}
+            """);
+
+        errors.Count(d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied)
+            .Should().Be(3, $"float, bool, and float-containing literal keys are not int|string: {Describe(errors)}");
+    }
+
     private static string Describe(IReadOnlyList<IDiagnostic> errors) =>
         string.Join("; ", errors.Select(e => $"{e.Code}: {e.Message}"));
 

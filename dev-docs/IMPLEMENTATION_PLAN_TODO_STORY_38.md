@@ -37,8 +37,9 @@ compiler or regenerating ANTLR grammars:
    `$a + $b`.
 4. **Hooks (not the visitor):** `AstTransform` (full AST, **pre-binder**, with activation preconditions), `Check`,
    `Emit`. Syntax islands optional.
-5. **v1 packaging essentials:** plugins are **Composer packages** with root **`plugin.tyhp.json`** (the manifest);
-   discovery from **project + global** Composer installs; compile-time code on an **autoload-excluded** path;
+5. **v1 packaging essentials:** plugins are **Composer packages** whose `composer.json` carries the manifest under
+   **`extra.tyhp.plugin`**; discovery from **project + global** Composer installs; compile-time code on an
+   **autoload-excluded** path;
    runtime helpers in-package or via Composer `require`; explicit **process order**; **`plugins.options` JSON
    Schema**; **plugin test harness**; Composer **`"tyhp": ">=…"`** for host compatibility.
 6. **Config hybrid:** auto-register namespaces/operators on enable; app config for aliases/disables/conflicts;
@@ -110,7 +111,7 @@ namespace or operator; they only implement `AstTransform` and/or `Check` / `Emit
 #### AstTransform activation preconditions (skip when idle)
 
 Spinning up a PHP plugin worker and shipping a full AST is expensive when the plugin would no-op. Each
-`AstTransform` plugin may declare **extra** activation preconditions in its manifest. The host evaluates the
+`AstTransform` plugin may declare **extra** activation preconditions in its manifest (`extra.tyhp.plugin`). The host evaluates the
 **effective** precondition set against a cheap **file-level AST index** *before* invoking the plugin. If nothing
 matches, the plugin is **skipped** for that file.
 
@@ -132,11 +133,14 @@ unknown keys already fail schema validation at project load.
 
 **Config-aware `when` (v1) — gating + value refs:**
 
-JSON shape (illustrative):
+Manifest snippets in this section show only the `extra.tyhp.plugin` object from the plugin package's
+`composer.json`; the package it belongs to is named in the lead-in. The full `composer.json` shape is under
+[Plugin packaging](#plugin-packaging--composer-packages--extratyhpplugin-v1).
+
+`acme/tyhp-dto` → `extra.tyhp.plugin` (illustrative):
 
 ```json
 {
-  "name": "acme/tyhp-dto",
   "hooks": ["astTransform", "emit"],
   "optionsSchema": "plugin/options.schema.json",
   "optionsDefaults": {
@@ -195,7 +199,7 @@ Conventions:
 
 **Host-injected predicates (v1 — mandatory, not configurable):**
 
-For every plugin that registers `namespaces` and/or `operators` in `plugin.tyhp.json`, the host **always** unions
+For every plugin that registers `namespaces` and/or `operators` in `extra.tyhp.plugin`, the host **always** unions
 the following into that plugin’s effective `when` set — authors do **not** list these, and cannot turn them off:
 
 - `pluginStringNamespace` → every **source spelling** of each registered namespace (identity + project aliases from
@@ -209,11 +213,12 @@ registers a dialect/op but forgets the matching precondition, and **manifest `wh
 aliases** — the host patches from the binding table. These injections are **not** gated by author `configEquals`
 unless we later add an explicit opt-out (v1: none).
 
-Manifest sketch (ns/op plugins — no manual `pluginStringNamespace` / `pluginInfixOperator` in `when`):
+Manifest sketch (ns/op plugins — no manual `pluginStringNamespace` / `pluginInfixOperator` in `when`).
+
+`acme/tyhp-sql` → `extra.tyhp.plugin`:
 
 ```json
 {
-  "name": "acme/tyhp-sql",
   "hooks": ["astTransform", "check"],
   "namespaces": {
     "sql": { "forms": ["expr_rvalue"] },
@@ -233,9 +238,10 @@ Effective `when` after host injection (if project aliases `sql` → source `acme
 ]
 ```
 
+`acme/tyhp-vec` → `extra.tyhp.plugin`:
+
 ```json
 {
-  "name": "acme/tyhp-vec",
   "hooks": ["astTransform", "check", "emit"],
   "operators": { "cross": {}, "dot": {}, "hadamard": {} },
   "astTransform": {
@@ -386,19 +392,29 @@ $sum = $a + $b;          // normal PHP/Tyhp + / operator overloads
   etc., as long as it contains no `` ` ``.
 - Enabled project-wide via plugin registration — **not** per-file `use plugin operator …`.
 
-## Plugin packaging — Composer packages + `plugin.tyhp.json` (v1)
+## Plugin packaging — Composer packages + `extra.tyhp.plugin` (v1)
 
-**Plugins are Composer packages.** There is no parallel plugin-install channel. A plugin package is a normal
-Composer package that also carries a root **`plugin.tyhp.json`** — that file **is the plugin manifest**.
+**Plugins are Composer packages.** There is no parallel plugin-install channel and no separate manifest file. A
+plugin package is a normal Composer package whose own `composer.json` carries an **`extra.tyhp.plugin`** object —
+that object **is the plugin manifest**. This follows the same pattern as `extra.tyhp.package` (the tyhpdef package
+manifest): `composer.json` is the only file the compiler reads for the contract, and **presence of
+`extra.tyhp.plugin` as a JSON object** is the sentinel that the package is a Tyhp compiler plugin.
+
+When scheduled, register `extra.tyhp.plugin` in the `extra.tyhp` key table in `CONVENTIONS.md` §8 alongside
+`extra.tyhp.package` and `extra.tyhp.require`.
 
 ### Discovery
 
 When Tyhp runs a project build/check, it discovers plugins from:
 
-1. **Project** — Composer packages installed for the project (typically under `vendor/`) that contain a root
-   `plugin.tyhp.json`.
-2. **Global** — Composer packages installed in the user’s global Composer home that likewise contain
-   `plugin.tyhp.json` (exact discovery path follows Composer’s global vendor layout when scheduled).
+1. **Project** — Composer packages installed for the project (typically `vendor/*/*/composer.json`, the same scan
+   that finds `extra.tyhp.package`) whose `composer.json` has an `extra.tyhp.plugin` object.
+2. **Global** — Composer packages installed in the user’s global Composer home whose `composer.json` likewise has
+   `extra.tyhp.plugin` (exact discovery path follows Composer’s global vendor layout when scheduled).
+
+`extra.tyhp` without a `plugin` object (for example a package that only carries `package`, `require`, or
+`interopContractVersion`) is not a plugin. A non-object `extra.tyhp.plugin` is a plugin-load error naming the
+package.
 
 `tyhp.json` `plugins.enabled` (and order/options) selects and configures which of the discovered packages actually
 run. A package present but not enabled is inert.
@@ -410,8 +426,8 @@ hooks:
 
 ```text
 acme/tyhp-sql/                          # Composer package root
-  composer.json                         # name, require (incl. "tyhp": ">=…"), autoload for RUNTIME only
-  plugin.tyhp.json                      # MANIFEST — hooks, namespaces, entrypoint path, etc.
+  composer.json                         # name, require (incl. "tyhp": ">=…"), autoload for RUNTIME only,
+                                        #   extra.tyhp.plugin = MANIFEST (hooks, namespaces, entrypoint, …)
   plugin/                               # compile-time only (AstTransform/Check/Emit PHP)
     Plugin.php                          # entrypoint class loaded by Tyhp host, NOT by app
     …
@@ -430,33 +446,44 @@ acme/tyhp-sql/                          # Composer package root
   dependency** listed under `require` (e.g. `acme/tyhp-sql` requires `acme/sql-runtime`). No special “companion”
   install step beyond Composer.
 
-### `plugin.tyhp.json` — the manifest
+### `extra.tyhp.plugin` — the manifest
 
-Root of the package. Declares everything Tyhp needs that is not already in `composer.json`:
+Lives in the plugin package's `composer.json`. Declares everything Tyhp needs that is not already expressed by
+standard Composer keys:
 
 ```json
 {
   "name": "acme/tyhp-sql",
-  "entrypoint": "plugin/Plugin.php",
-  "entrypointClass": "Acme\\TyhpSql\\Plugin\\Plugin",
-  "hooks": ["astTransform", "check"],
-  "dependsOn": [],
-  "optionsSchema": "plugin/options.schema.json",
-  "namespaces": {
-    "sql": {
-      "forms": ["expr_rvalue"],
-      "captureLocals": true
-    },
-    "orm": {
-      "forms": ["expr_rvalue"],
-      "captureLocals": true
-    },
-    "ddl": {
-      "forms": ["expr_rvalue"]
-    }
+  "type": "library",
+  "autoload": {
+    "psr-4": { "Acme\\TyhpSql\\": "src/" }
   },
-  "astTransform": {
-    "when": []
+  "extra": {
+    "tyhp": {
+      "plugin": {
+        "entrypoint": "plugin/Plugin.php",
+        "entrypointClass": "Acme\\TyhpSql\\Plugin\\Plugin",
+        "hooks": ["astTransform", "check"],
+        "dependsOn": [],
+        "optionsSchema": "plugin/options.schema.json",
+        "namespaces": {
+          "sql": {
+            "forms": ["expr_rvalue"],
+            "captureLocals": true
+          },
+          "orm": {
+            "forms": ["expr_rvalue"],
+            "captureLocals": true
+          },
+          "ddl": {
+            "forms": ["expr_rvalue"]
+          }
+        },
+        "astTransform": {
+          "when": []
+        }
+      }
+    }
   }
 }
 ```
@@ -464,18 +491,22 @@ Root of the package. Declares everything Tyhp needs that is not already in `comp
 A single plugin may list **one or many** `namespaces` (and many `operators`). Namespace/op wake-ups are
 **host-injected** from this registry (+ aliases); do not re-list them under `when`.
 
+The remaining examples show only the `extra.tyhp.plugin` object.
+
+`acme/tyhp-arch`:
+
 ```json
 {
-  "name": "acme/tyhp-arch",
   "entrypoint": "plugin/Plugin.php",
   "entrypointClass": "Acme\\TyhpArch\\Plugin\\Plugin",
   "hooks": ["check"]
 }
 ```
 
+`acme/tyhp-dto`:
+
 ```json
 {
-  "name": "acme/tyhp-dto",
   "entrypoint": "plugin/Plugin.php",
   "entrypointClass": "Acme\\TyhpDto\\Plugin\\Plugin",
   "hooks": ["astTransform", "emit"],
@@ -502,9 +533,10 @@ A single plugin may list **one or many** `namespaces` (and many `operators`). Na
 }
 ```
 
+`acme/tyhp-vec`:
+
 ```json
 {
-  "name": "acme/tyhp-vec",
   "entrypoint": "plugin/Plugin.php",
   "entrypointClass": "Acme\\TyhpVec\\Plugin\\Plugin",
   "hooks": ["astTransform", "check", "emit"],
@@ -519,14 +551,23 @@ A single plugin may list **one or many** `namespaces` (and many `operators`). Na
 }
 ```
 
-- **`name`** should match the Composer package name.
+- **Plugin identity is the Composer `name`** of the package that carries `extra.tyhp.plugin`; the manifest has no
+  `name` key of its own. `plugins.enabled`, `plugins.options.<package>`, alias targets (`package:canonical`), and
+  `dependsOn` all use that Composer name.
+- **Paths** (`entrypoint`, `optionsSchema`, and any later path-valued keys) are relative to the directory that
+  contains this `composer.json`, the same rule as `extra.tyhp.package` globs.
 - **`entrypoint` / `entrypointClass`** — compile-time class under the excluded plugin path; implements the hooks
   subset it lists.
+- **Other `extra.tyhp` keys are independent.** A plugin whose runtime library ships tyhpdefs also carries
+  `extra.tyhp.package`; ambient tyhpdef pins stay in `extra.tyhp.require`. Each key is read on its own.
+- **Not a Composer plugin.** Plugin packages stay ordinary Composer packages (`"type": "library"`); the Tyhp
+  compiler reads `extra.tyhp.plugin`, Composer does not. Composer plugins (`"type": "composer-plugin"` +
+  `extra.class`, as on `tyhp/core`) are a separate mechanism.
 - Syntax-free plugins omit `namespaces` / `operators`.
 - Manifest `forms` gate where `p'ns:…'` / `p"ns:…"` / `p<<<` may appear (`expr_rvalue` in v1).
 - Preferred transform target: **core AST**; custom nodes require `Check` / `Emit` as needed.
-- Runtime code location is **Composer’s problem** (`autoload` + `require`) — the manifest does not need to
-  duplicate PSR-4 roots unless we later add optional hints for tyhpdef discovery.
+- Runtime code location is **Composer’s problem** (`autoload` + `require`) — the manifest does not duplicate PSR-4
+  roots, and runtime tyhpdefs are declared through `extra.tyhp.package`, not the plugin manifest.
 
 ### App `composer.json` sketch (consumer)
 
@@ -539,15 +580,15 @@ A single plugin may list **one or many** `namespaces` (and many `operators`). Na
 }
 ```
 
-After `composer install`, runtime classes from those packages are available to the app; Tyhp discovers
-`plugin.tyhp.json` in each package and runs compile-time hooks only for packages listed in `tyhp.json`
-`plugins.enabled`.
+After `composer install`, runtime classes from those packages are available to the app; Tyhp reads
+`extra.tyhp.plugin` from each installed package's `composer.json` and runs compile-time hooks only for packages
+listed in `tyhp.json` `plugins.enabled`.
 
 ## Configuration (`tyhp.json`) — hybrid auto-register
 
 > **Provisional keys** — register in `CONVENTIONS.md` §4 when this story is scheduled. Names below are illustrative.
 
-Tyhp discovers Composer packages (project + global) that contain `plugin.tyhp.json`. Listing a package under
+Tyhp discovers Composer packages (project + global) whose `composer.json` has `extra.tyhp.plugin`. Listing a package under
 `plugins.enabled` **activates** it and **auto-registers** its manifest namespaces and operator ids.
 
 **App config is only required for:**
@@ -748,7 +789,7 @@ process order and/or options (`attributeName`, `enabled: false`) — not exclusi
 
 | Phase | Ship |
 |-------|------|
-| 1 | Host↔PHP protocol + Composer discovery (project + global `plugin.tyhp.json`) + **order/deps** + **`tyhp` constraint** + **options JSON Schema** + **test harness** |
+| 1 | Host↔PHP protocol + Composer discovery (project + global `extra.tyhp.plugin`) + **order/deps** + **`tyhp` constraint** + **options JSON Schema** + **test harness** |
 | 2 | **`AstTransform`** (preconditions + full-file mutate) + runtime via Composer autoload (in-package or dependency) |
 | 3 | `p'…'` / `p"…"` + **`p<<<` / `p<<<'…'`** expr islands + namespace dispatch |
 | 4 | **`Emit`** + custom-node check/emit |
@@ -781,7 +822,9 @@ v2 items → [Story 39](IMPLEMENTATION_PLAN_TODO_STORY_39.md).
     they may be `+`, `×`, etc., since they are not heredoc labels).
 14. **Namespaces/operators:** single owner per **source spelling** (error on clash unless config resolves).
 15. **Attributes:** no exclusive ownership — order + options resolve conflicts.
-16. **Plugins are Composer packages**; manifest = root **`plugin.tyhp.json`**; discover project + global installs.
+16. **Plugins are Composer packages**; manifest = **`extra.tyhp.plugin`** in the package's `composer.json` (no
+    separate manifest file; presence as an object is the sentinel; identity is the Composer `name`); discover
+    project + global installs.
 17. **Compile-time plugin path excluded from Composer autoload**; runtime helpers via package `autoload` and/or
     Composer dependencies — not a separate companion install channel.
 18. **Host compat via Composer `"tyhp": ">=…"`** — not a parallel host semver channel.
@@ -828,7 +871,10 @@ v2 items → [Story 39](IMPLEMENTATION_PLAN_TODO_STORY_39.md).
 - Runtime via Composer: in-package `src/` autoload and/or a `require`d dependency; compile-time `plugin/` not in app
   autoload.
 - Composer `tyhp` constraint: incompatible plugin rejected.
-- Discovery: project `vendor/` plugin and a global-install plugin both found when enabled.
+- Discovery: project `vendor/` plugin and a global-install plugin both found via `extra.tyhp.plugin` when enabled.
+- Discovery sentinel: a package with `extra.tyhp.package` / `extra.tyhp.require` but no `extra.tyhp.plugin` is not
+  a plugin; a non-object `extra.tyhp.plugin` fails plugin load naming the package; `entrypoint` / `optionsSchema`
+  resolve relative to the plugin's `composer.json`.
 - Test harness: sample plugin package passes its own golden fixtures via the harness.
 - Backtick ops / `` `+` `` vs bare `+`; leftover PluginString/Infix after transform → error.
 - Attribute conflict: two plugins + order/options resolve without exclusive-ownership API.

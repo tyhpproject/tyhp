@@ -1,6 +1,7 @@
 # Implementation Plan: Story 32 — Scalar-Conversion Contracts (`*Convertible`, Stringable-style casts)
 
-> **Roadmap position:** Story 32 — **Tier 4 — Future plans**
+> **Roadmap position:** Story 32 — **Tier 3 — Advanced**, after Story 34 and before Story 41 (moved from Tier 4 on
+> 2026-11-04: shipping it after the first stable release would change what existing casts do at runtime).
 > **Direct dependencies (new numbering):** 06, 08, 09, 11, 15
 > **New story:** split from Story 31 Idea 2 on 2026-11-03. No legacy number.
 > **Conventions:** Diagnostic codes, config keys, and canonical paths are governed by `CONVENTIONS.md`; new

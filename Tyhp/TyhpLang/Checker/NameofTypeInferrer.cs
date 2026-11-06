@@ -16,6 +16,69 @@ namespace Tyhp.TyhpLang.Checker
     /// </summary>
     internal static class NameofTypeInferrer
     {
+        /// <summary>
+        /// A single-level <c>nameof(Type::$member)</c> / <c>nameof($obj-&gt;member)</c> /
+        /// <c>nameof(Type::CONST)</c> whose owner is a known class and whose member is not
+        /// declared. Chains are left alone: the owner of the last segment is not this base.
+        /// </summary>
+        internal static bool TryGetUndeclaredMember(
+            IExpression expression,
+            CheckerState state,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            out string memberName,
+            out string ownerDisplay)
+        {
+            memberName = string.Empty;
+            ownerDisplay = string.Empty;
+            if (expression is not PhpDereferenceableAst deref
+                || deref.Base is null
+                || deref.Suffix is not (
+                    PhpStaticMemberAccessAst
+                    or PhpInstanceMemberAccessAst
+                    or PhpClassConstantAccessAst))
+            {
+                return false;
+            }
+
+            var rawName = deref.Suffix switch
+            {
+                PhpStaticMemberAccessAst { Member: not null } staticAccess => MemberText(staticAccess.Member),
+                PhpInstanceMemberAccessAst { MemberName: not null } instanceAccess => MemberText(instanceAccess.MemberName),
+                PhpClassConstantAccessAst { Member: not null } classConst => MemberText(classConst.Member),
+                _ => null,
+            };
+            if (string.IsNullOrEmpty(rawName) || string.Equals(rawName, "class", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var ownerType = ResolveOwnerType(deref.Base, state, symbolTree, globalScope, static (_, _) => CheckedTypes.Unresolved);
+            if (CheckerHelpers.TryGetObjectDeclaration(ownerType) is null)
+            {
+                return false;
+            }
+
+            memberName = rawName.TrimStart('$');
+            if (SymbolNameExistenceVerifier.HasDeclaredMember(ownerType, memberName))
+            {
+                return false;
+            }
+
+            ownerDisplay = ownerType.DisplayName;
+            return true;
+        }
+
+        private static string? MemberText(IExpression expression) =>
+            expression switch
+            {
+                PhpVariableAst variable => CheckerHelpers.GetVariableName(variable),
+                PhpNameAst name => name.ValueString?.TrimStart('$'),
+                TokenValueAst { ValueString: { } text } => text.TrimStart('$'),
+                PhpScalarAst { ValueString: { } text } => text.TrimStart('$'),
+                _ => null,
+            };
+
         public static ICheckedType Infer(
             TyhpNameofAst nameofExpr,
             CheckerState state,

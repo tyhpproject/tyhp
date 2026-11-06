@@ -119,7 +119,7 @@ namespace Tyhp.TyhpLang.Emitter
 
                         for (var i = disposableVars.Count - 1; i >= 0; i--)
                         {
-                            EmitSyncDisposeGuard(body, block, disposableVars[i], collectErrors);
+                            this.EmitSyncDisposeGuard(body, block, disposableVars[i], collectErrors);
                         }
 
                         if (!collectErrors)
@@ -147,7 +147,7 @@ namespace Tyhp.TyhpLang.Emitter
             }
         }
 
-        private static void EmitSyncDisposeGuard(
+        private void EmitSyncDisposeGuard(
             IBase2Ast provider,
             EmitItem parent,
             string phpVar,
@@ -156,7 +156,7 @@ namespace Tyhp.TyhpLang.Emitter
             var disposeGuard = EmitItem.Block(
                 provider,
                 EmitType.SubBlockStatement,
-                $"if ({phpVar} instanceof \\Tyhp\\Contracts\\IsDisposable) {{",
+                $"if ({DisposableGuardCondition(phpVar, "\\Tyhp\\Contracts\\IsDisposable")}) {{",
                 "}",
                 parent);
 
@@ -181,6 +181,23 @@ namespace Tyhp.TyhpLang.Emitter
                 "}",
                 disposeGuard);
             EmitItem.Line(provider, EmitType.SubBlockStatement, "$__disposeErrors[] = $__e;", catchBlock);
+        }
+
+        /// <summary>
+        /// Dispose when <paramref name="phpVar"/> implements <paramref name="contract"/> and is not an
+        /// uninitialized lazy object, so disposal never initializes a ghost that was never used.
+        /// <c>ReflectionClass::isUninitializedLazyObject</c> does not initialize the object. PHP
+        /// before 8.4 has no lazy objects (and no such method), so a build whose floor is older than
+        /// 8.4 tests <c>\PHP_VERSION_ID</c> first, and still skips ghosts when it runs on 8.4 or newer.
+        /// No runtime package is needed beyond the disposable contracts.
+        /// </summary>
+        private string DisposableGuardCondition(string phpVar, string contract)
+        {
+            var lazyCheck = $"(new \\ReflectionClass({phpVar}))->isUninitializedLazyObject({phpVar})";
+            var notUninitializedLazy = this._context.IsPhpVersionAtLeast(8, 4)
+                ? $"!{lazyCheck}"
+                : $"!(\\PHP_VERSION_ID >= 80400 && {lazyCheck})";
+            return $"{phpVar} instanceof {contract} && {notUninitializedLazy}";
         }
 
         private static List<string> CollectUsingEqualVariableNames(IBase2Ast node)

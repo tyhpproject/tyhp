@@ -979,9 +979,22 @@ namespace Tyhp.TyhpLang.Checker.Rules
             MessageCode code,
             params object[] args)
         {
+            diagnostics.Add(CreateWarning(state, node, code, args));
+        }
+
+        /// <summary>
+        /// Builds a warning at <paramref name="node"/> without adding it, for a diagnostic that is
+        /// reported after the walk once whole-program facts are known.
+        /// </summary>
+        public static Diagnostic CreateWarning(
+            CheckerState state,
+            IBase2Ast node,
+            MessageCode code,
+            params object[] args)
+        {
             var fileName = ResolveDiagnosticFileName(state, node);
             DiagnosticExtensions.GetOptionalEnd(node, out var endLine, out var endColumn);
-            diagnostics.Add(Diagnostic.Warning(code, fileName, node.Line, node.Column, args, endLine, endColumn));
+            return Diagnostic.Warning(code, fileName, node.Line, node.Column, args, endLine, endColumn);
         }
 
         public static void ReportInfo(
@@ -2612,6 +2625,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 // initializers. `default(T)` cannot fold, because the value depends on the type
                 // argument bound at construction time.
                 TyhpDefaultAst defaultExpr => IsConstantDefault(defaultExpr, state),
+                // `nameof(...)` folds to a string literal, so it is legal in attribute arguments,
+                // constants, and other constant-required contexts. A nameof that does not name a
+                // real symbol is still rejected by CompileTimeRule.
+                TyhpNameofAst => true,
                 // Class-constant and enum-case access (`Foo::BAR`, `Color::Red`) are constant
                 // expressions and valid in property/parameter defaults and other const contexts.
                 PhpDereferenceableAst { Suffix: PhpClassConstantAccessAst } => true,
@@ -3371,7 +3388,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
         /// <summary>
         /// True when a subtree uses one of <paramref name="generics"/> in a construct that needs the
-        /// bound type at runtime: <c>typeof(T)</c>, <c>default(T)</c>, <c>instanceof T</c> /
+        /// bound type at runtime: <c>typeof(T)</c>, <c>default(T)</c>, <c>T::class</c>, <c>instanceof T</c> /
         /// <c>is T</c> (and aliases), <c>new T()</c> (a type parameter as the class name), a type
         /// argument on <c>new Foo&lt;T&gt;</c> / <c>new static&lt;T&gt;</c> (Mechanism C factory),
         /// or a type argument on a call (<c>decode&lt;T&gt;()</c> / <c>Type::isType&lt;T&gt;()</c>)
@@ -3421,6 +3438,12 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     }
 
                     break;
+
+                case PhpDereferenceableAst { Suffix: PhpClassConstantAccessAst { Member: PhpNameAst classMember } } className
+                    when string.Equals(classMember.ValueString, "class", StringComparison.OrdinalIgnoreCase)
+                        && NamesGenericParameterIn(className.Base as IBase2Ast, generics):
+                    // `T::class` is the bound class name, same as `Foo::class`.
+                    return true;
 
                 case PhpNewAst newExpr:
                     // `new T()` — the class name itself is the generic parameter (Mechanism C/D).

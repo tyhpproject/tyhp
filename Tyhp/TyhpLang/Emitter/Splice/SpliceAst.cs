@@ -210,7 +210,69 @@ namespace Tyhp.TyhpLang.Emitter.Splice
             return false;
         }
 
+        [ThreadStatic]
+        private static Dictionary<IBase2Ast, Dictionary<string, TyhpdefInlineExtensionFunctionAst>>? _wrapperIndex;
+
+        /// <summary>
+        /// Until the returned scope is disposed, <see cref="FindInlineExtensionWrapper"/> indexes each
+        /// root it searches on this thread once and answers later searches of that root from the
+        /// index. Open it only while no AST is rewritten: the checker qualifies, emit does not.
+        /// </summary>
+        public static IDisposable UseInlineExtensionWrapperIndex()
+        {
+            var previous = _wrapperIndex;
+            _wrapperIndex ??= new Dictionary<IBase2Ast, Dictionary<string, TyhpdefInlineExtensionFunctionAst>>(
+                ReferenceEqualityComparer.Instance);
+            return new WrapperIndexScope(previous);
+        }
+
+        private sealed class WrapperIndexScope(
+            Dictionary<IBase2Ast, Dictionary<string, TyhpdefInlineExtensionFunctionAst>>? previous) : IDisposable
+        {
+            public void Dispose() => _wrapperIndex = previous;
+        }
+
         internal static TyhpdefInlineExtensionFunctionAst? FindInlineExtensionWrapper(
+            IBase2Ast? node,
+            string calleeName)
+        {
+            if (node is null || _wrapperIndex is not { } index)
+            {
+                return SearchInlineExtensionWrapper(node, calleeName);
+            }
+
+            if (!index.TryGetValue(node, out var byName))
+            {
+                byName = new Dictionary<string, TyhpdefInlineExtensionFunctionAst>(StringComparer.OrdinalIgnoreCase);
+                CollectInlineExtensionWrappers(node, byName);
+                index[node] = byName;
+            }
+
+            return byName.GetValueOrDefault(NormalizeName(calleeName));
+        }
+
+        // Pre-order with first-wins, so the index returns the wrapper the search below finds first.
+        private static void CollectInlineExtensionWrappers(
+            IBase2Ast? node,
+            Dictionary<string, TyhpdefInlineExtensionFunctionAst> byName)
+        {
+            if (node is null)
+            {
+                return;
+            }
+
+            if (node is TyhpdefInlineExtensionFunctionAst wrapper)
+            {
+                byName.TryAdd(NormalizeName(wrapper.Identifier ?? wrapper.Method?.Identifier), wrapper);
+            }
+
+            foreach (var child in node.AstChildren)
+            {
+                CollectInlineExtensionWrappers(child, byName);
+            }
+        }
+
+        private static TyhpdefInlineExtensionFunctionAst? SearchInlineExtensionWrapper(
             IBase2Ast? node,
             string calleeName)
         {
@@ -227,7 +289,7 @@ namespace Tyhp.TyhpLang.Emitter.Splice
 
             foreach (var child in node.AstChildren)
             {
-                var found = FindInlineExtensionWrapper(child, calleeName);
+                var found = SearchInlineExtensionWrapper(child, calleeName);
                 if (found is not null)
                 {
                     return found;

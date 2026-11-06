@@ -16,8 +16,7 @@
 > equivalent for HTML templates.
 > **Branch:** TBD
 > **Generated:** 2026-11-03
-> **Status:** Planned, priority 1 in Tier 3. Not started. The two parts are independent and can ship in either
-> order.
+> **Status:** Shipped in compiler 805.1.2-beta.4 (both parts; see `CHANGELOG.md`). Priority 1 in Tier 3.
 
 ---
 

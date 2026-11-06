@@ -29,6 +29,7 @@ tokens {
     // Named by shared parser rules. No lexer rule emits these.
     T_TYHP_INTERNAL,
     T_TYHP_WITH,
+    T_TYHP_LAZY,
     T_TYHP_USING,
     T_TYHP_TYPEOF,
     T_TYHP_NAMEOF,

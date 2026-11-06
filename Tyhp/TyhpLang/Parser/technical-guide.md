@@ -116,7 +116,8 @@ Edit `TyhpLexer.GrammarMethods.cs` and `TyhpParser.GrammarMethods.cs`. The next 
 - `looksLikeStructShape()` — type-position `struct { … }` / `struct extends` vs a class/type named `struct`
 - `looksLikeAnonymousStruct()` — `new struct { … }` vs `new struct()` constructing a class named `struct`
 - `callableIsFollowedByOpenParen()` — `callable (` or `callable` plus a PHP builtin-cast token (`T_INT_CAST` / `T_STRING_CAST` / …) vs bare `callable`. `IsBuiltinCastToken` also accepts `T_VOID_CAST` (an unnamed `void` parameter is syntactically valid the same way a named `void $v` parameter is); `typeof` / `default` do not accept `T_VOID_CAST` in their own BuiltinCast alternatives.
-- `newIsFollowedByArgumentList()` — disambiguate `new X<T>(args)` vs comparison
+- `newIsFollowedByArgumentList()` — disambiguate `new X<T>(args)` vs comparison. Skips a leading `lazy`, so `lazy new Foo()` and `lazy new Foo` follow the same split as `new`
+- `lazyNewNamesAClass()` — after `lazy new`, the next token must be a class name (`Foo`, `self`, `parent`, `static`). A variable, a parenthesized expression, or anonymous `class` is a parse error
 - `looksLikeGenericTypedLocal()` — disambiguate `Box<int> $x` vs comparison
 - `looksLikeTypedConstDecl()` — disambiguate file-level `const int X = 1` vs `const FOO = 1`
 - `checkIsTopExpr(RuleContext)` — used from `PhpParser.g4` for `&` / `|` / `^` in expression vs top-expr contexts
@@ -241,7 +242,7 @@ If you add a feature that must be Tyhp-source-only at parse time, gating only on
 
 ### Semantic predicates in GrammarMethods
 
-**`newIsFollowedByArgumentList`** — used by overridden `newNonDereferenceable` so `new Foo<T>(…)` is not parsed as `(new Foo) < T > (…)`.
+**`newIsFollowedByArgumentList`** — used by overridden `newNonDereferenceable` so `new Foo<T>(…)` is not parsed as `(new Foo) < T > (…)`. A leading `T_TYHP_LAZY` is skipped, so the same guard splits `lazy new Foo()` from `lazy new Foo`. **`lazyNewNamesAClass`** limits `lazy new` to a static class name.
 
 **`looksLikeGenericTypedLocal`** — used to disable the bare `phpTopExpr` / for-init expression alternatives when lookahead looks like `Type<Arg> $var` (including unions and parenthesized forms). Cap: `MaxGenericArgumentLookahead = 256`.
 

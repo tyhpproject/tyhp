@@ -132,8 +132,43 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             ValidateAttributeTarget(attribute, target, state, context, diagnostics);
             ValidateAttributeArguments(attribute, state, diagnostics);
+            if (attribute.Name is PhpNameAst { BoundSymbol: ObjectDeclarationSymbol attributeClass }
+                && IsAttributeClass(attributeClass))
+            {
+                TypeCompatibilityRule.CheckAttributeConstructorArguments(
+                    attribute,
+                    attributeClass,
+                    WithDeclaringFileResolution(target, state, context),
+                    context,
+                    diagnostics);
+            }
+
             ValidateRepeatability(attribute, target, state, diagnostics);
             ValidateOverride(attribute, target, state, context, diagnostics);
+        }
+
+        /// <summary>
+        /// An attribute on a class or function is checked outside any class or callable scope, and the
+        /// attribute subtree's type-argument addons carry no owning file. Resolve its names (the
+        /// <c>T</c> of <c>#[Name&lt;T&gt;]</c>, the owner in <c>nameof(Owner::$prop)</c>) in the
+        /// declaring file's namespace block and imports.
+        /// </summary>
+        private static CheckerState WithDeclaringFileResolution(
+            IBase2Ast target,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            if (state.NameResolutionScope is not null
+                || state.EnclosingObject is not null
+                || state.EnclosingCallable is not null
+                || !TypeInferrer.TryGetDeclaringFileResolutionScope(target, context.GlobalScope, out var declaringScope))
+            {
+                return state;
+            }
+
+            var forked = state.Fork();
+            forked.NameResolutionScope = declaringScope;
+            return forked;
         }
 
         private static void ValidateParameterAttributes(
