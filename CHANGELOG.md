@@ -23,6 +23,9 @@ Notable changes to the Tyhp compiler, CLI, and language server. The format follo
 - A value passed to a parameter typed as an extern unioned with a real type (`\SortDirection|string`) is not a use of the extern when the value fits the real arm. A value that needs the extern arm still reports TYHP4307.
 - Attributes on a class or function in a namespaced file resolve the names in their arguments through that file's namespace and imports, so `#[Index<Post>([nameof(Post::$title)])] class Post {}` type-checks `Post` instead of reporting TYHP4090 or skipping the check.
 - `array<'get'|'set', T>` and `array<0|1, T>` type-check. String and int literal types, including unions of them, satisfy the array key constraint.
+- The language server's memory no longer grows to many gigabytes over a long session. It reuses parsed tyhpdef packages across analysis passes instead of reloading them on every edit. It also returns freed memory to the OS after 5 seconds of idle.
+- The language server no longer keeps every earlier analysis pass alive while you edit, which grew memory by tens of megabytes per edit and by hundreds when tyhpdef files changed. Files that were not re-parsed also no longer resolve names against symbols from a previous pass.
+- The language server watches the directory that holds `tyhp.json` and the project's sources, not the whole editor workspace. Files outside the project's `include`/`exclude` globs no longer enter analysis, and disk changes to unrelated files no longer trigger a re-check. Edits to `.tyhpdef` files and to `composer.json`/`composer.lock` reload the tyhpdef packages.
 
 ## [805.1.2-beta.4] - 2026-11-04
 

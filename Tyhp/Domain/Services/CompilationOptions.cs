@@ -138,6 +138,13 @@ namespace Tyhp.Domain.Services
         public bool ApplyTyhpdefOverlays { get; set; } = true;
 
         /// <summary>
+        /// Optional source of tyhpdef files for the binder. The language server sets this to a
+        /// cache so repeated binds of one project reuse parsed tyhpdef ASTs. Null loads them
+        /// from disk on every bind.
+        /// </summary>
+        public Tyhp.TyhpLang.Binder.BuiltIn.ITyhpdefSourceProvider? TyhpdefSourceProvider { get; set; }
+
+        /// <summary>
         /// Elevates overlay stamp-mismatch warnings to errors (<c>--strict</c> / <c>build.strictMode</c>).
         /// </summary>
         public bool StrictMode { get; set; }

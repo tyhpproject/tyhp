@@ -26,7 +26,10 @@ namespace Tyhp.TyhpLang.Binder
             _tyhpdefRegistrar = registrar;
             try
             {
-                registrar.RegisterAll(BuiltIn.Tyhpdef.GetSourceFiles(_diagnostics, _compilationOptions));
+                var sources = _compilationOptions?.TyhpdefSourceProvider is { } provider
+                    ? provider.GetSourceFiles(_diagnostics, _compilationOptions)
+                    : BuiltIn.Tyhpdef.GetSourceFiles(_diagnostics, _compilationOptions);
+                registrar.RegisterAll(sources);
             }
             finally
             {

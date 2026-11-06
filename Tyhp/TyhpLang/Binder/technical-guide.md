@@ -408,6 +408,10 @@ Anonymous expression structs still use `BindStructDecl` → `ObjectDeclarationSy
 
 `LoadTyhpdefSymbols` → `TyhpdefSymbolRegistrar.RegisterAll(Tyhpdef.GetSourceFiles(...))` → include files first (`BindTyhpdefSourceFile` → `BindFile`), then a Layer 1 stamp snapshot, then overlay files in `OverlaySequence` order.
 
+When `CompilationOptions.TyhpdefSourceProvider` is set, `LoadTyhpdefSymbols` takes the source files from it instead of `Tyhpdef.GetSourceFiles`. The language server sets it to a `TyhpdefSourceCache` (`BuiltIn/TyhpdefSourceCache.cs`) so each analysis cycle reuses the same tyhpdef ASTs. The cache reloads when the tyhpdef options key, a loaded file's size or write time, or an explicit `Invalidate()` says so. On each reuse it clears `BoundSymbol`, `SelectedOverload`, and `OwningFile` on every node (`AstBindState.Clear`), which are the only per-bind fields the binder and checker write on AST nodes. Binds sharing one cache must not run concurrently. CLI builds leave the provider unset.
+
+Any host that binds the same source AST more than once must call `AstBindState.Clear` on it first; the language server does this for every AST at the start of each analysis cycle. Rebinding does not overwrite every node: a node the new bind skips or fails to resolve keeps its old `BoundSymbol`, and the new bind can then build types from it (for example a generic parameter's `ResolvedConstraint`), which links each compilation to the previous one and keeps all of them reachable.
+
 There is no separate symbol-dump / AST-index path that registers package APIs for compilation. `TyhpdefApiIndex` / `TyhpdefAstApiReader` are for `--verify` comparison of generated stubs, not binder registration. Because package files share `BindFile`, file-level `declare(php=…)` and declaration-level `#[\Tyhp\Php]` use the same `PhpVersionConstraint.Evaluate` + constraint stack as user sources. A single Composer package (`tyhpdef/php`, plus `tyhpdef/php-ext-*`) can therefore ship version-disjoint stubs; the compiler filters them against `CompilationOptions.PhpVersion` (`output.phpVersion`) instead of installing mutually exclusive `tyhpdef/php-8.x` packages. Vendor discovery loads `vendor/<vendor>/<package>/composer.json` when `extra.tyhp.package` is a JSON object, from both Composer `require` and `require-dev`. Directories named `tyhpdef/php-{major}.{minor}` are the only version-skipped layout; `tyhpdef/php-ext-*` is always eligible. TYHP8027 runtime-package presence prefers `composer.json` `"name"` (`tyhp/core`) so a path-repo physical directory such as `dist/tyhp-core/805.0.1` still counts. require-dev-only package `.tyhp` sources are excluded from the consumer lint/build file set (`Project.GetProjectSourceFiles`).
 
 Special behaviors:
@@ -590,6 +594,8 @@ Generics, `async`, and `internal` often arrive via `AstGrammarAddons` (`"identif
 | `StaticValueTypeHelper` | (shared) | Literal types in annotations → underlying builtin |
 | `DidYouMean` | Domain diagnostics | Attach suggestions to unresolved diagnostics |
 | `AstCacheService` | Domain | Tyhpdef AST cache; fresh deserialize per bind so `BoundSymbol`/`OwningFile` do not leak |
+| `TyhpdefSourceCache` | `BuiltIn/TyhpdefSourceCache.cs` | Language-server `ITyhpdefSourceProvider`: reuses tyhpdef ASTs across binds and clears their per-bind fields on reuse |
+| `AstBindState` | `AstBindState.cs` | Clears the per-bind fields (`BoundSymbol`, `SelectedOverload`, `OwningFile`) on an AST before it is bound again |
 
 ### Built-in registration order (`PopulateBuiltIns`)
 
