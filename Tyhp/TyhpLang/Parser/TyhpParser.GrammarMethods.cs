@@ -290,7 +290,8 @@ using Antlr4.Runtime;
 
         /// <summary>
         /// Reports whether the <c>new</c> expression starting at the current token is followed
-        /// by an argument list, for example <c>new Foo(1)</c> or <c>new Box&lt;int&gt;(1)</c>.
+        /// by an argument list, for example <c>new Foo(1)</c>, <c>new Box&lt;int&gt;(1)</c>,
+        /// or <c>lazy new Foo(1)</c>. A leading <c>lazy</c> is skipped.
         /// </summary>
         /// <remarks>
         /// <c>new X&lt;T&gt;(args)</c> is ambiguous with the comparison chain
@@ -300,13 +301,30 @@ using Antlr4.Runtime;
         /// commits to it. Only the unambiguous <c>new NAME [&lt;...&gt;] (</c> shape is
         /// recognized; every other shape returns false, leaving prediction as it was.
         /// </remarks>
+        /// <summary>
+        /// <c>lazy new</c> names a class (<c>Foo</c>, <c>self</c>, <c>parent</c>, <c>static</c>).
+        /// A variable, a parenthesized expression, or an anonymous <c>class</c> is not a target.
+        /// Called after <c>lazy new</c> has been consumed, so lookahead is the class token.
+        /// </summary>
+        public bool lazyNewNamesAClass() => IsClassNameHeadToken(TokenStream.LA(1));
+
         public bool newIsFollowedByArgumentList() {
-            if (TokenStream.LA(1) != TyhpParser.T_NEW
-                || !IsClassNameHeadToken(TokenStream.LA(2))) {
+            int nameIndex = 2;
+            if (TokenStream.LA(1) == TyhpParser.T_TYHP_LAZY) {
+                if (TokenStream.LA(2) != TyhpParser.T_NEW) {
+                    return false;
+                }
+
+                nameIndex = 3;
+            } else if (TokenStream.LA(1) != TyhpParser.T_NEW) {
                 return false;
             }
 
-            int index = 3;
+            if (!IsClassNameHeadToken(TokenStream.LA(nameIndex))) {
+                return false;
+            }
+
+            int index = nameIndex + 1;
             if (TokenStream.LA(index) == TyhpParser.T_SYM_LT) {
                 int depth = 0;
                 int remaining = MaxGenericArgumentLookahead;

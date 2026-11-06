@@ -109,6 +109,32 @@ public class StructEmitterTests
     }
 
     [Fact]
+    public void Emit_ClassSharingShortNameWithStructElsewhere_KeepsClassHint()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace Shapes {
+                type Result = struct {
+                    int $code = 0;
+                };
+            }
+            namespace Http {
+                final class Result {
+                    public function __construct(public int $status) {}
+                }
+                function describe(Result $result): int {
+                    return $result->status;
+                }
+            }
+            """);
+
+        var describe = php[php.IndexOf("function describe(", StringComparison.Ordinal)..];
+        describe.Should().Contain("Result $result");
+        describe.Should().NotContain("array $result");
+        describe.Should().Contain("$result->status");
+    }
+
+    [Fact]
     public void Emit_StructPropertyInParentConstructorArguments_UsesArrayAccess()
     {
         var php = CompileAndEmit("""

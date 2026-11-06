@@ -381,6 +381,12 @@ namespace Tyhp.TyhpLang.Checker.Rules
         public void MarkRequiresRuntimeGenericTracking(ObjectDeclarationSymbol? objectDecl) =>
             _checker.MarkRequiresRuntimeGenericTracking(objectDecl);
 
+        public void DeferLazyNewNoStateWarning(
+            IBase2Ast node,
+            ObjectDeclarationSymbol target,
+            Diagnostic warning) =>
+            _checker.DeferLazyNewNoStateWarning(node, target, warning);
+
         public void MarkRequiresGenericVariant(IBaseSymbol? callable) =>
             _checker.MarkRequiresGenericVariant(callable);
 

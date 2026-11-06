@@ -181,6 +181,26 @@ namespace Tyhp.TyhpLang.Checker.Rules
             return seen;
         }
 
+        /// <summary>
+        /// A tyhpdef parameter may union an extern with a real type (<c>\SortDirection|string</c>).
+        /// Passing a value that is assignable once those extern union arms are removed does not
+        /// use the extern. An extern nested in a generic argument, intersection, or callable,
+        /// or a parameter that is only the extern, still does.
+        /// </summary>
+        public static bool AssignsWithoutExtern(
+            ICheckedType argumentType,
+            ICheckedType parameterType,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            if (!TryStripExternUnionArms(parameterType, out var remainder) || remainder is null)
+            {
+                return false;
+            }
+
+            return context.IsAssignable(argumentType, remainder, state);
+        }
+
         public static void Report(
             DiagnosticBag diagnostics,
             CheckerState state,
@@ -283,6 +303,63 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             return null;
         }
+
+        private static bool TryStripExternUnionArms(ICheckedType type, out ICheckedType? remainder)
+        {
+            switch (type)
+            {
+                case UnionCheckedType union:
+                    var kept = new List<ICheckedType>();
+                    var removed = false;
+                    foreach (var member in union.Members)
+                    {
+                        if (IsExternArm(member))
+                        {
+                            removed = true;
+                            continue;
+                        }
+
+                        if (TryStripExternUnionArms(member, out var stripped))
+                        {
+                            removed = true;
+                            if (stripped is not null)
+                            {
+                                kept.Add(stripped);
+                            }
+
+                            continue;
+                        }
+
+                        kept.Add(member);
+                    }
+
+                    if (!removed)
+                    {
+                        remainder = null;
+                        return false;
+                    }
+
+                    remainder = kept.Count switch
+                    {
+                        0 => null,
+                        1 => kept[0],
+                        _ => new UnionCheckedType(kept),
+                    };
+                    return true;
+                case NullableCheckedType nullable when IsExternArm(nullable.InnerType):
+                    remainder = CheckedTypes.Null;
+                    return true;
+                case NullableCheckedType nullable when TryStripExternUnionArms(nullable.InnerType, out var inner):
+                    remainder = inner is null ? CheckedTypes.Null : new NullableCheckedType(inner);
+                    return true;
+                default:
+                    remainder = null;
+                    return false;
+            }
+        }
+
+        private static bool IsExternArm(ICheckedType type) =>
+            type is SimpleCheckedType { ResolvedSymbol: ObjectDeclarationSymbol { IsExtern: true } };
 
         private static void CollectExternSymbolsCore(
             ICheckedType type,

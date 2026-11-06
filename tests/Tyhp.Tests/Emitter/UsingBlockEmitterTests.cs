@@ -24,7 +24,8 @@ public class UsingBlockEmitterTests
         php.Should().Contain("$handle = new stdClass();");
         php.Should().Contain("try {");
         php.Should().Contain("finally {");
-        php.Should().Contain("if ($handle instanceof \\Tyhp\\Contracts\\IsDisposable)");
+        php.Should().Contain(
+            "if ($handle instanceof \\Tyhp\\Contracts\\IsDisposable && !(new \\ReflectionClass($handle))->isUninitializedLazyObject($handle))");
         php.Should().Contain("$handle->dispose();");
         php.Should().NotContain("PLACEHOLDER: using");
         php.Should().NotContain("DisposableScope");
@@ -104,9 +105,11 @@ public class UsingBlockEmitterTests
         php.Should().Contain("$conn = new stdClass();");
         php.Should().Contain("try {");
         php.Should().Contain("finally {");
-        php.Should().Contain("if ($conn instanceof \\Tyhp\\Contracts\\AsyncIsDisposable)");
+        php.Should().Contain(
+            "if ($conn instanceof \\Tyhp\\Contracts\\AsyncIsDisposable && !(new \\ReflectionClass($conn))->isUninitializedLazyObject($conn))");
         php.Should().Contain("\\Tyhp\\Promise::_await($conn->disposeAsync());");
-        php.Should().Contain("elseif ($conn instanceof \\Tyhp\\Contracts\\IsDisposable)");
+        php.Should().Contain(
+            "elseif ($conn instanceof \\Tyhp\\Contracts\\IsDisposable && !(new \\ReflectionClass($conn))->isUninitializedLazyObject($conn))");
         php.Should().Contain("$conn->dispose();");
         php.Should().NotContain("}elseif");
         php.Should().NotContain("DisposableScope");

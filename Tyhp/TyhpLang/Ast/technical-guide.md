@@ -520,7 +520,7 @@ Carries lexer token text (`ValueString`) and token type (`ValueInt64`). Basis fo
 
 **Statements / control flow:** `PhpStatementBlockAst`, `PhpIfAst`, `PhpConditionalAst` / `Arm` / `ArmList`, `PhpLoopAst`, `PhpTryCatchAst`, `PhpCatchClauseAst` / `List`, `PhpReturnStatementAst`, `PhpJumpStatementAst`, `PhpGotoStatementAst`, `PhpLabelStatementAst`, `PhpEchoStatementAst`, `PhpGlobalStatementAst`, `PhpStaticStatementAst`, `PhpUnsetStatementAst`, `PhpNopStatementAst`, `PhpEmptyStatementAst`, `PhpIssetStatementAst`, `PhpEvalStatementAst` (file currently named `PhpEvalStatementAst copy.cs`).
 
-**Expressions:** `PhpBinaryOpAst`, `PhpUnaryOpAst`, `PhpTernaryOpAst`, `PhpScalarAst`, `PhpStringAst`, `PhpArrayAst`, `PhpArrayPairAst` / `List` (empty slots in `list()` / `[]` destructure are `CreateSkippedSlot` / `IsSkippedSlot`, not dropped nulls), `PhpVariableAst` / `List` (`Type` is the optional typed-foreach annotation), `PhpNewAst`, `PhpYieldAst`, `PhpInlineFunctionAst`, `PhpExpressionListAst`, `PhpMagicConstantAst`, `PhpNameAst`.
+**Expressions:** `PhpBinaryOpAst`, `PhpUnaryOpAst`, `PhpTernaryOpAst`, `PhpScalarAst`, `PhpStringAst`, `PhpArrayAst`, `PhpArrayPairAst` / `List` (empty slots in `list()` / `[]` destructure are `CreateSkippedSlot` / `IsSkippedSlot`, not dropped nulls), `PhpVariableAst` / `List` (`Type` is the optional typed-foreach annotation), `PhpNewAst` (`IsLazy` is flag `-1`, set for `lazy new` and kept by the AST cache; anonymous and dynamic `new` leave it clear), `PhpYieldAst`, `PhpInlineFunctionAst`, `PhpExpressionListAst`, `PhpMagicConstantAst`, `PhpNameAst`.
 
 **Dereferenceables:** `PhpDereferenceableAst`, `PhpDereferenceableExpressionAst`, `PhpCallAst`, `PhpArgumentAst` / `List`, `PhpArrayAccessAst`, `PhpInstanceMemberAccessAst`, `PhpStaticMemberAccessAst`, `PhpMemberAccessAst`, `PhpClassConstantAccessAst`.
 
@@ -571,7 +571,7 @@ Carries lexer token text (`ValueString`) and token type (`ValueInt64`). Basis fo
 
 ### Binder
 
-- `SetOwningFileRecursive(srcFile, srcFile)` stamps `OwningFile` on the root and **every `AstChildren` descendant** (not Attributes / GrammarAddons / non-child CLR properties).
+- `SetOwningFileRecursive(srcFile, srcFile)` stamps `OwningFile` on the root, on **every `AstChildren` descendant**, and on each node's `AstAttributes` subtrees (not GrammarAddons / non-child CLR properties).
 - Creating a symbol with a declaring node sets `declaringNode.BoundSymbol = this` (`BaseSymbol` ctor).
 - Name resolution also assigns `BoundSymbol` on reference nodes (`NameResolver`).
 - Reads GrammarAddons heavily for modifiers, generics, tyhpdef metadata; reads `AstAttributes` for attribute resolution.
@@ -611,7 +611,7 @@ Visitors own Create/Error/GrammarAddon attachment. They should not be treated as
 
 6. **`EmittedPhpExprAst.PhpText`** — Outside the serialize model; fine for ephemeral emitter nodes, dangerous if ever cached.
 
-7. **`SetOwningFileRecursive` skips Attributes and GrammarAddons** — Attribute/addon subtrees may have `OwningFile == null` even after bind, while still being walkable via their own lists.
+7. **`SetOwningFileRecursive` skips GrammarAddons** — addon subtrees (type-argument lists such as the `T` of `#[Name<T>]`) may have `OwningFile == null` even after bind, while still being walkable via their own lists. Attribute subtrees are stamped.
 
 8. **`IArgumentList` / `IUnexpectedNode`** — Interfaces exist under `Interfaces/` but no concrete Ast class implements them (`PhpArgumentListAst` implements `IExpression` + `IDereferenceableSuffix` instead).
 
@@ -629,7 +629,7 @@ Visitors own Create/Error/GrammarAddon attachment. They should not be treated as
 
 1. **Do not put semantic state only in non-serialized properties** if the node must survive `AstCacheService` round-trips. Prefer Children, Flags, Values, Attributes, or GrammarAddons.
 
-2. **Do not assume `OwningFile` on attribute or grammar-addon nodes** after bind. Use the owning declaration’s `OwningFile` or checker state.
+2. **Do not assume `OwningFile` on grammar-addon nodes** after bind. Use the owning declaration’s `OwningFile` or checker state.
 
 3. **Do not walk only `AstChildren` and expect to see attributes.** Checker/Binder already special-case `AstAttributes`; new passes must too.
 
@@ -651,8 +651,8 @@ Visitors own Create/Error/GrammarAddon attachment. They should not be treated as
 
 ## Open Questions / Needs Clarification
 
-1. **Should `SetOwningFileRecursive` also visit `AstAttributes` and `AstGrammarAddons`?**  
-   Current binder only walks `AstChildren`. Unclear if null `OwningFile` on attribute names has caused bugs or is papered over by always using the declaration’s file name.
+1. **Should `SetOwningFileRecursive` also visit `AstGrammarAddons`?**  
+   Current binder walks `AstChildren` and `AstAttributes`. Addon subtrees keep `OwningFile == null`; `AttributeRule` resolves attribute type arguments through the declaring file's scope instead.
 
 2. **`IArgumentList` and `IUnexpectedNode`**  
    Appear unused. Intentional future hooks, leftovers, or incomplete refactors?

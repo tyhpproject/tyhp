@@ -1111,6 +1111,13 @@ public interface ITyhpParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitOptionalTypeWithoutStatic([NotNull] TyhpParser.OptionalTypeWithoutStaticContext context);
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpLazyNew</c>
+	/// labeled alternative in <see cref="TyhpParser.newDereferenceable"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpLazyNew([NotNull] TyhpParser.TyhpLazyNewContext context);
+	/// <summary>
 	/// Visit a parse tree produced by the <c>newClassInstance</c>
 	/// labeled alternative in <see cref="TyhpParser.newDereferenceable"/>.
 	/// </summary>
@@ -1138,6 +1145,13 @@ public interface ITyhpParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitTyhpNewAnonStructInstance([NotNull] TyhpParser.TyhpNewAnonStructInstanceContext context);
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpLazyNewNonDereferenceable</c>
+	/// labeled alternative in <see cref="TyhpParser.newNonDereferenceable"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpLazyNewNonDereferenceable([NotNull] TyhpParser.TyhpLazyNewNonDereferenceableContext context);
 	/// <summary>
 	/// Visit a parse tree produced by the <c>newClassInstanceNonDereferenceable</c>
 	/// labeled alternative in <see cref="TyhpParser.newNonDereferenceable"/>.

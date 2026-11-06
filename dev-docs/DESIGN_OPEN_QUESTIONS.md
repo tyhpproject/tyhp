@@ -1409,7 +1409,11 @@ Candidate shapes (none chosen):
 
 ### 23. Constructing structs with named arguments
 
-**Wanted 2026-11-03.** Not scheduled. Structs are built with `new Alias() with [...]`:
+> **Resolved 2026-11-04 → Story 22.2** (`IMPLEMENTATION_PLAN_TODO_STORY_22.2.md`). Named arguments were not
+> adopted. Structs get a bracket initializer instead: `new Opts[name => 'ann']`, `new Opts[]`, and checked spread
+> `new Opts[...$base, name => 'bob']`. The questions below are kept as the record of why.
+
+**Wanted 2026-11-03.** Structs are built with `new Alias() with [...]`:
 
 ```tyhp
 type Opts = struct {

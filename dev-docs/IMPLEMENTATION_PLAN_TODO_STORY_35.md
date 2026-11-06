@@ -1,6 +1,7 @@
 # Implementation Plan: Story 35 — No Uninitialized Storage (Ban `unset`, Require Property Init)
 
-> **Roadmap position:** Story 35 — **Tier 4 — Future plans**
+> **Roadmap position:** Story 35 — **Tier 3 — Advanced**, after Story 22.2 and before Story 34 (moved from Tier 4 on
+> 2026-11-04: shipping it after the first stable release would break code that uses `unset` or `AllowUnset`).
 > **Direct dependencies (new numbering):** 08
 > **New story:** split from Story 31 Idea 6 on 2026-11-03. No legacy number.
 > **Conventions:** Diagnostic codes, config keys, and canonical paths are governed by `CONVENTIONS.md`; new

@@ -326,6 +326,8 @@ PHP marks many addon visitors `virtual` and erroring so Tyhp can override, inclu
 - `VisitFunctionDeclarationStatementGrammarAddon`
 - `VisitClassStatementGrammarAddon`, `VisitTraitAliasGrammarAddon`
 - `VisitNewDereferenceableGrammarAddon`
+
+`lazy new` is a labeled alternative on `newDereferenceable` and `newNonDereferenceable` (`#tyhpLazyNew`, `#tyhpLazyNewNonDereferenceable`), not a grammar addon. `VisitTyhpLazyNew` and `VisitTyhpLazyNewNonDereferenceable` build `PhpNewAst` with `IsLazy`. Anonymous `new class` and dynamic `new` do not.
 - `VisitStatementWithoutTerminalGrammarAddon`, `VisitStatementRequiringTerminalGrammarAddon`
 - `VisitInternalFunctionsGrammarAddon`
 - Various `Visit*NameGrammarAddon` returning `null` in PHP

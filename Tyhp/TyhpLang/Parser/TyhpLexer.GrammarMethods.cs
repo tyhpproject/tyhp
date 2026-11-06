@@ -901,6 +901,14 @@ namespace Tyhp.TyhpLang.Parser {
                 return;
             }
 
+            // `lazy` stays an identifier except immediately before `new`.
+            if (tyhp && EqualsKeyword(text, "lazy")
+                && this.PeekNextDefaultChannelTokenType() == TyhpLexer.T_NEW)
+            {
+                token.Type = TyhpLexer.T_TYHP_LAZY;
+                return;
+            }
+
             if (tyhp && EqualsKeyword(text, "using"))
             {
                 token.Type = TyhpLexer.T_TYHP_USING;

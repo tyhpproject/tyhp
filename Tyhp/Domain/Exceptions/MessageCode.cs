@@ -1282,6 +1282,21 @@ namespace Tyhp.Domain.Exceptions
             /// </summary>
             CheckerReadonlyClassCloneWithRequiresPhp85 = 4401,
 
+            /// <summary>
+            /// <c>lazy new</c> targets an internal PHP class other than <c>\stdClass</c>, a class
+            /// that extends one, or a type that is not a class (struct, interface, enum, trait,
+            /// type parameter, or class-name brand). A lazy ghost initializes in place; those
+            /// targets cannot stay lazy.
+            /// </summary>
+            CheckerLazyNewNotCapable = 4402,
+
+            /// <summary>
+            /// <c>lazy new</c> of a class with no lazy-capable instance property. PHP would return
+            /// a normal instance and skip the initializer, so the expression is still valid and
+            /// runs the constructor immediately.
+            /// </summary>
+            CheckerLazyNewHasNoLazyProperty = 4403,
+
             // Deprecation warnings (4500+ range)
             CheckerDeprecatedUsage = 4500,
             CheckerObsoleteUsage = 4501,

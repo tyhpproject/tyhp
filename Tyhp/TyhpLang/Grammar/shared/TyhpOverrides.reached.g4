@@ -107,7 +107,10 @@ optionalTypeWithoutStatic
 // `new struct { … }` / `new struct() { … }` must win over `new struct` /
 // `new struct()` class construction now that `struct` is T_STRING.
 newDereferenceable
-    : {!this.looksLikeAnonymousStruct()}?
+    : T_TYHP_LAZY T_NEW {this.lazyNewNamesAClass()}?
+        Identifier=classNameReference Arguments=argumentList
+        {this.isLanguageMode("tyhp")}?                                          #tyhpLazyNew
+    | {!this.looksLikeAnonymousStruct()}?
         T_NEW Identifier=classNameReference Arguments=argumentList              #newClassInstance
     | T_NEW Attributes=attributes? AnonClassDecl=anonymousClass                 #newAnonClassInstance
     | newDereferenceableGrammarAddon                                            #newDereferenceableGrammarAddonHandler
@@ -126,8 +129,14 @@ newDereferenceableGrammarAddon
 // this alternative out whenever an argument list follows, so `new X<T>(args)`
 // can only parse as a generic instantiation. `looksLikeAnonymousStruct` keeps
 // `new struct { … }` from being consumed as argument-less `new struct`.
+// `lazy new` uses the same split: `newIsFollowedByArgumentList` skips a leading
+// T_TYHP_LAZY so `lazy new Foo()` stays dereferenceable and `lazy new Foo` does not.
 newNonDereferenceable
-    : {!this.newIsFollowedByArgumentList()}? {!this.looksLikeAnonymousStruct()}?
+    : {!this.newIsFollowedByArgumentList()}?
+        T_TYHP_LAZY T_NEW {this.lazyNewNamesAClass()}?
+        Identifier=classNameReference
+        {this.isLanguageMode("tyhp")}?                                          #tyhpLazyNewNonDereferenceable
+    | {!this.newIsFollowedByArgumentList()}? {!this.looksLikeAnonymousStruct()}?
         T_NEW Identifier=classNameReference                                     #newClassInstanceNonDereferenceable
     | newNonDereferenceableGrammarAddon                                         #newNonDereferenceableGrammarAddonHandler
     ;

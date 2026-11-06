@@ -237,7 +237,7 @@ Tyhp/TyhpLang/Checker/
 |------|----------------|
 | `TypeComparer.cs` | Public API façade, template-string budget thread-static state |
 | `TypeComparer.Assignability.cs` | `IsAssignableToCore` |
-| `TypeComparer.ConvertAssignability.cs` | `IsAssignableViaOperatorConvert` (call/return/`new` only), `UseConvertSite` (ambient call-site file for extension-convert scoping) |
+| `TypeComparer.ConvertAssignability.cs` | `IsAssignableViaOperatorConvert` (call/return/`new` only), `UseConvertSite` (ambient call-site file for extension-convert scoping; while a site is open it also memoizes the declaration scope `EnumerateClassOperatorOverloads` finds for each type) |
 | `TypeComparer.ConvertibleSources.cs` | `EnumerateConvertibleSources` — the types that convert to one target (`ConvertibleSource`, `ConvertibleSourceKind`) |
 | `TypeComparer.Subtyping.cs` | `IsSubtypeOfCore`, inheritance walk |
 | `TypeComparer.BuiltInTypes.cs` | `iterable`, `callable`, array-like, gradual array rules |
@@ -267,7 +267,7 @@ Tyhp/TyhpLang/Checker/
 | `DeclarationRule` | Namespaces, classes, functions, methods, properties; owns scope setup; property-hook shape (duplicate / invalid name / `&set` / get parameters), modifier + visibility (TYHP4154 / TYHP4004), final-override (TYHP4166), `&get` version gate (TYHP4167, skipped on tyhpdef declarations), TYHP8015 if a tyhpdef hook body still reaches the checker, TYHP4326 when a user `.tyhp` type lists `\Traversable` in `extends`/`implements` (only `\Iterator` / `\IteratorAggregate` may extend it), TYHP4337 when a user `.tyhp` type lists `\UnitEnum` / `\BackedEnum` (only the engine `\BackedEnum` may extend `\UnitEnum`), TYHP4338 when a user enum redeclares `cases` / `from` / `tryFrom`, TYHP4024 for a magic method PHP never allows on an enum (`EnumForbiddenMagicMethods`; `__construct` also in tyhpdef), TYHP4379 for an enum `__debugInfo()` below an 8.6 target, and TYHP4378 for a default on a non-static readonly property (own `readonly` or a `readonly class`) below an 8.6 target; promoted parameters and structs are exempt. In a `readonly class` (`IsReadonlyClassContext`, from `EnclosingObject.Visibility`) every instance property and promoted parameter is treated as readonly for TYHP4378 and TYHP4155 (hooks), and a static property is TYHP4109. A `readonly class` that uses a trait reports TYHP4380 (`CheckReadonlyClassTraitProperties`) for each static trait property and each instance trait property without `readonly`, when the target is PHP 8.2 or newer; readonly instance properties are allowed, and the check is skipped below 8.2. The 8.6 gates read `TargetPhpVersionText` (unset → `CompilationOptions.DefaultPhpVersionWhenUnset`). Tyhpdef harvest shells are skipped structurally, not by `#[\Tyhp\Php]` |
 | `TypeAnnotationRule` | Required annotations / typed locals. TYHP4016 wraps the subject in backticks: `$name` for a variable, parameter, or property (`FormatTypeRequiredName` keeps a single `$` when the AST name already includes it), and `return type` for a missing function or method return type |
 | `ControlFlowRule` | if/loops/try/return/throw/ternary/match conditions; duplicate catch type (TYHP4124 warning) labels the first catch type |
-| `TypeCompatibilityRule` | Assignments, calls, `new`, member access, arrays; readonly writes (TYHP4021, `IsReadonlyAssignmentTarget`: a receiver other than `$this` inside the class, or a write from a function, the file scope, or a class that is not the declaring class or a subclass; properties with an explicit set visibility and trait-declared properties are skipped); `new Name()` where `Name` is not a declared, imported, aliased, or built-in class is TYHP4197 at the class name (`new $cls`, `new class {}`, and `new self/static/parent` are not checked); `new` on a type alias is TYHP4069 (TYHP4347 when the alias is, or renames/generic-wraps, an object shape); `new T()` requires `T extends __New<Shape>` (TYHP4355) and checks args against the shape constructor (TYHP4357); `new $cls()` on `__ClassName<Shape>` without `__New` is TYHP4356 (`__ClassName<__New<Shape>>` uses the same 4357 ctor check); `__New<T>` where T is not a shape alias is TYHP4351; failing `__New` constructability is TYHP4352/4353/4354; **mixed use-site** (TYHP4160); **Unresolved receiver** member/call/index (TYHP4197, suppressed when the receiver subtree already has an error); **possibly-null receiver** member/call/struct-or-object index (TYHP4198); call/ctor arity (TYHP4142/4143); undeclared member on a closed member receiver (scalars / `\Closure` / structs), on a fully-resolved class / interface / bare `object` without a magic accessor, or on a shape-only receiver (TYHP4101); a plain `$var = expr` applies the assignment after `expr` is checked (`CheckDeferredVariableAssignment`), so `$b = $b->next()` reads `$b` under its pre-assignment narrowing; `$x->__construct()` on a shape-typed value is TYHP4359; unresolved free-function call (TYHP4182); type-alias factory type arguments (TYHP4186); `fromCallable` private-method visibility (TYHP4025); `bind`/`bindTo`/`call` leftover-scope / non-rebindable (TYHP4334 / TYHP4336); array access on non-array/string/ArrayAccess (TYHP4093); ArrayAccess struct/array `TKey` (TYHP4330); ArrayAccessShape wide key (TYHP4331) / append (TYHP4332); homogeneous `$obj[] =` uses `offsetSet`'s first parameter (WeakMap `TKey extends object` rejects null; `ArrayAccess::offsetSet(null or TKey, …)` allows append); int-alias structs skip homogeneous ArrayAccess checks so `$args[0]` is the field; bare `array` / `array<V>` index keys are `int\|string` (`CheckedTypes.PhpArrayKey`); `array<int, V>` still rejects string keys; string offset keys stay `int`; `list()` / `[]` destructure on array, string, or ArrayAccess (`ArrayAccessDestructureSupport`; TYHP4094 otherwise; spread TYHP4095) |
+| `TypeCompatibilityRule` | Assignments, calls, `new`, member access, arrays; readonly writes (TYHP4021, `IsReadonlyAssignmentTarget`: a receiver other than `$this` inside the class, or a write from a function, the file scope, or a class that is not the declaring class or a subclass; properties with an explicit set visibility and trait-declared properties are skipped); `new Name()` where `Name` is not a declared, imported, aliased, or built-in class is TYHP4197 at the class name (`new $cls`, `new class {}`, and `new self/static/parent` are not checked); `new` on a type alias is TYHP4069 (TYHP4347 when the alias is, or renames/generic-wraps, an object shape); `new T()` requires `T extends __New<Shape>` (TYHP4355) and checks args against the shape constructor (TYHP4357); `new $cls()` on `__ClassName<Shape>` without `__New` is TYHP4356 (`__ClassName<__New<Shape>>` uses the same 4357 ctor check); `__New<T>` where T is not a shape alias is TYHP4351; failing `__New` constructability is TYHP4352/4353/4354; **mixed use-site** (TYHP4160); **Unresolved receiver** member/call/index (TYHP4197, suppressed when the receiver subtree already has an error); **possibly-null receiver** member/call/struct-or-object index (TYHP4198); call/ctor arity (TYHP4142/4143); undeclared member on a closed member receiver (scalars / `\Closure` / structs), on a fully-resolved class / interface / bare `object` without a magic accessor, or on a shape-only receiver (TYHP4101); a plain `$var = expr` applies the assignment after `expr` is checked (`CheckDeferredVariableAssignment`), so `$b = $b->next()` reads `$b` under its pre-assignment narrowing; `$x->__construct()` on a shape-typed value is TYHP4359; unresolved free-function call (TYHP4182); type-alias factory type arguments (TYHP4186); `fromCallable` private-method visibility (TYHP4025); `bind`/`bindTo`/`call` leftover-scope / non-rebindable (TYHP4334 / TYHP4336); array access on non-array/string/ArrayAccess (TYHP4093); ArrayAccess struct/array `TKey` (TYHP4330); ArrayAccessShape wide key (TYHP4331) / append (TYHP4332); homogeneous `$obj[] =` uses `offsetSet`'s first parameter (WeakMap `TKey extends object` rejects null; `ArrayAccess::offsetSet(null or TKey, …)` allows append); int-alias structs skip homogeneous ArrayAccess checks so `$args[0]` is the field; bare `array` / `array<V>` index keys are `int\|string` (`CheckedTypes.PhpArrayKey`); `array<int, V>` still rejects string keys; string offset keys stay `int`; `list()` / `[]` destructure on array, string, or ArrayAccess (`ArrayAccessDestructureSupport`; TYHP4094 otherwise; spread TYHP4095). `lazy new` of an internal class other than `\stdClass`, a class that extends one, or a non-class (struct, interface, enum, trait, type parameter, class-name brand) is TYHP4402 (`LazyNewSupport`). A class with no stored instance property warns TYHP4403 and still type-checks (PHP returns a normal object from `newLazyGhost` and never calls the initializer, so the emitter falls back to `new`); the injected `$__tyhpGeneric` bag of a runtime-tracked generic class, or of a class extending one, is a stored property, so such a class does not warn. Tracking is only complete after the walk, so a candidate whose class or ancestor declares type parameters is queued (`DeferLazyNewNoStateWarning`) and reported by `FlushPendingLazyNewWarnings` at the end of `Check`; constructor mismatches use the same codes as `new`. Engine classes are recognized by source path (`RuntimePackagePaths.IsEnginePhpPackageSource`, plus `packages/tyhpdef/php-ext-` and `php/_tyhpdef/`), not by a symbol flag |
 | `TypeDeclarationValidationRule` | Illegal type-expression shapes; duplicate union/intersection members (TYHP4053) label the first member |
 | `NullSafetyRule` | Definite assignment / non-null use sites |
 | `TypeNarrowingRule` | Smart casts (static helper, not `ICheckerRule`) |
@@ -275,7 +275,7 @@ Tyhp/TyhpLang/Checker/
 | `UnsetTrackingRule` | `unset` vs definite assignment / `AllowUnset` |
 | `StructRule` / `WithKeywordRule` | Anonymous `TyhpStructDeclAst` (incl. ObjectGenerics / constraints) and `with` forms (member substitution on generic structs). Named `type Name = struct { };` aliases are `ObjectDeclarationSymbol` with `IsStruct`; `DeclarationRule` checks the alias body under that struct's generic scope. Anonymous shapes are `StructCheckedType`; `StructPropertyInfo.StringKeyAlias` carries a string key alias for the emitter. `clone` accepts a struct operand, and `NullSafetyRule` records the types of `isset`/`empty` operand chains (`RecordProbeOperandTypes`) even though it skips traversing them, so the emitter can rewrite them. |
 | `AsyncRule` / `DisposableRule` | await / disposables / emit flags |
-| `CompileTimeRule` | `nameof` / `typeof` / `default` / `variable_exists`. `typeof` takes a `typeExpr` (`TyhpTypeofAst.TypeExpression`); the checker resolves that annotation (aliases included — not mixed) and flags Mechanism D / GenericObject when it names those generic parameters (same as `default`). `TypeInferrer` types `typeof(...)` as `\Tyhp\Type`. `nameof(T)` still accepts in-scope class or method generics via `IsInScopeGenericParameter`. `typeof(Class)` binds the written class name to its declaration (so the emitter spells it for a class in another namespace or behind an import alias). Because the rule suppresses child traversal, `typeof` and `nameof` call `MarkImportNames` on their operand so the imports they use are not reported unused. `nameof` resolves names from the declaring file or namespace-block scope when there is no enclosing callable (top-level statements). |
+| `CompileTimeRule` | `nameof` / `typeof` / `default` / `variable_exists`. `typeof` takes a `typeExpr` (`TyhpTypeofAst.TypeExpression`); the checker resolves that annotation (aliases included — not mixed) and flags Mechanism D / GenericObject when it names those generic parameters (same as `default`). `TypeInferrer` types `typeof(...)` as `\Tyhp\Type`. `nameof(T)` still accepts in-scope class or method generics via `IsInScopeGenericParameter`. `typeof(Class)` binds the written class name to its declaration (so the emitter spells it for a class in another namespace or behind an import alias). Because the rule suppresses child traversal, `typeof` and `nameof` call `MarkImportNames` on their operand so the imports they use are not reported unused. `nameof` resolves names from the declaring file or namespace-block scope when there is no enclosing callable (top-level statements). `nameof(Type::$member)` / `nameof($obj->member)` / `nameof(Type::CONST)` of a single level reports TYHP4101 when that member is not declared on a known owner. `IsConstantExpression` treats `nameof` as a constant because it folds to a string literal. |
 | `ImportRule` | Unused / duplicate imports (TYHP4130 / TYHP4131; 4131 warning labels the first `use`); redundant local `use` of a `global use` symbol (TYHP4169). Heritage `extends`/`implements` names are marked from `DeclarationRule.CheckObjectType` (`MarkHeritageImportNames`) because that shell suppresses child traversal |
 | `ExternTypeUseRule` | `.tyhp` use of a tyhpdef `extern` name (TYHP4307): type, function, or const. Parameter/return/catch/call-argument sites that skip `CheckNode` call `ExternTypeUse` from `DeclarationRule` / `ControlFlowRule` / `TypeCompatibilityRule` / `ClosureRule`. Inheritance of an extern type is binder TYHP3026/3027, not 4307. |
 | `ExtensionRule` | Extension decls / imports. Empty `extension { }` is TYHP4172. A header `extends Type` and nested `extends` groups are exclusive (TYHP4362 / TYHP4363). Members with neither are TYHP4147. Target shape, unused binders, method-generic shadowing, intra-extension overlap, `static::` / `parent::`, and `&$this` are TYHP4364–TYHP4370. Child walk is suppressed; the rule checks members itself and calls `InlineSpliceRule.CheckMemberDeclaration`. Included standalone tyhpdef extensions (absent from `ParsedFiles`) are checked by this same rule from `CheckBoundTyhpdefThinMappings` |
@@ -505,7 +505,11 @@ points at the `extern` declaration; `Help` is `@provided-by` as-is when present.
 - A call whose inferred return type is extern
 - An argument passed to a callee parameter whose type is (or contains) extern —
   reported at the argument, instead of a misleading TYHP4010 against the
-  placeholder
+  placeholder. A value assignable to that parameter with every extern `|` arm
+  removed is not a use (`orderBy($column, 'asc')` against `\SortDirection|string`,
+  or `null` against `?\SortDirection`). An extern nested in a generic argument,
+  intersection, or callable is still a use, as is a parameter that is only the
+  extern (`mixed` passed to `\ExternNs\Client`)
 
 **Not a use:**
 
@@ -861,6 +865,9 @@ Notable behaviors encoded in comments:
   `InferArrayLiteral` unions widened element/key types. An entry without a key
   contributes PHP's implicit `int` key, so `[1, 2]` is `array<int, int>` and
   `['a', 'k' => 1]` is `array<int|string, string|int>`; maps keep `array<K,V>`.
+  A declared key may be an int or string literal or a union of those
+  (`array<'get'|'set', T>`, `array<0|1, T>`): `IsIntOrStringKeyType` accepts them
+  as `int|string` keys.
   A spread contributes its source's key type. Empty `[]` is
   `array<never, never>` (not one-arg `array<never>` → `array<int|string, never>`)
   so covariant key/value assignability accepts any `array<…>` target, including
@@ -929,7 +936,8 @@ Notable behaviors encoded in comments:
   access).
 - **`::class`**: brands as `__ClassName<R>` (or interface/enum/trait sibling)
   from the receiver type `R`, keeping generics (`self<T>::class` →
-  `__ClassName<Promise<T>>`). Erases to bare `__ClassName` then `string`.
+  `__ClassName<Promise<T>>`; a bare in-scope type parameter `T::class` →
+  `__ClassName<T>`). Erases to bare `__ClassName` then `string`.
   Name bases with type arguments (`self<T>::`) resolve via the same path as
   `new self<T>`. Parameterized `static<…>` is rejected (TYHP4168).
 - **`is Foo<…>` / `self<T>`**: emitter reifies parameterized **nominals** to
@@ -1488,7 +1496,19 @@ and PHP 8.5+ properties; TYHP4339 on `__construct`),
 `#[\Tyhp\PhpType]` (TYHP4327 / TYHP4329), and
 `#[\Tyhp\NativeTypeTest]` (TYHP4340–4344; index of `T →` function or concrete static method
 is built after the walk
-so overlay tyhpdefs that are bound but not visited still register). An object-shape alias
+so overlay tyhpdefs that are bound but not visited still register).
+
+Attribute arguments are type-checked against the attribute constructor
+(`CheckAttributeConstructorArguments`), including `#[Name<T>(...)]` type arguments.
+`nameof(...)` is a constant expression. `nameof(Type::$member)` that does not name a
+declared member is TYHP4101. A `__PropertyName<T>` parameter accepts
+`nameof(T::$prop)` and rejects a property of a different type (TYHP4010) or a missing
+name (TYHP4101). An attribute on a class or function is checked outside any class or
+callable scope, so `AttributeRule` forks the state with `NameResolutionScope` set to the
+declaring file's namespace block (`WithDeclaringFileResolution`); that is how `Name<T>`'s `T`
+and the owner in `nameof(Owner::$prop)` resolve in a namespaced file.
+
+An object-shape alias
 body (`object { … }`) is not keyed as `object`, so `$x is ClockShape` does not lower to
 `\is_object($x)`. A callable-shape alias body (`callable(…): R`) is not keyed as
 `callable`, so `$fn is Predicate<int>` does not lower to `\is_callable($fn)`.
@@ -1694,6 +1714,13 @@ prepended on the method symbol; authored parameters follow it).
 `#[\Tyhp\Optimize\Inline]` lives on `TyhpdefInlineExtensionFunctionAst`, not the
 inner method node, and is `TYHP4176` at the **declaration** (and again at a call
 site if one is walked).
+
+Finding that wrapper means searching the callee's class node and owning file
+(`SpliceAst.FindInlineExtensionWrapper`), which for a PHP built-in is a whole
+tyhpdef. `TyhpChecker.Check` opens `SpliceAst.UseInlineExtensionWrapperIndex()`,
+so each searched root is walked once into a name index (first match in walk
+order, the same result the search returns). The index is only valid while no
+AST is rewritten, so emit does not open it.
 
 Included tyhpdefs are bound into `GlobalScope` but are often absent from
 `ParsedFiles`. After the main walk, `TyhpChecker.CheckBoundTyhpdefThinMappings`
@@ -2077,6 +2104,11 @@ Called when entering function/method/object scopes in `DeclarationRule`.
   walked by `DeclarationRule`), `ValidateUserConstraint` resolves the
   parameter's constraint AST first so `TIn extends object` can satisfy
   `WeakReference<T extends object>` instead of reporting a spurious TYHP4035.
+  A `mixed` type argument whose report node is a `.tyhpdef` (`LanguageMode` or a
+  `.tyhpdef` owning file) satisfies an `extends` bound: PHPDoc `Builder<*>` is
+  emitted as `Builder<mixed>`, and that `mixed` means some type that meets the
+  bound. The same argument written in a `.tyhp` file is still checked.
+  `G<Post>` remains assignable to `G<mixed>` through `IsCovariantToMixedGenericArg`.
   A constraint referencing an earlier sibling parameter (Story 21.6's
   `TScope extends __ClosureScope<TThis>`) resolves that sibling as its own
   open `GenericTypeParameterSymbol` — `ResolveAndValidateUserTypeArguments`
@@ -2146,7 +2178,7 @@ Two mechanisms in the **current checker API** (names match code /
 
 1. **Class/enum GenericObject tracking** —
    `MarkRequiresRuntimeGenericTracking` when a class/enum body needs bound
-   class type parameters at runtime (`typeof(T)` / `default(T)` /
+   class type parameters at runtime (`typeof(T)` / `default(T)` / `T::class` /
    `instanceof T` on **class** generics). Interfaces/traits skipped; only
    decls with generic parameters.
 
@@ -2154,7 +2186,7 @@ Two mechanisms in the **current checker API** (names match code /
    `FlagGenericVariantIfNeeded` uses `CheckerHelpers.UsesGenericAtRuntime` on
    the body for **function/method** generics (including extension methods via
    `ExtensionRule`), then `MarkRequiresGenericVariant`. The scan covers
-   `typeof`/`default`/`instanceof`/`is`, type arguments on `new Foo<T>` /
+   `typeof`/`default`/`T::class`/`instanceof`/`is`, type arguments on `new Foo<T>` /
    `new self<T>`, and type arguments on calls (`decode<T>()`,
    `Type::isType<T>()`) so a wrapper can forward the bound type into another
    binder (grammar addons are not AstChildren; parameterized `new static<…>` is

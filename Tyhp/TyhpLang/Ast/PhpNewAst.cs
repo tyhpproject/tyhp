@@ -7,6 +7,18 @@ namespace Tyhp.TyhpLang.Ast
 {
     public class PhpNewAst : Base2Ast, IExpression, IDereferenceableBase
     {
+        private const short IS_LAZY_FLAG = -1;
+
+        /// <summary>
+        /// True for <c>lazy new Class(args)</c>. Arguments are still evaluated at the expression.
+        /// Anonymous classes and dynamic <c>new</c> do not set this.
+        /// </summary>
+        public bool IsLazy
+        {
+            get => HasFlag(IS_LAZY_FLAG);
+            internal set => SetFlag(IS_LAZY_FLAG, value);
+        }
+
         public IClassNameReference? ClassName => Children.ElementAtOrDefault(0) as IClassNameReference;
         public PhpArgumentListAst? Arguments => Children.ElementAtOrDefault(1) as PhpArgumentListAst;
         public PhpObjectTypeDeclAst? AnonymousClass => Children.ElementAtOrDefault(2) as PhpObjectTypeDeclAst;

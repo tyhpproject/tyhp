@@ -32,6 +32,12 @@ namespace Tyhp.TyhpLang.Checker
         private readonly Dictionary<PhpCallAst, IBaseSymbol> _genericCallTargets = new();
 
         /// <summary>
+        /// TYHP4403 candidates whose answer depends on runtime generic tracking, which is only
+        /// complete after the walk. Keyed by the <c>lazy new</c> node so a re-check reports once.
+        /// </summary>
+        private readonly Dictionary<IBase2Ast, (ObjectDeclarationSymbol Target, Diagnostic Warning)> _pendingLazyNewWarnings = new();
+
+        /// <summary>
         /// Every method declaration seen, with the type that declares it, so the generic-variant flag
         /// can be propagated down inheritance chains once all bodies have been visited.
         /// </summary>
@@ -233,6 +239,8 @@ namespace Tyhp.TyhpLang.Checker
 
         public void Check(IEnumerable<SrcFileAst> astTrees)
         {
+            using var wrapperIndex = SpliceAst.UseInlineExtensionWrapperIndex();
+
             if (_options.PhpVersionWasDefaulted)
             {
                 _diagnostics.AddWarning(
@@ -272,6 +280,7 @@ namespace Tyhp.TyhpLang.Checker
                 ?.FlushRemainingImports(_diagnostics);
 
             PropagateGenericVariantAcrossHierarchies();
+            FlushPendingLazyNewWarnings();
 
             _nativeTypeTests = NativeTypeTestAttributeSupport.IndexAndValidate(
                 _globalScope, _ruleContext, _diagnostics);
@@ -728,6 +737,34 @@ namespace Tyhp.TyhpLang.Checker
 
         internal void RecordNarrowedType(IBase2Ast node, ICheckedType narrowedType) =>
             _narrowedTypes[node] = narrowedType;
+
+        /// <summary>
+        /// Queues TYHP4403 for a <c>lazy new</c> whose target declares no stored property. A tracked
+        /// generic class (or one extending it) carries the injected generic bag, so the warning is
+        /// only reported after the walk, once tracking is known.
+        /// </summary>
+        internal void DeferLazyNewNoStateWarning(
+            IBase2Ast node,
+            ObjectDeclarationSymbol target,
+            Diagnostic warning) =>
+            _pendingLazyNewWarnings[node] = (target, warning);
+
+        /// <summary>True when <paramref name="objectDecl"/> was flagged for runtime generic tracking.</summary>
+        internal bool IsRuntimeGenericTracked(ObjectDeclarationSymbol objectDecl) =>
+            _requiresRuntimeGenericTracking.Contains(objectDecl);
+
+        private void FlushPendingLazyNewWarnings()
+        {
+            foreach (var (target, warning) in _pendingLazyNewWarnings.Values)
+            {
+                if (!LazyNewSupport.InheritsGenericBag(target, _symbolTree, _globalScope, IsRuntimeGenericTracked))
+                {
+                    _diagnostics.Add(warning);
+                }
+            }
+
+            _pendingLazyNewWarnings.Clear();
+        }
 
         /// <summary>
         /// Marks a class/enum as requiring <c>\Tyhp\Concerns\GenericObject</c> emission.

@@ -4,6 +4,29 @@ Notable changes to the Tyhp compiler, CLI, and language server. The format follo
 
 ## [Unreleased]
 
+### Added
+
+- `lazy new Class(args)` and `lazy new Class<T>(args)` defer the constructor when `output.phpVersion` is 8.4 or newer and the class has a stored instance property. A generic class that Tyhp tracks at runtime also stores its type-argument bag, so it stays lazy, and its constructor still sees the type arguments. Arguments run immediately, in order, in the surrounding scope (locals, `$this`, `static`). On older targets, and when the class has no stored instance property, PHP would skip the constructor entirely, so the constructor runs immediately as an ordinary `new` (TYHP4403). An internal class other than `\stdClass`, a class that extends one, and a type that is not a class are TYHP4402. `lazy` is an identifier except immediately before `new`.
+
+### Changed
+
+- `nameof(...)` is a constant expression, so it can be an attribute argument. Attribute arguments are checked against the constructor, including `#[Name<T>(...)]`. `nameof(Type::$prop)` has type `__PropertyName<Type>` and is rejected when that member is not declared (TYHP4101) or belongs to a different type (TYHP4010); a string literal satisfies a `__PropertyName<Type>` parameter only when it names a property of `Type` (TYHP4101). A lambda in an attribute is still TYHP4090. `T::class` on a generic parameter is `__ClassName<T>` and emits that parameter's class name.
+- `using`, `using await`, and a `:=` local disposed from `try`/`finally` call `dispose()` or `disposeAsync()` only when the value is not an uninitialized lazy object, so it is not initialized just to be disposed. The emitted guard calls `ReflectionClass::isUninitializedLazyObject` (behind `\PHP_VERSION_ID >= 80400` when `output.phpVersion` is below 8.4) and needs no package beyond the disposable contracts.
+- Emit and checking are much faster in projects that load large tyhpdef packages. A PHP 8.5 build of `tyhp/rhetoric` emits in about 8 seconds instead of about 150 and checks in about 4 seconds instead of about 13, with identical output and diagnostics.
+
+### Fixed
+
+- A class used as a parameter, return, or property type is no longer emitted as `array` when a struct with the same short name is declared in another namespace.
+
+- An extension method call inside an expression-tree lambda stays a method call (`$title->startsWith($prefix)` is a `MethodCallExpression`). The extension body is not substituted into the tree. `compile()` still runs that body.
+- A `mixed` type argument in a `.tyhpdef` satisfies an `extends` bound, so a signature that spells `Builder<mixed>` from a PHPDoc `Builder<*>` can be called. The same argument written in a `.tyhp` file is still checked.
+- A value passed to a parameter typed as an extern unioned with a real type (`\SortDirection|string`) is not a use of the extern when the value fits the real arm. A value that needs the extern arm still reports TYHP4307.
+- Attributes on a class or function in a namespaced file resolve the names in their arguments through that file's namespace and imports, so `#[Index<Post>([nameof(Post::$title)])] class Post {}` type-checks `Post` instead of reporting TYHP4090 or skipping the check.
+- `array<'get'|'set', T>` and `array<0|1, T>` type-check. String and int literal types, including unions of them, satisfy the array key constraint.
+- The language server's memory no longer grows to many gigabytes over a long session. It reuses parsed tyhpdef packages across analysis passes instead of reloading them on every edit. It also returns freed memory to the OS after 5 seconds of idle.
+- The language server no longer keeps every earlier analysis pass alive while you edit, which grew memory by tens of megabytes per edit and by hundreds when tyhpdef files changed. Files that were not re-parsed also no longer resolve names against symbols from a previous pass.
+- The language server watches the directory that holds `tyhp.json` and the project's sources, not the whole editor workspace. Files outside the project's `include`/`exclude` globs no longer enter analysis, and disk changes to unrelated files no longer trigger a re-check. Edits to `.tyhpdef` files and to `composer.json`/`composer.lock` reload the tyhpdef packages.
+
 ## [805.1.2-beta.4] - 2026-11-04
 
 ### Added

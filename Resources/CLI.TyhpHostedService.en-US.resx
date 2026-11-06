@@ -1809,6 +1809,22 @@ function make(): Color {
 Raise `output.phpVersion` to 8.5. `new … with` on the same class is available from PHP 8.3.</value>
     <comment>Long-form explanation for tyhp --explain TYHP4401</comment>
   </data>
+  <data name="ERROR_TYHP4402" xml:space="preserve">
+    <value>`lazy new` cannot construct `{0}`</value>
+    <comment>Checker — lazy new of an internal class, a class that extends one, or a non-class. {0} = type name</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4402" xml:space="preserve">
+    <value>A `lazy new` expression creates a lazy ghost that initializes in place and keeps its identity. Internal classes other than `\stdClass`, a class that extends an internal class other than `\stdClass`, and a struct, interface, enum, trait, or other non-class cannot be constructed that way.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4402</comment>
+  </data>
+  <data name="WARNING_TYHP4403" xml:space="preserve">
+    <value>`{0}` has no lazy-capable instance property, so `lazy new` runs the constructor immediately</value>
+    <comment>Checker — lazy new of a class PHP cannot keep lazy. {0} = class name. The expression is still valid.</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4403" xml:space="preserve">
+    <value>A lazy ghost stays uninitialized only when the class stores at least one instance property. A generic class that Tyhp tracks at runtime stores its type-argument bag, so it counts. Static properties and virtual properties do not. For a class with none, PHP returns a normal object and never calls the initializer, so Tyhp emits an ordinary `new` and the constructor runs immediately. The expression is still valid.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4403</comment>
+  </data>
   <data name="WARNING_TYHP4500" xml:space="preserve">
     <value>`{0}` is deprecated{1}</value>
     <comment>Checker deprecated usage. {1} is empty, or ": {message}" when #[\Deprecated] $message is a string literal.</comment>

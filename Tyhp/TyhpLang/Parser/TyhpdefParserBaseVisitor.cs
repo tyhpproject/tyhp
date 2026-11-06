@@ -1959,6 +1959,17 @@ public partial class TyhpdefParserBaseVisitor<Result> : AbstractParseTreeVisitor
 	/// <return>The visitor result.</return>
 	public virtual Result VisitOptionalTypeWithoutStatic([NotNull] TyhpdefParser.OptionalTypeWithoutStaticContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpLazyNew</c>
+	/// labeled alternative in <see cref="TyhpdefParser.newDereferenceable"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpLazyNew([NotNull] TyhpdefParser.TyhpLazyNewContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by the <c>newClassInstance</c>
 	/// labeled alternative in <see cref="TyhpdefParser.newDereferenceable"/>.
 	/// <para>
@@ -2002,6 +2013,17 @@ public partial class TyhpdefParserBaseVisitor<Result> : AbstractParseTreeVisitor
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitTyhpNewAnonStructInstance([NotNull] TyhpdefParser.TyhpNewAnonStructInstanceContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpLazyNewNonDereferenceable</c>
+	/// labeled alternative in <see cref="TyhpdefParser.newNonDereferenceable"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpLazyNewNonDereferenceable([NotNull] TyhpdefParser.TyhpLazyNewNonDereferenceableContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by the <c>newClassInstanceNonDereferenceable</c>
 	/// labeled alternative in <see cref="TyhpdefParser.newNonDereferenceable"/>.

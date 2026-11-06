@@ -2017,6 +2017,46 @@ namespace Tyhp.TyhpLang.Emitter
             return "\\" + trimmed;
         }
 
+        /// <summary>
+        /// <c>T::class</c> for a generic parameter is that parameter's class name, the same string
+        /// <c>Foo::class</c> produces. A binder generic reads <c>$__generic_T->getName()</c>. A class
+        /// generic reads the instance <c>NamedType</c> and uses <c>getUnderlyingType()->getName()</c>.
+        /// </summary>
+        private string? TryBuildGenericParameterClassName(PhpDereferenceableAst dereferenceable)
+        {
+            if (dereferenceable.Suffix is not PhpClassConstantAccessAst { Member: PhpNameAst member }
+                || !string.Equals(member.ValueString, "class", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var simpleName = dereferenceable.Base switch
+            {
+                TyhpGenericIdentifierAst generic => generic.ValueString?.TrimStart('\\'),
+                PhpNameAst name => name.ValueString?.TrimStart('\\'),
+                _ => null,
+            };
+            if (string.IsNullOrEmpty(simpleName) || simpleName.Contains('\\'))
+            {
+                return null;
+            }
+
+            if (this.IsVariantGenericParamName(simpleName))
+            {
+                this._context.RequirePackage("tyhp/core");
+                return $"\\ltrim({GenericVariantParamName(simpleName)}->getName() ?? '', '\\\\')";
+            }
+
+            if (this._currentObjectGenericParamNames.Contains(simpleName)
+                && this.BuildGenericTypeLookupCall(simpleName) is { } lookup)
+            {
+                this._context.RequirePackage("tyhp/core");
+                return $"\\ltrim($this->{lookup}->getUnderlyingType()->getName() ?? '', '\\\\')";
+            }
+
+            return null;
+        }
+
         private string? TryBuildNewGenericTypeParameterExpression(PhpNewAst newExpr, string args)
         {
             var simpleName = newExpr.ClassName switch
@@ -2144,6 +2184,8 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (this._context.HasForeignGenericRuntime(targetSymbol))
             {
+                // A compiled library stamps only the eager factory. `lazy new` of that class
+                // still binds through Generic::bind; this build cannot add a lazy factory to it.
                 this._context.RequirePackage("tyhp/core");
                 var classExpr = "\\" + targetSymbol.FullyQualifiedName.TrimStart('\\') + "::class";
                 var bindArgs = typeArgExpressions.Count == 0
@@ -2161,7 +2203,9 @@ namespace Tyhp.TyhpLang.Emitter
 
             var allArgs = typeArgExpressions.Concat(ctorArgs).ToList();
             var fqn = targetSymbol.FullyQualifiedName;
-            var factory = GeneratedNames.GenericFactory(fqn);
+            var factory = this.ShouldEmitLazyGhost(newExpr, targetSymbol)
+                ? GeneratedNames.GenericLazyFactory(fqn)
+                : GeneratedNames.GenericFactory(fqn);
             return $"\\{fqn.TrimStart('\\')}::{factory}({JoinPhpCommaList(allArgs)})";
         }
 

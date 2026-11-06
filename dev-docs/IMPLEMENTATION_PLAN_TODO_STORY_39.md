@@ -55,7 +55,9 @@ Grow the plugin platform beyond v1’s pre-binder / compile-only / expr-only sur
 
 ## IDE integration (Story 19.5)
 
-- Plugin manifest may point at a **TextMate grammar** / injection scoped to its namespace.
+- The plugin manifest (`extra.tyhp.plugin` in the plugin package's `composer.json`) may point at a **TextMate
+  grammar** / injection scoped to its namespace; the path is relative to that `composer.json`, like other manifest
+  paths.
 - `tyhp-lang` (VS Code + PhpStorm) detect `p` / `p<<<` forms, read the namespace/label, and activate the matching
   grammar for the island body (encaps `$vars` can remain Tyhp/PHP scopes). Shared grammars from Story 19.5.
 - Additional IDE surfaces (completion, hover, go-to for tables/columns) are desirable but unspecified in detail —

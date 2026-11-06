@@ -9,6 +9,7 @@
 
         public PhpNewAst VisitNewNonDereferenceable([NotNull] TyhpParser.NewNonDereferenceableContext context)
             => context switch {
+                TyhpParser.TyhpLazyNewNonDereferenceableContext tyhpLazyNewNonDereferenceableContext => this.VisitTyhpLazyNewNonDereferenceable(tyhpLazyNewNonDereferenceableContext),
                 TyhpParser.NewClassInstanceNonDereferenceableContext newClassInstanceNonDereferenceableContext => this.VisitNewClassInstanceNonDereferenceable(newClassInstanceNonDereferenceableContext),
                 TyhpParser.NewNonDereferenceableGrammarAddonHandlerContext newNonDereferenceableGrammarAddonHandlerContext => this.VisitNewNonDereferenceableGrammarAddonHandler(newNonDereferenceableGrammarAddonHandlerContext),
                 _ => this.VisitNewNonDereferenceableAlt(context),
@@ -28,6 +29,18 @@
                 null,
                 context
             );
+
+
+        public override PhpNewAst VisitTyhpLazyNewNonDereferenceable([NotNull] TyhpParser.TyhpLazyNewNonDereferenceableContext context)
+        {
+            var created = PhpNewAst.Create(
+                this.VisitClassNameReference(context.Identifier),
+                null,
+                context
+            );
+            created.IsLazy = true;
+            return created;
+        }
 
 
         public override PhpNewAst VisitNewNonDereferenceableGrammarAddonHandler([NotNull] TyhpParser.NewNonDereferenceableGrammarAddonHandlerContext context)

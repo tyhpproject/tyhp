@@ -64,6 +64,16 @@ namespace Tyhp.TyhpLang
             "new_" + MangleFullyQualifiedName(fullyQualifiedName) + GenericVariantSuffix;
 
         /// <summary>
+        /// Lazy-ghost factory for <c>lazy new</c> of a Mechanism C class, named
+        /// <c>new_&lt;MangledFqn&gt;__tyhpLazy</c>. Emitted only when every version at or above
+        /// <c>output.phpVersion</c> is at least 8.4 and the class has a lazy-capable instance
+        /// property. The <see cref="GenericFactory"/> name stays the eager factory and is the one
+        /// stamped on <c>#[\Tyhp\GenericRuntime]</c>.
+        /// </summary>
+        public static string GenericLazyFactory(string fullyQualifiedName) =>
+            "new_" + MangleFullyQualifiedName(fullyQualifiedName) + "__tyhpLazy";
+
+        /// <summary>
         /// Flattens a namespace-qualified name into a single PHP identifier segment.
         /// </summary>
         public static string MangleFullyQualifiedName(string? fullyQualifiedName) =>

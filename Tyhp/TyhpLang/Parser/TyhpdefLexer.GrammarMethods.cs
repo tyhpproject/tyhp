@@ -7,6 +7,14 @@ namespace Tyhp.TyhpLang.Parser {
 
     public partial class TyhpdefLexer : Lexer {
         protected string _languageMode = "";
+
+        /// <summary>
+        /// <c>&lt;?=</c> in a <c>.tyhp</c> file is a Tyhp echo. The shared open-tag
+        /// rule assigns <c>phpEcho</c>; this flag replaces that with <c>tyhp</c> so
+        /// Tyhp keywords are active inside the echo. <c>.php</c> files leave it false.
+        /// </summary>
+        private bool _echoInTyhp;
+
         protected bool _taglessMode = false;
         protected string _taglessLanguageMode = "";
         protected DiagnosticBag? _taglessDiagnostics;
@@ -103,6 +111,14 @@ namespace Tyhp.TyhpLang.Parser {
             return nextToken?.Type;
         }
 
+        /// <summary>
+        /// <c>&lt;?=</c> lexes as Tyhp when <paramref name="enabled"/> is true.
+        /// </summary>
+        public void ConfigureEchoInTyhp(bool enabled)
+        {
+            this._echoInTyhp = enabled;
+        }
+
         public void ConfigureTagless(
             bool enabled,
             string languageMode,
@@ -110,6 +126,7 @@ namespace Tyhp.TyhpLang.Parser {
             string? fileName = null
         )
         {
+            this.ConfigureEchoInTyhp(IsTyhpSourceFile(fileName));
             this._taglessMode = enabled;
             this._taglessLanguageMode = languageMode ?? "";
             this._taglessDiagnostics = diagnostics;
@@ -793,9 +810,28 @@ namespace Tyhp.TyhpLang.Parser {
             return c is ' ' or '\t' or '\n' or '\r';
         }
 
+        private static bool IsTyhpSourceFile(string? fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+            {
+                return false;
+            }
+
+            return fileName.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase)
+                && !fileName.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase);
+        }
+
         private IToken LexBaseToken()
         {
             IToken token = base.NextToken();
+            // The shared rule assigns phpEcho. A `.tyhp` file reassigns tyhp before
+            // the echo expression is lexed, so `is` / `typeof` / `with` / `nameof`
+            // reclassify. A `.php` file keeps phpEcho.
+            if (this._echoInTyhp && token.Type == TyhpdefLexer.T_OPEN_TAG_WITH_ECHO)
+            {
+                this._languageMode = "tyhp";
+            }
+
             // `${expr}` enters scripting on that expression's first token
             // (`ST_LOOKING_FOR_VARNAME`'s `more` + pushMode), so the mode changes
             // while the token is lexed. It is still a scripting-mode identifier.
@@ -862,6 +898,14 @@ namespace Tyhp.TyhpLang.Parser {
             if (tyhp && EqualsKeyword(text, "with"))
             {
                 token.Type = TyhpdefLexer.T_TYHP_WITH;
+                return;
+            }
+
+            // `lazy` stays an identifier except immediately before `new`.
+            if (tyhp && EqualsKeyword(text, "lazy")
+                && this.PeekNextDefaultChannelTokenType() == TyhpdefLexer.T_NEW)
+            {
+                token.Type = TyhpdefLexer.T_TYHP_LAZY;
                 return;
             }
 

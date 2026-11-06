@@ -795,6 +795,20 @@ public class GenericVariantEmitterTests
     }
 
     [Fact]
+    public void Emit_TypeParameterClassConstant_ReadsTheBoundClassName()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            function id<T>(): string {
+                return T::class;
+            }
+            """);
+
+        php.Should().Contain("\\ltrim($__generic_T->getName() ?? '', '\\\\')");
+        php.Should().NotContain("T::class");
+    }
+
+    [Fact]
     public void Emit_ExtensionMethodUsingOwnGeneric_EmitsVariant()
     {
         var php = CompileAndEmit("""

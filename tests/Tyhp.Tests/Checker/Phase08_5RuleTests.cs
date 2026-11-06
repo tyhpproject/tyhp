@@ -1014,6 +1014,32 @@ public class Phase08_5RuleTests
     }
 
     [Fact]
+    public void Check_TypeParameterColonClass_BrandsThatParameter()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function id<T>(): __ClassName<T> {
+                return T::class;
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_TypeParameterColonClass_IsNotAssignableToAnotherParameter()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function id<T, U>(): __ClassName<U> {
+                return T::class;
+            }
+            """);
+
+        diagnostics.Errors.Should().ContainSingle(d => d.Code == MessageCode.CheckerIncompatibleReturnType);
+    }
+
+    [Fact]
     public void StructUtilityTypes_AreRegisteredInGlobalScope()
     {
         using var compilationService = new CompilationService();

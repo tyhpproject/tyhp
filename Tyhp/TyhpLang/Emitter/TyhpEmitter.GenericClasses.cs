@@ -570,6 +570,84 @@ namespace Tyhp.TyhpLang.Emitter
             lines.Add("return $__tyhp_obj;");
 
             EmitItem.MultiLine(objectDecl, EmitType.FunctionStatement, lines, block);
+
+            // The eager factory above is unchanged. A second method exists on every 8.4+ build: a
+            // class that records generics always stores the injected `$__tyhpGeneric` bag, so its
+            // ghost stays lazy whether or not the author declared a property. The ghost initializer
+            // binds this level's type arguments and then runs the constructor, from class scope so
+            // the protected hook is visible.
+            if (this._context.IsPhpVersionAtLeast(8, 4))
+            {
+                this.EmitGenericLazyFactory(
+                    objectDecl,
+                    classBlock,
+                    signatureParams,
+                    initArgs,
+                    authorArgs,
+                    readonlyBag,
+                    reflected,
+                    ctor?.Parameters);
+            }
+        }
+
+        /// <summary>
+        /// <c>new_&lt;Mangled&gt;__tyhpLazy</c>. Same signature as the eager factory. The closure
+        /// calls this level's init hook (own type arguments only; the hook chains to the parent)
+        /// before <c>__construct</c>. A readonly class caches reflection in its own function static
+        /// and the hook still boots the generic bag. The shared static field, when the class can
+        /// declare one, is the field the eager factory already emitted.
+        /// </summary>
+        private void EmitGenericLazyFactory(
+            PhpObjectTypeDeclAst objectDecl,
+            EmitItem classBlock,
+            string signatureParams,
+            string initArgs,
+            string authorArgs,
+            bool readonlyBag,
+            string reflected,
+            PhpParameterListAst? constructorParameters)
+        {
+            var useNames = new List<string>();
+            if (!string.IsNullOrEmpty(initArgs))
+            {
+                useNames.AddRange(
+                    initArgs.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+            }
+
+            if (constructorParameters is not null)
+            {
+                foreach (var parameter in constructorParameters.GetAllNotNull())
+                {
+                    useNames.Add(EnsureLeadingDollar(parameter.Name));
+                }
+            }
+
+            var useClause = useNames.Count == 0
+                ? ""
+                : " use (" + string.Join(", ", useNames) + ")";
+            var factoryName = GeneratedNames.GenericLazyFactory(this._currentObjectFqn!);
+            var block = EmitItem.BlockBraceNextLine(
+                objectDecl,
+                EmitType.ObjectStaticMethods,
+                $"final public static function {factoryName}({signatureParams}): self",
+                "}",
+                classBlock);
+
+            var reflectCache = readonlyBag ? reflected : "self::" + reflected;
+            var lines = new List<string>();
+            if (readonlyBag)
+            {
+                lines.Add($"static {reflected} = null;");
+            }
+
+            lines.Add($"{reflectCache} ??= new \\ReflectionClass(self::class);");
+            lines.Add($"return {reflectCache}->newLazyGhost(");
+            lines.Add($"    function (self $__tyhp_obj){useClause}: void {{");
+            lines.Add($"        $__tyhp_obj->{GeneratedNames.GenericInitHook}({initArgs});");
+            lines.Add($"        $__tyhp_obj->__construct({authorArgs});");
+            lines.Add("    }");
+            lines.Add(");");
+            EmitItem.MultiLine(objectDecl, EmitType.FunctionStatement, lines, block);
         }
 
         private static bool IsAbstractObjectDeclaration(PhpObjectTypeDeclAst objectDecl) =>

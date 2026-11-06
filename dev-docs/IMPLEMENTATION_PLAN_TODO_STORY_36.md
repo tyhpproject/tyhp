@@ -6,6 +6,9 @@
 > **Conventions:** Diagnostic codes, config keys, and canonical paths are governed by `CONVENTIONS.md`; new
 > `tyhp.json` keys proposed here are provisional and must be registered in `CONVENTIONS.md` §4 when the story is
 > scheduled. See `ROADMAP.md` for the full tiered sequence.
+> **Pre-stable constraint (Story 29.1 Part E):** `.tyhp` overload sets keep first-match declaration order;
+> specificity scoring applies only to tyhpdef overloads and `contains` arms, so desugaring never changes which
+> signature an existing call selects.
 
 > **Documentation requirement.** When scheduled, this story must carry a user documentation & AIDevGuide
 > phase: the `tyhp-docs-src/content/` pages that describe the shipped surface, plus the affected

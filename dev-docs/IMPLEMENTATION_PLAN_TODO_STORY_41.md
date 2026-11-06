@@ -1,6 +1,8 @@
 # Implementation Plan: Story 41 — Trait-Requirement Abstract Members
 
-> **Roadmap position:** Story 41 — **Tier 4 — Future plans**
+> **Roadmap position:** Story 41 — **Tier 3 — Advanced**, after Story 32 and before Story 23 (moved from Tier 4 on
+> 2026-11-04: shipping it after the first stable release would change the emitted PHP that plain-PHP consumers of
+> published packages compile against).
 > **Direct dependencies (new numbering):** 08, 09, 11
 > **New story:** split from Story 31 Idea 12 on 2026-11-03. No legacy number.
 > **Conventions:** Diagnostic codes, config keys, and canonical paths are governed by `CONVENTIONS.md`; new
