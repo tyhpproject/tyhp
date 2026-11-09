@@ -23,6 +23,244 @@ public class CallableShapeAssignabilityTests
     }
 
     [Fact]
+    public void InlineFunction_ExplicitReturnIncompatibleWithCallableReturn_Reports4010()
+    {
+        var arrow = Check("""
+            <?tyhp
+            function take(callable(\stdClass): void $cb): void {}
+            function demo(): void {
+                take(fn (\stdClass $object): string => "no");
+            }
+            """);
+
+        arrow.Should().Contain(
+            d => d.Code == MessageCode.CheckerIncompatibleArgumentType
+                && d.Message.Contains("void", StringComparison.Ordinal),
+            Describe(arrow));
+        arrow.Should().NotContain(
+            d => d.Code == MessageCode.CheckerIncompatibleReturnType,
+            Describe(arrow));
+
+        var block = Check("""
+            <?tyhp
+            function take(callable(\stdClass): void $cb): void {}
+            function demo(): void {
+                take(function (\stdClass $object): string { return "no"; });
+            }
+            """);
+
+        block.Should().Contain(
+            d => d.Code == MessageCode.CheckerIncompatibleArgumentType,
+            Describe(block));
+        block.Should().NotContain(
+            d => d.Code == MessageCode.CheckerIncompatibleReturnType,
+            Describe(block));
+    }
+
+    [Fact]
+    public void InlineFunction_ExplicitReturnCompatibleWithCallableReturn_IsAccepted()
+    {
+        var exact = Check("""
+            <?tyhp
+            function take(callable(\stdClass): string $cb): void {}
+            function demo(): void {
+                take(fn (\stdClass $object): string => "ok");
+                take(function (\stdClass $object): string { return "ok"; });
+            }
+            """);
+
+        exact.Should().BeEmpty(Describe(exact));
+
+        var covariant = Check("""
+            <?tyhp
+            function take(callable(): int|string $cb): void {}
+            function demo(): void {
+                take(fn (): int => 1);
+            }
+            """);
+
+        covariant.Should().BeEmpty(Describe(covariant));
+
+        var voidReturn = Check("""
+            <?tyhp
+            function take(callable(\stdClass): void $cb): void {}
+            function demo(): void {
+                take(function (\stdClass $object): void {});
+            }
+            """);
+
+        voidReturn.Should().BeEmpty(Describe(voidReturn));
+    }
+
+    [Fact]
+    public void InlineFunction_ExplicitReturnUnrelatedNeverOrNullable_Reports4010()
+    {
+        var unrelated = Check("""
+            <?tyhp
+            class A {}
+            class B {}
+            function take(callable(): A $cb): void {}
+            function demo(): void {
+                take(fn (): B => new B());
+            }
+            """);
+        unrelated.Should().ContainSingle(
+            d => d.Code == MessageCode.CheckerIncompatibleArgumentType, Describe(unrelated));
+
+        var never = Check("""
+            <?tyhp
+            function take(callable(): never $cb): void {}
+            function demo(): void {
+                take(fn (): int => 1);
+            }
+            """);
+        never.Should().ContainSingle(
+            d => d.Code == MessageCode.CheckerIncompatibleArgumentType, Describe(never));
+
+        var nullable = Check("""
+            <?tyhp
+            function take(callable(): string $cb): void {}
+            function demo(): void {
+                take(fn (): ?string => "a");
+            }
+            """);
+        nullable.Should().ContainSingle(
+            d => d.Code == MessageCode.CheckerIncompatibleArgumentType, Describe(nullable));
+    }
+
+    [Fact]
+    public void InlineFunction_ExplicitReturnSubtypeOrNullableTarget_IsAccepted()
+    {
+        var errors = Check("""
+            <?tyhp
+            class A {}
+            class B extends A {}
+            function takeA(callable(): A $cb): void {}
+            function takeNullable(callable(): ?string $cb): void {}
+            function takeNever(callable(): void $cb): void {}
+            function demo(): void {
+                takeA(fn (): B => new B());
+                takeNullable(fn (): string => "a");
+                takeNever(function (): never { throw new \Exception(); });
+            }
+            """);
+
+        errors.Should().BeEmpty(Describe(errors));
+    }
+
+    [Fact]
+    public void InlineFunction_ExplicitReturnWithFewerParametersThanCallable_Reports4010()
+    {
+        var mismatch = Check("""
+            <?tyhp
+            function take(callable(int, int): int $cb): void {}
+            function demo(): void {
+                take(fn (int $a): string => "x");
+            }
+            """);
+        mismatch.Should().ContainSingle(
+            d => d.Code == MessageCode.CheckerIncompatibleArgumentType, Describe(mismatch));
+
+        var match = Check("""
+            <?tyhp
+            function take(callable(int, int): int $cb): void {}
+            function demo(): void {
+                take(fn (int $a): int => 1);
+            }
+            """);
+        match.Should().BeEmpty(Describe(match));
+    }
+
+    [Fact]
+    public void InlineFunction_OmittedReturn_ReportsBodyAs4009Only()
+    {
+        var errors = Check("""
+            <?tyhp
+            function take(callable(): void $cb): void {}
+            function demo(): void {
+                take(fn () => "x");
+            }
+            """);
+
+        errors.Should().ContainSingle(
+            d => d.Code == MessageCode.CheckerIncompatibleReturnType, Describe(errors));
+        errors.Should().NotContain(
+            d => d.Code == MessageCode.CheckerIncompatibleArgumentType, Describe(errors));
+    }
+
+    [Fact]
+    public void InlineFunction_AsyncExplicitReturnIsComparedAsPayload()
+    {
+        var accepted = Check("""
+            <?tyhp
+            class User {}
+            function take(callable(): User $cb): void {}
+            function demo(): void {
+                take(async function (): User { return new User(); });
+                take(async fn (): User => new User());
+            }
+            """);
+        accepted.Should().BeEmpty(Describe(accepted));
+
+        var rejected = Check("""
+            <?tyhp
+            class User {}
+            function take(callable(): User $cb): void {}
+            function demo(): void {
+                take(async function (): string { return "x"; });
+            }
+            """);
+        rejected.Should().ContainSingle(
+            d => d.Code == MessageCode.CheckerIncompatibleArgumentType, Describe(rejected));
+    }
+
+    [Fact]
+    public void InlineFunction_ExplicitReturnAtMethodConstructorAndGenericCalls_IsChecked()
+    {
+        var errors = Check("""
+            <?tyhp
+            class K {
+                public function __construct(callable(): int $cb) {}
+                public static function make(callable(): int $cb): void {}
+                public function run(callable(): int $cb): void {}
+            }
+            function pick<T>(callable(): T $cb): T { return $cb(); }
+            function demo(K $k): void {
+                new K(fn (): string => "x");
+                K::make(fn (): string => "x");
+                $k->run(fn (): string => "x");
+                new K(fn (): int => 1);
+                K::make(fn (): int => 1);
+                $k->run(fn (): int => 1);
+                $s = pick(fn (): string => "x");
+            }
+            """);
+
+        errors.Count(d => d.Code == MessageCode.CheckerIncompatibleArgumentType)
+            .Should().Be(3, Describe(errors));
+        errors.Count.Should().Be(3, Describe(errors));
+    }
+
+    [Fact]
+    public void InlineFunction_MismatchedParameter_StillReportsTypeMismatch()
+    {
+        var errors = Check("""
+            <?tyhp
+            function take(callable(\stdClass): void $cb): void {}
+            function demo(): void {
+                take(function (int $n): void {});
+            }
+            """);
+
+        errors.Should().Contain(
+            d => d.Code == MessageCode.CheckerTypeMismatch,
+            Describe(errors));
+        errors.Should().NotContain(
+            d => d.Code == MessageCode.CheckerIncompatibleArgumentType,
+            Describe(errors));
+    }
+
+    [Fact]
     public void MatchingFunctionFnFccAndInvoke_AssignToShape()
     {
         var errors = Check("""

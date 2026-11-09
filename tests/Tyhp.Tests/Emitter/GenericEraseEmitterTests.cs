@@ -257,6 +257,56 @@ public class GenericEraseEmitterTests
     }
 
     [Fact]
+    public void Emit_UnsupportedCallableLayout_Reports5023()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var tyhpPath = Path.Combine(tempDir, "main.tyhp");
+        var defPath = Path.Combine(tempDir, "lib.tyhpdef");
+        File.WriteAllText(tyhpPath, """
+            <?tyhp
+            function run(string $json): mixed {
+                return \Vendor\decode<int>($json);
+            }
+            """);
+        File.WriteAllText(defPath, """
+            <?tyhpdef
+            namespace Vendor;
+            #[\Tyhp\GenericRuntime(erased: false, binder: "decode", layouts: [3], compiler: "future")]
+            function decode<T>(string $json): T;
+            """);
+
+        try
+        {
+            using var compilationService = new CompilationService();
+            var result = compilationService.ParseFiles(
+                [tyhpPath, defPath],
+                IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["output:phpVersion"] = "8.4",
+                })
+                .Build();
+            var project = new Project(configuration);
+            var context = EmitContext.Create(
+                result.GlobalScope,
+                result.Diagnostics,
+                project,
+                result.RequiresRuntimeGenericTracking,
+                requiresGenericVariant: result.RequiresGenericVariant,
+                genericCallTargets: result.GenericCallTargets);
+            new TyhpEmitter(context).Emit(result.ParsedFiles!);
+            result.Diagnostics.Errors.Should().Contain(d =>
+                d.Code == MessageCode.EmitterGenericRuntimeLayoutUnsupported);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
     public void Emit_UnsupportedLayouts_Reports5023()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));

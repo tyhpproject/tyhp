@@ -185,6 +185,28 @@ namespace Tyhp.TyhpLang.Emitter
                         continue;
                     }
 
+                    if (!isInterface
+                        && member is PhpMethodDeclAst versionedMethod
+                        && this.TryGetPhpVersionSplitGroup(versionedMethod, members, out var splitGroup))
+                    {
+                        var representative = PhpVersionSplitRepresentative(splitGroup);
+                        if (!ReferenceEquals(versionedMethod, representative))
+                        {
+                            continue;
+                        }
+
+                        // A static method and an instance method cannot share one PHP method.
+                        // The floor-matching one emits on its own; the other stays in the tyhpdef.
+                        if (representative.BoundSymbol is ObjectMethodSymbol { IsPhpVersionRuntimeOnly: true }
+                            && HasRegisteredMethodWithSameName(members, versionedMethod))
+                        {
+                            continue;
+                        }
+
+                        this.EmitClassMember(versionedMethod, block, isInterface, splitGroup);
+                        continue;
+                    }
+
                     this.EmitClassMember(member, block, isInterface);
                 }
 
@@ -193,6 +215,7 @@ namespace Tyhp.TyhpLang.Emitter
                 this.EmitGenericInitHook(objectDecl, block);
                 this.EmitPropertyHookInitHook(objectDecl, block);
                 this.EmitGenericFactoryIfNeeded(objectDecl, block);
+                this.EmitGenericClassBindersIfNeeded(objectDecl, block);
 
                 // Collapsed static operator methods (one per operator) + convert to/from methods,
                 // emitted after all class members are collected.
@@ -323,6 +346,7 @@ namespace Tyhp.TyhpLang.Emitter
                 var signature = "public static function " + this.BuildFunctionSignature(function);
                 var methodBlock2 = EmitItem.BlockBraceNextLine(function, EmitType.ObjectStaticMethods, signature, "}", parent);
                 this.AttachAttributes(function, methodBlock2);
+                this.EmitClosureTreePrologue(function.Parameters, function, methodBlock2);
                 this.EmitFunctionBody(function.Body, methodBlock2);
             }
             finally
@@ -395,6 +419,7 @@ namespace Tyhp.TyhpLang.Emitter
                 functionDecl,
                 EmitItem.BlockBraceNextLine(functionDecl, EmitType.RootStatement, signature, "}", parent));
             this.AttachAttributes(functionDecl, block);
+            this.EmitClosureTreePrologue(functionDecl.Parameters, functionDecl, block);
             this.EmitFunctionBody(functionDecl.Body, block);
             return block;
         }
@@ -642,7 +667,11 @@ namespace Tyhp.TyhpLang.Emitter
                 || body is PhpNopStatementAst
                 || (body is PhpStatementBlockAst block && !block.GetAllNotNull().Any());
 
-        private EmitItem EmitClassMember(IClassMember member, EmitItem parent, bool isInterface = false)
+        private EmitItem EmitClassMember(
+            IClassMember member,
+            EmitItem parent,
+            bool isInterface = false,
+            IReadOnlyList<PhpMethodDeclAst>? phpVersionSplitBodies = null)
         {
             if (member is IBase2Ast gated && !ShouldEmitPhpVersionGatedDeclaration(gated))
             {
@@ -651,7 +680,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             return member switch
             {
-                PhpMethodDeclAst method => this.EmitMethodDeclaration(method, parent, isInterface),
+                PhpMethodDeclAst method => this.EmitMethodDeclaration(method, parent, isInterface, phpVersionSplitBodies),
                 PhpPropertyDeclAst property => this.EmitPropertyDeclaration(property, parent),
                 PhpTraitUseAst traitUse => this.EmitTraitUse(traitUse, parent),
                 PhpEnumCaseAst enumCase => this.EmitEnumCase(enumCase, parent),
@@ -663,15 +692,21 @@ namespace Tyhp.TyhpLang.Emitter
             };
         }
 
-        private EmitItem EmitMethodDeclaration(PhpMethodDeclAst method, EmitItem parent, bool isInterface = false)
+        private EmitItem EmitMethodDeclaration(
+            PhpMethodDeclAst method,
+            EmitItem parent,
+            bool isInterface = false,
+            IReadOnlyList<PhpMethodDeclAst>? phpVersionSplitBodies = null)
         {
             var previousIsStatic = this._currentMemberIsStatic;
             var previousCallableGenerics = this._currentCallableGenericParamNames.ToHashSet(StringComparer.Ordinal);
             var previousArrayAccessMixed = this._emitNativeArrayAccessOffsetAsMixed;
             var previousEmittingCallable = this._currentEmittingCallable;
+            var previousSplitBodies = this._currentPhpVersionSplitBodies;
             this._currentMemberIsStatic = method.Modifiers?.Modifiers.Contains(PhpModifier.Static) == true;
             this._emitNativeArrayAccessOffsetAsMixed = this.IsNativeArrayAccessOffsetMethod(method);
             this._currentEmittingCallable = method.BoundSymbol as IBaseSymbol;
+            this._currentPhpVersionSplitBodies = phpVersionSplitBodies;
             this.PushCallableGenericParamNames(method.BoundSymbol as ObjectMethodSymbol);
             try
             {
@@ -679,6 +714,7 @@ namespace Tyhp.TyhpLang.Emitter
             }
             finally
             {
+                this._currentPhpVersionSplitBodies = previousSplitBodies;
                 this._currentMemberIsStatic = previousIsStatic;
                 this._emitNativeArrayAccessOffsetAsMixed = previousArrayAccessMixed;
                 this._currentEmittingCallable = previousEmittingCallable;
@@ -690,7 +726,10 @@ namespace Tyhp.TyhpLang.Emitter
             }
         }
 
-        private EmitItem EmitMethodDeclarationCore(PhpMethodDeclAst method, EmitItem parent, bool isInterface)
+        private EmitItem EmitMethodDeclarationCore(
+            PhpMethodDeclAst method,
+            EmitItem parent,
+            bool isInterface)
         {
             var isAbstractDecl = method.Modifiers?.Modifiers.Contains(PhpModifier.Abstract) == true;
             var variantGenerics = this.ResolveVariantGenericParams(method);
@@ -772,7 +811,7 @@ namespace Tyhp.TyhpLang.Emitter
             try
             {
                 this._currentMethodGenericReturnCheck = this.ResolveMethodGenericReturnCheck(method, isConstructor);
-                this.EmitFunctionBody(method.Body, block);
+                this.EmitMethodBody(method, block);
             }
             finally
             {
@@ -939,7 +978,18 @@ namespace Tyhp.TyhpLang.Emitter
             var refPrefix = hook.ReturnsRef ? "&" : "";
             // get must not have a parameter list; set may omit params (implicit $value) or declare them.
             // Empty `()` is illegal for both, so only emit parentheses when there are real parameters.
-            var paramsText = this.FormatParameterList(hook.Parameters);
+            var previousSuppress = this._suppressClosureTreeHint;
+            this._suppressClosureTreeHint = true;
+            string paramsText;
+            try
+            {
+                paramsText = this.FormatParameterList(hook.Parameters);
+            }
+            finally
+            {
+                this._suppressClosureTreeHint = previousSuppress;
+            }
+
             var paramsSuffix = string.IsNullOrEmpty(paramsText) ? "" : $"({paramsText})";
             // Null body = abstract/interface hook (`get;`), matching VisitPropertyHookBody's
             // T_SYM_SEMICOLON → null (same as abstract methods). Do not emit `{}`.
@@ -1121,18 +1171,28 @@ namespace Tyhp.TyhpLang.Emitter
             useParts.AddRange(this.BuildVariantCaptureNames());
             var useClause = useParts.Count > 0 ? " use (" + string.Join(", ", useParts) + ")" : "";
             var innerReturn = this.SpellAsyncInnerReturnPhpType(function.ReturnType, function, inheritedHint: null);
+            var launch = this.AsyncLaunchPrefix(function.ReturnType);
             if (IsEmptyPhpStatementBlock(function.Body))
             {
+                if (this.HasClosureTreePrologue(function.Parameters))
+                {
+                    var emptyOpen = $"return {launch}(function (){useClause}{innerReturn} {{";
+                    var emptyBlock = EmitItem.Block(function, EmitType.FunctionStatement, emptyOpen, "});", parent);
+                    this.EmitClosureTreePrologue(function.Parameters, function, emptyBlock);
+                    return;
+                }
+
                 EmitItem.Line(
                     function,
                     EmitType.FunctionStatement,
-                    $"return \\Tyhp\\Promise::_async(function (){useClause}{innerReturn} {{}});",
+                    $"return {launch}(function (){useClause}{innerReturn} {{}});",
                     parent);
                 return;
             }
 
-            var open = $"return \\Tyhp\\Promise::_async(function (){useClause}{innerReturn} {{";
+            var open = $"return {launch}(function (){useClause}{innerReturn} {{";
             var block = EmitItem.Block(function, EmitType.FunctionStatement, open, "});", parent);
+            this.EmitClosureTreePrologue(function.Parameters, function, block);
             this.EmitFunctionBody(function.Body, block);
         }
 
@@ -1161,20 +1221,122 @@ namespace Tyhp.TyhpLang.Emitter
                         method.ReturnType,
                         method,
                         this.FindInheritedMethodPhpTypeHint(method.Identifier, parameterName: null));
-            if (IsEmptyPhpStatementBlock(method.Body))
+            var launch = this.AsyncLaunchPrefix(method.ReturnType);
+            if (this._currentPhpVersionSplitBodies is null && IsEmptyPhpStatementBlock(method.Body))
             {
+                if (this.HasClosureTreePrologue(method.Parameters))
+                {
+                    var emptyOpen = $"return {launch}(function (){useClause}{innerReturn} {{";
+                    var emptyBlock = EmitItem.Block(method, EmitType.FunctionStatement, emptyOpen, "});", parent);
+                    this.EmitClosureTreePrologue(method.Parameters, method, emptyBlock);
+                    return;
+                }
+
                 EmitItem.Line(
                     method,
                     EmitType.FunctionStatement,
-                    $"return \\Tyhp\\Promise::_async(function (){useClause}{innerReturn} {{}});",
+                    $"return {launch}(function (){useClause}{innerReturn} {{}});",
                     parent);
                 return;
             }
 
-            var open = $"return \\Tyhp\\Promise::_async(function (){useClause}{innerReturn} {{";
+            var open = $"return {launch}(function (){useClause}{innerReturn} {{";
             var block = EmitItem.Block(method, EmitType.FunctionStatement, open, "});", parent);
-            this.EmitFunctionBody(method.Body, block);
+            this.EmitMethodBody(method, block);
         }
+
+        /// <summary>
+        /// <c>\Tyhp\Promise::_async</c>, or <c>_async__tyhpGeneric($settled)</c> when the callable is a
+        /// generic variant whose settled return type names one of those parameters. The inner closure's
+        /// PHP return hint erases that parameter, so re-inferring from it would drop the bound type.
+        /// </summary>
+        private string AsyncLaunchPrefix(ITypeExpression? returnType)
+        {
+            var settled = this.TryVariantAsyncSettledType(returnType);
+            return settled is null
+                ? "\\Tyhp\\Promise::_async"
+                : $"\\Tyhp\\Promise::_async__tyhpGeneric({settled})";
+        }
+
+        private string? TryVariantAsyncSettledType(ITypeExpression? returnType)
+        {
+            if (returnType is null
+                || this._currentVariantGenericParams.Count == 0
+                || !CheckerHelpers.TypeMentionsGenericParameter(returnType, this._currentVariantGenericParams))
+            {
+                return null;
+            }
+
+            if (returnType is PhpTypeExpressionAst { Types: { } members, IsNullable: false } composite
+                && composite.TypeKind != PhpTypeKind.Intersection)
+            {
+                var parts = members.GetAllNotNull().OfType<ITypeExpression>().ToList();
+                if (parts.Count >= 2 && parts.Count == members.GetAllNotNull().Count())
+                {
+                    var partExprs = parts
+                        .Select(part => this.BuildRuntimeTypeExpression(part, preferCtorLocals: false))
+                        .ToList();
+                    if (partExprs.Any(this.SettledTypeReferencesVariant))
+                    {
+                        return CollapseUnion(partExprs);
+                    }
+                }
+            }
+
+            var expr = this.BuildRuntimeTypeExpression(returnType, preferCtorLocals: false);
+            return this.SettledTypeReferencesVariant(expr) ? expr : null;
+        }
+
+        /// <summary>
+        /// <c>Type::union</c> throws when every member is the same type. A settled return of
+        /// <c>TThenReturn|TReturn</c> is that one type when the handler returns the promise's type.
+        /// </summary>
+        private static string CollapseUnion(IReadOnlyList<string> exprs)
+        {
+            var current = exprs[0];
+            for (var i = 1; i < exprs.Count; i++)
+            {
+                current =
+                    "(static function (\\Tyhp\\Type $__tyhpLeft, \\Tyhp\\Type $__tyhpRight): \\Tyhp\\Type { "
+                    + "return $__tyhpLeft === $__tyhpRight ? $__tyhpLeft : \\Tyhp\\Type::union($__tyhpLeft, $__tyhpRight); "
+                    + "})(" + current + ", " + exprs[i] + ")";
+            }
+
+            return current;
+        }
+
+        private bool SettledTypeReferencesVariant(string expr)
+        {
+            foreach (var param in this._currentVariantGenericParams)
+            {
+                if (ExpressionReferencesPhpVariable(expr, GenericVariantParamName(param.Name)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool ExpressionReferencesPhpVariable(string expr, string variable)
+        {
+            var index = 0;
+            while ((index = expr.IndexOf(variable, index, StringComparison.Ordinal)) >= 0)
+            {
+                var after = index + variable.Length;
+                if (after >= expr.Length || !IsPhpIdentifierChar(expr[after]))
+                {
+                    return true;
+                }
+
+                index = after;
+            }
+
+            return false;
+        }
+
+        private static bool IsPhpIdentifierChar(char c) =>
+            c is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '_';
 
         private string BuildMethodSignature(PhpMethodDeclAst method)
         {
@@ -1350,6 +1512,10 @@ namespace Tyhp.TyhpLang.Emitter
                     {
                         type = CoerceIllegalPhpPropertyTypeHint(type);
                     }
+                    else if (this.TryWidenClosureTreeHint(parameter, type, out var widened))
+                    {
+                        type = widened;
+                    }
 
                     parts.Add(type);
                 }
@@ -1455,6 +1621,11 @@ namespace Tyhp.TyhpLang.Emitter
                 var type = this.SpellEmittedType(parameter.Type, parameter, inherited);
                 if (!string.IsNullOrWhiteSpace(type))
                 {
+                    if (this.TryWidenClosureTreeHint(parameter, type, out var widened))
+                    {
+                        type = widened;
+                    }
+
                     parts.Add(type);
                 }
             }
@@ -1470,6 +1641,125 @@ namespace Tyhp.TyhpLang.Emitter
 
             return attrPrefix + string.Join(" ", parts);
         }
+
+        /// <summary>
+        /// Bodies of one class/trait/enum method name whose <c>#[\Tyhp\Php]</c> gates cover
+        /// different versions at or above the floor. The signature is the floor-matching
+        /// method when one is registered; each body is selected with <c>\PHP_VERSION_ID</c>.
+        /// </summary>
+        private void EmitMethodBody(PhpMethodDeclAst method, EmitItem parent)
+        {
+            this.EmitClosureTreePrologue(method.Parameters, method, parent);
+            if (this._currentPhpVersionSplitBodies is { Count: > 0 } splitBodies)
+            {
+                this.EmitPhpVersionSplitBodies(splitBodies, parent);
+                return;
+            }
+
+            this.EmitFunctionBody(method.Body, parent);
+        }
+
+        private void EmitPhpVersionSplitBodies(IReadOnlyList<PhpMethodDeclAst> methods, EmitItem parent)
+        {
+            foreach (var method in methods)
+            {
+                if (method.BoundSymbol is not BaseSymbol symbol)
+                {
+                    this.EmitFunctionBody(method.Body, parent);
+                    continue;
+                }
+
+                var conditions = RuntimeGateEmission.GetMethodBodyConditions(
+                    symbol,
+                    this._context.Config.TargetPhpVersion);
+                if (conditions.Count == 0)
+                {
+                    this.EmitFunctionBody(method.Body, parent);
+                    continue;
+                }
+
+                this.EmitNestedConditions(
+                    method,
+                    parent,
+                    EmitType.FunctionStatement,
+                    conditions,
+                    0,
+                    block => this.EmitFunctionBody(method.Body, block));
+            }
+        }
+
+        private bool TryGetPhpVersionSplitGroup(
+            PhpMethodDeclAst method,
+            IReadOnlyList<IClassMember> members,
+            out List<PhpMethodDeclAst> group)
+        {
+            group = [];
+            var name = method.Identifier;
+            if (string.IsNullOrEmpty(name))
+            {
+                return false;
+            }
+
+            var wantStatic = IsStaticMethod(method);
+            var anyRuntimeOnly = false;
+            foreach (var member in members)
+            {
+                if (member is not PhpMethodDeclAst candidate
+                    || !string.Equals(candidate.Identifier, name, StringComparison.OrdinalIgnoreCase)
+                    || IsStaticMethod(candidate) != wantStatic
+                    || candidate.BoundSymbol is not ObjectMethodSymbol symbol
+                    || symbol.IsOverloadSignature)
+                {
+                    continue;
+                }
+
+                group.Add(candidate);
+                anyRuntimeOnly |= symbol.IsPhpVersionRuntimeOnly;
+            }
+
+            if (!anyRuntimeOnly)
+            {
+                group = [];
+                return false;
+            }
+
+            return true;
+        }
+
+        private static PhpMethodDeclAst PhpVersionSplitRepresentative(List<PhpMethodDeclAst> group)
+        {
+            foreach (var method in group)
+            {
+                if (method.BoundSymbol is ObjectMethodSymbol { IsPhpVersionRuntimeOnly: false })
+                {
+                    return method;
+                }
+            }
+
+            return group[0];
+        }
+
+        private static bool HasRegisteredMethodWithSameName(
+            IReadOnlyList<IClassMember> members,
+            PhpMethodDeclAst method)
+        {
+            var name = method.Identifier;
+            foreach (var member in members)
+            {
+                if (member is PhpMethodDeclAst candidate
+                    && string.Equals(candidate.Identifier, name, StringComparison.OrdinalIgnoreCase)
+                    && candidate.BoundSymbol is ObjectMethodSymbol { IsPhpVersionRuntimeOnly: false, IsOverloadSignature: false })
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsStaticMethod(PhpMethodDeclAst method)
+            => method.BoundSymbol is ObjectMethodSymbol { IsStatic: true }
+                || method.Modifiers?.Modifiers.Contains(PhpModifier.Static) == true;
 
         private void EmitFunctionBody(PhpStatementBlockAst? body, EmitItem parent)
         {
@@ -1532,5 +1822,269 @@ namespace Tyhp.TyhpLang.Emitter
 
         private string StripGenericsFromName(string? name)
             => name ?? "";
+
+        /// <summary>
+        /// True while a parameter list is spelled for a construct whose body gets no
+        /// <c>fromClosure</c> prologue (property hooks, inline closures and arrow functions).
+        /// <see cref="TryWidenClosureTreeHint"/> leaves those hints as spelled.
+        /// </summary>
+        private bool _suppressClosureTreeHint;
+
+        private enum ClosureTreeParameterKind
+        {
+            None,
+            Expression,
+            PropertyPath,
+        }
+
+        /// <summary>
+        /// An <c>Expression</c> or <c>PropertyPath</c> value parameter also accepts a
+        /// <c>\Closure</c>. Promoted properties, by-ref parameters, variadic parameters,
+        /// and an explicit <c>#[\Tyhp\PhpType]</c> hint stay as spelled.
+        /// </summary>
+        private bool TryWidenClosureTreeHint(PhpParameterAst parameter, string spelled, out string widened)
+        {
+            widened = spelled;
+            if (this._suppressClosureTreeHint || parameter.IsRef || parameter.IsVariadic)
+            {
+                return false;
+            }
+
+            // A promoted parameter is also the property, and the constructor body that would
+            // convert the closure never runs for it. The forwarding signatures spell promoted
+            // parameters through FormatParameterWithoutPromotion, so the check belongs here.
+            if (parameter.Modifiers is { } promotion && promotion.Modifiers.Any())
+            {
+                return false;
+            }
+
+            if (PhpTypeAttributeSupport.TryGetHint(parameter, out _))
+            {
+                return false;
+            }
+
+            if (this.ClassifyClosureTreeParameter(parameter.Type) == ClosureTreeParameterKind.None)
+            {
+                return false;
+            }
+
+            var nullable = false;
+            var text = spelled.Trim();
+            if (text.StartsWith('?'))
+            {
+                nullable = true;
+                text = text[1..].Trim();
+            }
+
+            var parts = text.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+            if (parts.RemoveAll(part => part.Equals("null", StringComparison.OrdinalIgnoreCase)) > 0)
+            {
+                nullable = true;
+            }
+
+            if (parts.Count != 1)
+            {
+                return false;
+            }
+
+            var core = parts[0].Trim().TrimStart('\\');
+            string replacement;
+            if (core.Equals(PropertyPathSupport.PropertyPathFqn, StringComparison.Ordinal))
+            {
+                replacement = "\\Tyhp\\PropertyPath|\\Closure";
+            }
+            else if (core.Equals(PropertyPathSupport.ExpressionFqn, StringComparison.Ordinal))
+            {
+                replacement = "\\Tyhp\\Expression|\\Closure";
+            }
+            else
+            {
+                return false;
+            }
+
+            widened = nullable ? replacement + "|null" : replacement;
+            return true;
+        }
+
+        private bool HasClosureTreePrologue(PhpParameterListAst? parameters)
+        {
+            if (parameters is null)
+            {
+                return false;
+            }
+
+            foreach (var parameter in parameters.GetAllNotNull())
+            {
+                if (this.ClosureTreePrologueKind(parameter) != ClosureTreeParameterKind.None)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Converts a <c>\Closure</c> argument into the tree the rest of the body reads.
+        /// </summary>
+        private void EmitClosureTreePrologue(PhpParameterListAst? parameters, IBase2Ast node, EmitItem parent)
+        {
+            if (parameters is null)
+            {
+                return;
+            }
+
+            foreach (var parameter in parameters.GetAllNotNull())
+            {
+                var kind = this.ClosureTreePrologueKind(parameter);
+                if (kind == ClosureTreeParameterKind.None)
+                {
+                    continue;
+                }
+
+                var variable = this.EmitParameterVariableName(parameter.Name);
+                if (string.IsNullOrWhiteSpace(variable))
+                {
+                    continue;
+                }
+
+                this._context.RequirePackage("tyhp/lambda");
+                var method = kind == ClosureTreeParameterKind.PropertyPath
+                    ? "\\Tyhp\\PropertyPath::fromClosure"
+                    : "\\Tyhp\\Expression::fromClosure";
+                var shape = this.ClosureTreeExpectedShape(parameter.Type);
+                var shapeArgument = shape is null ? "null" : PhpSingleQuoted(shape);
+                var guard = EmitItem.Block(
+                    node,
+                    EmitType.FunctionStatement,
+                    $"if ({variable} instanceof \\Closure) {{",
+                    "}",
+                    parent);
+                EmitItem.Line(
+                    node,
+                    EmitType.FunctionStatement,
+                    $"{variable} = {method}({variable}, {shapeArgument});",
+                    guard);
+            }
+        }
+
+        private ClosureTreeParameterKind ClosureTreePrologueKind(PhpParameterAst parameter)
+        {
+            if (parameter.IsRef || parameter.IsVariadic)
+            {
+                return ClosureTreeParameterKind.None;
+            }
+
+            if (parameter.Modifiers is { } mods && mods.Modifiers.Any())
+            {
+                return ClosureTreeParameterKind.None;
+            }
+
+            if (PhpTypeAttributeSupport.TryGetHint(parameter, out _))
+            {
+                return ClosureTreeParameterKind.None;
+            }
+
+            if (string.IsNullOrWhiteSpace(parameter.Name))
+            {
+                return ClosureTreeParameterKind.None;
+            }
+
+            return this.ClassifyClosureTreeParameter(parameter.Type);
+        }
+
+        private ClosureTreeParameterKind ClassifyClosureTreeParameter(ITypeExpression? type)
+        {
+            var peeled = this.PeelNullUnion(type);
+            if (peeled is null)
+            {
+                return ClosureTreeParameterKind.None;
+            }
+
+            if (PropertyPathEmissionHelper.IsPropertyPathTypeExpression(peeled, this.ResolveClosureTreeTypeSymbol))
+            {
+                return ClosureTreeParameterKind.PropertyPath;
+            }
+
+            if (ExpressionTreeEmissionHelper.IsExpressionTypeExpression(peeled, this.ResolveClosureTreeTypeSymbol))
+            {
+                return ClosureTreeParameterKind.Expression;
+            }
+
+            return ClosureTreeParameterKind.None;
+        }
+
+        private ITypeExpression? PeelNullUnion(ITypeExpression? type)
+        {
+            if (type is null)
+            {
+                return null;
+            }
+
+            type = UnwrapNullableType(type);
+            if (type is not PhpTypeExpressionAst { Types: { } members })
+            {
+                return type;
+            }
+
+            var all = members.GetAllNotNull().OfType<ITypeExpression>().ToList();
+            var nonNull = all.Where(part => !IsNullTypeName(part)).ToList();
+            if (nonNull.Count == 1)
+            {
+                return nonNull[0];
+            }
+
+            return type;
+        }
+
+        private IBaseSymbol? ResolveClosureTreeTypeSymbol(ITypeExpression? typeExpr)
+        {
+            if (typeExpr is IBase2Ast node && node.BoundSymbol is ObjectDeclarationSymbol bound)
+            {
+                return bound;
+            }
+
+            if (typeExpr is PhpNamedTypeAst { Name: IBase2Ast name }
+                && name.BoundSymbol is ObjectDeclarationSymbol named)
+            {
+                return named;
+            }
+
+            return null;
+        }
+
+        private string? ClosureTreeExpectedShape(ITypeExpression? type)
+        {
+            var peeled = this.PeelNullUnion(type);
+            if (peeled is null)
+            {
+                return null;
+            }
+
+            var args = PropertyPathEmissionHelper.GetGenericTypeArguments(peeled);
+            if (args.Count == 0)
+            {
+                return null;
+            }
+
+            var spelled = DocblockTypeSpellingHelper.SpellTypeExpression(
+                args[0],
+                this._context.TypeAliasMap,
+                this._context.GlobalScope,
+                this._context.Config.NamespacePrefix).Trim();
+            if (spelled.Length == 0
+                || spelled.Equals("callable", StringComparison.Ordinal)
+                || spelled.Equals("mixed", StringComparison.Ordinal)
+                || !spelled.StartsWith("callable(", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            return spelled;
+        }
+
+        private static string PhpSingleQuoted(string value) =>
+            "'" + value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("'", "\\'", StringComparison.Ordinal) + "'";
     }
 }

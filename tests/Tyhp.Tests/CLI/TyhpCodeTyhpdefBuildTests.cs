@@ -558,6 +558,137 @@ public class TyhpCodeTyhpdefBuildTests
     }
 
     [Fact]
+    public void Library_MethodAboveFloor_StaysInTyhpdefAndEmitsBehindVersionId()
+    {
+        using var project = new TestProjectBuilder();
+        project
+            .WithTyhpJson("""
+                {
+                    "type": "library",
+                    "include": ["**/*.tyhp"],
+                    "output": { "path": "build/", "phpVersion": "8.2" }
+                }
+                """)
+            .WithTyhpFile("LazyProbe.tyhp", """
+                <?tyhp
+                namespace Lib;
+                final class LazyProbe {
+                    #[\Tyhp\Php(">=8.4")]
+                    public static function isLazy(object $object): bool {
+                        return (new \ReflectionClass($object))->isUninitializedLazyObject($object);
+                    }
+
+                    #[\Tyhp\Php("<8.4")]
+                    public static function isLazy(object $object): bool {
+                        return false;
+                    }
+                }
+                """);
+
+        var result = project.RunBuild();
+        result.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", result.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
+
+        var def = File.ReadAllText(Path.Combine(project.ProjectDirectory, "package.tyhpdef"));
+        def.Should().Contain("#[\\Tyhp\\Php(\">=8.4\")]");
+        def.Should().Contain("#[\\Tyhp\\Php(\"<8.4\")]");
+        System.Text.RegularExpressions.Regex.Matches(def, "function isLazy\\(").Should().HaveCount(2);
+
+        var phpFiles = Directory.GetFiles(
+            Path.Combine(project.ProjectDirectory, "build"),
+            "*.php",
+            SearchOption.AllDirectories);
+        var php = string.Join('\n', phpFiles.Select(File.ReadAllText));
+        System.Text.RegularExpressions.Regex.Matches(php, "function isLazy\\(").Should().HaveCount(1);
+        php.Should().Contain("if (\\PHP_VERSION_ID >= 80400)");
+        php.Should().Contain("if (\\PHP_VERSION_ID < 80400)");
+        php.Should().Contain("isUninitializedLazyObject");
+        php.Should().Contain("return false;");
+    }
+
+    [Theory]
+    [InlineData("return default(T);", "return null;", true)]   // only the runtime-only sibling reads T
+    [InlineData("return null;", "return default(T);", true)]   // only the floor sibling reads T
+    [InlineData("return null;", "return null;", false)]        // neither reads T
+    public void Library_GenericMethodAboveFloor_BothSiblingsStampTheSameGenericRuntime(
+        string aboveFloorBody,
+        string floorBody,
+        bool readsGeneric)
+    {
+        // The `>=8.4` sibling is not type-checked at the 8.2 floor. Its stamp and the floor
+        // sibling's stamp still have to agree, or a consumer built at 8.4 reaches `make` without
+        // its binder and never passes the type argument.
+        using var project = new TestProjectBuilder();
+        project
+            .WithTyhpJson("""
+                {
+                    "type": "library",
+                    "include": ["**/*.tyhp"],
+                    "output": { "path": "build/", "phpVersion": "8.2" }
+                }
+                """)
+            .WithTyhpFile("Maker.tyhp", $$"""
+                <?tyhp
+                namespace Lib;
+                final class Maker {
+                    #[\Tyhp\Php(">=8.4")]
+                    public static function make<T>(): mixed {
+                        {{aboveFloorBody}}
+                    }
+
+                    #[\Tyhp\Php("<8.4")]
+                    public static function make<T>(): mixed {
+                        {{floorBody}}
+                    }
+                }
+                """);
+
+        var result = project.RunBuild();
+        result.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", result.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
+
+        var def = File.ReadAllText(Path.Combine(project.ProjectDirectory, "package.tyhpdef"));
+        var lines = def.Split('\n').Select(l => l.Trim()).ToList();
+        var signatures = lines
+            .Select((line, index) => (line, index))
+            .Where(x => x.line.StartsWith("public static function make<T>(", StringComparison.Ordinal))
+            .Select(x => x.index)
+            .ToList();
+        signatures.Should().HaveCount(2);
+
+        var expected = readsGeneric
+            ? "#[\\Tyhp\\GenericRuntime(erased: false, binder: \"make\", layouts: [2], compiler: "
+            : "#[\\Tyhp\\GenericRuntime(erased: true, layouts: [1], compiler: ";
+        foreach (var index in signatures)
+        {
+            // The stamp is the attribute line directly above the signature.
+            lines[index - 1].Should().StartWith(expected, $"stamp above `{lines[index]}`");
+        }
+
+        lines.Where(l => l.StartsWith("#[\\Tyhp\\Php(\"", StringComparison.Ordinal)
+                && (l.Contains(">=8.4") || l.Contains("<8.4")))
+            .Should().HaveCount(2);
+
+        var phpFiles = Directory.GetFiles(
+            Path.Combine(project.ProjectDirectory, "build"),
+            "*.php",
+            SearchOption.AllDirectories);
+        var php = string.Join('\n', phpFiles.Select(File.ReadAllText));
+        php.Should().Contain("if (\\PHP_VERSION_ID >= 80400)");
+        php.Should().Contain("if (\\PHP_VERSION_ID < 80400)");
+        if (readsGeneric)
+        {
+            php.Should().Contain("function make(");
+            php.Should().Contain("#[\\Tyhp\\GenericRuntime(erased: false, binder: \"make\"");
+            php.Should().NotContain("make__tyhpGeneric");
+        }
+        else
+        {
+            php.Should().NotContain("make__tyhpGeneric");
+        }
+    }
+
+    [Fact]
     [Trait("Category", "Story20.7")]
     public void Library_PromotedCtorHookedProperty_EmitsClassBodyHookedForm()
     {

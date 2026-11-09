@@ -16,6 +16,7 @@
         /// Grammar:
         ///   tyhpMethodDefinition
         ///     : Identifier=T_CONSTRUCT_METHOD
+        ///         GenericArguments=tyhpGenericParameterDeclarations?
         ///         FindDocComment=T_OPEN_ROUND_BRACE ParameterList=ctorParameterList
         ///         T_CLOSE_ROUND_BRACE ReturnType=tyhpCtorReturnType?
         ///         StatementList=methodBody                            #tyhpClassCtorWithReturnType

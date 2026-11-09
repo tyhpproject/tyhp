@@ -501,6 +501,12 @@ namespace Tyhp.TyhpLang.Emitter
             if (rhs is PhpDereferenceableAst { Suffix: PhpCallAst call } deref
                 && CheckerHelpers.IsFirstClassCallableArgumentList(call.Arguments))
             {
+                // A binder-first generic's `f(...)` is `f(types)`, the value Closure.
+                if (this.TryBuildGenericVariantCall(deref, call) is { } binderClosure)
+                {
+                    return $"{binderClosure}({valueText})";
+                }
+
                 var callee = this.BuildDereferenceableBase(deref.Base);
                 return $"{callee}({valueText})";
             }
@@ -1666,15 +1672,26 @@ namespace Tyhp.TyhpLang.Emitter
             var inferredParams = inferred?.ParameterTypes;
             var list = parameters.GetAllNotNull().ToList();
             var formatted = new List<string>(list.Count);
-            for (var i = 0; i < list.Count; i++)
+            // A closure body gets no fromClosure prologue, so its Expression and PropertyPath
+            // parameters keep the hint as spelled.
+            var previousSuppress = this._suppressClosureTreeHint;
+            this._suppressClosureTreeHint = true;
+            try
             {
-                ICheckedType? inferredType = null;
-                if (inferredParams is not null && i < inferredParams.Count)
+                for (var i = 0; i < list.Count; i++)
                 {
-                    inferredType = inferredParams[i];
-                }
+                    ICheckedType? inferredType = null;
+                    if (inferredParams is not null && i < inferredParams.Count)
+                    {
+                        inferredType = inferredParams[i];
+                    }
 
-                formatted.Add(this.FormatParameter(list[i], inferredType));
+                    formatted.Add(this.FormatParameter(list[i], inferredType));
+                }
+            }
+            finally
+            {
+                this._suppressClosureTreeHint = previousSuppress;
             }
 
             if (formatted.Count == 0)
@@ -2094,6 +2111,8 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (argument.Name != null)
             {
+                // The label is the written identifier (`column:`), not a type. Alias
+                // conversion leaves this spelling alone; do not qualify it as a class name.
                 var name = argument.Name.ValueString ?? "";
                 return name + ": " + this.BuildExpression(argument.Expression);
             }

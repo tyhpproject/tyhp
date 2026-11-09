@@ -28,19 +28,44 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (!symbol.HasUncompiledVersionVariants)
             {
-                var gate = PhpVersionConstraint.ClassifyAtOrAbove(symbol.EffectivePhpVersionConstraints, minimumPhpVersion);
-                if (gate.Kind == PhpRuntimeGateKind.Conditional && gate.Expression is { Length: > 0 } expression)
-                {
-                    conditions.Add(expression);
-                }
+                AddPhpCondition(conditions, symbol.EffectivePhpVersionConstraints, minimumPhpVersion);
             }
 
-            foreach (var spec in symbol.EffectiveExtGates.Distinct(StringComparer.OrdinalIgnoreCase))
+            AddExtGates(conditions, symbol.EffectiveExtGates);
+            return conditions;
+        }
+
+        /// <summary>
+        /// Conditions for one class, trait, or enum method body. Unlike <see cref="GetConditions"/>,
+        /// a sibling emitted in the same method does not suppress the php check: each body is
+        /// selected by its own gate.
+        /// </summary>
+        public static IReadOnlyList<string> GetMethodBodyConditions(BaseSymbol symbol, string? minimumPhpVersion)
+        {
+            var conditions = new List<string>();
+            AddPhpCondition(conditions, symbol.EffectivePhpVersionConstraints, minimumPhpVersion);
+            AddExtGates(conditions, symbol.EffectiveExtGates);
+            return conditions;
+        }
+
+        private static void AddPhpCondition(
+            List<string> conditions,
+            IReadOnlyList<string> constraints,
+            string? minimumPhpVersion)
+        {
+            var gate = PhpVersionConstraint.ClassifyAtOrAbove(constraints, minimumPhpVersion);
+            if (gate.Kind == PhpRuntimeGateKind.Conditional && gate.Expression is { Length: > 0 } expression)
+            {
+                conditions.Add(expression);
+            }
+        }
+
+        private static void AddExtGates(List<string> conditions, IReadOnlyList<string> gates)
+        {
+            foreach (var spec in gates.Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 AddExtCondition(conditions, spec);
             }
-
-            return conditions;
         }
 
         /// <summary>

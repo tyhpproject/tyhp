@@ -104,12 +104,18 @@ namespace Tyhp.TyhpLang.Emitter
         // hint spelling. Hint positions (parameters, properties, returns) still erase to `array`.
         private int _typeofTypeExprDepth;
 
-        // Member names that follow `->` (properties/methods) must never be rewritten through the
-        // tyhpdef alias map. The map is case-insensitive (PHP class names are), so a member like
-        // `$this->promise` would otherwise collide with a same-named class alias (`Promise`) and
-        // miscompile to `$this->Tyhp\Promise`. Collected up front by reference identity because the
-        // tree walk transforms member-name children before reaching their member-access parent.
+        // Member names that follow `->`, `::`, or `$arr->key` must never be rewritten through
+        // the free-name alias map. The map is case-insensitive (PHP class names are), so
+        // `$this->promise` would otherwise collide with a class `Promise`. Named-argument
+        // labels are tracked separately (`_protectedArgumentLabels`). Collected up front by
+        // reference identity because the tree walk transforms these name children before
+        // their parent.
         private readonly HashSet<IBase2Ast> _protectedMemberNames =
+            new(ReferenceEqualityComparer.Instance);
+
+        // Named-argument labels (`column:`). Same collection timing as member names, but they
+        // are not members: neither the free-name map nor the member-alias map may rewrite them.
+        private readonly HashSet<IBase2Ast> _protectedArgumentLabels =
             new(ReferenceEqualityComparer.Instance);
 
         private CallSiteSpliceEngine? _spliceEngine;
@@ -132,6 +138,7 @@ namespace Tyhp.TyhpLang.Emitter
             _ = this._context.Config.TargetPhpVersion;
 
             this._protectedMemberNames.Clear();
+            this._protectedArgumentLabels.Clear();
             this._pendingSpliceHoists.Clear();
             this._refHoistForbidden.Clear();
             this._spliceContext = this.CreateSpliceContext();
@@ -720,6 +727,17 @@ namespace Tyhp.TyhpLang.Emitter
                 case PhpTypeExpressionAst composite:
                 {
                     var parts = composite.Types?.GetAllNotNull().ToList() ?? [];
+
+                    // A union with several non-null arms (`Plain|Rich`, `A|B`) is not one struct:
+                    // taking its first struct arm would read a class arm, or an arm that stores the
+                    // field under another key, as an array key. The checker's union type decides in
+                    // `TryRewriteStructUnionPropertyAccess`.
+                    if (composite.TypeKind is PhpTypeKind.Union
+                        && parts.Count(part => part is not PhpBuiltinTypeAst { Identifier: "null" or "void" or "never" }) > 1)
+                    {
+                        return null;
+                    }
+
                     // `Point` and `?Point` (nullable wrapper / single-element union) both carry one
                     // named type we can resolve as a struct.
                     foreach (var part in parts)
@@ -768,6 +786,11 @@ namespace Tyhp.TyhpLang.Emitter
 
         private IBase2Ast? PreTransformWith(IBase2Ast node)
         {
+            // Member names and argument labels are collected up front for the original tree.
+            // Trees built later (an inlined extension body, a spliced operator) are clones whose
+            // name nodes are not in those sets, so protect them as the walk enters each node.
+            this.CollectProtectedMemberName(node);
+
             // Runs as the pre-transform for every node: enter a scope frame for function-like
             // nodes so struct-typed variable lookups resolve correctly. The matching pop happens
             // in the post-transform (TransformNode). Function-like nodes never short-circuit here
@@ -1383,6 +1406,11 @@ namespace Tyhp.TyhpLang.Emitter
                 case PhpMemberAccessAst memberAccess when memberAccess.Key is PhpNameAst keyName:
                     this._protectedMemberNames.Add(keyName);
                     break;
+                case PhpArgumentAst { Name: PhpNameAst label }:
+                    // `column:` is a parameter name. Qualifying it as the class `Column` emits
+                    // `\Ns\Column: $column`, which PHP cannot parse.
+                    this._protectedArgumentLabels.Add(label);
+                    break;
             }
         }
 
@@ -1394,6 +1422,12 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             var text = name.ValueString ?? "";
+
+            // A named-argument label is an identifier, not a type or a member. Keep the source spelling.
+            if (this._protectedArgumentLabels.Contains(name))
+            {
+                return name;
+            }
 
             // Member positions (`->name`, `::name`, `$arr->key`) are protected from the free-name alias map
             // so a class alias like `Promise` cannot rewrite `$this->promise` or `Route::view`. They still erase
@@ -2311,6 +2345,15 @@ namespace Tyhp.TyhpLang.Emitter
             var structDecl = this.ResolveStructType(accessNode.Base as IExpression);
             if (structDecl is null)
             {
+                // A union of structs is still an array at runtime. A field every arm
+                // declares (`$node->kind`, `$value->ok`) erases to that array key.
+                // A field only some arms declare stays `->` until narrowing leaves
+                // the arms that have it, which the single-struct path then erases.
+                if (this.TryRewriteStructUnionPropertyAccess(accessNode, memberAccess, out rewritten))
+                {
+                    return true;
+                }
+
                 return this.TryRewriteAnonymousStructPropertyAccess(accessNode, memberAccess, out rewritten);
             }
 
@@ -2341,6 +2384,108 @@ namespace Tyhp.TyhpLang.Emitter
                 ? this.GuardOptionalStructRead(accessNode, rewrittenNode)
                 : rewrittenNode;
             return true;
+        }
+
+        /// <summary>
+        /// <c>$node-&gt;kind</c> on <c>ExtParseNode</c> (a union of structs) is
+        /// <c>$node['kind']</c>. The rewrite runs only when every concrete arm is a
+        /// struct and they agree on the array key. A class in the union, or two
+        /// arms that store the field under different keys, stays <c>-&gt;</c>.
+        /// </summary>
+        private bool TryRewriteStructUnionPropertyAccess(
+            PhpDereferenceableAst accessNode,
+            PhpInstanceMemberAccessAst memberAccess,
+            out IBase2Ast rewritten)
+        {
+            rewritten = accessNode;
+            if (accessNode.Base is not IBase2Ast baseNode
+                || !this.TryGetCheckedExpressionType(baseNode, out var checkedType))
+            {
+                return false;
+            }
+
+            var memberName = this.GetMemberName(memberAccess.MemberName);
+            if (string.IsNullOrWhiteSpace(memberName)
+                || !TryFindSharedStructUnionProperty(checkedType, memberName, out var property))
+            {
+                return false;
+            }
+
+            var keyExpr = StructEmissionHelper.GetStructArrayKey(property).ToScalarAst(accessNode);
+            var rewrittenNode = PhpDereferenceableAst.CreateFromContext(
+                accessNode.Base!,
+                PhpArrayAccessAst.CreateFromContext(keyExpr, accessNode),
+                accessNode);
+            rewritten = this.IsOptionalStructRead(accessNode, property)
+                ? this.GuardOptionalStructRead(accessNode, rewrittenNode)
+                : rewrittenNode;
+            return true;
+        }
+
+        private static bool TryFindSharedStructUnionProperty(
+            ICheckedType type,
+            string memberName,
+            [NotNullWhen(true)] out ObjectPropertySymbol? property)
+        {
+            property = null;
+            var arms = new List<ICheckedType>();
+            CollectUnionArms(type, arms);
+            if (arms.Count < 2)
+            {
+                return false;
+            }
+
+            StructArrayKey? key = null;
+            var structs = 0;
+            foreach (var arm in arms)
+            {
+                if (arm.IsNever || TypeComparer.IsUnresolvedType(arm))
+                {
+                    continue;
+                }
+
+                if (TypeComparer.TryGetObjectDeclaration(arm) is not { IsStruct: true } decl
+                    || !StructEmissionHelper.TryResolveStructProperty(decl, memberName, out var armProperty)
+                    || armProperty is null)
+                {
+                    return false;
+                }
+
+                var armKey = StructEmissionHelper.GetStructArrayKey(armProperty);
+                if (key is null)
+                {
+                    key = armKey;
+                    property = armProperty;
+                }
+                else if (key != armKey)
+                {
+                    return false;
+                }
+
+                structs++;
+            }
+
+            return structs >= 2 && property is not null;
+        }
+
+        private static void CollectUnionArms(ICheckedType type, List<ICheckedType> arms)
+        {
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            if (type is UnionCheckedType union)
+            {
+                foreach (var member in union.Members)
+                {
+                    CollectUnionArms(member, arms);
+                }
+
+                return;
+            }
+
+            arms.Add(type);
         }
 
         /// <summary>

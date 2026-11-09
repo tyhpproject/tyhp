@@ -15,6 +15,7 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         private List<ITypeExpression>? _implementsTypes;
         private Dictionary<string, IBaseSymbol>? _members;
         private Dictionary<string, IBaseSymbol>? _constants;
+        private List<ObjectMethodSymbol>? _phpVersionRuntimeOnlyMethods;
         private List<ObjectOperatorOverloadMethodSymbol>? _extensionContributedOperators;
 
         public ObjectDeclarationSymbol(string name, IBase2Ast? declaringNode = null, string sourceFile = "", MemberModifier visibility = MemberModifier.None)
@@ -197,6 +198,21 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
                     yield return constant;
                 }
             }
+        }
+
+        /// <summary>
+        /// Class, trait, or enum methods whose <c>#[\Tyhp\Php]</c> gate misses
+        /// <c>output.phpVersion</c> but still holds on a newer PHP. Not in <see cref="Members"/>,
+        /// so lookup at this floor does not see them. Emit and library tyhpdef generation do.
+        /// </summary>
+        public IReadOnlyList<ObjectMethodSymbol> PhpVersionRuntimeOnlyMethods =>
+            this._phpVersionRuntimeOnlyMethods
+            ?? (IReadOnlyList<ObjectMethodSymbol>)Array.Empty<ObjectMethodSymbol>();
+
+        internal void AddPhpVersionRuntimeOnlyMethod(ObjectMethodSymbol method)
+        {
+            this._phpVersionRuntimeOnlyMethods ??= new List<ObjectMethodSymbol>();
+            this._phpVersionRuntimeOnlyMethods.Add(method);
         }
 
         /// <summary>

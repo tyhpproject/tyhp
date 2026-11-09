@@ -485,6 +485,21 @@ namespace Tyhp.TyhpLang.Binder.Resolution
         }
 
         /// <summary>
+        /// Resolves the static method (or <c>$property</c>) a <c>Class::name(...)</c> call targets.
+        /// Same walk as <see cref="ResolveStaticMember"/>, but class constants are not consulted:
+        /// a constant that shares the call's spelling (<c>const int</c> next to <c>__callStatic</c>)
+        /// must not hide the method or the inherited <c>__callStatic</c> fallback.
+        /// </summary>
+        public IBaseSymbol? ResolveStaticMethodMember(string memberName, ObjectDeclarationSymbol onClass)
+        {
+            if (string.IsNullOrEmpty(memberName) || onClass == null) return null;
+
+            return ResolveInheritedMember(
+                memberName, onClass, staticOnly: true, includeConstants: false,
+                new HashSet<ObjectDeclarationSymbol>());
+        }
+
+        /// <summary>
         /// Resolves a class constant or enum case by exact (case-sensitive) name, walking the
         /// inheritance / trait / interface chain. Does not consult the method/property namespace.
         /// </summary>

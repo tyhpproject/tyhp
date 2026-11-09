@@ -55,7 +55,8 @@ public class JsonDecodeEmitterTests
             }
             """);
 
-        php.Should().Contain("decode__tyhpGeneric(");
+        php.Should().Contain("Json::decode(\\Tyhp\\Type::");
+        php.Should().NotContain("decode__tyhpGeneric");
         php.Should().Contain("\\Tyhp\\Type::struct(");
         php.Should().Contain("'name'");
         php.Should().Contain("'age'");
@@ -115,8 +116,8 @@ public class JsonDecodeEmitterTests
             }
             """);
 
-        php.Should().Contain("decodeAs__tyhpGeneric(");
-        php.Should().Contain("Json::decode__tyhpGeneric($__generic_T)");
+        php.Should().Contain("function decodeAs(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("Json::decode($T)");
         php.Should().Contain("\\Tyhp\\Type::struct(");
         php.Should().NotContain("User::class");
     }

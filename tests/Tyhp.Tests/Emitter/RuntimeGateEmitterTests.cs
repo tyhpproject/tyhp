@@ -51,7 +51,13 @@ public class RuntimeGateEmitterTests
             var configuration = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?> { ["output:phpVersion"] = phpVersion })
                 .Build();
-            var context = EmitContext.Create(result.GlobalScope, result.Diagnostics, new Project(configuration));
+            var context = EmitContext.Create(
+                result.GlobalScope,
+                result.Diagnostics,
+                new Project(configuration),
+                result.RequiresRuntimeGenericTracking,
+                requiresGenericVariant: result.RequiresGenericVariant,
+                genericCallTargets: result.GenericCallTargets);
             var outputFiles = new TyhpEmitter(context).Emit(result.ParsedFiles).ToList();
             var files = outputFiles
                 .Select(f => (f.OutputFilePath ?? "", f.GeneratedContent ?? ""))
@@ -351,6 +357,157 @@ public class RuntimeGateEmitterTests
         var compiled = Compile($"<?tyhp\nnamespace App;\n\n{declaration}\n");
 
         compiled.Errors.Should().Contain(e => e.StartsWith("CheckerPhpVersionAttributeInvalidMember", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DisjointMethods_AboveFloorSibling_EmitsBothBodiesBehindVersionId()
+    {
+        var compiled = Compile("""
+            <?tyhp
+            namespace App;
+
+            class LazyProbe {
+                #[\Tyhp\Php(">=8.4")]
+                public static function isLazy(object $object): bool {
+                    return (new \ReflectionClass($object))->isUninitializedLazyObject($object);
+                }
+
+                #[\Tyhp\Php("<8.4")]
+                public static function isLazy(object $object): bool {
+                    return false;
+                }
+            }
+            """);
+
+        compiled.Errors.Should().BeEmpty();
+        var matches = System.Text.RegularExpressions.Regex.Matches(compiled.Php, "function isLazy\\(");
+        matches.Should().HaveCount(1);
+        compiled.Php.Should().Contain("if (\\PHP_VERSION_ID >= 80400)");
+        compiled.Php.Should().Contain("if (\\PHP_VERSION_ID < 80400)");
+        compiled.Php.Should().Contain("isUninitializedLazyObject");
+        compiled.Php.Should().Contain("return false;");
+        compiled.Php.Should().NotContain("#[\\Tyhp\\Php");
+    }
+
+    [Fact]
+    public void DisjointMethods_GenericBinderMethod_EmitsEveryBodyInTheBinderClosure()
+    {
+        // A body that reads its own generic at runtime is emitted as a wrapper plus a
+        // `__tyhpGeneric` binder. The `>=8.4` sibling is runtime-only at the 8.2 floor, but it
+        // still has to land in the binder, behind its own version check.
+        var compiled = Compile("""
+            <?tyhp
+            namespace App;
+
+            class Maker {
+                #[\Tyhp\Php(">=8.4")]
+                public static function make<T>(): mixed {
+                    return default(T);
+                }
+
+                #[\Tyhp\Php("<8.4")]
+                public static function make<T>(): mixed {
+                    return typeof(T);
+                }
+            }
+            """);
+
+        compiled.Errors.Should().BeEmpty();
+        compiled.Php.Should().Contain("function make(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        compiled.Php.Should().Contain("erased: false");
+        compiled.Php.Should().Contain("binder: \"make\", layouts: [2]");
+        System.Text.RegularExpressions.Regex.Matches(compiled.Php, "function make\\(").Should().HaveCount(1);
+        compiled.Php.Should().NotContain("make__tyhpGeneric");
+        var upper = compiled.Php.IndexOf("if (\\PHP_VERSION_ID >= 80400)", StringComparison.Ordinal);
+        var lower = compiled.Php.IndexOf("if (\\PHP_VERSION_ID < 80400)", StringComparison.Ordinal);
+        upper.Should().BeGreaterThan(compiled.Php.IndexOf("function make(", StringComparison.Ordinal));
+        lower.Should().BeGreaterThan(upper);
+        compiled.Php.Should().Contain("return $T->defaultValue();");
+        compiled.Php.Should().Contain("return $T;");
+    }
+
+    [Fact]
+    public void DisjointMethods_RuntimeOnlySiblingReadsGeneric_FlagsTheFloorSibling()
+    {
+        // Only the sibling that misses the floor reads `T` at runtime. Call sites resolve to the
+        // floor sibling, so that symbol has to be marked too or the call never reaches the binder.
+        var compiled = Compile("""
+            <?tyhp
+            namespace App;
+
+            class Maker {
+                #[\Tyhp\Php(">=8.4")]
+                public static function make<T>(): mixed {
+                    return default(T);
+                }
+
+                #[\Tyhp\Php("<8.4")]
+                public static function make<T>(): mixed {
+                    return null;
+                }
+            }
+            """);
+
+        compiled.Errors.Should().BeEmpty();
+        compiled.Php.Should().Contain("function make(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        compiled.Php.Should().Contain("return $T->defaultValue();");
+        compiled.Php.Should().NotContain("make__tyhpGeneric");
+        compiled.Php.Should().Contain("return null;");
+        compiled.Php.Should().Contain("if (\\PHP_VERSION_ID >= 80400)");
+        compiled.Php.Should().Contain("if (\\PHP_VERSION_ID < 80400)");
+    }
+
+    [Fact]
+    public void DisjointMethods_StaticAndInstanceSiblings_AreNotMerged()
+    {
+        var compiled = Compile("""
+            <?tyhp
+            namespace App;
+
+            class Mixed {
+                #[\Tyhp\Php(">=8.4")]
+                public static function id(): int {
+                    return 84;
+                }
+
+                #[\Tyhp\Php("<8.4")]
+                public function id(): int {
+                    return 82;
+                }
+            }
+            """);
+
+        compiled.Errors.Should().BeEmpty();
+        compiled.Php.Should().Contain("public function id(): int");
+        compiled.Php.Should().NotContain("static function id");
+        compiled.Php.Should().Contain("return 82;");
+        compiled.Php.Should().NotContain("return 84;");
+    }
+
+    [Fact]
+    public void DisjointMethods_WhenFloorSatisfiesUpperGate_OmitsLowerBody()
+    {
+        var compiled = Compile("""
+            <?tyhp
+            namespace App;
+
+            class LazyProbe {
+                #[\Tyhp\Php(">=8.4")]
+                public static function isLazy(object $object): bool {
+                    return true;
+                }
+
+                #[\Tyhp\Php("<8.4")]
+                public static function isLazy(object $object): bool {
+                    return false;
+                }
+            }
+            """, phpVersion: "8.4");
+
+        compiled.Errors.Should().BeEmpty();
+        compiled.Php.Should().Contain("return true;");
+        compiled.Php.Should().NotContain("PHP_VERSION_ID");
+        compiled.Php.Should().NotContain("return false;");
     }
 
     [Fact]

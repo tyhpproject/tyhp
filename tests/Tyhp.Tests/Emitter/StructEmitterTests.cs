@@ -724,4 +724,87 @@ public class StructEmitterTests
         php.Should().Contain("['items' => [1, 2], 'count' => 1]");
         php.Should().NotMatchRegex(@",\s*,");
     }
+
+    [Fact]
+    public void Emit_UnionOfStructs_ReadsSharedFieldAsArrayKey()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace Types {
+                type Ok = struct { true $ok; string $message; };
+                type No = struct { false $ok; int $code; };
+                type Result = Ok|No;
+            }
+            namespace App {
+                function text(\Types\Result $value): string {
+                    if ($value->ok === true) {
+                        return $value->message;
+                    }
+                    return (string)$value->code;
+                }
+            }
+            """);
+
+        php.Should().Contain("$value['ok']");
+        php.Should().Contain("$value['message']");
+        php.Should().Contain("$value['code']");
+        php.Should().NotContain("$value->ok");
+        php.Should().NotContain("$value->message");
+        php.Should().NotContain("$value->code");
+    }
+
+    [Fact]
+    public void Emit_UnionOfClasses_ReadsSharedPropertyAsProperty()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace App {
+                class Left { public string $kind = 'left'; }
+                class Right { public string $kind = 'right'; }
+                function kind(Left|Right $value): string {
+                    return $value->kind;
+                }
+            }
+            """);
+
+        php.Should().Contain("$value->kind");
+        php.Should().NotContain("$value['kind']");
+    }
+
+    [Fact]
+    public void Emit_UnionOfStructAndClass_ReadsSharedPropertyAsProperty()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace App {
+                type Plain = struct { string $kind; };
+                class Rich { public string $kind = 'rich'; }
+                function kind(Plain|Rich $value): string {
+                    return $value->kind;
+                }
+            }
+            """);
+
+        php.Should().Contain("$value->kind");
+        php.Should().NotContain("$value['kind']");
+    }
+
+    [Fact]
+    public void Emit_UnionOfStructs_WithDifferentKeysReadsSharedPropertyAsProperty()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace App {
+                type Named = struct { string 'name' as $label; };
+                type Titled = struct { string 'title' as $label; };
+                function label(Named|Titled $value): string {
+                    return $value->label;
+                }
+            }
+            """);
+
+        php.Should().Contain("$value->label");
+        php.Should().NotContain("$value['name']");
+        php.Should().NotContain("$value['title']");
+    }
 }

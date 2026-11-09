@@ -100,6 +100,12 @@ namespace Tyhp.TyhpLang.Checker
                 return;
             }
 
+            if (TryApplyStructDiscriminantNarrowing(
+                    condition, branchState, context, symbolTree, globalScope, positive))
+            {
+                return;
+            }
+
             if (TryApplyIssetNarrowing(condition, branchState, context, symbolTree, globalScope, positive))
             {
                 return;
@@ -366,8 +372,119 @@ namespace Tyhp.TyhpLang.Checker
                     symbolTree,
                     globalScope);
 
-            return TryNarrowSubject(subject, narrowed, branchState, context, symbolTree, sentinelType!);
+            return TryNarrowSubject(
+                subject,
+                narrowed,
+                branchState,
+                context,
+                symbolTree,
+                globalScope,
+                sentinelType!,
+                expectSentinel);
         }
+
+        /// <summary>
+        /// <c>$value-&gt;field === 'literal'</c> (and <c>!==</c>) on a union of structs keeps the
+        /// arms whose field can be that literal. Later reads of other fields use the kept arms.
+        /// </summary>
+        private static bool TryApplyStructDiscriminantNarrowing(
+            IExpression condition,
+            CheckerState branchState,
+            INarrowingResolution context,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            bool positive)
+        {
+            if (condition is not PhpBinaryOpAst binary)
+            {
+                return false;
+            }
+
+            var op = binary.Operator?.ValueString;
+            var positiveEquals = string.Equals(op, "===", StringComparison.Ordinal);
+            var negativeEquals = string.Equals(op, "!==", StringComparison.Ordinal);
+            if (!positiveEquals && !negativeEquals)
+            {
+                return false;
+            }
+
+            IExpression? subject;
+            if (binary.Right is IExpression right
+                && TryGetStaticStringLiteral(right, out var literal)
+                && binary.Left is not null)
+            {
+                subject = binary.Left;
+            }
+            else if (binary.Left is IExpression left
+                && TryGetStaticStringLiteral(left, out literal)
+                && binary.Right is not null)
+            {
+                subject = binary.Right;
+            }
+            else
+            {
+                return false;
+            }
+
+            if (!ReceiverHasStructArm(subject, branchState, context, symbolTree, globalScope))
+            {
+                return false;
+            }
+
+            var sentinel = new LiteralCheckedType(
+                literal,
+                new SimpleCheckedType(new BuiltInTypeSymbol("string")));
+            var matchesSentinel = (positiveEquals && positive) || (negativeEquals && !positive);
+            var propertyType = ResolveSubjectType(subject, branchState, context, symbolTree);
+            var narrowed = matchesSentinel
+                ? TypeComparer.NarrowType(propertyType, sentinel, symbolTree, globalScope)
+                : ExcludeIdentitySentinel(propertyType, sentinel, symbolTree, globalScope);
+            return TryNarrowSubject(
+                subject,
+                narrowed,
+                branchState,
+                context,
+                symbolTree,
+                globalScope,
+                sentinel,
+                matchesSentinel);
+        }
+
+        private static bool ReceiverHasStructArm(
+            IExpression subject,
+            CheckerState branchState,
+            INarrowingResolution context,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            if (subject is not PhpDereferenceableAst { Base: PhpVariableAst variable }
+                || CheckerHelpers.GetVariableName(variable) is not { } variableName
+                || branchState.LookupVariable(variableName) is not { } variableState)
+            {
+                return false;
+            }
+
+            var arms = new List<ICheckedType>();
+            CollectUnionArms(
+                ExpandForStructNarrowing(variableState.EffectiveType, branchState, context, symbolTree, globalScope),
+                arms);
+            return arms.Any(arm =>
+                TypeComparer.TryGetStructShapeForAssignability(arm, symbolTree, globalScope) is not null);
+        }
+
+        private static ICheckedType ExpandForStructNarrowing(
+            ICheckedType type,
+            CheckerState state,
+            INarrowingResolution context,
+            SymbolTree symbolTree,
+            GlobalScope globalScope) =>
+            TypeComparer.ExpandTypeAliases(
+                type,
+                symbolTree,
+                globalScope,
+                (ast, alias) => context.ResolveTypeAnnotation(
+                    ast,
+                    CheckerHelpers.WithAliasBodyContext(state, alias)));
 
         private static ICheckedType ResolveSubjectType(
             IExpression subject,
@@ -405,7 +522,9 @@ namespace Tyhp.TyhpLang.Checker
             CheckerState branchState,
             INarrowingResolution context,
             SymbolTree symbolTree,
-            ICheckedType sentinelType)
+            GlobalScope globalScope,
+            ICheckedType sentinelType,
+            bool matchesSentinel)
         {
             var excludingNull = TypeComparer.IsNullLiteral(sentinelType)
                 || TypeComparer.IsBuiltInName(sentinelType, "null");
@@ -437,11 +556,146 @@ namespace Tyhp.TyhpLang.Checker
 
             if (TryGetMemberAccessKey(subject, out var memberKey))
             {
+                // `$node->kind === 'scalar'` keeps the struct arms whose `kind` can be that
+                // literal, so a later read of another field sees that arm's type. A shared
+                // field with a different type on each arm would otherwise stay `mixed`.
+                TryNarrowStructUnionReceiver(
+                    subject,
+                    sentinelType,
+                    matchesSentinel,
+                    branchState,
+                    context,
+                    symbolTree,
+                    globalScope);
                 branchState.NarrowMemberAccess(memberKey!, narrowed);
                 return true;
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// When <paramref name="subject"/> is <c>$var-&gt;field</c> and <c>$var</c> is a union of
+        /// structs, keep the arms consistent with comparing that field to
+        /// <paramref name="sentinel"/>. A match keeps arms that can hold the sentinel. A mismatch
+        /// drops arms that can only be the sentinel.
+        /// </summary>
+        private static void TryNarrowStructUnionReceiver(
+            IExpression subject,
+            ICheckedType sentinel,
+            bool matchesSentinel,
+            CheckerState branchState,
+            INarrowingResolution context,
+            SymbolTree symbolTree,
+            GlobalScope globalScope)
+        {
+            if (subject is not PhpDereferenceableAst
+                {
+                    Base: PhpVariableAst variable,
+                    Suffix: PhpInstanceMemberAccessAst member,
+                }
+                || !TryGetPathMemberName(member, out var propertyName)
+                || CheckerHelpers.GetVariableName(variable) is not { } variableName
+                || branchState.LookupVariable(variableName) is not { } variableState)
+            {
+                return;
+            }
+
+            var arms = new List<ICheckedType>();
+            CollectUnionArms(
+                ExpandForStructNarrowing(
+                    variableState.EffectiveType, branchState, context, symbolTree, globalScope),
+                arms);
+            if (!arms.Any(arm =>
+                    TypeComparer.TryGetStructShapeForAssignability(arm, symbolTree, globalScope) is not null))
+            {
+                return;
+            }
+
+            var kept = new List<ICheckedType>();
+            foreach (var arm in arms)
+            {
+                if (!TryGetStructPropertyType(
+                        arm, propertyName, branchState, context, symbolTree, globalScope, out var propertyType))
+                {
+                    if (!matchesSentinel)
+                    {
+                        kept.Add(arm);
+                    }
+
+                    continue;
+                }
+
+                var sentinelFits = TypeComparer.IsAssignableTo(sentinel, propertyType, symbolTree, globalScope);
+                var onlySentinel = TypeComparer.IsAssignableTo(propertyType, sentinel, symbolTree, globalScope);
+                if (matchesSentinel ? sentinelFits : !onlySentinel)
+                {
+                    kept.Add(arm);
+                }
+            }
+
+            branchState.NarrowVariable(
+                variableName,
+                kept.Count == 0 ? CheckedTypes.Never : CheckedTypes.UnionTypes(kept));
+        }
+
+        private static void CollectUnionArms(ICheckedType type, List<ICheckedType> arms)
+        {
+            switch (type)
+            {
+                case UnionCheckedType union:
+                    foreach (var member in union.Members)
+                    {
+                        CollectUnionArms(member, arms);
+                    }
+
+                    break;
+                case NullableCheckedType nullable:
+                    CollectUnionArms(nullable.InnerType, arms);
+                    arms.Add(CheckedTypes.Null);
+                    break;
+                default:
+                    arms.Add(type);
+                    break;
+            }
+        }
+
+        private static bool TryGetStructPropertyType(
+            ICheckedType arm,
+            string propertyName,
+            CheckerState branchState,
+            INarrowingResolution context,
+            SymbolTree symbolTree,
+            GlobalScope globalScope,
+            out ICheckedType propertyType)
+        {
+            propertyType = CheckedTypes.Unresolved;
+            if (CheckerHelpers.TryGetObjectDeclaration(arm) is not { IsStruct: true } structType)
+            {
+                return false;
+            }
+
+            var key = propertyName.StartsWith('$')
+                ? propertyName
+                : "$" + propertyName;
+            if (symbolTree.ResolveMember(key, structType, new DiagnosticBag()) is not ObjectPropertySymbol
+                {
+                    DeclaredType: { } declared,
+                })
+            {
+                return false;
+            }
+
+            var resolveState = branchState;
+            if (structType.ContainingScope is { } declaringScope
+                && !ReferenceEquals(branchState.NameResolutionScope, declaringScope))
+            {
+                resolveState = branchState.Fork();
+                resolveState.NameResolutionScope = declaringScope;
+            }
+
+            propertyType = context.ResolveTypeAnnotation(declared, resolveState);
+            return !TypeComparer.IsUnresolvedType(propertyType);
         }
 
         /// <summary>

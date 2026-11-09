@@ -328,8 +328,8 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         /// <summary>
-        /// Layout 1 is the only dispatch this compiler implements. Empty intersection with the
-        /// declaration's <c>layouts</c> is an error — do not guess a call shape.
+        /// Layouts 1 and 2 are the dispatch this compiler implements. Empty intersection with
+        /// the declaration's <c>layouts</c> is an error — do not guess a call shape.
         /// </summary>
         private bool GenericRuntimeLayoutIsSupported(IBaseSymbol? symbol, IBase2Ast? node)
         {
@@ -369,7 +369,9 @@ namespace Tyhp.TyhpLang.Emitter
 
         private string? TryFormatGenericRuntimeStamp(IBase2Ast source)
         {
-            if (this._currentVariantGenericParams.Count > 0)
+            // The binder body is emitted while variant parameters are current. The stamp belongs
+            // on the binder declaration itself, not on a nested node emitted from that body.
+            if (this._currentVariantGenericParams.Count > 0 && !this._allowVariantBinderStamp)
             {
                 return null;
             }
@@ -389,13 +391,13 @@ namespace Tyhp.TyhpLang.Emitter
                         method,
                         method.GenericParameters,
                         method.IsAbstract,
-                        method.Name + GeneratedNames.GenericVariantSuffix);
+                        method.Name);
                 case FunctionDeclarationSymbol function:
                     return this.BuildCallableGenericRuntimeStamp(
                         function,
                         function.GenericParameters,
                         isAbstract: false,
-                        function.Name + GeneratedNames.GenericVariantSuffix);
+                        function.Name);
                 default:
                     return null;
             }
@@ -416,7 +418,7 @@ namespace Tyhp.TyhpLang.Emitter
             {
                 Erased = !tracked,
                 Factory = tracked ? GeneratedNames.GenericFactory(obj.FullyQualifiedName) : null,
-                Layouts = [GenericRuntimeAttributeSupport.CurrentLayout],
+                Layouts = [GenericRuntimeAttributeSupport.ClassLayout],
                 Compiler = IncrementalBuildService.GetCompilerVersion(),
             };
         }
@@ -439,11 +441,22 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             var tracked = this._context.RequiresGenericVariantFor(symbol);
+            var infer = tracked && InferGenericAttributeSupport.HasInferGeneric(symbol);
+            string? binder = null;
+            if (tracked && !string.IsNullOrWhiteSpace(binderName))
+            {
+                binder = infer
+                    ? InferGenericAttributeSupport.CompanionBinderName(binderName)
+                    : binderName;
+            }
+
             return new GenericRuntimeInfo
             {
                 Erased = !tracked,
-                Binder = tracked ? binderName : null,
-                Layouts = [GenericRuntimeAttributeSupport.CurrentLayout],
+                Binder = binder,
+                Layouts = [infer || !tracked
+                    ? GenericRuntimeAttributeSupport.ClassLayout
+                    : GenericRuntimeAttributeSupport.CallableLayout],
                 Compiler = IncrementalBuildService.GetCompilerVersion(),
             };
         }

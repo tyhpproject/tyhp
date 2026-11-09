@@ -87,6 +87,14 @@ namespace Tyhp.TyhpLang.Emitter
         private bool _currentMemberIsStatic;
 
         /// <summary>
+        /// The same-named <c>#[\Tyhp\Php]</c> method declarations that share the PHP method being
+        /// emitted (see <see cref="EmitPhpVersionSplitBodies"/>), or null for an ordinary method.
+        /// Every body path (plain, Mechanism D binder closure, async wrapper) reads it through
+        /// <see cref="EmitMethodBody"/>.
+        /// </summary>
+        private IReadOnlyList<PhpMethodDeclAst>? _currentPhpVersionSplitBodies;
+
+        /// <summary>
         /// Bound symbol of the free function or method currently being emitted, or null outside a
         /// callable body. When an <c>is</c>/<c>instanceof</c> RHS inside that body would otherwise
         /// lower to a call back into this same <c>#[\Tyhp\NativeTypeTest]</c> host, emit falls back
@@ -104,13 +112,31 @@ namespace Tyhp.TyhpLang.Emitter
 
         /// <summary>
         /// Generic parameters of the Mechanism D binder currently being emitted, or empty while
-        /// emitting an ordinary declaration or the delegating wrapper. While non-empty the signature
-        /// builders append the <c>__tyhpGeneric</c> suffix and emit type-arg-only binder parameters
-        /// returning <c>\Closure</c>, and <c>typeof</c>/<c>default</c> read those captured
-        /// parameters instead of the instance's generic registry.
+        /// emitting an ordinary declaration. While non-empty the declaration is the binder
+        /// (type arguments only, returns <c>\Closure</c>) and <c>typeof</c>/<c>default</c> read
+        /// the captured <c>$T</c> parameters instead of the instance's generic registry.
         /// </summary>
         private IReadOnlyList<GenericTypeParameterSymbol> _currentVariantGenericParams =
             Array.Empty<GenericTypeParameterSymbol>();
+
+        /// <summary>
+        /// True only while attaching attributes to the layout-2 binder, or to the
+        /// value-signature half of an <c>#[\Tyhp\InferGeneric]</c> pair, so its
+        /// <c>#[\Tyhp\GenericRuntime]</c> stamp is emitted once on that declaration.
+        /// </summary>
+        private bool _allowVariantBinderStamp;
+
+        /// <summary>
+        /// True while emitting the <c>name__tyhpGeneric</c> companion of an
+        /// <c>#[\Tyhp\InferGeneric]</c> callable. The value-signature half keeps
+        /// the declared name.
+        /// </summary>
+        private bool _inferGenericCompanionName;
+
+        /// <summary>
+        /// True while emitting that companion, so the stamp stays on the plain method.
+        /// </summary>
+        private bool _suppressCompanionStamp;
 
         // Operator overloads collected during member emission for the current object. In the Story 11
         // §8 redesign, all forms of an operator collapse into a single static method (plus convert's

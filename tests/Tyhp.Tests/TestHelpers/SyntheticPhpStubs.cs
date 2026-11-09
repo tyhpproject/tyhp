@@ -285,6 +285,11 @@ public static class SyntheticPhpStubs
                 public function __construct(): void;
             }
 
+            #[\Attribute(\Attribute::TARGET_METHOD | \Attribute::TARGET_FUNCTION)]
+            final class InferGeneric {
+                public function __construct(): void;
+            }
+
             #[\Attribute(\Attribute::TARGET_ALL)]
             final class GenericRuntime {
                 public function __construct(
@@ -602,6 +607,11 @@ public static class SyntheticPhpStubs
             #[\Attribute(\Attribute::TARGET_CLASS | \Attribute::TARGET_PROPERTY | \Attribute::TARGET_PARAMETER)]
             #[\Tyhp\NoEmit]
             final class EraseGeneric {
+                public function __construct(): void;
+            }
+
+            #[\Attribute(\Attribute::TARGET_METHOD | \Attribute::TARGET_FUNCTION)]
+            final class InferGeneric {
                 public function __construct(): void;
             }
 

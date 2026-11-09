@@ -8,15 +8,17 @@ namespace Tyhp.TyhpLang
     public static class GeneratedNames
     {
         /// <summary>
-        /// Suffix on the generic variant a callable is emitted alongside when it needs its own generic
-        /// parameters at runtime (Mechanism D binder; also Mechanism C class bag / factory names).
+        /// Suffix on Mechanism C class bag / factory names, on a layout-1 callable binder, and on
+        /// the companion a later <c>#[\Tyhp\InferGeneric]</c> method keeps beside its plain method.
+        /// A layout-2 callable is the binder under its declared name and does not use this suffix.
         /// The <c>__tyhpGeneric</c> spelling is shared ABI legacy — do not rename casually.
         /// See <see cref="Emitter.TyhpEmitter"/>.
         /// </summary>
         public const string GenericVariantSuffix = "__tyhpGeneric";
 
         /// <summary>
-        /// Prefix on the hidden parameter carrying one bound type argument into a generic variant.
+        /// Prefix on the hidden parameter of a layout-1 binder (<c>$__generic_T</c>). Layout-2
+        /// binder parameters are named after the type parameter (<c>$T</c>).
         /// </summary>
         public const string GenericVariantParameterPrefix = "__generic_";
 

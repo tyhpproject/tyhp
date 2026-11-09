@@ -137,12 +137,46 @@ namespace Tyhp.TyhpLang.Checker.Rules
             DiagnosticBag diagnostics)
         {
             var objectDecl = CheckerHelpers.TryGetObjectDeclaration(targetType);
+            // Struct `with` lists are a separate feature. Object lists (classes and other
+            // non-struct declarations) check unkeyed entries and spreads here.
+            var objectTarget = objectDecl is { IsStruct: false } ? objectDecl : null;
+            Dictionary<string, ObjectWithAssignment>? pending = objectTarget is null
+                ? null
+                : new Dictionary<string, ObjectWithAssignment>(StringComparer.Ordinal);
+            // An unkeyed entry names no property on any non-struct target, including a nullable
+            // class, a union of classes, `object`, and a type parameter.
+            var reportUnkeyed = objectTarget is not null || IsNonStructWithTarget(targetType);
 
             foreach (var pair in pairList.GetAllNotNull())
             {
+                if (pair.IsSkippedSlot)
+                {
+                    continue;
+                }
+
+                if (pair.IsExpansion)
+                {
+                    if (objectTarget is not null && pending is not null)
+                    {
+                        ApplyObjectSpread(
+                            pair, targetType, objectTarget, pending, state, context, diagnostics);
+                    }
+
+                    continue;
+                }
+
                 var propertyName = GetPropertyName(pair.KeyExpr, out var writtenAsQuoted);
                 if (propertyName is null)
                 {
+                    if (reportUnkeyed && pair.KeyExpr is null && pair.ValueExpr is not null)
+                    {
+                        CheckerHelpers.ReportError(
+                            diagnostics,
+                            state,
+                            pair,
+                            MessageCode.CheckerWithEntryUnkeyed);
+                    }
+
                     continue;
                 }
 
@@ -180,21 +214,223 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     && member is ObjectPropertySymbol property
                     && property.DeclaredType is not null)
                 {
-                    var propertyType = context.ResolveMemberDeclaredType(
-                        property.DeclaredType, targetType, state);
+                    var bareName = propertyName.StartsWith('$') ? propertyName[1..] : propertyName;
                     var valueType = context.ResolveExpressionType(pair.ValueExpr, state);
-                    if (!context.IsAssignable(valueType, propertyType))
+                    if (pending is not null)
                     {
-                        context.CheckAssignment(pair.ValueExpr, valueType, propertyType);
+                        // A later entry or spread replaces an earlier write to the same property.
+                        pending[bareName] = new ObjectWithAssignment(
+                            property, bareName, valueType, pair.ValueExpr);
                     }
-
-                    if ((property.Visibility & MemberModifier.Readonly) != 0)
+                    else
                     {
-                        ValidateReadonlyWith(form, propertyName, objectDecl!, withExpr, state, context, diagnostics);
+                        CheckWithValue(
+                            property,
+                            propertyName,
+                            pair.ValueExpr,
+                            valueType,
+                            targetType,
+                            objectDecl!,
+                            form,
+                            withExpr,
+                            state,
+                            context,
+                            diagnostics);
                     }
                 }
             }
+
+            if (pending is null || objectTarget is null)
+            {
+                return;
+            }
+
+            foreach (var assignment in pending.Values)
+            {
+                CheckWithValue(
+                    assignment.Property,
+                    assignment.PropertyName,
+                    assignment.ValueNode,
+                    assignment.ValueType,
+                    targetType,
+                    objectTarget,
+                    form,
+                    withExpr,
+                    state,
+                    context,
+                    diagnostics);
+            }
         }
+
+        /// <summary>
+        /// True when no part of <paramref name="targetType"/> can be a struct, so the list is an
+        /// object list whatever the target's exact class. Unresolved targets and structural
+        /// shapes are not decided here.
+        /// </summary>
+        private static bool IsNonStructWithTarget(ICheckedType targetType) =>
+            targetType switch
+            {
+                { Kind: CheckedTypeKind.Unresolved or CheckedTypeKind.Inferred or CheckedTypeKind.ObjectShape } => false,
+                StructCheckedType => false,
+                NullableCheckedType nullable => IsNonStructWithTarget(nullable.InnerType),
+                UnionCheckedType union => union.Members.All(IsNonStructWithTarget),
+                IntersectionCheckedType intersection => intersection.Members.All(IsNonStructWithTarget),
+                _ => CheckerHelpers.TryGetObjectDeclaration(targetType) is not { IsStruct: true },
+            };
+
+        /// <summary>
+        /// Checks one spread in an object <c>with</c> list. The source must be a concrete struct
+        /// (named, generic instance, or anonymous). Each field is matched to a target property by
+        /// its PHP array key — the alias when the field has one — and the last write to that
+        /// property is what <see cref="CheckWithValue"/> sees.
+        /// </summary>
+        private static void ApplyObjectSpread(
+            PhpArrayPairAst pair,
+            ICheckedType targetType,
+            ObjectDeclarationSymbol objectTarget,
+            Dictionary<string, ObjectWithAssignment> pending,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (pair.ValueExpr is null)
+            {
+                return;
+            }
+
+            var sourceType = context.ResolveExpressionType(pair.ValueExpr, state);
+            if (sourceType.Kind is CheckedTypeKind.Unresolved or CheckedTypeKind.Inferred)
+            {
+                return;
+            }
+
+            if (!TryGetConcreteStructShape(sourceType, state, context, out var shape) || shape is null)
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    pair,
+                    MessageCode.CheckerWithSpreadNotStruct,
+                    targetType.DisplayName,
+                    sourceType.DisplayName);
+                return;
+            }
+
+            foreach (var (memberName, info) in shape.Properties)
+            {
+                var arrayKey = StructFieldArrayKey(memberName, info);
+                var propertyKey = arrayKey.StartsWith('$') ? arrayKey : "$" + arrayKey;
+                if (FindMemberInHierarchy(objectTarget, propertyKey, context) is not ObjectPropertySymbol property
+                    || property.DeclaredType is null)
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        pair,
+                        MessageCode.CheckerWithSpreadExtraField,
+                        arrayKey,
+                        sourceType.DisplayName,
+                        targetType.DisplayName);
+                    continue;
+                }
+
+                var bareName = arrayKey.StartsWith('$') ? arrayKey[1..] : arrayKey;
+                pending[bareName] = new ObjectWithAssignment(property, bareName, info.Type, pair);
+            }
+        }
+
+        /// <summary>
+        /// A spread source whose fields can be checked: a named struct (including a generic
+        /// instance) or an anonymous struct shape. Nullable structs, unions, intersections,
+        /// <c>mixed</c>, arrays, and the bare <c>struct</c> bound are rejected — their keys
+        /// are not a fixed set of property names.
+        /// </summary>
+        private static bool TryGetConcreteStructShape(
+            ICheckedType sourceType,
+            CheckerState state,
+            CheckerRuleContext context,
+            out StructCheckedType? shape)
+        {
+            shape = null;
+            if (sourceType.IsNullable
+                || sourceType.IsMixed
+                || sourceType is UnionCheckedType or IntersectionCheckedType)
+            {
+                return false;
+            }
+
+            var isConcreteStruct = sourceType is StructCheckedType
+                || CheckerHelpers.TryGetObjectDeclaration(sourceType) is { IsStruct: true };
+            if (!isConcreteStruct)
+            {
+                return false;
+            }
+
+            shape = StructTypeHelper.TryGetPropertyShape(
+                sourceType,
+                state,
+                context.SymbolTree,
+                context.GlobalScope,
+                context.ResolveTypeAnnotation,
+                instancePropertiesOnly: true);
+            return shape is not null;
+        }
+
+        /// <summary>
+        /// PHP array key for a struct field. An alias (<c>'status_code' as $statusCode</c>,
+        /// <c>0 as $arg1</c>) is the key the runtime assigns; otherwise the bare field name.
+        /// </summary>
+        private static string StructFieldArrayKey(string memberName, StructPropertyInfo info)
+        {
+            if (info.IntegerKeyAlias is int integerKey)
+            {
+                return integerKey.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            if (!string.IsNullOrEmpty(info.StringKeyAlias))
+            {
+                return info.StringKeyAlias;
+            }
+
+            return memberName.StartsWith('$') ? memberName[1..] : memberName;
+        }
+
+        private static void CheckWithValue(
+            ObjectPropertySymbol property,
+            string propertyName,
+            IBase2Ast valueNode,
+            ICheckedType valueType,
+            ICheckedType targetType,
+            ObjectDeclarationSymbol objectDecl,
+            WithForm form,
+            PhpBinaryOpAst withExpr,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (property.DeclaredType is null)
+            {
+                return;
+            }
+
+            var propertyType = context.ResolveMemberDeclaredType(
+                property.DeclaredType, targetType, state);
+            if (!context.IsAssignable(valueType, propertyType))
+            {
+                context.CheckAssignment(valueNode, valueType, propertyType);
+            }
+
+            if ((property.Visibility & MemberModifier.Readonly) != 0)
+            {
+                ValidateReadonlyWith(form, propertyName, objectDecl, withExpr, state, context, diagnostics);
+            }
+        }
+
+        private readonly record struct ObjectWithAssignment(
+            ObjectPropertySymbol Property,
+            string PropertyName,
+            ICheckedType ValueType,
+            IBase2Ast ValueNode);
 
         private static void ValidateReadonlyWith(
             WithForm form,
@@ -389,8 +625,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
         /// <summary>
         /// Resolves a <c>with</c> key to a bare property name. Keys may be written bare
         /// (<c>name => …</c>) or quoted when the name collides with a Tyhp keyword or builtin type
-        /// (<c>'type' => …</c>, <c>'class' => …</c>). Returns null when no static name is available,
-        /// so a dynamic key is skipped rather than reported as a missing property.
+        /// (<c>'type' => …</c>, <c>'class' => …</c>). Returns null when no static name is available.
+        /// A dynamic key is skipped rather than reported as a missing property. An unkeyed entry
+        /// on a class is reported by <see cref="ValidateWithProperties"/>.
         /// </summary>
         /// <param name="writtenAsQuoted">
         /// True when the key came from a string literal, meaning the name is shorter than the

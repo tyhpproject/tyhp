@@ -146,13 +146,16 @@ public class PhpVersionMatrixSmokeTests
         }
 
         compiled.Php.Should().Contain("function always()");
+        // A method that misses the floor but holds on a newer PHP is not registered for lookup,
+        // yet it is still emitted: behind a version check below 8.5, unguarded at 8.5.
+        compiled.Php.Should().Contain("function only_85()");
         if (widgetHasOnly85)
         {
-            compiled.Php.Should().Contain("function only_85()");
+            compiled.Php.Should().NotContain("PHP_VERSION_ID >= 80500");
         }
         else
         {
-            compiled.Php.Should().NotContain("only_85");
+            compiled.Php.Should().Contain("if (\\PHP_VERSION_ID >= 80500)");
         }
     }
 

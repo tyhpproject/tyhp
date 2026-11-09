@@ -510,6 +510,7 @@ namespace Tyhp.TyhpLang.Checker
                 && !ReferencesAny(deref.Base, shadowedVariables))
             {
                 RecordCalleeForVariantRouting(deref.Base, call, state);
+                RecordBoundGenericCallee(deref, call);
             }
 
             foreach (var child in node.AstChildren)
@@ -575,6 +576,34 @@ namespace Tyhp.TyhpLang.Checker
         /// skipped: they need no routing, and re-resolving a member here would duplicate any
         /// unresolved-member diagnostic.
         /// </summary>
+        /// <summary>
+        /// A layout-2 binder has no value-signature wrapper, so a call with no type arguments
+        /// still has to be rewritten to <c>name(types)(args)</c>. Inference has already bound
+        /// the callee; recording it does not resolve the member again.
+        /// </summary>
+        private void RecordBoundGenericCallee(PhpDereferenceableAst dereferenceable, PhpCallAst call)
+        {
+            if (Rules.CheckerHelpers.IsFirstClassCallableArgumentList(call.Arguments))
+            {
+                return;
+            }
+
+            var symbol = dereferenceable.BoundSymbol
+                ?? (dereferenceable.Base as PhpNameAst)?.BoundSymbol;
+            var genericCount = symbol switch
+            {
+                ObjectMethodSymbol method => method.GenericParameters.Count,
+                FunctionDeclarationSymbol function => function.GenericParameters.Count,
+                _ => 0,
+            };
+            if (genericCount == 0 || symbol is null)
+            {
+                return;
+            }
+
+            _checker.RecordGenericCallTarget(call, symbol);
+        }
+
         internal void RecordCalleeForVariantRouting(
             IDereferenceableBase? baseNode,
             PhpCallAst call,

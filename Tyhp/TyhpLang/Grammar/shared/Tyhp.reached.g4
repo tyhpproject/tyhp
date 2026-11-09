@@ -373,6 +373,7 @@ tyhpMethodDefinition
     // @ we will throw an error during the visit if this has a return type or
     // @ generics and is not tyhp
     : Identifier=T_CONSTRUCT_METHOD
+        GenericArguments=tyhpGenericParameterDeclarations?
         FindDocComment=T_OPEN_ROUND_BRACE ParameterList=ctorParameterList
         T_CLOSE_ROUND_BRACE ReturnType=tyhpCtorReturnType?
         StatementList=methodBody                                                #tyhpClassCtorWithReturnType

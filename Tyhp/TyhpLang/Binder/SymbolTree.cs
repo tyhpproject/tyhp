@@ -296,6 +296,17 @@ namespace Tyhp.TyhpLang.Binder {
         }
 
         /// <summary>
+        /// Resolves the static method a <c>Class::name(...)</c> call targets, including inherited
+        /// members and the <c>__callStatic</c> fallback. Class constants are not considered, so a
+        /// constant with the same spelling does not hide the method.
+        /// </summary>
+        public IBaseSymbol? ResolveStaticMethodMember(string memberName, ObjectDeclarationSymbol onClass, DiagnosticBag diagnostics)
+        {
+            var resolver = new NameResolver(this, diagnostics);
+            return resolver.ResolveStaticMethodMember(memberName, onClass);
+        }
+
+        /// <summary>
         /// Resolves a class constant or enum case by exact name, including inherited constants.
         /// Creates an ephemeral NameResolver per call; resolution results are not accumulated.
         /// </summary>

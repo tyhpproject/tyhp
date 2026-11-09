@@ -1297,6 +1297,57 @@ namespace Tyhp.Domain.Exceptions
             /// </summary>
             CheckerLazyNewHasNoLazyProperty = 4403,
 
+            /// <summary>
+            /// A magic method (<c>__construct</c>, <c>__get</c>, <c>__invoke</c>, …) declares
+            /// type parameters. The binder would replace the signature PHP dispatches on.
+            /// </summary>
+            CheckerGenericOnMagicMethod = 4404,
+
+            /// <summary>
+            /// A generic method overrides or implements a non-generic parent method, or a
+            /// non-generic method of a PHP interface. The binder would replace the signature
+            /// PHP dispatches on.
+            /// </summary>
+            CheckerGenericOverridesNonGenericMethod = 4405,
+
+            /// <summary>
+            /// A generic class, or one of its ancestors, declares a method named <c>new</c> or
+            /// <c>type</c>. Those names are the generated class binders.
+            /// </summary>
+            CheckerGenericClassReservedMemberName = 4406,
+
+            /// <summary>
+            /// <c>#[\Tyhp\InferGeneric]</c> on a generic function or method whose type
+            /// parameter is not reachable from any argument.
+            /// </summary>
+            CheckerInferGenericNotInferable = 4407,
+
+            /// <summary>
+            /// <c>#[\Tyhp\InferGeneric]</c> on a function or method that declares no
+            /// type parameters.
+            /// </summary>
+            CheckerInferGenericOnNonGeneric = 4408,
+
+            /// <summary>
+            /// An unkeyed entry in an object <c>with</c> list (<c>[5]</c>, <c>['not an int']</c>).
+            /// Entries name a property: <c>name => value</c>.
+            /// </summary>
+            CheckerWithEntryUnkeyed = 4409,
+
+            /// <summary>
+            /// A spread in an object <c>with</c> list whose source is not a concrete struct
+            /// (named, generic instance, or anonymous). Arrays, <c>mixed</c>, nullable structs,
+            /// and unions have no fixed set of property keys.
+            /// </summary>
+            CheckerWithSpreadNotStruct = 4410,
+
+            /// <summary>
+            /// A spread struct field's PHP array key (its alias, when it has one) is not a
+            /// property of the object <c>with</c> target, including properties inherited
+            /// through <c>extends</c>.
+            /// </summary>
+            CheckerWithSpreadExtraField = 4411,
+
             // Deprecation warnings (4500+ range)
             CheckerDeprecatedUsage = 4500,
             CheckerObsoleteUsage = 4501,

@@ -326,6 +326,347 @@ public class Phase6RuleTests
     }
 
     [Fact]
+    public void Check_ObjectWith_UnkeyedEntry_ReportsError()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Point {
+                public int $x = 0;
+                public int $y = 0;
+            }
+
+            function fromNew(): Point {
+                return new Point() with ['not an int'];
+            }
+
+            function fromClone(Point $p): Point {
+                return clone $p with [7];
+            }
+
+            function inPlace(Point $p): void {
+                $p with [9];
+            }
+            """);
+
+        var errors = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerWithEntryUnkeyed)
+            .ToList();
+        errors.Should().HaveCount(3);
+        errors.Should().OnlyContain(d => d.Message.Contains("name => value", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_ObjectWith_UnkeyedEntry_NonStructTargets_ReportsError()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Point {
+                public int $x = 0;
+            }
+
+            class Plain {
+                public int $x = 0;
+            }
+
+            function nullableClass(?Point $p): void {
+                $p with [5];
+            }
+
+            function unionOfClasses(Point|Plain $p): void {
+                $p with [5];
+            }
+
+            function plainObject(object $p): void {
+                $p with [5];
+            }
+
+            function typeParameter<T>(T $p): void {
+                $p with [5];
+            }
+            """);
+
+        diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerWithEntryUnkeyed)
+            .Should().HaveCount(4);
+    }
+
+    [Fact]
+    public void Check_StructWith_ObjectListRules_DoNotApply()
+    {
+        // Struct `with` lists are checked by their own rules; the object-list diagnostics
+        // (unkeyed entry, spread source, spread field) must not fire on a struct target.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Src = struct {
+                int $x = 0;
+            };
+
+            type Other = struct {
+                string $x = "";
+            };
+
+            function unkeyed(Src $s): void {
+                $s with [5];
+            }
+
+            function unionTarget(Src|Other $s): void {
+                $s with [5];
+            }
+
+            function nullableTarget(?Src $s): void {
+                $s with [5];
+            }
+
+            function arraySpread(Src $s, array<string, int> $a): Src {
+                return clone $s with [...$a];
+            }
+
+            function structSpread(Src $s, Other $o): Src {
+                return clone $s with [...$o];
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithEntryUnkeyed);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithSpreadNotStruct);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithSpreadExtraField);
+    }
+
+    [Fact]
+    public void Check_ObjectWith_SpreadNonStruct_ReportsError()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Point {
+                public int $x = 0;
+            }
+
+            type Src = struct {
+                int $x = 0;
+            };
+
+            type Other = struct {
+                int $x = 0;
+            };
+
+            function fromArray(array<string, string> $src): Point {
+                return new Point() with [...$src];
+            }
+
+            function fromBareArray(array $src): Point {
+                return new Point() with [...$src];
+            }
+
+            function fromMixed(mixed $src): Point {
+                return new Point() with [...$src];
+            }
+
+            function fromNullable(?Src $src): Point {
+                return new Point() with [...$src];
+            }
+
+            function fromUnion(Src|Other $src): Point {
+                return new Point() with [...$src];
+            }
+            """);
+
+        var errors = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerWithSpreadNotStruct)
+            .ToList();
+        errors.Should().HaveCount(5);
+        errors.Should().OnlyContain(d => d.Message.Contains("is not a struct", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_ObjectWith_SpreadStructFieldsMatch_IsAllowed()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class BasePoint {
+                public int $x = 0;
+            }
+
+            class Point extends BasePoint {
+                public int $y = 0;
+            }
+
+            class Holder {
+                public int $value = 0;
+            }
+
+            class Response {
+                public int $status_code = 200;
+            }
+
+            type Src = struct {
+                int $x = 0;
+                int $y = 0;
+            };
+
+            type Box<T> = struct {
+                T $value;
+            };
+
+            type Status = struct {
+                int 'status_code' as $statusCode = 0;
+            };
+
+            function named(Src $src): Point {
+                return new Point() with [...$src];
+            }
+
+            function generic(Box<int> $src): Holder {
+                return new Holder() with [...$src];
+            }
+
+            function anon(Point $p, struct { int $x; int $y; } $src): Point {
+                return clone $p with [...$src];
+            }
+
+            function aliased(Status $src): Response {
+                return new Response() with [...$src];
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_ObjectWith_SpreadTypeMismatch_ReportsError()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Point {
+                public int $x = 0;
+                public int $y = 0;
+            }
+
+            type Src = struct {
+                string $x = "";
+                int $y = 0;
+            };
+
+            function demo(Src $src): Point {
+                return new Point() with [...$src];
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerTypeMismatch);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithSpreadExtraField);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithSpreadNotStruct);
+    }
+
+    [Fact]
+    public void Check_ObjectWith_SpreadExtraField_ReportsError()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Point {
+                public int $x = 0;
+            }
+
+            class Response {
+                public int $statusCode = 200;
+            }
+
+            type Src = struct {
+                int $x = 0;
+                int $z = 0;
+            };
+
+            type Status = struct {
+                int 'status_code' as $statusCode = 0;
+            };
+
+            type Args = struct {
+                int 0 as $arg1 = 0;
+            };
+
+            function extra(Src $src): Point {
+                return new Point() with [...$src];
+            }
+
+            function alias(Status $src): Response {
+                return new Response() with [...$src];
+            }
+
+            function positional(Args $src): Point {
+                return new Point() with [...$src];
+            }
+            """);
+
+        var errors = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerWithSpreadExtraField)
+            .ToList();
+        errors.Should().HaveCount(3);
+        errors.Select(d => d.Message).Should().Contain(m => m.Contains("`z`", StringComparison.Ordinal));
+        errors.Select(d => d.Message).Should().Contain(m => m.Contains("`status_code`", StringComparison.Ordinal));
+        errors.Select(d => d.Message).Should().Contain(m => m.Contains("`0`", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_ObjectWith_SpreadReadonly_ReportsError()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Color {
+                public readonly int $alpha = 255;
+            }
+
+            type Src = struct {
+                int $alpha = 0;
+            };
+
+            function demo(Color $c, Src $src): void {
+                $c with [...$src];
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerWithReadonlyInPlace);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerTypeMismatch);
+    }
+
+    [Fact]
+    public void Check_ObjectWith_LaterEntryOverridesSpread()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Point {
+                public int $x = 0;
+                public int $y = 0;
+            }
+
+            type Bad = struct {
+                string $x = "";
+                int $y = 0;
+            };
+
+            type Good = struct {
+                int $x = 0;
+                int $y = 0;
+            };
+
+            function laterEntry(Bad $bad): Point {
+                return new Point() with [...$bad, x => 1];
+            }
+
+            function laterSpread(Bad $bad, Good $good): Point {
+                return new Point() with [...$bad, ...$good];
+            }
+
+            function laterSpreadRejected(Good $good, Bad $bad): Point {
+                return new Point() with [...$good, ...$bad];
+            }
+            """);
+
+        var mismatches = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerTypeMismatch)
+            .ToList();
+        mismatches.Should().ContainSingle();
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithSpreadExtraField);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithSpreadNotStruct);
+    }
+
+    [Fact]
     public void Check_EvalUsage_ReportsInfo()
     {
         var diagnostics = CompileAndCheck("""

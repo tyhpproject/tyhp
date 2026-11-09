@@ -11,4 +11,9 @@ namespace App;
 class Widget
 {
     public function always(): void {}
+    public function only_85(): void
+    {
+        if (\PHP_VERSION_ID >= 80500) {
+        }
+    }
 }

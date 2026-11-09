@@ -94,8 +94,108 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 objectState.Modifiers |= MemberModifier.Abstract;
             }
 
+            if (declKind == PhpTypeDeclType.Class)
+            {
+                CheckGenericClassReservedMemberNames(
+                    objectType, objectSymbol, objectState, context, diagnostics);
+            }
+
             CheckObjectBody(objectType.Body, objectSymbol, objectState, context, diagnostics);
             MarkTraitFlattenedGenericPropertyTracking(objectSymbol, objectState, context);
+        }
+
+        /// <summary>
+        /// A generic class generates <c>new()</c> and <c>type()</c>. The same names on that class,
+        /// or on an ancestor, would collide with the generated methods (TYHP4406).
+        /// </summary>
+        private static void CheckGenericClassReservedMemberNames(
+            PhpObjectTypeDeclAst objectType,
+            ObjectDeclarationSymbol objectSymbol,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (objectSymbol.GenericParameters.Count == 0 || IsTyhpdefObject(objectType, state))
+            {
+                return;
+            }
+
+            foreach (var member in objectType.Body?.GetAllNotNull() ?? [])
+            {
+                if (member is not PhpMethodDeclAst method
+                    || string.IsNullOrEmpty(method.Identifier)
+                    || !IsReservedGenericClassMemberName(method.Identifier))
+                {
+                    continue;
+                }
+
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    method,
+                    MessageCode.CheckerGenericClassReservedMemberName,
+                    objectSymbol.Name,
+                    method.Identifier!,
+                    objectSymbol.Name);
+            }
+
+            var seen = new HashSet<ObjectDeclarationSymbol>();
+            var parent = TypeComparer.TryGetParentDeclaration(
+                objectSymbol, context.SymbolTree, context.GlobalScope);
+            while (parent is not null && seen.Add(parent))
+            {
+                ReportAncestorReservedMember(
+                    parent, "new", objectType, objectSymbol, state, diagnostics);
+                ReportAncestorReservedMember(
+                    parent, "type", objectType, objectSymbol, state, diagnostics);
+                parent = TypeComparer.TryGetParentDeclaration(
+                    parent, context.SymbolTree, context.GlobalScope);
+            }
+        }
+
+        private static void ReportAncestorReservedMember(
+            ObjectDeclarationSymbol ancestor,
+            string reservedName,
+            PhpObjectTypeDeclAst objectType,
+            ObjectDeclarationSymbol genericClass,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (!ancestor.Members.TryGetValue(reservedName, out var member)
+                || member is not ObjectMethodSymbol method)
+            {
+                return;
+            }
+
+            var owner = ancestor.Name;
+            if (string.IsNullOrEmpty(owner))
+            {
+                owner = ancestor.FullyQualifiedName.TrimStart('\\');
+            }
+
+            CheckerHelpers.ReportError(
+                diagnostics,
+                state,
+                objectType,
+                MessageCode.CheckerGenericClassReservedMemberName,
+                owner,
+                string.IsNullOrEmpty(method.Name) ? reservedName : method.Name,
+                genericClass.Name);
+        }
+
+        private static bool IsReservedGenericClassMemberName(string name) =>
+            string.Equals(name, "new", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "type", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsTyhpdefObject(PhpObjectTypeDeclAst objectType, CheckerState state)
+        {
+            if (string.Equals(objectType.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var fileName = state.CurrentFileName ?? objectType.OwningFile?.FileName ?? string.Empty;
+            return fileName.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

@@ -72,7 +72,7 @@ class Container
         if ($this->__tyhpGeneric->isInitialized(\App\Container::class)) {
             return;
         }
-        $tValue = $generics[0] ?? \Tyhp\Type::mixed();
+        $tValue = ($generics[0] ?? \Tyhp\Type::mixed())->immutable();
         $this->__tyhpGeneric->init(static::class, \App\Container::class, new \Tyhp\NamedType('TValue', $tValue));
         $this->__tyhpGeneric->setPropertyType('item', \Tyhp\Type::nullable($tValue));
         $this->__tyhpGeneric->markBound();

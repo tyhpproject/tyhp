@@ -11,7 +11,21 @@ namespace Tyhp.TyhpLang.Binder.Symbols
     /// </summary>
     public static class GenericRuntimeAttributeSupport
     {
-        public const int CurrentLayout = 1;
+        /// <summary>Mechanism C class and type-alias factory layout.</summary>
+        public const int ClassLayout = 1;
+
+        /// <summary>
+        /// Mechanism D layout written on callable stamps. The declared method is the binder.
+        /// </summary>
+        public const int CallableLayout = 2;
+
+        /// <summary>Layout this compiler writes for callable stamps.</summary>
+        public const int CurrentLayout = CallableLayout;
+
+        public static readonly int[] SupportedLayouts = [ClassLayout, CallableLayout];
+
+        public static bool IsSupportedLayout(int layout) =>
+            layout == ClassLayout || layout == CallableLayout;
 
         private const string TyhpGenericRuntimeAttributeFqn = "\\Tyhp\\GenericRuntime";
         private const string ErasedArgumentName = "erased";
@@ -151,7 +165,9 @@ namespace Tyhp.TyhpLang.Binder.Symbols
             }
             else
             {
-                resolvedLayouts = [CurrentLayout];
+                // Stamps always write layouts. An attribute that omits them is the historical
+                // class/callable layout 1, not the layout new callable stamps write.
+                resolvedLayouts = [ClassLayout];
             }
 
             info = new GenericRuntimeInfo

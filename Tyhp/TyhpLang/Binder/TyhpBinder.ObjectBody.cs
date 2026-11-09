@@ -181,13 +181,21 @@ namespace Tyhp.TyhpLang.Binder
             var isStatic = modifiers.HasFlag(MemberModifier.Static);
             var symbolType = DetermineMethodSymbolType(name, isStatic);
 
-            if (!ShouldRegisterPhpVersionGatedDeclaration(
-                    methodDecl,
-                    objScope,
-                    name,
-                    symbolType,
-                    illegalAttributeTarget: false,
-                    out var phpConstraints))
+            var registered = ShouldRegisterPhpVersionGatedDeclaration(
+                methodDecl,
+                objScope,
+                name,
+                symbolType,
+                illegalAttributeTarget: false,
+                out var phpConstraints);
+            // Tyhpdef members stay lookup-only: a consumer's floor still hides the sibling that
+            // misses `output.phpVersion`. A .tyhp class/trait/enum method that misses the floor
+            // but can run on a newer PHP is kept for emit and package.tyhpdef, not for lookup.
+            var runtimeOnly = !registered
+                && !IsTyhpdefContext(methodDecl)
+                && objScope.DeclarationSymbol is ObjectDeclarationSymbol { ObjectKind: not PhpTypeDeclType.Interface }
+                && IsRuntimeOnlyPhpVersionGate(objScope, name, symbolType, methodDecl);
+            if (!registered && !runtimeOnly)
             {
                 return null;
             }
@@ -240,6 +248,17 @@ namespace Tyhp.TyhpLang.Binder
                 methodSymbol.FullyQualifiedName = overloadOwner.FullyQualifiedName;
                 methodSymbol.OverloadRole = SourceOverloadRole.Signature;
                 methodSymbol.OverloadOwner = overloadOwner;
+            }
+            else if (runtimeOnly)
+            {
+                methodSymbol.IsPhpVersionRuntimeOnly = true;
+                methodSymbol.ContainingScope = objScope;
+                if (objScope.DeclarationSymbol is ObjectDeclarationSymbol owner)
+                {
+                    owner.AddPhpVersionRuntimeOnlyMethod(methodSymbol);
+                }
+
+                return methodSymbol;
             }
             else if (!objScope.TryAddChildSymbol(methodSymbol, out var existing))
             {

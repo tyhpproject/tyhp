@@ -507,6 +507,57 @@ public class CallReturnTypeInferenceTests
     }
 
     [Fact]
+    public void StaticCall_ResolvesToCallStatic_WhenAConstantSharesTheName()
+    {
+        // `Type::int` (a constant) and `Type::int()` (a `__callStatic` factory) live in different
+        // namespaces. The call must not be typed from, or hidden by, the constant.
+        var errors = CompileAndCheck("""
+            <?tyhp
+            namespace Test;
+            enum Kind { case Int; }
+            class Factory {
+                public const Kind make = Kind::Int;
+                public static function __callStatic(string $name, array<int, mixed> $arguments): self {
+                    return new self();
+                }
+                public function viaCall(): self {
+                    return Factory::make();
+                }
+                public function viaConstant(): Kind {
+                    return Factory::make;
+                }
+            }
+            """);
+
+        errors.Should().BeEmpty(
+            $"Factory::make() is the __callStatic result and Factory::make the constant: {Describe(errors)}");
+    }
+
+    [Fact]
+    public void StaticCall_ResolvesToStaticMethod_WhenAConstantSharesTheName()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            namespace Test;
+            class Counter {
+                public const int total = 1;
+                public static function total(): string {
+                    return 'x';
+                }
+                public function viaCall(): string {
+                    return Counter::total();
+                }
+                public function viaConstant(): int {
+                    return Counter::total;
+                }
+            }
+            """);
+
+        errors.Should().BeEmpty(
+            $"Counter::total() is the static method and Counter::total the constant: {Describe(errors)}");
+    }
+
+    [Fact]
     public void ArrayMap_InfersTResultFromCallbackReturn_AssignableToTypedArray()
     {
         // FOUND Story 11 §4 — callable(TValue): TResult must unify TResult from the arrow return.

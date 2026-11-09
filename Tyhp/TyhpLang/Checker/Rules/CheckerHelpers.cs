@@ -1701,7 +1701,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 if (objectDecl is not null && !DeclaresStaticProperty(symbolTree, objectDecl, methodName))
                 {
-                    if (symbolTree.ResolveStaticMember(methodName, objectDecl, new DiagnosticBag())
+                    // Method-only: a class constant spelled like the call (`Type::int` beside
+                    // `Type::int()` via `__callStatic`) must not hide the method.
+                    if (symbolTree.ResolveStaticMethodMember(methodName, objectDecl, new DiagnosticBag())
                             is ObjectMethodSymbol staticMember
                         && (staticMember.IsStatic || allowInstanceForwarding))
                     {
@@ -3387,6 +3389,83 @@ namespace Tyhp.TyhpLang.Checker.Rules
         }
 
         /// <summary>
+        /// An <c>async</c> <c>#[\Tyhp\InferGeneric]</c> callable whose return type names one of its
+        /// type parameters has to be a variant even when the body never reifies that parameter.
+        /// The promise's type argument is the settled return type, and the PHP return hint erases it.
+        /// </summary>
+        public static bool AsyncInferGenericReturnNeedsVariant(
+            bool isAsync,
+            IBase2Ast declaration,
+            IBase2Ast? returnType,
+            IReadOnlyList<GenericTypeParameterSymbol> generics) =>
+            isAsync
+            && generics.Count > 0
+            && InferGenericAttributeSupport.HasInferGeneric(declaration)
+            && TypeMentionsGenericParameter(returnType, generics);
+
+        /// <summary>
+        /// True when <paramref name="typeExpr"/> names one of <paramref name="generics"/>, including
+        /// inside a union, an intersection, or a type-argument list.
+        /// </summary>
+        public static bool TypeMentionsGenericParameter(
+            IBase2Ast? typeExpr,
+            IReadOnlyList<GenericTypeParameterSymbol> generics,
+            int depth = 0)
+        {
+            if (typeExpr is null || generics.Count == 0 || depth > 500)
+            {
+                return false;
+            }
+
+            if (NamesGenericParameterIn(typeExpr, generics))
+            {
+                return true;
+            }
+
+            if (typeExpr is TyhpGenericIdentifierAst { GenericArguments: PhpTypeExpressionListAst genericArgs }
+                && TypeArgumentListMentionsGeneric(genericArgs, generics, depth))
+            {
+                return true;
+            }
+
+            foreach (var key in (string[])["typeName", "identifier", "memberName"])
+            {
+                if (typeExpr.AstGrammarAddons.TryGetValue(key, out var addon)
+                    && addon is PhpTypeExpressionListAst typeArgList
+                    && TypeArgumentListMentionsGeneric(typeArgList, generics, depth))
+                {
+                    return true;
+                }
+            }
+
+            foreach (var child in typeExpr.AstChildren)
+            {
+                if (TypeMentionsGenericParameter(child, generics, depth + 1))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TypeArgumentListMentionsGeneric(
+            PhpTypeExpressionListAst typeArgList,
+            IReadOnlyList<GenericTypeParameterSymbol> generics,
+            int depth)
+        {
+            foreach (var arg in typeArgList.GetAllNotNull())
+            {
+                if (TypeMentionsGenericParameter(arg, generics, depth + 1))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// True when a subtree uses one of <paramref name="generics"/> in a construct that needs the
         /// bound type at runtime: <c>typeof(T)</c>, <c>default(T)</c>, <c>T::class</c>, <c>instanceof T</c> /
         /// <c>is T</c> (and aliases), <c>new T()</c> (a type parameter as the class name), a type
@@ -3921,8 +4000,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
         /// <summary>
         /// Resolves an alias body in the alias's declaration context: class-level aliases treat
-        /// <c>self</c>/<c>static</c>/<c>parent</c> as the owning class, and alias generic
-        /// parameters (<c>type Row&lt;T&gt;</c>) are in scope.
+        /// <c>self</c>/<c>static</c>/<c>parent</c> as the owning class, alias generic
+        /// parameters (<c>type Row&lt;T&gt;</c>) are in scope, and unqualified names in the
+        /// body resolve in the namespace that declared the alias. A use site in another
+        /// namespace must not re-resolve those names (a union of structs would otherwise
+        /// collapse to an unresolved type).
         /// </summary>
         internal static CheckerState WithAliasBodyContext(CheckerState state, IBaseSymbol alias)
         {
@@ -3937,7 +4019,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 ? alias.ContainingScope?.DeclarationSymbol as ObjectDeclarationSymbol
                 : null;
 
-            if (owner is null && (aliasGenerics is null || aliasGenerics.Count == 0))
+            var declaringScope = alias.ContainingScope;
+            var needsDeclaringScope = declaringScope is not null
+                && !ReferenceEquals(state.NameResolutionScope, declaringScope);
+
+            if (owner is null
+                && (aliasGenerics is null || aliasGenerics.Count == 0)
+                && !needsDeclaringScope)
             {
                 return state;
             }
@@ -3956,6 +4044,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (aliasGenerics is { Count: > 0 })
             {
                 forked.FunctionGenerics = aliasGenerics;
+            }
+
+            if (needsDeclaringScope)
+            {
+                forked.NameResolutionScope = declaringScope;
             }
 
             return forked;

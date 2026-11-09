@@ -25,10 +25,12 @@ namespace Tyhp.TyhpLang.Binder.Symbols
         public string? AliasFactory { get; init; }
 
         /// <summary>
-        /// Dispatch keys the declaration supports. Stamps write <c>layouts: [1]</c>.
-        /// A written <c>layout: 1</c> is sugar for <c>[1]</c> when reading.
+        /// Dispatch keys the declaration supports. A non-erased callable stamp writes
+        /// <c>layouts: [2]</c>. An erased callable, a class, and a type alias write
+        /// <c>layouts: [1]</c>. A written <c>layout:</c>
+        /// value is sugar for a one-element list when reading.
         /// </summary>
-        public IReadOnlyList<int> Layouts { get; init; } = [GenericRuntimeAttributeSupport.CurrentLayout];
+        public IReadOnlyList<int> Layouts { get; init; } = [GenericRuntimeAttributeSupport.ClassLayout];
 
         /// <summary>Optional compiler version for diagnostics only (not dispatch).</summary>
         public string? Compiler { get; init; }
@@ -40,15 +42,15 @@ namespace Tyhp.TyhpLang.Binder.Symbols
         public bool HasAliasFactory => !string.IsNullOrWhiteSpace(this.AliasFactory);
 
         /// <summary>
-        /// First listed layout, or <see cref="GenericRuntimeAttributeSupport.CurrentLayout"/> when
+        /// First listed layout, or <see cref="GenericRuntimeAttributeSupport.ClassLayout"/> when
         /// the list is empty. Prefer <see cref="Layouts"/> / <see cref="HasSupportedLayout"/>.
         /// </summary>
         public int Layout => this.Layouts.Count > 0
             ? this.Layouts[0]
-            : GenericRuntimeAttributeSupport.CurrentLayout;
+            : GenericRuntimeAttributeSupport.ClassLayout;
 
         public bool HasSupportedLayout()
-            => this.Layouts.Any(static layout => layout == GenericRuntimeAttributeSupport.CurrentLayout);
+            => this.Layouts.Any(static layout => GenericRuntimeAttributeSupport.IsSupportedLayout(layout));
 
         public string FormatLayoutsForDiagnostic()
             => this.Layouts.Count == 0

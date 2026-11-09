@@ -1825,6 +1825,58 @@ Raise `output.phpVersion` to 8.5. `new … with` on the same class is available 
     <value>A lazy ghost stays uninitialized only when the class stores at least one instance property. A generic class that Tyhp tracks at runtime stores its type-argument bag, so it counts. Static properties and virtual properties do not. For a class with none, PHP returns a normal object and never calls the initializer, so Tyhp emits an ordinary `new` and the constructor runs immediately. The expression is still valid.</value>
     <comment>Long-form explanation for tyhp --explain TYHP4403</comment>
   </data>
+  <data name="ERROR_TYHP4404" xml:space="preserve">
+    <value>Magic method `{0}` cannot declare type parameters</value>
+    <comment>Checker — a magic method declares type parameters. {0} = method name.</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4404" xml:space="preserve">
+    <value>PHP dispatches a magic method by its declared name and signature. A type parameter would replace that method with a binder that returns a closure, so the engine would no longer call it.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4404</comment>
+  </data>
+  <data name="ERROR_TYHP4405" xml:space="preserve">
+    <value>`{0}` cannot declare type parameters because `{1}` is not generic</value>
+    <comment>Checker — a generic method overrides or implements a non-generic method. {0} = overriding method, {1} = Owner::method of the non-generic target.</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4405" xml:space="preserve">
+    <value>A non-erased generic method is emitted as a binder that takes type arguments and returns a closure. That shape cannot override or implement a method PHP calls with the original value signature.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4405</comment>
+  </data>
+  <data name="ERROR_TYHP4406" xml:space="preserve">
+    <value>`{0}::{1}` is reserved because `{2}` is a generic class</value>
+    <comment>Checker — a generic class, or an ancestor, declares new or type. {0} = class that declares the method, {1} = method name, {2} = generic class.</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4406" xml:space="preserve">
+    <value>A generic class generates `new()` and `type()`. A method with either name on that class, or on an ancestor, collides with the generated method.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4406</comment>
+  </data>
+  <data name="ERROR_TYHP4407" xml:space="preserve">
+    <value>Type parameter `{0}` on `#[\Tyhp\InferGeneric]` cannot be inferred from the arguments</value>
+    <comment>Checker — an InferGeneric type parameter has no argument source. {0} = type parameter name.</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4407" xml:space="preserve">
+    <value>Every type parameter on an `#[\Tyhp\InferGeneric]` function or method has to be reachable from an argument: a callable return, a class-string, a value of that type, a `Promise` of that type, or an array or variadic list of such promises. A type that appears only in the return type has no argument to read.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4407</comment>
+  </data>
+  <data name="WARNING_TYHP4408" xml:space="preserve">
+    <value>`#[\Tyhp\InferGeneric]` is on `{0}`, which has no type parameters</value>
+    <comment>Checker — InferGeneric on a non-generic function or method. {0} = declaration name.</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4408" xml:space="preserve">
+    <value>`#[\Tyhp\InferGeneric]` tells the compiler to infer type parameters from the arguments and to keep a value-signature method beside the companion. A declaration with no type parameters has nothing to infer.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4408</comment>
+  </data>
+  <data name="ERROR_TYHP4409" xml:space="preserve">
+    <value>Entries need a property name: `name => value`</value>
+    <comment>Checker — unkeyed entry in an object with list</comment>
+  </data>
+  <data name="ERROR_TYHP4410" xml:space="preserve">
+    <value>Only a struct value can be spread into `{0}`; `{1}` is not a struct</value>
+    <comment>Checker — object with spread source is not a concrete struct. {0} = target type, {1} = source type</comment>
+  </data>
+  <data name="ERROR_TYHP4411" xml:space="preserve">
+    <value>Spread source `{1}` has field `{0}`, which `{2}` does not declare</value>
+    <comment>Checker — object with spread field array key is not a property of the target. {0} = array key, {1} = source type, {2} = target type</comment>
+  </data>
   <data name="WARNING_TYHP4500" xml:space="preserve">
     <value>`{0}` is deprecated{1}</value>
     <comment>Checker deprecated usage. {1} is empty, or ": {message}" when #[\Deprecated] $message is a string literal.</comment>

@@ -273,7 +273,7 @@ Tyhp/TyhpLang/Checker/
 | `TypeNarrowingRule` | Smart casts (static helper, not `ICheckerRule`) |
 | `ClosureRule` + `ClosureParameterInference` | Closures / contextual params |
 | `UnsetTrackingRule` | `unset` vs definite assignment / `AllowUnset` |
-| `StructRule` / `WithKeywordRule` | Anonymous `TyhpStructDeclAst` (incl. ObjectGenerics / constraints) and `with` forms (member substitution on generic structs). Named `type Name = struct { };` aliases are `ObjectDeclarationSymbol` with `IsStruct`; `DeclarationRule` checks the alias body under that struct's generic scope. Anonymous shapes are `StructCheckedType`; `StructPropertyInfo.StringKeyAlias` carries a string key alias for the emitter. `clone` accepts a struct operand, and `NullSafetyRule` records the types of `isset`/`empty` operand chains (`RecordProbeOperandTypes`) even though it skips traversing them, so the emitter can rewrite them. |
+| `StructRule` / `WithKeywordRule` | Anonymous `TyhpStructDeclAst` (incl. ObjectGenerics / constraints) and `with` forms (member substitution on generic structs). Named `type Name = struct { };` aliases are `ObjectDeclarationSymbol` with `IsStruct`; `DeclarationRule` checks the alias body under that struct's generic scope. Anonymous shapes are `StructCheckedType`; `StructPropertyInfo.StringKeyAlias` carries a string key alias for the emitter. `clone` accepts a struct operand, and `NullSafetyRule` records the types of `isset`/`empty` operand chains (`RecordProbeOperandTypes`) even though it skips traversing them, so the emitter can rewrite them. On a class or other non-struct object (including a nullable class, a union of classes, `object`, and a type parameter), an unkeyed `with` entry is TYHP4409; a target that can be a struct (`IsNonStructWithTarget`) is left to the struct rules. A spread is checked only when the source is a named struct, a generic struct instance, or an anonymous struct (TYHP4410 for an array, `mixed`, a nullable struct, a union, or the bare `struct` bound). Each source field is matched to a property by its PHP array key — the alias when the field has one, such as `'status_code'`, including properties inherited through `extends` — and a key that is not a property is TYHP4411. Entries and spreads apply left to right; a later write to the same property replaces an earlier one, and that winning value is assignability-checked and passed through the same readonly checks as a keyed entry. Struct `with` lists are not part of this check. |
 | `AsyncRule` / `DisposableRule` | await / disposables / emit flags |
 | `CompileTimeRule` | `nameof` / `typeof` / `default` / `variable_exists`. `typeof` takes a `typeExpr` (`TyhpTypeofAst.TypeExpression`); the checker resolves that annotation (aliases included — not mixed) and flags Mechanism D / GenericObject when it names those generic parameters (same as `default`). `TypeInferrer` types `typeof(...)` as `\Tyhp\Type`. `nameof(T)` still accepts in-scope class or method generics via `IsInScopeGenericParameter`. `typeof(Class)` binds the written class name to its declaration (so the emitter spells it for a class in another namespace or behind an import alias). Because the rule suppresses child traversal, `typeof` and `nameof` call `MarkImportNames` on their operand so the imports they use are not reported unused. `nameof` resolves names from the declaring file or namespace-block scope when there is no enclosing callable (top-level statements). `nameof(Type::$member)` / `nameof($obj->member)` / `nameof(Type::CONST)` of a single level reports TYHP4101 when that member is not declared on a known owner. `IsConstantExpression` treats `nameof` as a constant because it folds to a string literal. |
 | `ImportRule` | Unused / duplicate imports (TYHP4130 / TYHP4131; 4131 warning labels the first `use`); redundant local `use` of a `global use` symbol (TYHP4169). Heritage `extends`/`implements` names are marked from `DeclarationRule.CheckObjectType` (`MarkHeritageImportNames`) because that shell suppresses child traversal |
@@ -1197,7 +1197,16 @@ Relative types:
   `__construct` does not inherit `void`), sets `IsInsideClosure`, registers captures, then
   `ClosureParameterInference.InferAndRegisterParameters`. When the author omitted a return
   type but `ExpectedClosureType` (call-site argument or typed-var annotation) supplies a
-  callable facet, that facet's return becomes `ExpectedReturnType` for body checking.
+  callable facet, that facet's return becomes `ExpectedReturnType` for body checking
+  (TYHP4009 when the body does not match). An explicit return type stays the closure's
+  own return. After that check, a call argument compares it with the expected facet's
+  return the same way a non-inline callable argument is compared, and reports TYHP4010
+  when that return is not assignable to the facet return. The comparison uses the
+  closure's callable return, and also the written return type, so an `async` closure
+  annotated `: R` still matches an executor parameter `callable(): R` (its callable
+  type is `callable(): Promise<R>`). A closure with fewer parameters than every expected
+  facet is compared against each facet's return and passes when one matches. A parameter
+  mismatch is still reported on the closure parameter.
 - `ClosureParameterInference` also records an `InferredClosureSignature` (omitted param /
   return slots filled from the facet) on the checker so the emitter can spell recoverable
   PHP typehints that were never written in Tyhp source. Declared closure parameter types
@@ -1636,7 +1645,14 @@ A **satisfied** block uses full `CheckNode`. An **unsatisfied or invalid**
 block uses `ScanUnboundRegion` only (nested 4300/4302/4305) — full type-check
 of a binder-omitted extension would treat `$this` as illegal in a static
 method (4097) and resolve calls against the current `output.phpVersion`
-(4182 for APIs that exist only on the gated minor). Compound Composer
+(4182 for APIs that exist only on the gated minor). A class, trait, or enum
+method with `IsPhpVersionRuntimeOnly` is the same: `CheckMethod` returns after
+`ValidatePhpVersionMember`, so the body is not checked against this floor. Two syntactic
+scans still run on that body, because emit needs their result: `FlagMethodGenericVariantIfNeeded`
+(Mechanism D) and `FlagRuntimeGenericTrackingIfNeeded` (class generics). The Mechanism D flag
+covers the whole same-name, same-static-ness set — the method registered for the floor and
+every runtime-only sibling — because a call site reads the flag from the registered symbol while
+the binder holds every body, and a library's `GenericRuntime` stamps have to agree. Compound Composer
 constraints (`">=8.4 <8.5"`) parse as AND; inactivity is the same as a
 simple `">=8.4"` that the target does not satisfy.
 A file whose file-level gate is unsatisfied (valid constraint, inactive) is
@@ -2195,6 +2211,20 @@ Two mechanisms in the **current checker API** (names match code /
    families so a call through a base/interface cannot silently miss the
    binder.
 
+`#[\Tyhp\InferGeneric]` (`InferGenericAttributeSupport`) requires every type
+parameter to be reachable from an argument. The sources are the same ones the
+emitter infers: callable return, class-string, a value of that type, `Promise<T>`,
+`array<Promise<T>>` or `Promise<T> ...`, and the two-arm union `T|Promise<T>` with
+or without `null` (`TryGetValueOrPromiseArms`; any other arm, such as an unrelated
+type or `Promise<int>`, makes the parameter a non-source). A parameter that none of those reach
+is TYHP4407 `CheckerInferGenericNotInferable`. The attribute on a declaration
+with no type parameters is TYHP4408 `CheckerInferGenericOnNonGeneric`, a warning.
+The check runs on the runtime-only sibling of a `#[\Tyhp\Php]` pair as well as
+the ordinary declaration. An `async` declaration with the attribute is also
+flagged when its return type names one of its type parameters
+(`AsyncInferGenericReturnNeedsVariant`), even if the body never reifies that
+parameter: the promise's type argument is the settled return type.
+
 `RecordGenericCallTargetsIn` records call sites with explicit type arguments
 so the emitter can route to `__tyhpGeneric` even under suppressed subtrees.
 `RecordCalleeForVariantRouting` also records a call that passes an inline
@@ -2431,7 +2461,11 @@ an unbound callee generic keeps its outer shape with the unbound parameters
 replaced by placeholders (`mixed` in covariant positions, `never` in callable
 parameter positions — `TypeCompatibilityRule.PreserveShapeForUnboundCalleeGenerics`),
 so `array<TKey, TValue>` still rejects `5`, `callable(T): T` rejects a
-non-callable, and `Box<T>` rejects an unrelated class. A parameter whose bound has a
+non-callable, and `Box<T>` rejects an unrelated class. A `\Closure<TCallableShape, TThis, TScope>`
+parameter is the exception for the this/scope slots: those slots are invariant and `mixed` is
+not a wide this/scope, so unbound this/scope placeholders are `?object` and `null` (the omitted-slot
+rule) and `Closure::bind` accepts the closure `bindTo` accepts. The callable-shape slot still uses `mixed`.
+A parameter whose bound has a
 `void` member (`T extends __Awaited<void|mixed>`, `CollectVoidAdmittingGenerics`) takes
 `void|mixed` in covariant positions instead, so `EventLoop::run(Promise<T>)` accepts a
 `Promise<void>` argument. Three argument kinds stay

@@ -72,7 +72,7 @@ class Box
         if ($this->__tyhpGeneric->isInitialized(\App\Box::class)) {
             return;
         }
-        $t = $generics[0] ?? \Tyhp\Type::mixed();
+        $t = ($generics[0] ?? \Tyhp\Type::mixed())->immutable();
         $this->__tyhpGeneric->init(static::class, \App\Box::class, new \Tyhp\NamedType('T', $t));
         $this->__tyhpGeneric->setPropertyType('item', \Tyhp\Type::nullable($t));
         $this->__tyhpGeneric->markBound();

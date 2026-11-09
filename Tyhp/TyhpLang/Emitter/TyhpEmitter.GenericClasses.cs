@@ -237,7 +237,7 @@ namespace Tyhp.TyhpLang.Emitter
                 var local = ToGenericLocalVarName(gp.Name);
                 locals[gp.Name] = local;
                 lines.Add(
-                    $"${local} = {GenericInitHookParam}[{i}] ?? {this.BuildUnboundGenericFallback(gp)};");
+                    $"${local} = ({GenericInitHookParam}[{i}] ?? {this.BuildUnboundGenericFallback(gp)})->immutable();");
             }
 
             if (ownParams.Count > 0)
@@ -541,10 +541,14 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             var factoryName = GeneratedNames.GenericFactory(this._currentObjectFqn);
+            // The helper calls __construct from class scope, so its visibility has to match the
+            // constructor this class declares. Otherwise a private or protected constructor is
+            // still reachable through a public factory.
+            var factoryVisibility = GenericFactoryVisibility(FindDeclaredConstructor(objectDecl));
             var block = EmitItem.BlockBraceNextLine(
                 objectDecl,
                 EmitType.ObjectStaticMethods,
-                $"final public static function {factoryName}({signatureParams}): self",
+                $"{GenericFactoryModifiers(factoryVisibility)} function {factoryName}({signatureParams}): self",
                 "}",
                 classBlock);
 
@@ -571,11 +575,11 @@ namespace Tyhp.TyhpLang.Emitter
 
             EmitItem.MultiLine(objectDecl, EmitType.FunctionStatement, lines, block);
 
-            // The eager factory above is unchanged. A second method exists on every 8.4+ build: a
-            // class that records generics always stores the injected `$__tyhpGeneric` bag, so its
-            // ghost stays lazy whether or not the author declared a property. The ghost initializer
-            // binds this level's type arguments and then runs the constructor, from class scope so
-            // the protected hook is visible.
+            // A second method exists on every 8.4+ build, with the same visibility as the eager
+            // factory. A class that records generics always stores the injected `$__tyhpGeneric`
+            // bag, so its ghost stays lazy whether or not the author declared a property. The ghost
+            // initializer binds this level's type arguments and then runs the constructor, from
+            // class scope so the protected hook is visible.
             if (this._context.IsPhpVersionAtLeast(8, 4))
             {
                 this.EmitGenericLazyFactory(
@@ -586,16 +590,18 @@ namespace Tyhp.TyhpLang.Emitter
                     authorArgs,
                     readonlyBag,
                     reflected,
-                    ctor?.Parameters);
+                    ctor?.Parameters,
+                    factoryVisibility);
             }
         }
 
         /// <summary>
-        /// <c>new_&lt;Mangled&gt;__tyhpLazy</c>. Same signature as the eager factory. The closure
-        /// calls this level's init hook (own type arguments only; the hook chains to the parent)
-        /// before <c>__construct</c>. A readonly class caches reflection in its own function static
-        /// and the hook still boots the generic bag. The shared static field, when the class can
-        /// declare one, is the field the eager factory already emitted.
+        /// <c>new_&lt;Mangled&gt;__tyhpLazy</c>. Same signature as the eager factory, including
+        /// the constructor's visibility. The closure calls this level's init hook (own type
+        /// arguments only; the hook chains to the parent) before <c>__construct</c>. A readonly
+        /// class caches reflection in its own function static and the hook still boots the generic
+        /// bag. The shared static field, when the class can declare one, is the field the eager
+        /// factory already emitted.
         /// </summary>
         private void EmitGenericLazyFactory(
             PhpObjectTypeDeclAst objectDecl,
@@ -605,7 +611,8 @@ namespace Tyhp.TyhpLang.Emitter
             string authorArgs,
             bool readonlyBag,
             string reflected,
-            PhpParameterListAst? constructorParameters)
+            PhpParameterListAst? constructorParameters,
+            string factoryVisibility)
         {
             var useNames = new List<string>();
             if (!string.IsNullOrEmpty(initArgs))
@@ -629,7 +636,7 @@ namespace Tyhp.TyhpLang.Emitter
             var block = EmitItem.BlockBraceNextLine(
                 objectDecl,
                 EmitType.ObjectStaticMethods,
-                $"final public static function {factoryName}({signatureParams}): self",
+                $"{GenericFactoryModifiers(factoryVisibility)} function {factoryName}({signatureParams}): self",
                 "}",
                 classBlock);
 
@@ -648,6 +655,423 @@ namespace Tyhp.TyhpLang.Emitter
             lines.Add("    }");
             lines.Add(");");
             EmitItem.MultiLine(objectDecl, EmitType.FunctionStatement, lines, block);
+        }
+
+        /// <summary>
+        /// Visibility of <c>new_&lt;Mangled&gt;__tyhpGeneric</c> and <c>new_&lt;Mangled&gt;__tyhpLazy</c>.
+        /// Matches the constructor declared on this class. A class that declares none keeps
+        /// <c>public</c>, the same visibility as the synthesized constructor. An omitted visibility
+        /// and Tyhp <c>internal</c> emit as <c>public</c>, matching <c>EnsureMethodVisibility</c>.
+        /// </summary>
+        private static string GenericFactoryVisibility(PhpMethodDeclAst? declaredConstructor)
+        {
+            var modifiers = declaredConstructor?.Modifiers?.Modifiers;
+            if (modifiers is null)
+            {
+                return "public";
+            }
+
+            foreach (var modifier in modifiers)
+            {
+                switch (modifier)
+                {
+                    case PhpModifier.Private:
+                        return "private";
+                    case PhpModifier.Protected:
+                        return "protected";
+                    case PhpModifier.Public:
+                        return "public";
+                }
+            }
+
+            return "public";
+        }
+
+        /// <summary>
+        /// Modifier prefix for a generated factory. <c>final</c> is dropped for <c>private</c>:
+        /// a private method cannot be overridden, and PHP warns "Private methods cannot be final".
+        /// <c>new()</c> and <c>type()</c> do not use this: a subclass must be able to redeclare them.
+        /// </summary>
+        private static string GenericFactoryModifiers(string visibility) =>
+            visibility == "private" ? "private static" : $"final {visibility} static";
+
+        /// <summary>
+        /// <c>Box::new(T...)(ctorArgs)</c> and <c>Box::type(T...)</c>. Concrete generic classes get
+        /// both. Abstract generic classes get <c>type()</c> only. Interfaces, traits, and structs
+        /// get neither. <c>new()</c> uses the constructor's visibility and is not <c>final</c>, so a
+        /// generic child can redeclare it with more optional type parameters. A child with fewer
+        /// type parameters than the inherited method redeclares it with its own names followed by a
+        /// <c>mixed ...$__tyhpInherited</c> variadic, because PHP rejects an override that drops a
+        /// parameter. A child whose constructor is narrower than the inherited method inherits it
+        /// instead: PHP rejects a narrower visibility. A public <c>new()</c> refuses to build a subclass
+        /// whose constructor is not public. The closure constructs <c>static</c>, so a non-generic
+        /// subclass inherits a method that still builds the runtime class.
+        /// </summary>
+        private void EmitGenericClassBindersIfNeeded(PhpObjectTypeDeclAst objectDecl, EmitItem classBlock)
+        {
+            if (objectDecl.IsAnonymousClass || this._currentObjectSymbol is not { } symbol)
+            {
+                return;
+            }
+
+            var plan = new GenericBinderPlan();
+            var newShape = this.ResolveEmittedNew(symbol, plan);
+            var typeShape = this.ResolveEmittedType(symbol, plan);
+            if (newShape is null && typeShape is null)
+            {
+                return;
+            }
+
+            this._context.RequirePackage("tyhp/core");
+            if (newShape is not null)
+            {
+                this.EmitGenericNewBinder(objectDecl, classBlock, symbol, newShape);
+            }
+
+            if (typeShape is not null)
+            {
+                this.EmitGenericTypeMethod(objectDecl, classBlock, symbol, typeShape);
+            }
+        }
+
+        private void EmitGenericNewBinder(
+            PhpObjectTypeDeclAst objectDecl,
+            EmitItem classBlock,
+            ObjectDeclarationSymbol symbol,
+            GenericBinderShape shape)
+        {
+            var typeParameters = this.TypeParametersForBinder(shape);
+            var ctor = this.TryFindConstructorForEmit(out _);
+            var ctorParams = this.BuildForwardingParameterList(ctor?.Parameters);
+            var ctorArgs = BuildForwardingArguments(ctor?.Parameters);
+            var binderParams = FormatGenericBinderParameters(shape);
+            var block = EmitItem.BlockBraceNextLine(
+                objectDecl,
+                EmitType.ObjectStaticMethods,
+                $"{shape.Visibility} static function new({binderParams}): \\Closure",
+                "}",
+                classBlock);
+            EmitItem.AttachDocComment(
+                this.BuildGenericNewDocComment(symbol, typeParameters, ctor?.Parameters),
+                block);
+            InsertLinesAfterDocComment(block, [this.FormatGenericNewStamp()]);
+
+            var lines = new List<string>();
+            foreach (var name in shape.ParameterNames)
+            {
+                lines.Add($"$__tyhpType_{name} = {RuntimeTypeClassFq}::arg(${name});");
+            }
+
+            var captures = string.Join(", ", shape.ParameterNames.Select(name => "$__tyhpType_" + name));
+            var useClause = captures.Length == 0 ? "" : " use (" + captures + ")";
+            var initArgs = string.Join(", ", shape.ParameterNames.Select(name => "$__tyhpType_" + name));
+            lines.Add($"return function ({ctorParams}){useClause}: static {{");
+            var guardsSubclassConstructors = shape.Visibility == "public" && !IsFinalObjectDeclaration(objectDecl);
+            if (this._currentObjectRecordsOwnGenerics)
+            {
+                lines.Add("    $__tyhp_reflected = new \\ReflectionClass(static::class);");
+                if (guardsSubclassConstructors)
+                {
+                    lines.AddRange(BuildSubclassConstructorGuard("$__tyhp_reflected"));
+                }
+
+                lines.Add("    $__tyhp_obj = $__tyhp_reflected->newInstanceWithoutConstructor();");
+                lines.Add($"    $__tyhp_obj->{GeneratedNames.GenericInitHook}({initArgs});");
+                lines.Add($"    $__tyhp_obj->__construct({ctorArgs});");
+                lines.Add("    return $__tyhp_obj;");
+            }
+            else
+            {
+                if (guardsSubclassConstructors)
+                {
+                    lines.Add("    $__tyhp_reflected = new \\ReflectionClass(static::class);");
+                    lines.AddRange(BuildSubclassConstructorGuard("$__tyhp_reflected"));
+                }
+
+                lines.Add($"    return new static({ctorArgs});");
+            }
+
+            lines.Add("};");
+            EmitItem.MultiLine(objectDecl, EmitType.FunctionStatement, lines, block);
+        }
+
+        /// <summary>
+        /// A public <c>new()</c> is inherited by every subclass. PHP lets the inherited closure reach a
+        /// protected subclass constructor (the check runs against the constructor's root class), and
+        /// <c>new()</c> cannot be narrowed to match. This refuses that path so inheriting <c>new()</c>
+        /// is never a public way to build a class whose constructor is not public. A private
+        /// constructor is already refused by PHP.
+        /// </summary>
+        private static IEnumerable<string> BuildSubclassConstructorGuard(string reflected) =>
+        [
+            $"    if (static::class !== self::class && {reflected}->getConstructor()?->isPublic() === false) {{",
+            "        throw new \\Error('Call to non-public ' . static::class . '::__construct() through ' . self::class . '::new()');",
+            "    }",
+        ];
+
+        private static bool IsFinalObjectDeclaration(PhpObjectTypeDeclAst objectDecl) =>
+            objectDecl.Modifiers?.Modifiers.Contains(PhpModifier.Final) == true;
+
+        private void EmitGenericTypeMethod(
+            PhpObjectTypeDeclAst objectDecl,
+            EmitItem classBlock,
+            ObjectDeclarationSymbol symbol,
+            GenericBinderShape shape)
+        {
+            var typeParameters = this.TypeParametersForBinder(shape);
+            var binderParams = FormatGenericBinderParameters(shape);
+            var block = EmitItem.BlockBraceNextLine(
+                objectDecl,
+                EmitType.ObjectStaticMethods,
+                $"public static function type({binderParams}): {RuntimeTypeClassFq}",
+                "}",
+                classBlock);
+            EmitItem.AttachDocComment(
+                this.BuildGenericTypeDocComment(symbol, typeParameters),
+                block);
+
+            var lines = new List<string>();
+            foreach (var parameter in typeParameters)
+            {
+                lines.Add(
+                    $"${parameter.Name} = {RuntimeTypeClassFq}::arg(${parameter.Name}) ?? {this.BuildUnboundGenericFallback(parameter)};");
+            }
+
+            var args = string.Join(", ", typeParameters.Select(parameter => "$" + parameter.Name));
+            lines.Add($"return {RuntimeTypeClassFq}::generic(static::class, {args});");
+            EmitItem.MultiLine(objectDecl, EmitType.FunctionStatement, lines, block);
+        }
+
+        private IReadOnlyList<GenericTypeParameterSymbol> TypeParametersForBinder(GenericBinderShape shape)
+        {
+            var byName = this._currentObjectGenericParams.ToDictionary(
+                parameter => parameter.Name,
+                StringComparer.Ordinal);
+            var matched = new List<GenericTypeParameterSymbol>(shape.ParameterNames.Count);
+            foreach (var name in shape.ParameterNames)
+            {
+                if (byName.TryGetValue(name, out var parameter))
+                {
+                    matched.Add(parameter);
+                }
+            }
+
+            return matched.Count == shape.ParameterNames.Count
+                ? matched
+                : this._currentObjectGenericParams;
+        }
+
+        private string FormatGenericNewStamp() =>
+            GenericRuntimeAttributeSupport.FormatAttributeLine(new GenericRuntimeInfo
+            {
+                Erased = false,
+                Binder = "new",
+                Layouts = [GenericRuntimeAttributeSupport.CallableLayout],
+                Compiler = Tyhp.Domain.Services.IncrementalBuildService.GetCompilerVersion(),
+            });
+
+        /// <summary>
+        /// Name of the trailing variadic that lets a generic child with fewer type parameters than its
+        /// parent redeclare <c>new()</c> / <c>type()</c>. PHP requires an override to accept every
+        /// parameter of the method it overrides, and a variadic absorbs the ones the child no longer
+        /// names. It is typed <c>mixed</c> so the runtime does not count it as a type parameter.
+        /// </summary>
+        private const string InheritedBinderTailParameter = "__tyhpInherited";
+
+        private static string FormatGenericBinderParameters(GenericBinderShape shape)
+        {
+            var parameters = shape.ParameterNames
+                .Select(name => $"\\Tyhp\\TypeLike|string|null ${name} = null")
+                .ToList();
+            if (shape.InheritedTail)
+            {
+                parameters.Add($"mixed ...${InheritedBinderTailParameter}");
+            }
+
+            return string.Join(", ", parameters);
+        }
+
+        private GenericBinderShape? ResolveEmittedNew(ObjectDeclarationSymbol symbol, GenericBinderPlan plan)
+        {
+            if (plan.NewShapes.TryGetValue(symbol, out var cached))
+            {
+                return cached;
+            }
+
+            if (!plan.ResolvingNew.Add(symbol))
+            {
+                return null;
+            }
+
+            GenericBinderShape? shape;
+            try
+            {
+                shape = this.ComputeEmittedNew(symbol, plan);
+            }
+            finally
+            {
+                plan.ResolvingNew.Remove(symbol);
+            }
+
+            plan.NewShapes[symbol] = shape;
+            return shape;
+        }
+
+        private GenericBinderShape? ComputeEmittedNew(ObjectDeclarationSymbol symbol, GenericBinderPlan plan)
+        {
+            if (!IsConcreteGenericClass(symbol) || DeclaresMethod(symbol, "new"))
+            {
+                return null;
+            }
+
+            var inherited = this.ResolveVisibleInheritedNew(symbol, plan);
+            var visibility = ConstructorVisibilityOf(symbol);
+            var names = symbol.GenericParameters.Select(parameter => parameter.Name).ToList();
+            if (inherited is not null && IsNarrowerVisibility(visibility, inherited.Visibility))
+            {
+                return null;
+            }
+
+            return new GenericBinderShape(visibility, names, NeedsInheritedTail(names, inherited));
+        }
+
+        private GenericBinderShape? ResolveVisibleInheritedNew(
+            ObjectDeclarationSymbol symbol,
+            GenericBinderPlan plan)
+        {
+            var parent = this.TryResolveEmitParent(symbol);
+            var seen = new HashSet<ObjectDeclarationSymbol>();
+            while (parent is not null && seen.Add(parent))
+            {
+                var emitted = this.ResolveEmittedNew(parent, plan);
+                if (emitted is not null && emitted.Visibility != "private")
+                {
+                    return emitted;
+                }
+
+                parent = this.TryResolveEmitParent(parent);
+            }
+
+            return null;
+        }
+
+        private GenericBinderShape? ResolveEmittedType(ObjectDeclarationSymbol symbol, GenericBinderPlan plan)
+        {
+            if (plan.TypeShapes.TryGetValue(symbol, out var cached))
+            {
+                return cached;
+            }
+
+            if (!plan.ResolvingType.Add(symbol))
+            {
+                return null;
+            }
+
+            GenericBinderShape? shape;
+            try
+            {
+                shape = this.ComputeEmittedType(symbol, plan);
+            }
+            finally
+            {
+                plan.ResolvingType.Remove(symbol);
+            }
+
+            plan.TypeShapes[symbol] = shape;
+            return shape;
+        }
+
+        private GenericBinderShape? ComputeEmittedType(ObjectDeclarationSymbol symbol, GenericBinderPlan plan)
+        {
+            if (!IsGenericClass(symbol) || DeclaresMethod(symbol, "type"))
+            {
+                return null;
+            }
+
+            var inherited = this.ResolveVisibleInheritedType(symbol, plan);
+            var names = symbol.GenericParameters.Select(parameter => parameter.Name).ToList();
+            return new GenericBinderShape("public", names, NeedsInheritedTail(names, inherited));
+        }
+
+        private GenericBinderShape? ResolveVisibleInheritedType(
+            ObjectDeclarationSymbol symbol,
+            GenericBinderPlan plan)
+        {
+            var parent = this.TryResolveEmitParent(symbol);
+            var seen = new HashSet<ObjectDeclarationSymbol>();
+            while (parent is not null && seen.Add(parent))
+            {
+                var emitted = this.ResolveEmittedType(parent, plan);
+                if (emitted is not null)
+                {
+                    return emitted;
+                }
+
+                parent = this.TryResolveEmitParent(parent);
+            }
+
+            return null;
+        }
+
+        private static bool IsGenericClass(ObjectDeclarationSymbol symbol) =>
+            !symbol.IsStruct
+            && symbol.ObjectKind == PhpTypeDeclType.Class
+            && symbol.GenericParameters.Count > 0;
+
+        private static bool IsConcreteGenericClass(ObjectDeclarationSymbol symbol) =>
+            IsGenericClass(symbol) && (symbol.Visibility & MemberModifier.Abstract) == 0;
+
+        private static bool DeclaresMethod(ObjectDeclarationSymbol symbol, string name) =>
+            symbol.Members.TryGetValue(name, out var member) && member is ObjectMethodSymbol;
+
+        private static string ConstructorVisibilityOf(ObjectDeclarationSymbol symbol)
+        {
+            if (symbol.DeclaringAstNode is PhpObjectTypeDeclAst decl)
+            {
+                return GenericFactoryVisibility(FindDeclaredConstructor(decl));
+            }
+
+            return "public";
+        }
+
+        /// <summary>
+        /// A redeclaration needs the trailing variadic when the inherited method takes more
+        /// parameters than this class names, or itself ends in one.
+        /// </summary>
+        private static bool NeedsInheritedTail(
+            IReadOnlyList<string> names,
+            GenericBinderShape? inherited) =>
+            inherited is not null
+            && (names.Count < inherited.ParameterNames.Count || inherited.InheritedTail);
+
+        private static bool IsNarrowerVisibility(string child, string parent) =>
+            VisibilityRank(child) < VisibilityRank(parent);
+
+        private static int VisibilityRank(string visibility) => visibility switch
+        {
+            "private" => 0,
+            "protected" => 1,
+            _ => 2,
+        };
+
+        private sealed record GenericBinderShape(
+            string Visibility,
+            IReadOnlyList<string> ParameterNames,
+            bool InheritedTail = false);
+
+        private sealed class GenericBinderPlan
+        {
+            public Dictionary<ObjectDeclarationSymbol, GenericBinderShape?> NewShapes { get; } =
+                new(ReferenceEqualityComparer.Instance);
+
+            public Dictionary<ObjectDeclarationSymbol, GenericBinderShape?> TypeShapes { get; } =
+                new(ReferenceEqualityComparer.Instance);
+
+            public HashSet<ObjectDeclarationSymbol> ResolvingNew { get; } =
+                new(ReferenceEqualityComparer.Instance);
+
+            public HashSet<ObjectDeclarationSymbol> ResolvingType { get; } =
+                new(ReferenceEqualityComparer.Instance);
         }
 
         private static bool IsAbstractObjectDeclaration(PhpObjectTypeDeclAst objectDecl) =>
