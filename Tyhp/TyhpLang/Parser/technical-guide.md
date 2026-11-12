@@ -114,9 +114,9 @@ Edit `TyhpLexer.GrammarMethods.cs` and `TyhpParser.GrammarMethods.cs`. The next 
 - `looksLikeObjectShape()` — `type Name = object { … }` vs bare `object`
 - `looksLikeObjectShapeIntersection()` — `type Name = Nominal & object { … }` (or `object { … } & Nominal`) vs a plain nominal intersection (`A & B`, which stays on `typeExpr`); scans the `&`-chain for at least one `object {` item without consuming input, skipping shape bodies via balanced-brace counting. Shape bodies (`tyhpObjectShapeStatementList`) accept PHP `const NAME = expr` in addition to tyhpdef class statements.
 - `looksLikeStructShape()` — type-position `struct { … }` / `struct extends` vs a class/type named `struct`
-- `looksLikeAnonymousStruct()` — `new struct { … }` vs `new struct()` constructing a class named `struct`
+- `looksLikeAnonymousStruct()` — `new struct { … }` vs `new struct()` constructing a class named `struct`. A bracket list after the body is still this form; `anonymousStructIsFollowedByInitializer()` is true when `[` follows the closing `}`
 - `callableIsFollowedByOpenParen()` — `callable (` or `callable` plus a PHP builtin-cast token (`T_INT_CAST` / `T_STRING_CAST` / …) vs bare `callable`. `IsBuiltinCastToken` also accepts `T_VOID_CAST` (an unnamed `void` parameter is syntactically valid the same way a named `void $v` parameter is); `typeof` / `default` do not accept `T_VOID_CAST` in their own BuiltinCast alternatives.
-- `newIsFollowedByArgumentList()` — disambiguate `new X<T>(args)` vs comparison. Skips a leading `lazy`, so `lazy new Foo()` and `lazy new Foo` follow the same split as `new`
+- `newIsFollowedByArgumentList()` — disambiguate `new X<T>(args)` vs comparison, and `new X<T>[…]` vs comparison. Skips a leading `lazy`, so `lazy new Foo()` and `lazy new Foo` follow the same split as `new`. In Tyhp mode, `[` after the name or the closing `>` rules the argument-less alternative out the same way `(` does. A closing `>>` may be one `T_SR` token, which closes two generic levels
 - `lazyNewNamesAClass()` — after `lazy new`, the next token must be a class name (`Foo`, `self`, `parent`, `static`). A variable, a parenthesized expression, or anonymous `class` is a parse error
 - `looksLikeGenericTypedLocal()` — disambiguate `Box<int> $x` vs comparison
 - `looksLikeTypedConstDecl()` — disambiguate file-level `const int X = 1` vs `const FOO = 1`
@@ -242,7 +242,9 @@ If you add a feature that must be Tyhp-source-only at parse time, gating only on
 
 ### Semantic predicates in GrammarMethods
 
-**`newIsFollowedByArgumentList`** — used by overridden `newNonDereferenceable` so `new Foo<T>(…)` is not parsed as `(new Foo) < T > (…)`. A leading `T_TYHP_LAZY` is skipped, so the same guard splits `lazy new Foo()` from `lazy new Foo`. **`lazyNewNamesAClass`** limits `lazy new` to a static class name.
+**`newIsFollowedByArgumentList`** — used by overridden `newNonDereferenceable` so `new Foo<T>(…)` is not parsed as `(new Foo) < T > (…)`. A leading `T_TYHP_LAZY` is skipped, so the same guard splits `lazy new Foo()` from `lazy new Foo`. In Tyhp mode the same guard is true when `[` follows the name or the closing `>`, so `new Box<int>[…]` and `new Box<array<int>>[…]` keep the angle brackets as generic arguments. A single `T_SR` token (`>>`) closes two levels. **`lazyNewNamesAClass`** limits `lazy new` to a static class name.
+
+**Struct initializer.** `newNonDereferenceable` has `#tyhpNewStructInitializer` (`new Name[…]`, `new Name<T>[…]`, including `[]`) and `#tyhpNewAnonStructInitializer` (`new struct { … }[…]`). The name is `className`, so `new $classes['k']` stays a dynamic class name on `classNameReference`, and `new Inner()['a']` stays construct-then-index because the `()` is `newDereferenceable`. Whitespace, including a newline, may sit between the name (or the anonymous struct's `}`) and `[`. The visitor builds `PhpBinaryOpAst` (`with`) whose left is a `PhpNewAst` with `IsStructInitializer` set. The `new` span covers `new Name` or `new struct { … }`; the pair-list span covers `[…]`. `#tyhpNewAnonStructInstance` is the anonymous struct with no bracket list. `anonymousStructIsFollowedByInitializer()` selects the bracket form.
 
 **`looksLikeGenericTypedLocal`** — used to disable the bare `phpTopExpr` / for-init expression alternatives when lookahead looks like `Type<Arg> $var` (including unions and parenthesized forms). Cap: `MaxGenericArgumentLookahead = 256`.
 

@@ -128,7 +128,8 @@ namespace Tyhp.LanguageServer
                     document.Value.Content,
                     scope,
                     tree,
-                    this._symbolFinder);
+                    this._symbolFinder,
+                    this._analysis.GetInferredType);
             }
 
             string resultId = Interlocked.Increment(ref this._semanticTokensGeneration).ToString();

@@ -1855,6 +1855,28 @@ public partial class TyhpParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitNewClassInstanceNonDereferenceable([NotNull] TyhpParser.NewClassInstanceNonDereferenceableContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpNewStructInitializer</c>
+	/// labeled alternative in <see cref="TyhpParser.newNonDereferenceable"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpNewStructInitializer([NotNull] TyhpParser.TyhpNewStructInitializerContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpNewAnonStructInitializer</c>
+	/// labeled alternative in <see cref="TyhpParser.newNonDereferenceable"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitTyhpNewAnonStructInitializer([NotNull] TyhpParser.TyhpNewAnonStructInitializerContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by the <c>newNonDereferenceableGrammarAddonHandler</c>
 	/// labeled alternative in <see cref="TyhpParser.newNonDereferenceable"/>.
 	/// <para>

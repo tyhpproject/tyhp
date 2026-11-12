@@ -1,0 +1,69 @@
+<?tyhp
+declare(strict_types=1);
+namespace App;
+
+type Opts = struct {
+    string $name;
+    int $retries = 3;
+    ?string $nick;
+};
+
+type Point = struct {
+    int $x = 0;
+    int $y = 0;
+};
+
+type Args = struct {
+    mixed 0 as $arg1;
+    mixed 1 as $arg2;
+};
+
+type Loose = struct {
+    string $name;
+    ?int $retries;
+};
+
+type Dest = struct {
+    string $name;
+    ?int $retries = 3;
+};
+
+function makeBase(): array {
+    return new Opts[name => 'ann'];
+}
+
+function makeCopy(Opts $base): array {
+    return new Opts[...$base, nick => 'a'];
+}
+
+function makePoint(): array {
+    return new Point[x => 1];
+}
+
+function makeEmpty(): array {
+    return new Point[];
+}
+
+function copyArgs(Args $src): array {
+    return new Args[...$src, arg2 => 'z'];
+}
+
+function cloneOpts(Opts $p, Opts $q): array {
+    return clone $p with [...$q, nick => 'a'];
+}
+
+function updateOpts(Opts $p, Opts $q): array {
+    return $p with [...$q];
+}
+
+function keepNullableDefault(Loose $src): array {
+    return new Dest[...$src];
+}
+
+function keyThenSpread(Opts $base): array {
+    return new Opts[name => 'first', ...$base];
+}
+
+function layers(Opts $a, Opts $b): array {
+    return new Opts[...$a, name => 'mid', ...$b];
+}

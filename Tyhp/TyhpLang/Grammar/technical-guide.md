@@ -224,7 +224,7 @@ Both lexers include `shared/PhpLexer.body.g4` (all of its modes) and `shared/Tyh
 
 Tyhp-only keyword rules (`internal`, `with`, `using`, `typeof`, `nameof`, `variable_exists`, `:=`, and the `<?tyhp` open tags) are written in `TyhpLexer.g4` and are not included by `TyhpdefLexer`.
 
-**Reserved words as `with` keys.** In `new T() with [class => 1, line => 2]` a key is an unquoted word followed by `=>`. `TyhpLexer.NextToken` tracks bracket depth and the arrays opened right after `with`; inside such an array a bare word in key position (right after `[` or `,` at that array's depth) that is followed by `=>` is re-typed to `T_STRING`, so reserved words (`class`, `list`, `array`, …) name fields. Elsewhere the same words keep their token types. The logic lives in `ReclassifyWithInitializerKey` in `TyhpLexer.GrammarMethods.cs` (default channel, `tyhp` mode only) and is mirrored onto `TyhpdefLexer`.
+**Reserved words as initializer keys.** In `new T() with [class => 1, line => 2]`, `new Opts[class => 1]`, `new Box<int>[class => 1]`, `new Box<array<int>>[class => 1]`, and `new struct { … }[class => 1]`, a key is an unquoted word followed by `=>`. `TyhpLexer.NextToken` tracks bracket depth and the arrays opened right after `with` or by a struct initializer `[` (after `new` plus a static name, optional generic arguments, or an anonymous struct body). Inside such an array a bare word in key position (right after `[` or `,` at that array's depth) that is followed by `=>` is re-typed to `T_STRING`, so reserved words (`class`, `list`, `array`, …) name fields. `new $classes['k']` and `new Inner()['a']` do not open that array. Elsewhere the same words keep their token types. The logic lives in `ReclassifyWithInitializerKey` in `TyhpLexer.GrammarMethods.cs` (default channel, `tyhp` mode only) and is mirrored onto `TyhpdefLexer`.
 
 Actions called from `.g4` (`prepareLess`, `doPreparedLess`, `streamLA`, `closeTagHandler`, …) are implemented in the Tyhp lexer partial and emitted onto `TyhpdefLexer` — edit the Tyhp partial, then regenerate.
 
@@ -297,10 +297,11 @@ Non-exhaustive map of what the current `TyhpParser.g4` adds (always prefer readi
 | Type-position struct shapes | `tyhpStructShape` via `typeWithoutStaticGrammarAddon` + `looksLikeStructShape()` / `isStructKeyword()`. `struct` is `T_STRING`. The first `typeWithoutStatic` alternative is `{!looksLikeStructShape()}?` so SLL does not take `struct` as `Identifier=name` and leave `{` unexpected. `type Name = struct { … };` and `function f(struct { int $n; } $s)` parse; `type Name = struct { };` does not; `class struct { }` / `function struct()` / `new struct()` stay ordinary names |
 | Return-type guards | `returnTypeGrammarAddon` — `$param is T` or one index read `$array[$key]` / `$array[0]` / `$array['k']` (not a full `expr`, so `is` stays the guard operator) |
 | `typeof` / `nameof` / `variable_exists` / `default(...)` | `internalFunctionsGrammarAddon`. `typeof` and `default` take `typeExpr` (plus a builtin-cast alternative because PHP lexes `(int)` as `T_INT_CAST`). `nameof` / `variable_exists` take `expr`. |
-| `new` anonymous struct | overridden `newDereferenceable` / `newNonDereferenceable` + `newDereferenceableGrammarAddon` (`tyhpAnonymousStruct`; optional empty `()`), gated by `looksLikeAnonymousStruct()` so `new struct()` constructing a class named `struct` stays a class instantiation |
+| `new` anonymous struct | overridden `newDereferenceable` / `newNonDereferenceable` + `newDereferenceableGrammarAddon` (`tyhpAnonymousStruct`; optional empty `()`), gated by `looksLikeAnonymousStruct()` so `new struct()` constructing a class named `struct` stays a class instantiation. A bracket list after the body is `#tyhpNewAnonStructInitializer` |
+| Struct initializer | `#tyhpNewStructInitializer` on `newNonDereferenceable`: `new Name[…]` / `new Name<T>[…]` (`className`, so a variable or parenthesized name stays `classNameReference`). Empty `[]` is an `arrayPairList`. The visitor desugars both this form and the anonymous bracket form to `with` |
 | Generic `...` type arguments | `tyhpGenericTypeArgument` is `typeExpr` with optional postfix `T_ELLIPSIS` (`T...`) **or** bare `T_ELLIPSIS`. These do **not** attach to built-in `callable` (`callable(...)` is not a type). Homogeneous variadic and unknown-arity callables are `callable(T ...): R` / `callable(...): R`. |
 | Struct property array-key aliases | `tyhpStructProperty` — quoted string (`'Reply-To' as $x`) or decimal int (`0 as $x`) via `AliasOfString` / `AliasOfInt` |
-| `new X<T>(args)` vs comparison ambiguity | overridden `newNonDereferenceable` + `newIsFollowedByArgumentList()` |
+| `new X<T>(args)` vs comparison ambiguity | overridden `newNonDereferenceable` + `newIsFollowedByArgumentList()` (also true for `[` after `>` in Tyhp mode, including a one-token `>>`) |
 
 ### Semantic predicates implemented in C#
 
@@ -313,12 +314,12 @@ Grammar actions that need non-trivial lookahead call methods on `TyhpParser`:
 - `looksLikeObjectShape()` — `object {` on a `type` alias RHS vs bare `object` / `object extends`
 - `looksLikeObjectShapeIntersection()` — alias-RHS intersection with at least one `object { … }` item
 - `looksLikeStructShape()` — type-position `struct {` / `struct extends` vs a named `struct Point` (no longer a declaration) or a class/type named `struct`. Also gates the first `typeWithoutStatic` alternative so SLL does not parse `struct` as a type name when `{` / `extends` follows
-- `looksLikeAnonymousStruct()` — `new struct { … }` / `new struct() { … }` / `new struct extends T { … }` vs `new struct()` / `new struct;` constructing a class named `struct`
+- `looksLikeAnonymousStruct()` — `new struct { … }` / `new struct() { … }` / `new struct extends T { … }` vs `new struct()` / `new struct;` constructing a class named `struct`. `anonymousStructIsFollowedByInitializer()` is that form with `[` after the body
 - `callableIsFollowedByOpenParen()` — `callable (` or `callable` plus a PHP builtin-cast token (`(int)` / `(string)` / …) vs bare `callable`
 - `callableShapeDefaultIsPresent()` — `=` on a callable-shape parameter is followed by an `expr`, not `)` / `,`
 - `looksLikeGenericTypedLocal()` — distinguishes `Box<int> $x` from `(Box < int) > $x`
 - `looksLikeTypedConstDecl()` — distinguishes file-level `const int X = 1` from `const FOO = 1`
-- `newIsFollowedByArgumentList()` — distinguishes `new X<T>(args)` from comparison chains
+- `newIsFollowedByArgumentList()` — distinguishes `new X<T>(args)` and `new X<T>[…]` from comparison chains. `[` counts in Tyhp mode. `T_SR` (`>>`) closes two generic levels
 - `reportExternClassCannotHaveBody()` — syntax error action for `extern class Name { … }` (not a predicate; keeps recovery off `class Name { … }`)
 
 Those live in `TyhpParser.GrammarMethods.cs`. If you add a new `{this.foo()}?` in a `.g4`, implement `foo` on that partial before regenerating (or regen will produce calls that do not compile).

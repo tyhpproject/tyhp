@@ -667,6 +667,660 @@ public class Phase6RuleTests
     }
 
     [Fact]
+    public void Check_StructInitializer_MissingRequired_ReportsOnceWithBracketWording()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Point = struct {
+                float $x;
+                float $y = 0.0;
+            };
+
+            function emptyList(): Point {
+                return new Point[];
+            }
+
+            function partial(): Point {
+                return new Point[y => 2.0];
+            }
+            """);
+
+        var errors = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerStructRequiredPropertyNotSet)
+            .ToList();
+        errors.Should().HaveCount(2);
+        errors.Should().OnlyContain(d =>
+            d.Message.Contains("new Point[x => value]", StringComparison.Ordinal)
+            && !d.Message.Contains("with", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_StructWith_MissingRequired_KeepsWithWording()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Point = struct {
+                float $x;
+                float $y = 0.0;
+            };
+
+            function demo(): Point {
+                return new Point() with [y => 2.0];
+            }
+            """);
+
+        var error = diagnostics.Errors
+            .Should().ContainSingle(d => d.Code == MessageCode.CheckerStructRequiredPropertyNotSet)
+            .Subject;
+        error.Message.Should().Contain("new Point() with [x => value]");
+        error.Message.Should().NotContain("new Point[x => value]");
+    }
+
+    [Fact]
+    public void Check_BareNewStruct_MissingRequired_NamesBothForms()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Point = struct {
+                float $x;
+            };
+
+            function demo(): Point {
+                return new Point();
+            }
+            """);
+
+        var error = diagnostics.Errors
+            .Should().ContainSingle(d => d.Code == MessageCode.CheckerStructRequiredPropertyNotSet)
+            .Subject;
+        error.Message.Should().Contain("new Point[x => value]");
+        error.Message.Should().Contain("new Point() with [x => value]");
+    }
+
+    [Fact]
+    public void Check_StructInitializer_UnknownKey_ReportsDidYouMean()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Point = struct {
+                float $x = 0.0;
+                float $y = 0.0;
+            };
+
+            function demo(): Point {
+                return new Point[z => 1.0];
+            }
+            """);
+
+        var error = diagnostics.Errors
+            .Should().ContainSingle(d => d.Code == MessageCode.CheckerWithKeywordInvalidProperty)
+            .Subject;
+        error.Help.Should().Contain("did you mean");
+    }
+
+    [Fact]
+    public void Check_StructInitializer_NonStruct_ReportsOnceWithoutCascade()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class User {
+                public string $name = "";
+
+                public function relative(): void {
+                    new static[name => "a"];
+                    new self[missing => 1];
+                }
+            }
+
+            class Child extends User {
+                public function fromParent(): void {
+                    new parent[];
+                }
+            }
+
+            interface Greeter {}
+
+            enum Color {
+                case Red;
+            }
+
+            type Shape = object {
+                public int $x;
+            };
+
+            type Id = int;
+
+            type Point = struct {
+                float $x = 0.0;
+            };
+
+            type P2 = Point;
+
+            type UserAlias = User;
+
+            abstract class Base {
+                public int $n = 0;
+            }
+
+            trait Taggable {}
+
+            function demo(): void {
+                new User[missing => 1];
+                new Greeter[];
+                new Color[];
+                new Shape[x => 1];
+                new Id[];
+                new P2[x => 1.0];
+                new UserAlias[name => "a"];
+                new Base[n => 1];
+                new Taggable[];
+            }
+            """);
+
+        var errors = diagnostics.Errors.ToList();
+        errors.Should().NotBeEmpty();
+        errors.Should().OnlyContain(d => d.Code == MessageCode.CheckerStructInitializerOnNonStruct);
+        var messages = errors.Select(d => d.Message).ToList();
+        string MessageFor(string name) =>
+            messages.Should().ContainSingle(m => m.Contains($"`{name}` is a `", StringComparison.Ordinal)).Subject;
+        MessageFor("User").Should().Contain("Use `new User() with [...]`");
+        MessageFor("static").Should().Contain("Use `new static() with [...]`");
+        MessageFor("self").Should().Contain("Use `new self() with [...]`");
+        MessageFor("parent").Should().Contain("Use `new parent() with [...]`");
+        MessageFor("Greeter").Should().NotContain("with [...]");
+        MessageFor("Color").Should().NotContain("with [...]");
+        MessageFor("Shape").Should().NotContain("with [...]");
+        MessageFor("Id").Should().NotContain("with [...]");
+        MessageFor("P2").Should().NotContain("with [...]");
+        MessageFor("UserAlias").Should().NotContain("with [...]");
+        MessageFor("Base").Should().NotContain("with [...]");
+        MessageFor("Taggable").Should().NotContain("with [...]");
+        MessageFor("Greeter").Should().Contain("`interface`");
+        MessageFor("Color").Should().Contain("`enum`");
+        MessageFor("Shape").Should().Contain("`object shape`");
+        MessageFor("Id").Should().Contain("`type alias`");
+        MessageFor("P2").Should().Contain("`type alias`");
+        MessageFor("UserAlias").Should().Contain("`type alias`");
+        MessageFor("Base").Should().Contain("`class`");
+        MessageFor("Taggable").Should().Contain("`trait`");
+    }
+
+    [Fact]
+    public void Check_NewWith_OnNonInstantiableKinds_IsRejected()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            interface Greeter {}
+
+            enum Color {
+                case Red;
+            }
+
+            type Shape = object {
+                public int $x;
+            };
+
+            type Point = struct {
+                float $x = 0.0;
+            };
+
+            type P2 = Point;
+
+            abstract class Base {
+                public int $n = 0;
+            }
+
+            trait Taggable {}
+
+            function demo(): void {
+                new Greeter() with [];
+                new Color() with [];
+                new Shape() with [x => 1];
+                new P2() with [x => 1.0];
+                new Base() with [n => 1];
+                new Taggable() with [];
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerCannotInstantiateInterface);
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerCannotInstantiateEnum);
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerObjectShapeUsedAsClass);
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerCannotInstantiateNonClass);
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerAbstractClassInstantiated);
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerCannotInstantiateTrait);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerStructInitializerOnNonStruct);
+    }
+
+    [Fact]
+    public void Check_StructInitializer_OnStruct_IsNotReportedAsNonStruct()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Base = struct {
+                float $x = 0.0;
+            };
+
+            type Point = struct extends Base {
+                float $y = 0.0;
+            };
+
+            type Box<T> = struct {
+                T $value;
+            };
+
+            function named(): Point {
+                return new Point[x => 1.0, y => 2.0];
+            }
+
+            function generic(): Box<int> {
+                return new Box<int>[value => 1];
+            }
+
+            function inferred(): Box<int> {
+                return new Box[value => 1];
+            }
+
+            function anonymous(): void {
+                $a = new struct { float $x; }[x => 1.0];
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_StructInitializer_UndefinedName_KeepsUnresolvedNameError()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(): void {
+                new Missing[x => 1];
+            }
+            """);
+
+        diagnostics.Errors.Should().NotBeEmpty();
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerStructInitializerOnNonStruct);
+    }
+
+    [Fact]
+    public void Check_ObjectWith_UnkeyedAndSpread_KeepObjectCodes()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class User {
+                public string $name = "";
+            }
+
+            function unkeyed(): User {
+                return new User() with [1];
+            }
+
+            function spread(array $src): User {
+                return new User() with [...$src];
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerWithEntryUnkeyed);
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerWithSpreadNotStruct);
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerStructEntryUnkeyed
+            || d.Code == MessageCode.CheckerStructSpreadNotStruct);
+    }
+
+    [Fact]
+    public void Check_StructSpread_CloneAndInPlaceWith_FollowSpreadRules()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Point = struct {
+                float $x = 0.0;
+                int 'status_code' as $code = 0;
+            };
+
+            type Extra = struct {
+                float $x = 0.0;
+                float $z = 0.0;
+            };
+
+            type Renamed = struct {
+                int $code = 0;
+            };
+
+            type Bad = struct {
+                string $x = "";
+            };
+
+            function cloneArray(Point $p, array $a): Point {
+                return clone $p with [...$a];
+            }
+
+            function inPlaceExtra(Point $p, Extra $e): void {
+                $p with [...$e];
+            }
+
+            function cloneRenamed(Point $p, Renamed $r): Point {
+                return clone $p with [...$r];
+            }
+
+            function inPlaceBad(Point $p, Bad $b): void {
+                $p with [...$b];
+            }
+            """);
+
+        diagnostics.Errors.Should().ContainSingle(d => d.Code == MessageCode.CheckerStructSpreadNotStruct);
+        diagnostics.Errors.Should().ContainSingle(d =>
+            d.Code == MessageCode.CheckerStructSpreadExtraField
+            && d.Message.Contains("`z`", StringComparison.Ordinal));
+        diagnostics.Errors.Should().ContainSingle(d =>
+            d.Code == MessageCode.CheckerStructSpreadKeyMismatch
+            && d.Message.Contains("`code`", StringComparison.Ordinal));
+        diagnostics.Errors.Should().ContainSingle(d => d.Code == MessageCode.CheckerTypeMismatch);
+    }
+
+    [Fact]
+    public void Check_StructEntries_Unkeyed_ReportsError()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Point = struct {
+                float $x = 0.0;
+                float $y = 0.0;
+            };
+
+            function bracket(): Point {
+                return new Point[1.0, 2.0];
+            }
+
+            function explicitWith(): Point {
+                return new Point() with [1.0];
+            }
+
+            function inPlace(Point $p): void {
+                $p with [1.0];
+            }
+
+            function cloned(Point $p): Point {
+                return clone $p with [1.0];
+            }
+            """);
+
+        var errors = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerStructEntryUnkeyed)
+            .ToList();
+        errors.Should().HaveCount(5);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithEntryUnkeyed);
+    }
+
+    [Fact]
+    public void Check_StructSpread_SourceMustBeStruct()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Point = struct {
+                float $x = 0.0;
+                float $y = 0.0;
+            };
+
+            type Other = struct {
+                float $x = 0.0;
+            };
+
+            function fromArray(array $src): Point {
+                return new Point[...$src];
+            }
+
+            function fromMap(array<string, int> $src): Point {
+                return new Point() with [...$src];
+            }
+
+            function fromMixed(mixed $src): Point {
+                return new Point[...$src];
+            }
+
+            function fromNullable(?Point $src): Point {
+                return new Point[...$src];
+            }
+
+            function fromUnion(Point|Other $src): Point {
+                return new Point[...$src];
+            }
+            """);
+
+        var errors = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerStructSpreadNotStruct)
+            .ToList();
+        errors.Should().HaveCount(5);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerWithSpreadNotStruct);
+    }
+
+    [Fact]
+    public void Check_StructSpread_FieldsAndTypes()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Base = struct {
+                float $x;
+            };
+
+            type Point = struct extends Base {
+                float $y;
+            };
+
+            type Src = struct {
+                float $x = 0.0;
+            };
+
+            type Extra = struct {
+                float $x = 0.0;
+                float $z = 0.0;
+            };
+
+            type Bad = struct {
+                string $x = "";
+            };
+
+            function inherited(Src $src): Point {
+                return new Point[...$src, y => 1.0];
+            }
+
+            function anon(struct { float $x; float $y; } $src): Point {
+                return new Point[...$src];
+            }
+
+            function extra(Extra $src): Point {
+                return new Point[...$src, y => 1.0];
+            }
+
+            function wrongType(Bad $src): Point {
+                return new Point[...$src, y => 1.0];
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerStructSpreadExtraField
+            && d.Message.Contains("`z`", StringComparison.Ordinal));
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerTypeMismatch);
+        diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerStructSpreadExtraField)
+            .Should().ContainSingle();
+        diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerTypeMismatch)
+            .Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Check_StructSpread_KeyAliasMustMatch()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Status = struct {
+                int 'status_code' as $statusCode = 0;
+            };
+
+            type Plain = struct {
+                int $statusCode = 0;
+            };
+
+            type Same = struct {
+                int 'status_code' as $statusCode = 0;
+            };
+
+            type Zero = struct {
+                mixed 0 as $arg1 = null;
+            };
+
+            type One = struct {
+                mixed 1 as $arg1 = null;
+            };
+
+            function mismatch(Status $src): Plain {
+                return new Plain[...$src];
+            }
+
+            function same(Status $src): Same {
+                return new Same[...$src];
+            }
+
+            function index(Zero $src): One {
+                return new One[...$src];
+            }
+
+            function indexSame(Zero $src): Zero {
+                return new Zero() with [...$src];
+            }
+            """);
+
+        var errors = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerStructSpreadKeyMismatch)
+            .ToList();
+        errors.Should().HaveCount(2);
+        errors.Select(d => d.Message).Should().Contain(m =>
+            m.Contains("`status_code`", StringComparison.Ordinal)
+            && m.Contains("`statusCode`", StringComparison.Ordinal));
+        errors.Select(d => d.Message).Should().Contain(m =>
+            m.Contains("`0`", StringComparison.Ordinal)
+            && m.Contains("`1`", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_StructSpread_RequiredFieldGuarantees()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Target = struct {
+                string $name;
+                int $retries = 3;
+            };
+
+            type Required = struct {
+                string $name;
+            };
+
+            type Defaulted = struct {
+                string $name = "a";
+            };
+
+            type Optional = struct {
+                ?string $name;
+            };
+
+            type OnlyRetries = struct {
+                int $retries = 1;
+            };
+
+            function fromRequired(Required $src): Target {
+                return new Target[...$src];
+            }
+
+            function fromDefault(Defaulted $src): Target {
+                return new Target[...$src];
+            }
+
+            function fromNullable(Optional $src): Target {
+                return new Target[...$src];
+            }
+
+            function keyedThenSpread(OnlyRetries $src): Target {
+                return new Target[name => "a", ...$src];
+            }
+
+            function spreadThenKeyed(OnlyRetries $src): Target {
+                return new Target[...$src, name => "a"];
+            }
+            """);
+
+        var missing = diagnostics.Errors
+            .Where(d => d.Code == MessageCode.CheckerStructRequiredPropertyNotSet)
+            .ToList();
+        missing.Should().ContainSingle();
+        missing[0].Message.Should().Contain("`name`");
+        diagnostics.Errors.Should().NotContain(d =>
+            d.Code == MessageCode.CheckerStructSpreadExtraField
+            || d.Code == MessageCode.CheckerStructSpreadNotStruct);
+    }
+
+    [Fact]
+    public void Check_StructSpread_GenericInference()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Box<T> = struct {
+                T $value;
+            };
+
+            function copy(Box<int> $src): Box<int> {
+                return new Box[...$src];
+            }
+
+            function mismatch(Box<string> $src): Box<int> {
+                return new Box[...$src];
+            }
+            """);
+
+        var errors = diagnostics.Errors.Where(d => d.Code == MessageCode.CheckerTypeMismatch).ToList();
+        errors.Should().ContainSingle();
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerStructSpreadNotStruct);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerStructRequiredPropertyNotSet);
+    }
+
+    [Fact]
+    public void Check_StructInitializer_FollowedByWith_ReportsError()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Opts = struct {
+                string $name;
+                int $retries = 3;
+            };
+
+            function demo(): Opts {
+                return new Opts[name => 'a'] with [retries => 5];
+            }
+            """);
+
+        diagnostics.Errors.Should().ContainSingle(d =>
+            d.Code == MessageCode.CheckerStructInitializerFollowedByWith);
+    }
+
+    [Fact]
+    public void Check_StructInitializer_MemberAccess_TypesField()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Point = struct {
+                float $x;
+                float $y;
+            };
+
+            function demo(): float {
+                return (new Point[x => 1.0, y => 2.0])->x;
+            }
+            """);
+
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Check_EvalUsage_ReportsInfo()
     {
         var diagnostics = CompileAndCheck("""

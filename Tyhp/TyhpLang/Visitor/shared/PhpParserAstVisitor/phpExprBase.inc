@@ -24,7 +24,7 @@
             => (this.Visit(context) as IExpression) ?? UnexpectedNodeAst.Create(context);
 
 
-        public override PhpNewAst VisitExprNewNonDRef([NotNull] TyhpParser.ExprNewNonDRefContext context)
+        public override IExpression VisitExprNewNonDRef([NotNull] TyhpParser.ExprNewNonDRefContext context)
             => this.VisitNewNonDereferenceable(context.Statement);
 
 

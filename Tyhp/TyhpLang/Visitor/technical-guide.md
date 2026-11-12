@@ -297,6 +297,7 @@ Some Tyhp constructs are lowered into PHP-shaped AST immediately:
 | `function name(...): T;` overload signature | Bodyless `PhpFunctionDeclAst` + `isOverloadSignature` addon |
 | Operator / extension `=> expr` bodies | Same `return expr;` wrapping; `IsShortSyntax` on `TyhpOperatorOverloadAst` / `PhpMethodDeclAst` / `PhpFunctionDeclAst` |
 | Anonymous `new struct {…}` | Struct decl added to `CurrentTopStatementList`; expression is `new GeneratedName` |
+| `new Name[…]` / `new struct {…}[…]` | `PhpBinaryOpAst` (`with`) of a `PhpNewAst` (`IsStructInitializer`) and a `PhpArrayPairListAst`. `new Name[]` is an empty pair list. The `new` span is `new Name` or `new struct {…}`; the pair list span is `[…]` |
 
 Do not confuse named short functions with anonymous PHP arrows (`fn($x) => …`), which use the inline-function expression path.
 

@@ -864,13 +864,13 @@ Prefer declaring the property as nullable with an explicit null default (`?T $pr
     <comment>Long-form explanation for tyhp --explain TYHP4158</comment>
   </data>
   <data name="ERROR_TYHP4159" xml:space="preserve">
-    <value>Required struct property `{0}` on `{1}` must be set via `new ... with [...]`</value>
-    <comment>Checker: non-nullable struct property without default missing from construction</comment>
+    <value>Required struct property `{0}` on `{1}` must be set via `{2}`</value>
+    <comment>Checker: non-nullable struct property without a default missing from construction. {2} names the form that was written.</comment>
   </data>
   <data name="EXPLAIN_TYHP4159" xml:space="preserve">
-    <value>Struct properties that are non-nullable and have no default value are required. They cannot be omitted from construction — supply them with `new StructName() with [prop => value, ...]`.
+    <value>Struct properties that are non-nullable and have no default value are required. The message names the form that was written: `new StructName[prop => value]` for a bracket initializer, `new StructName() with [prop => value]` for `with`, and either form for a bare `new StructName()`.
 
-Nullable properties (and properties with defaults) remain optional at construction.</value>
+Nullable properties and properties with defaults stay optional.</value>
     <comment>Long-form explanation for tyhp --explain TYHP4159</comment>
   </data>
   <data name="ERROR_TYHP4160" xml:space="preserve">
@@ -1876,6 +1876,54 @@ Raise `output.phpVersion` to 8.5. `new … with` on the same class is available 
   <data name="ERROR_TYHP4411" xml:space="preserve">
     <value>Spread source `{1}` has field `{0}`, which `{2}` does not declare</value>
     <comment>Checker — object with spread field array key is not a property of the target. {0} = array key, {1} = source type, {2} = target type</comment>
+  </data>
+  <data name="ERROR_TYHP4412" xml:space="preserve">
+    <value>`new {0}[...]` constructs a struct, but `{0}` is a `{1}`{2}</value>
+    <comment>Checker — bracket initializer on a non-struct. {0} = written name, {1} = kind (class, interface, enum, object shape, type alias). {2} = empty, or ". Use `new Name() with [...]`" when that form is legal.</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4412" xml:space="preserve">
+    <value>A bracket initializer constructs a struct. The name after `new` is a class, interface, enum, trait, `self` / `static` / `parent`, an object shape, or a type alias. When that name is a class that can be constructed, write `new Name() with [prop => value]`.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4412</comment>
+  </data>
+  <data name="ERROR_TYHP4413" xml:space="preserve">
+    <value>Struct entries need a property name: `name => value`</value>
+    <comment>Checker — unkeyed entry in a struct initializer or struct with list</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4413" xml:space="preserve">
+    <value>A struct initializer and a struct `with` list set fields by name. An entry with no key, such as `new Point[1.0, 2.0]` or `$p with [1.0]`, does not name a property. Write `name => value`.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4413</comment>
+  </data>
+  <data name="ERROR_TYHP4414" xml:space="preserve">
+    <value>Only a struct value can be spread into `{0}`; `{1}` is not a struct</value>
+    <comment>Checker — struct spread source is not a concrete struct. {0} = target type, {1} = source type</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4414" xml:space="preserve">
+    <value>Spreading into a struct copies that value's fields. The source has to be a named struct, a generic struct instance, or an anonymous struct. An array, `mixed`, a nullable struct, or a union has no fixed set of fields, so it cannot be spread.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4414</comment>
+  </data>
+  <data name="ERROR_TYHP4415" xml:space="preserve">
+    <value>Spread source `{1}` has field `{0}`, which `{2}` does not declare</value>
+    <comment>Checker — struct spread field is not declared on the target, including through extends. {0} = field, {1} = source type, {2} = target type</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4415" xml:space="preserve">
+    <value>A spread copies every field of the source into the constructed struct. A field the target does not declare, including fields inherited through `extends`, would become an extra array key. Remove that field from the source or add it to the target.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4415</comment>
+  </data>
+  <data name="ERROR_TYHP4416" xml:space="preserve">
+    <value>Field `{0}` maps to key `{1}` in `{2}` but key `{3}` in `{4}`; spread cannot rename keys</value>
+    <comment>Checker — struct spread field array keys differ. {0} = field, {1} = source key, {2} = source type, {3} = target key, {4} = target type</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4416" xml:space="preserve">
+    <value>Spread copies PHP array keys as they are. A field alias (`'status_code' as $statusCode`, or `0 as $arg1`) is that key. When the same field maps to a different key on the target, the spread cannot rename it. Use the same alias on both structs, or set the field with `name => value`.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4416</comment>
+  </data>
+  <data name="ERROR_TYHP4417" xml:space="preserve">
+    <value>A struct initializer cannot be followed by `with`; put every entry in `new {0}[...]`</value>
+    <comment>Checker — new Name[...] with [...]. {0} = struct name</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4417" xml:space="preserve">
+    <value>A bracket initializer is already the struct's entry list. A following `with` would start a second list on that result. Put every entry inside the brackets: `new Name[name => 'a', retries => 5]`.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4417</comment>
   </data>
   <data name="WARNING_TYHP4500" xml:space="preserve">
     <value>`{0}` is deprecated{1}</value>
@@ -3857,6 +3905,18 @@ The checker normally reports unsupported bodies as TYHP4322 before emit. Seeing 
   <data name="CLI_LspCodeActionOrganizeImports" xml:space="preserve">
     <value>Organize imports</value>
     <comment>LSP source code action title to sort use statements</comment>
+  </data>
+  <data name="CLI_LspCodeActionUseStructInitializer" xml:space="preserve">
+    <value>Use struct initializer</value>
+    <comment>LSP refactor title that rewrites `new Name() with [...]` on a struct to `new Name[...]`.</comment>
+  </data>
+  <data name="CLI_LspCodeActionUseWithList" xml:space="preserve">
+    <value>Use `new {0}() with [...]`</value>
+    <comment>LSP quick fix for TYHP4412. Arg: the type written after new.</comment>
+  </data>
+  <data name="CLI_StructInitializerWithListHint" xml:space="preserve">
+    <value>. Use `new {0}() with [...]`</value>
+    <comment>Optional suffix of ERROR_TYHP4412 when `new Name() with [...]` is legal. {0} = the name written after new.</comment>
   </data>
   <data name="CLI_XDebugProxyNotImplemented" xml:space="preserve">
     <value>The XDebug proxy is not yet implemented (Story 18).</value>

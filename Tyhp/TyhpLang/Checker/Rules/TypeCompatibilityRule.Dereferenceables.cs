@@ -599,6 +599,16 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
+            // `new Name[...]` on a known non-struct is reported from WithKeywordRule. Skip the
+            // ordinary `new` diagnostics so they do not pile on after that error. A name that
+            // resolves to nothing keeps them.
+            if (newExpr.IsStructInitializer
+                && WithKeywordRule.NonStructInitializerKind(
+                    newExpr, context.ResolveExpressionType(newExpr, state), state, context) is not null)
+            {
+                return;
+            }
+
             if (TryReportObjectShapeUsedAsClass(classRef, state, context, diagnostics)
                 || TryReportTypeAliasUsedAsNewTarget(classRef, state, context, diagnostics))
             {
@@ -943,7 +953,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         newExpr,
                         MessageCode.CheckerStructRequiredPropertyNotSet,
                         bareName,
-                        structDecl.Name);
+                        structDecl.Name,
+                        WithKeywordRule.RequiredPropertyConstructionHint(structDecl.Name, bareName, null));
                 }
             }
         }

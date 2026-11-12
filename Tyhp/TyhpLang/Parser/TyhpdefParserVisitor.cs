@@ -1273,6 +1273,20 @@ public interface ITyhpdefParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitNewClassInstanceNonDereferenceable([NotNull] TyhpdefParser.NewClassInstanceNonDereferenceableContext context);
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpNewStructInitializer</c>
+	/// labeled alternative in <see cref="TyhpdefParser.newNonDereferenceable"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpNewStructInitializer([NotNull] TyhpdefParser.TyhpNewStructInitializerContext context);
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpNewAnonStructInitializer</c>
+	/// labeled alternative in <see cref="TyhpdefParser.newNonDereferenceable"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpNewAnonStructInitializer([NotNull] TyhpdefParser.TyhpNewAnonStructInitializerContext context);
+	/// <summary>
 	/// Visit a parse tree produced by the <c>newNonDereferenceableGrammarAddonHandler</c>
 	/// labeled alternative in <see cref="TyhpdefParser.newNonDereferenceable"/>.
 	/// </summary>

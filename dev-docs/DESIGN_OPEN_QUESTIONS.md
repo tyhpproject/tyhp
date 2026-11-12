@@ -1371,8 +1371,8 @@ this expression” error. Do not guess.
 
 ## Open design questions (from r/PHP launch feedback, 2026-11)
 
-Asked for in the public beta announcement thread. Neither is high priority; both need more thought before
-they can be scheduled.
+Asked for in the public beta announcement thread. Neither was high priority. §22 still needs more thought
+before it can be scheduled. §23 is resolved.
 
 ### 22. Mapping production errors and stack traces back to `.tyhp` lines
 
@@ -1407,11 +1407,11 @@ Candidate shapes (none chosen):
 - Does this belong in the compiler (CLI), `tyhp/core` (runtime), or a separate package?
 - Interaction with release/minified profiles and Story 22.1 docblocks, which change emitted line numbers.
 
-### 23. Constructing structs with named arguments
+### 23. Constructing structs with named arguments — resolved
 
-> **Resolved 2026-11-04 → Story 22.2** (`IMPLEMENTATION_PLAN_TODO_STORY_22.2.md`). Named arguments were not
-> adopted. Structs get a bracket initializer instead: `new Opts[name => 'ann']`, `new Opts[]`, and checked spread
-> `new Opts[...$base, name => 'bob']`. The questions below are kept as the record of why.
+**Resolved 2026-11-10.** Story **22.2** (`IMPLEMENTATION_PLAN_TODO_STORY_22.2.md`). Named arguments were not
+added. The spelling that answers this is the bracket initializer `new Name[field => value]` (also `new Name[]`,
+and a checked spread `new Name[...$base, field => value]`). The questions below are the record of what was asked.
 
 **Wanted 2026-11-03.** Structs are built with `new Alias() with [...]`:
 
@@ -1434,7 +1434,7 @@ If added, it would be sugar next to `with`, not a replacement: same array output
 every value is constant, `\array_replace` otherwise), same required-field checks (a missing field without a
 default is an error), same unknown-key errors.
 
-**Unresolved questions:**
+**Questions (kept as the record):**
 
 - Is a second spelling worth it? `with` already works for construction and for copy-and-update; two forms
   for construction means docs and diagnostics must cover both.

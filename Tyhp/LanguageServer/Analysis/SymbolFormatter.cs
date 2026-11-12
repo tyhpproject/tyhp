@@ -1177,6 +1177,63 @@ namespace Tyhp.LanguageServer.Analysis
             return joined;
         }
 
+        /// <summary>
+        /// Hover for a key in a struct initializer or struct <c>with</c> list.
+        /// The signature is the struct property, including its type, alias, and default.
+        /// </summary>
+        public static string FormatStructFieldHover(ObjectPropertySymbol property)
+        {
+            ArgumentNullException.ThrowIfNull(property);
+            string signature = property.DeclaringAstNode is TyhpStructPropertyAst declaration
+                ? FormatStructProperty(declaration)
+                : FormatStructPropertySignature(property);
+            if (property.DeclaringAstNode is not TyhpStructPropertyAst)
+            {
+                string? fallbackDefault = FormatExpression(property.DefaultValue);
+                if (!string.IsNullOrEmpty(fallbackDefault))
+                {
+                    signature = signature + " = " + fallbackDefault;
+                }
+            }
+
+            var builder = new StringBuilder();
+            builder.Append("property\n```tyhp\n");
+            builder.Append(signature);
+            builder.Append("\n```");
+            string? container = FormatContainingScope(property);
+            if (!string.IsNullOrEmpty(container))
+            {
+                builder.Append('\n');
+                builder.Append(container);
+            }
+
+            return builder.ToString();
+        }
+
+        /// <summary>
+        /// Completion detail for a struct field: its type, its default, and whether it is required.
+        /// </summary>
+        public static string FormatStructFieldDetail(ObjectPropertySymbol property, bool required)
+        {
+            ArgumentNullException.ThrowIfNull(property);
+            string type = FormatType(property.DeclaredType);
+            string? defaultValue = FormatExpression(
+                property.DeclaringAstNode is TyhpStructPropertyAst declaration
+                    ? declaration.Property?.DefaultValue
+                    : property.DefaultValue);
+            if (!string.IsNullOrEmpty(defaultValue))
+            {
+                return string.IsNullOrEmpty(type) ? "= " + defaultValue : type + " = " + defaultValue;
+            }
+
+            if (required)
+            {
+                return string.IsNullOrEmpty(type) ? "required" : type + " (required)";
+            }
+
+            return type;
+        }
+
         private static string? FormatExpression(IExpression? expression)
         {
             if (expression is null)
@@ -1184,8 +1241,48 @@ namespace Tyhp.LanguageServer.Analysis
                 return null;
             }
 
+            if (expression.ValueBoolean is bool boolean)
+            {
+                return boolean ? "true" : "false";
+            }
+
             string text = FirstNonEmpty(expression.ValueString, expression.Identifier);
-            return string.IsNullOrEmpty(text) ? null : text;
+            if (!string.IsNullOrEmpty(text))
+            {
+                return text;
+            }
+
+            if (expression.ValueInt64 is long integer)
+            {
+                return integer.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            if (expression is not IBase2Ast node)
+            {
+                return null;
+            }
+
+            IBase2Ast? only = null;
+            int count = 0;
+            foreach (IBase2Ast? child in node.AstChildren)
+            {
+                if (child is null)
+                {
+                    continue;
+                }
+
+                only = child;
+                count++;
+            }
+
+            if (count != 1 || only is null)
+            {
+                return null;
+            }
+
+            return FirstNonEmpty(only.ValueString, only.Identifier) is { Length: > 0 } childText
+                ? childText
+                : null;
         }
 
         private static string FormatContainingScope(BaseSymbol symbol)

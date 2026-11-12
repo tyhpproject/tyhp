@@ -1073,10 +1073,13 @@ namespace Tyhp.TyhpLang.Visitor
         ///
         /// Grammar:
         ///   newDereferenceableGrammarAddon
-        ///     : {this.looksLikeAnonymousStruct()}?
+        ///     : {this.looksLikeAnonymousStruct() &amp;&amp; !this.anonymousStructIsFollowedByInitializer()}?
         ///         T_NEW AnonStructDecl=tyhpAnonymousStruct {this.isLanguageMode("tyhp")}?
         ///         #tyhpNewAnonStructInstance
         ///     ;
+        ///
+        /// A bracket list after the body is `#tyhpNewAnonStructInitializer` and desugars
+        /// to the same `with` tree as `new Name[…]`.
         ///
         /// Follows the same pattern as anonymous classes: the struct declaration
         /// is registered as a top-level statement, and a PhpNewAst wrapping the
@@ -2154,6 +2157,7 @@ namespace Tyhp.TyhpLang.Visitor
         /// Grammar:
         ///   tyhpMethodDefinition
         ///     : Identifier=T_CONSTRUCT_METHOD
+        ///         GenericArguments=tyhpGenericParameterDeclarations?
         ///         FindDocComment=T_OPEN_ROUND_BRACE ParameterList=ctorParameterList
         ///         T_CLOSE_ROUND_BRACE ReturnType=tyhpCtorReturnType?
         ///         StatementList=methodBody                            #tyhpClassCtorWithReturnType

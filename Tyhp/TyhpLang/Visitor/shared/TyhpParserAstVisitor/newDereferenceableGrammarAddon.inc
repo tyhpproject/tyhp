@@ -18,10 +18,13 @@
         ///
         /// Grammar:
         ///   newDereferenceableGrammarAddon
-        ///     : {this.looksLikeAnonymousStruct()}?
+        ///     : {this.looksLikeAnonymousStruct() &amp;&amp; !this.anonymousStructIsFollowedByInitializer()}?
         ///         T_NEW AnonStructDecl=tyhpAnonymousStruct {this.isLanguageMode("tyhp")}?
         ///         #tyhpNewAnonStructInstance
         ///     ;
+        ///
+        /// A bracket list after the body is `#tyhpNewAnonStructInitializer` and desugars
+        /// to the same `with` tree as `new Name[…]`.
         ///
         /// Follows the same pattern as anonymous classes: the struct declaration
         /// is registered as a top-level statement, and a PhpNewAst wrapping the

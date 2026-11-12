@@ -14,8 +14,9 @@ namespace Tyhp.LanguageServer.Analysis
     using ProtocolRange = Microsoft.VisualStudio.LanguageServer.Protocol.Range;
 
     /// <summary>
-    /// Builds LSP code actions (quick fixes and source organize-imports) from
-    /// document diagnostics and binder symbols.
+    /// Builds LSP code actions from document diagnostics and binder symbols:
+    /// import fixes, the struct-initializer refactor, the TYHP4412 quick fix for a class,
+    /// and source organize-imports.
     /// </summary>
     internal static class CodeActionEngine
     {
@@ -71,6 +72,22 @@ namespace Tyhp.LanguageServer.Analysis
                         continue;
                     }
 
+                    if (diagnostic.Code == MessageCode.CheckerStructInitializerOnNonStruct)
+                    {
+                        CodeAction? rewrite = StructInitializerSupport.TryNonStructQuickFix(
+                            state.Uri,
+                            content,
+                            ast,
+                            diagnostic,
+                            range);
+                        if (rewrite is not null && seen.Add(ActionKey(rewrite)))
+                        {
+                            actions.Add(rewrite);
+                        }
+
+                        continue;
+                    }
+
                     if (diagnostic.Code == MessageCode.CheckerUnusedImport)
                     {
                         CodeAction? remove = TryRemoveUnusedImport(state.Uri, content, ast, diagnostic);
@@ -98,6 +115,23 @@ namespace Tyhp.LanguageServer.Analysis
                         {
                             actions.Add(import);
                         }
+                    }
+                }
+            }
+
+            if (WantsKind(CodeActionKind.Refactor, only))
+            {
+                foreach (CodeAction initializer in StructInitializerSupport.UseInitializerActions(
+                    state.Uri,
+                    content,
+                    ast,
+                    range,
+                    globalScope,
+                    fromScope))
+                {
+                    if (seen.Add(ActionKey(initializer)))
+                    {
+                        actions.Add(initializer);
                     }
                 }
             }

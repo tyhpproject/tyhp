@@ -8,6 +8,7 @@ using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
 using Tyhp.TyhpLang.Checker;
+using Tyhp.TyhpLang.Checker.Rules;
 using Tyhp.TyhpLang.Enum;
 using Tyhp.TyhpLang.Parser;
 
@@ -125,9 +126,12 @@ namespace Tyhp.TyhpLang.Emitter
 
         /// <summary>
         /// Rewrites struct <c>with</c> forms.
-        /// <c>new Struct() with [...]</c> folds defaults and overrides into a single array
-        /// literal at emit time; <c>$s with</c> / <c>clone $s with</c> keep a runtime
-        /// <c>\array_replace($base, [...])</c> because the base value is not known statically.
+        /// <c>new Struct() with [...]</c> and <c>new Struct[...]</c> with no spread fold defaults
+        /// and overrides into a single array literal. A spread is one <c>\array_replace</c>
+        /// argument per run (the defaults array, then each spread source, with each run of
+        /// consecutive keyed entries merged into one array literal) so integer keys are not
+        /// renumbered. <c>$s with</c> / <c>clone $s with</c> use the same runs with the base
+        /// value in place of the defaults array, because that value is not known statically.
         /// </summary>
         public static bool TryRewriteStructWith(
             PhpBinaryOpAst binary,
@@ -135,6 +139,7 @@ namespace Tyhp.TyhpLang.Emitter
             Func<IExpression?, ObjectDeclarationSymbol?> resolveStructType,
             Func<IExpression?, StructCheckedType?>? resolveAnonymousShape,
             Func<IExpression, IExpression>? transformDefault,
+            Func<IExpression, IReadOnlySet<string>>? guaranteedSpreadKeys,
             out IBase2Ast rewritten)
         {
             rewritten = binary;
@@ -148,6 +153,18 @@ namespace Tyhp.TyhpLang.Emitter
             if (binary.Left is PhpNewAst newExpr
                 && resolveStructFromNew(newExpr) is { IsStruct: true } newStruct)
             {
+                if (HasExpansion(pairList))
+                {
+                    rewritten = RewriteSpreadWith(
+                        leading: null,
+                        CreateDefaultsArray(newStruct, binary, transformDefault),
+                        pairList,
+                        memberName => ResolveStructPropertyKey(newStruct, memberName),
+                        guaranteedSpreadKeys,
+                        binary);
+                    return true;
+                }
+
                 var defaults = CreateDefaultsArray(newStruct, binary, transformDefault);
                 var overrides = CreateArrayFromWithList(pairList, newStruct, binary);
                 rewritten = MergeArrayPairs(defaults, overrides, binary);
@@ -167,23 +184,34 @@ namespace Tyhp.TyhpLang.Emitter
                 return false;
             }
 
-            PhpArrayAst runtimeOverrides;
+            Func<string, StructArrayKey?>? resolveKey = null;
             if (resolveStructType(baseExpr) is { IsStruct: true } baseStruct)
             {
-                runtimeOverrides = CreateArrayFromWithList(pairList, baseStruct, binary);
+                resolveKey = memberName => ResolveStructPropertyKey(baseStruct, memberName);
             }
             else if (resolveAnonymousShape?.Invoke(baseExpr) is { } baseShape)
             {
-                runtimeOverrides = CreateArrayFromWithList(
-                    pairList,
-                    memberName => ResolveAnonymousStructKey(baseShape, memberName),
-                    binary);
+                resolveKey = memberName => ResolveAnonymousStructKey(baseShape, memberName);
             }
-            else
+
+            if (resolveKey is null)
             {
                 return false;
             }
 
+            if (HasExpansion(pairList))
+            {
+                rewritten = RewriteSpreadWith(
+                    baseExpr,
+                    defaults: null,
+                    pairList,
+                    resolveKey,
+                    guaranteedSpreadKeys,
+                    binary);
+                return true;
+            }
+
+            var runtimeOverrides = CreateArrayFromWithList(pairList, resolveKey, binary);
             rewritten = CreateArrayReplaceCall(baseExpr, runtimeOverrides, binary);
             return true;
         }
@@ -230,18 +258,406 @@ namespace Tyhp.TyhpLang.Emitter
             IExpression baseExpr,
             IExpression overridesExpr,
             Base2Ast context)
+            => CreateArrayReplaceCall([baseExpr, overridesExpr], context);
+
+        public static IBase2Ast CreateArrayReplaceCall(
+            IReadOnlyList<IExpression> arguments,
+            Base2Ast context)
         {
             var args = PhpArgumentListAst.Create(
-                [
-                    PhpArgumentAst.CreateFromContext(baseExpr, context),
-                    PhpArgumentAst.CreateFromContext(overridesExpr, context),
-                ],
+                arguments.Select(argument => PhpArgumentAst.CreateFromContext(argument, context)),
                 context);
 
             return PhpDereferenceableAst.CreateFromContext(
                 PhpNameAst.CreateFromContext(@"\array_replace", context),
                 PhpCallAst.CreateFromContext(args, context),
                 context);
+        }
+
+        /// <summary>
+        /// Array keys a spread source is known to contain. A required field and a field with a
+        /// default count. A nullable field with no default does not: the key may be missing.
+        /// Unknown sources and unions contribute no keys, so the target's default stays.
+        /// </summary>
+        public static IReadOnlySet<string> CollectGuaranteedSpreadKeys(
+            ICheckedType? checkedType,
+            ObjectDeclarationSymbol? declaration)
+        {
+            var keys = new HashSet<string>(StringComparer.Ordinal);
+            var type = checkedType;
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            if (type is null || type.IsMixed || type is UnionCheckedType or IntersectionCheckedType)
+            {
+                return keys;
+            }
+
+            if (type is StructCheckedType shape)
+            {
+                AddGuaranteedShapeKeys(shape, keys);
+                return keys;
+            }
+
+            var structDecl = type is not null
+                && TypeComparer.TryGetObjectDeclaration(type) is { IsStruct: true } fromType
+                ? fromType
+                : declaration is { IsStruct: true } named
+                    ? named
+                    : null;
+            if (structDecl is null)
+            {
+                return keys;
+            }
+
+            var arguments = type is GenericCheckedType generic ? generic.TypeArguments : null;
+            AddGuaranteedDeclarationKeys(structDecl, arguments, keys);
+            return keys;
+        }
+
+        /// <summary>
+        /// <c>\array_replace</c> arguments for a struct initializer or struct <c>with</c> list that
+        /// contains a spread. Each spread source is one argument (evaluated once). Consecutive
+        /// keyed entries collapse into one array literal. A <c>new</c> passes its defaults array
+        /// as <paramref name="defaults"/> and no leading value; <c>clone</c> / in-place pass the
+        /// base value as <paramref name="leading"/> and no defaults array. A default key is
+        /// omitted when a spread guarantees it or a keyed entry sets it. An empty defaults array
+        /// is omitted entirely.
+        /// </summary>
+        private static IBase2Ast RewriteSpreadWith(
+            IExpression? leading,
+            PhpArrayAst? defaults,
+            PhpArrayPairListAst pairList,
+            Func<string, StructArrayKey?> resolveKey,
+            Func<IExpression, IReadOnlySet<string>>? guaranteedSpreadKeys,
+            Base2Ast context)
+        {
+            var covered = new HashSet<string>(StringComparer.Ordinal);
+            var runs = new List<IExpression>();
+            var keyed = new List<PhpArrayPairAst>();
+
+            void FlushKeyed()
+            {
+                if (keyed.Count == 0)
+                {
+                    return;
+                }
+
+                runs.Add(CreateArrayFromPairs(keyed, context));
+                keyed.Clear();
+            }
+
+            foreach (var pair in pairList.GetAllExcludingSkippedSlots())
+            {
+                if (pair.IsExpansion)
+                {
+                    FlushKeyed();
+                    if (pair.ValueExpr is not { } source)
+                    {
+                        continue;
+                    }
+
+                    runs.Add(source);
+                    if (guaranteedSpreadKeys is not null)
+                    {
+                        foreach (var key in guaranteedSpreadKeys(source))
+                        {
+                            covered.Add(key);
+                        }
+                    }
+
+                    continue;
+                }
+
+                var normalized = NormalizeArrayPair(pair, resolveKey, context);
+                keyed.Add(normalized);
+                if (normalized.KeyExpr is not null)
+                {
+                    covered.Add(GetArrayKeyText(normalized.KeyExpr));
+                }
+            }
+
+            FlushKeyed();
+
+            var arguments = new List<IExpression>();
+            if (leading is not null)
+            {
+                arguments.Add(leading);
+            }
+
+            if (defaults is not null)
+            {
+                var kept = new List<PhpArrayPairAst>();
+                foreach (var pair in defaults.ArrayPairs?.GetAllExcludingSkippedSlots() ?? [])
+                {
+                    var key = pair.KeyExpr is null ? null : GetArrayKeyText(pair.KeyExpr);
+                    if (key is not null && covered.Contains(key))
+                    {
+                        continue;
+                    }
+
+                    kept.Add(pair);
+                }
+
+                if (kept.Count > 0)
+                {
+                    arguments.Add(CreateArrayFromPairs(kept, context));
+                }
+            }
+
+            arguments.AddRange(runs);
+            if (runs.Count == 0)
+            {
+                return arguments.Count switch
+                {
+                    0 => CreateArrayFromPairs([], context),
+                    1 => arguments[0],
+                    _ => CreateArrayReplaceCall(arguments, context),
+                };
+            }
+
+            return CreateArrayReplaceCall(arguments, context);
+        }
+
+        private static bool HasExpansion(PhpArrayPairListAst pairList) =>
+            pairList.GetAllExcludingSkippedSlots().Any(pair => pair.IsExpansion);
+
+        private static void AddGuaranteedShapeKeys(StructCheckedType shape, HashSet<string> keys)
+        {
+            foreach (var (memberName, info) in shape.Properties)
+            {
+                if (info.IsOptional || CheckedTypeMayBeAbsent(info.Type))
+                {
+                    continue;
+                }
+
+                keys.Add(ShapeArrayKeyText(memberName, info));
+            }
+        }
+
+        private static void AddGuaranteedDeclarationKeys(
+            ObjectDeclarationSymbol structDecl,
+            IReadOnlyList<ICheckedType>? arguments,
+            HashSet<string> keys)
+        {
+            foreach (var level in EnumerateStructHierarchy(structDecl))
+            {
+                foreach (var property in level.Members.Values.OfType<ObjectPropertySymbol>())
+                {
+                    var key = CanonicalArrayKeyText(GetStructArrayKey(property));
+                    var guaranteed = property.DefaultValue is not null
+                        || !TypeMayBeAbsent(property.DeclaredType, level, structDecl, arguments);
+                    if (guaranteed)
+                    {
+                        keys.Add(key);
+                    }
+                    else
+                    {
+                        keys.Remove(key);
+                    }
+                }
+            }
+        }
+
+        private static string ShapeArrayKeyText(string memberName, StructPropertyInfo info)
+        {
+            if (info.IntegerKeyAlias is int integerKey)
+            {
+                return integerKey.ToString(CultureInfo.InvariantCulture);
+            }
+
+            if (!string.IsNullOrEmpty(info.StringKeyAlias))
+            {
+                return info.StringKeyAlias;
+            }
+
+            return memberName.StartsWith('$') ? memberName[1..] : memberName;
+        }
+
+        private static string CanonicalArrayKeyText(StructArrayKey key)
+        {
+            if (!key.IsInteger)
+            {
+                return key.Text;
+            }
+
+            if (long.TryParse(
+                    key.Text.Replace("_", string.Empty),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out var numericKey))
+            {
+                return numericKey.ToString(CultureInfo.InvariantCulture);
+            }
+
+            return key.Text;
+        }
+
+        /// <summary>
+        /// True when a source field of this type may be missing from the array. A default on the
+        /// property is handled by the caller and counts as present even when the type is nullable.
+        /// </summary>
+        private static bool TypeMayBeAbsent(
+            ITypeExpression? type,
+            ObjectDeclarationSymbol level,
+            ObjectDeclarationSymbol instantiated,
+            IReadOnlyList<ICheckedType>? arguments)
+        {
+            if (type is null)
+            {
+                return true;
+            }
+
+            if (type is PhpTypeExpressionAst composite)
+            {
+                if (composite.IsNullable)
+                {
+                    return true;
+                }
+
+                var parts = TypeParts(composite);
+                if (composite.TypeKind == PhpTypeKind.Union && parts.Any(IsNullTypeExpression))
+                {
+                    return true;
+                }
+
+                if (composite.TypeKind == PhpTypeKind.Simple && parts.Count == 1)
+                {
+                    return TypeMayBeAbsent(parts[0], level, instantiated, arguments);
+                }
+
+                return false;
+            }
+
+            if (IsNullTypeExpression(type))
+            {
+                return true;
+            }
+
+            if (!TryReadTypeParameter(type, level, out var parameter))
+            {
+                return false;
+            }
+
+            if (!ReferenceEquals(level, instantiated) || arguments is null)
+            {
+                return true;
+            }
+
+            var index = instantiated.GenericParameters.FindIndex(candidate => ReferenceEquals(candidate, parameter));
+            if (index < 0 || index >= arguments.Count)
+            {
+                return true;
+            }
+
+            return CheckedTypeMayBeAbsent(arguments[index]);
+        }
+
+        private static bool CheckedTypeMayBeAbsent(ICheckedType type)
+        {
+            if (type is NullableCheckedType || CheckerHelpers.IsNullType(type))
+            {
+                return true;
+            }
+
+            if (type is UnionCheckedType union)
+            {
+                foreach (var member in union.Members)
+                {
+                    if (CheckedTypeMayBeAbsent(member))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static List<ITypeExpression> TypeParts(PhpTypeExpressionAst composite)
+        {
+            var parts = new List<ITypeExpression>();
+            if (composite.Types is null)
+            {
+                return parts;
+            }
+
+            foreach (var part in composite.Types.GetAllNotNull())
+            {
+                if (part is ITypeExpression typePart)
+                {
+                    parts.Add(typePart);
+                }
+            }
+
+            return parts;
+        }
+
+        private static bool IsNullTypeExpression(ITypeExpression type)
+        {
+            var written = type switch
+            {
+                PhpBuiltinTypeAst builtin => builtin.Identifier,
+                PhpNameAst name => name.ValueString ?? name.Identifier,
+                PhpNamedTypeAst { Name: PhpBuiltinTypeAst builtin } => builtin.Identifier,
+                PhpNamedTypeAst { Name: PhpNameAst name } => name.ValueString ?? name.Identifier,
+                _ => null,
+            };
+
+            return string.Equals(written?.TrimStart('\\'), "null", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TryReadTypeParameter(
+            ITypeExpression type,
+            ObjectDeclarationSymbol level,
+            out GenericTypeParameterSymbol? parameter)
+        {
+            parameter = null;
+            IBaseSymbol? bound = null;
+            string? written = null;
+            switch (type)
+            {
+                case PhpNameAst nameAst:
+                    bound = nameAst.BoundSymbol;
+                    written = nameAst.ValueString ?? nameAst.Identifier;
+                    break;
+                case PhpNamedTypeAst named:
+                    bound = named.BoundSymbol;
+                    if (named.Name is PhpNameAst innerName)
+                    {
+                        bound ??= innerName.BoundSymbol;
+                        written = innerName.ValueString ?? innerName.Identifier;
+                    }
+
+                    break;
+                default:
+                    return false;
+            }
+
+            if (bound is GenericTypeParameterSymbol boundParameter)
+            {
+                parameter = boundParameter;
+                return true;
+            }
+
+            if (bound is not null || string.IsNullOrEmpty(written))
+            {
+                return false;
+            }
+
+            var bare = written.TrimStart('\\');
+            foreach (var candidate in level.GenericParameters)
+            {
+                if (string.Equals(candidate.Name, bare, StringComparison.Ordinal))
+                {
+                    parameter = candidate;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

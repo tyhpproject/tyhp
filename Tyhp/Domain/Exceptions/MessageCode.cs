@@ -559,9 +559,10 @@ namespace Tyhp.Domain.Exceptions
             CheckerUnsetTypedPropertyWithoutAllowUnset = 4158,
 
             /// <summary>
-            /// A non-nullable struct property without a default was not set in
-            /// <c>new Struct() with [...]</c> (or was constructed with bare <c>new Struct()</c>).
-            /// Required struct properties must be supplied via <c>with</c> at construction.
+            /// A non-nullable struct property without a default was not set while
+            /// constructing the struct. The message names the form that was written:
+            /// <c>new Struct[prop =&gt; value]</c>, <c>new Struct() with [prop =&gt; value]</c>,
+            /// or either form for a bare <c>new Struct()</c>.
             /// </summary>
             CheckerStructRequiredPropertyNotSet = 4159,
 
@@ -1347,6 +1348,44 @@ namespace Tyhp.Domain.Exceptions
             /// through <c>extends</c>.
             /// </summary>
             CheckerWithSpreadExtraField = 4411,
+
+            /// <summary>
+            /// <c>new Name[...]</c> where <c>Name</c> is not a struct (class, interface, enum,
+            /// <c>self</c>/<c>static</c>/<c>parent</c>, object shape, or a non-struct type alias).
+            /// </summary>
+            CheckerStructInitializerOnNonStruct = 4412,
+
+            /// <summary>
+            /// An unkeyed entry in a struct initializer or a struct <c>with</c> list.
+            /// Entries name a property: <c>name =&gt; value</c>.
+            /// </summary>
+            CheckerStructEntryUnkeyed = 4413,
+
+            /// <summary>
+            /// A spread into a struct initializer or struct <c>with</c> list whose source is
+            /// not a concrete struct (named, generic instance, or anonymous). Arrays,
+            /// <c>mixed</c>, nullable structs, and unions have no fixed set of fields.
+            /// </summary>
+            CheckerStructSpreadNotStruct = 4414,
+
+            /// <summary>
+            /// A spread struct has a field the target struct does not declare, including
+            /// fields inherited through <c>extends</c>.
+            /// </summary>
+            CheckerStructSpreadExtraField = 4415,
+
+            /// <summary>
+            /// A spread field and the same field on the target map to different PHP array
+            /// keys (a string or integer alias on either side). Spread copies keys and
+            /// cannot rename them.
+            /// </summary>
+            CheckerStructSpreadKeyMismatch = 4416,
+
+            /// <summary>
+            /// <c>new Name[...] with [...]</c>. The bracket list is already the initializer;
+            /// a following <c>with</c> is a second list on a value that is not a variable.
+            /// </summary>
+            CheckerStructInitializerFollowedByWith = 4417,
 
             // Deprecation warnings (4500+ range)
             CheckerDeprecatedUsage = 4500,

@@ -21,36 +21,6 @@ Severity (Ready and NEEDS INPUT items):
 
 ## Ready
 
-### 6. `Process::runAsync` throws: emitted `ProcessRun` reads struct fields with `->` on an array
-
-- **Where:** `tyhp-runtime-src/packages/tyhp/io/tyhp_src/Process/ProcessRun.tyhp` (reads
-  `$this->options->cwd`, `->env`, `->input`, `->timeoutMs` on the promoted
-  `private readonly ProcessOptions $options`). Emitted
-  `packages/dist/tyhp-io/805.0.4/src/Tyhp/Io/Process/ProcessRun.php` lines 49, 63, 87, 88, and 110
-  keep `->` even though `$options` is emitted as `array` (a struct). Other struct reads in the
-  same package emit `['key']` (`$result['exitCode']` in `Process::mustRunAsync`).
-- **Issue:** `Process::runAsync(['php', '-v'])` on PHP 8.5.12 against dist `805.0.4` emits
-  `Warning: Attempt to read property "input" on array`, then throws
-  `TypeError: substr(): Argument #1 ($string) must be of type string, null given`
-  (`ProcessRun.php:111`). Passing an explicit options array
-  (`['input' => '', 'timeoutMs' => 0]`, or with `cwd` and `env` as `null`) throws the same way.
-  No call to `runAsync` or `mustRunAsync` succeeds, so a property read of a struct-typed
-  promoted constructor property is not lowered to array access in the emitter.
-  The Composer `autoload.files` of the `tyhp/io` `805.0.4` dist lists no
-  `src/Tyhp/Io/Process/_functions.php`, so a plain `composer require` caller first gets
-  `InvalidTypeException: Unknown type declaration "Tyhp\Io\Process\ProcessResult"`; the
-  `TypeError` above is what remains once that file is loaded. The io dist was emitted at 15:59 on
-  2026-11-06, before the async and core re-emit; re-emit `tyhp/io` before judging the `->` read.
-- **Impact:** The `Process` API in `tyhp/io` is unusable from PHP. The PHP docs page
-  `php_package_io.md` must not present `Process::runAsync` as a working call until this is fixed.
-- **Suggested fix:** Find why member access on a struct-typed `$this->property` is emitted as
-  `->` when a local or parameter of the same struct type emits `['key']`, fix the emitter, and
-  re-emit `tyhp/io`. Add an emitter test that reads a struct field through a promoted
-  constructor property.
-- **Status:** Ready
-- **Severity:** High — a package API a user would call first fails on every call, and there is no
-  working call form.
-
 ---
 
 ## NEEDS INPUT

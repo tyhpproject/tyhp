@@ -718,6 +718,15 @@ namespace Tyhp.TyhpLang.Emitter
 
         private ObjectDeclarationSymbol? ResolveStructTypeFromTypeExpression(ITypeExpression? typeExpr)
         {
+            // Hint erasure rewrites `Point` to `array` and stamps the struct on that node.
+            // A later read of the same declared type (`$this->point->x` after the constructor
+            // signature was walked) still names the struct.
+            if (typeExpr is IBase2Ast stamped
+                && stamped.BoundSymbol is ObjectDeclarationSymbol { IsStruct: true } stampedStruct)
+            {
+                return stampedStruct;
+            }
+
             switch (typeExpr)
             {
                 case PhpNamedTypeAst named:
@@ -861,6 +870,7 @@ namespace Tyhp.TyhpLang.Emitter
                     this.ResolveStructType,
                     this.ResolveAnonymousStructShape,
                     this.TransformStructDefaultValue,
+                    this.GuaranteedSpreadKeys,
                     out var rewritten)
                     ? rewritten
                     : null;
@@ -1832,6 +1842,33 @@ namespace Tyhp.TyhpLang.Emitter
             return checkedType as StructCheckedType;
         }
 
+        /// <summary>
+        /// PHP array keys a spread source always contains: required or defaulted fields.
+        /// A nullable field with no default may be absent, so it is not included. An unknown
+        /// source contributes nothing, and a default is then kept.
+        /// </summary>
+        private IReadOnlySet<string> GuaranteedSpreadKeys(IExpression expression)
+        {
+            ICheckedType? checkedType = null;
+            if (expression is IBase2Ast node)
+            {
+                this.TryGetCheckedExpressionType(node, out checkedType);
+            }
+
+            ObjectDeclarationSymbol? declaration = null;
+            if (checkedType is not null)
+            {
+                declaration = TryGetStructDeclaration(checkedType);
+            }
+
+            if (declaration is null && checkedType is not StructCheckedType)
+            {
+                declaration = this.ResolveStructType(expression);
+            }
+
+            return StructEmissionHelper.CollectGuaranteedSpreadKeys(checkedType, declaration);
+        }
+
         private ObjectDeclarationSymbol? ResolveStructFromNew(PhpNewAst newExpr)
         {
             if (newExpr.ClassName is PhpNameAst name
@@ -1898,9 +1935,81 @@ namespace Tyhp.TyhpLang.Emitter
                 }
             }
 
+            // `$this->options->cwd`: the checker memoizes the whole chain (`cwd`'s type),
+            // not the intermediate `$this->options`. That receiver is a class property
+            // (including a promoted constructor parameter) whose declared type is the struct.
+            if (this.TryResolveStructFromInstanceProperty(expression) is { } fromProperty)
+            {
+                return fromProperty;
+            }
+
             return StructEmissionHelper.ResolveStructTypeFromExpression(
                 expression,
                 this._context.GlobalScope);
+        }
+
+        /// <summary>
+        /// The struct a class or struct property is declared as, when
+        /// <paramref name="expression"/> is <c>$obj-&gt;prop</c> and <c>prop</c>'s declared
+        /// type is a struct. A nullsafe hop stays unresolved here so
+        /// <c>$obj?-&gt;prop-&gt;field</c> keeps PHP's chain short-circuit instead of becoming
+        /// <c>$obj?-&gt;prop['field']</c>.
+        /// </summary>
+        private ObjectDeclarationSymbol? TryResolveStructFromInstanceProperty(IExpression? expression)
+        {
+            if (expression is not PhpDereferenceableAst
+                {
+                    Base: IExpression receiver,
+                    Suffix: PhpInstanceMemberAccessAst memberAccess,
+                })
+            {
+                return null;
+            }
+
+            if (memberAccess.Accessor?.ValueInt64 == TyhpParser.T_NULLSAFE_OBJECT_OPERATOR
+                || this.IsUnresolvedCheckedReceiver(expression))
+            {
+                return null;
+            }
+
+            var memberName = this.GetMemberName(memberAccess.MemberName);
+            if (string.IsNullOrWhiteSpace(memberName))
+            {
+                return null;
+            }
+
+            if (this.ResolveReceiverType(receiver) is not ObjectDeclarationSymbol owner)
+            {
+                return null;
+            }
+
+            var property = TryGetInstanceProperty(owner, memberName);
+            return property?.DeclaredType is null
+                ? null
+                : this.ResolveStructTypeFromTypeExpression(property.DeclaredType);
+        }
+
+        /// <summary>
+        /// Declared instance property <paramref name="memberName"/> on <paramref name="owner"/>
+        /// or a bound ancestor. Inherited members are not copied into
+        /// <see cref="ObjectDeclarationSymbol.Members"/>.
+        /// </summary>
+        private static ObjectPropertySymbol? TryGetInstanceProperty(
+            ObjectDeclarationSymbol owner,
+            string memberName)
+        {
+            var current = owner;
+            for (var depth = 0; current is not null && depth < 32; depth++)
+            {
+                if (WithKeywordHelper.TryGetProperty(current, memberName) is { } property)
+                {
+                    return property;
+                }
+
+                current = current.ExtendsType?.BoundSymbol as ObjectDeclarationSymbol;
+            }
+
+            return null;
         }
 
         private static string? GetClassNameReferenceText(IClassNameReference? className) =>
