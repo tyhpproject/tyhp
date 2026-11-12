@@ -251,7 +251,9 @@ constants, or class constants joined by `|`, `&`, `^`, `<<`, or `>>` (for
 example `\ENT_QUOTES | \ENT_SUBSTITUTE | \ENT_HTML401`) is also emitable
 (`PhpAstTypeExtractor.IsBitwiseConstantExpression`); `TyhpdefExpressionSpeller`
 does not parenthesize a left operand that uses the same operator, so a chain
-spells flat. `PhpAstTypeExtractor.IsBalanced` does not count the `=>` of an array pair as an
+spells flat. A struct bracket initializer is spelled `new Name[entries]`
+(`new Point[]`, `new Point[x => 1]`, `new Box<int>[value => 1]`). The bound
+tree stores that as `with`, and tyhpdef expressions have no `with` operator. `PhpAstTypeExtractor.IsBalanced` does not count the `=>` of an array pair as an
 angle-bracket closer.
 
 `TyhpdefTypeSpeller.SpellComposite` drops the `?` shorthand only when a **top-level** member of

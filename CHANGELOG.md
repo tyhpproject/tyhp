@@ -26,6 +26,7 @@ Notable changes to the Tyhp compiler, CLI, and language server. The format follo
 
 ### Fixed
 
+- A library property default written as `new Name[...]` is copied into `package.tyhpdef` in that form.
 - TYHP4412 suggests `new Name() with [...]` only when that name is a class that can be constructed. A type alias, interface, enum, trait, object shape, or abstract class does not get that suggestion, and the language server does not offer the rewrite.
 - A field of a struct stored on a class property, including a promoted constructor parameter, is read with array access (`$this->point['x']`). The property itself stays `$this->point`.
 - A type alias is expanded in the namespace that declared it. A union of structs used from another namespace keeps those structs, so a field every arm declares (`$value->ok`) type-checks and is read as that array key when every arm is a struct that stores the field under the same key. A union that includes a class, or arms with different keys, reads the property (`->`). Comparing a field to a string literal (`$node->kind === 'scalar'`) keeps the arms that can hold that literal, and the other fields then use that arm's type.

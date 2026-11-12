@@ -2082,4 +2082,46 @@ public class TyhpCodeTyhpdefGeneratorTests
             string.Join("; ", parsed.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}"))
             + "\n--- generated ---\n" + def);
     }
+
+    [Fact]
+    public void Library_StructInitializerPropertyDefault_SpellsBracketForm()
+    {
+        using var project = new TestProjectBuilder();
+        project
+            .WithTyhpJson("""
+                {
+                    "type": "library",
+                    "include": ["**/*.tyhp"],
+                    "output": { "path": "build/" }
+                }
+                """)
+            .WithTyhpFile("points.tyhp", """
+                <?tyhp
+                namespace Lib;
+
+                type Point = struct { int $x = 0; int $y = 0; };
+                type Box<T> = struct { T $value; };
+
+                class Holder {
+                    public Point $origin = new Point[];
+                    public Point $shifted = new Point[x => 1, y => 2];
+                    public Box<int> $boxed = new Box<int>[value => 1];
+                }
+                """);
+
+        var result = project.RunBuild();
+        result.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", result.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
+
+        var def = File.ReadAllText(Path.Combine(project.ProjectDirectory, "package.tyhpdef"));
+        def.Should().Contain("public \\Lib\\Point $origin ?? new \\Lib\\Point[];");
+        def.Should().Contain("public \\Lib\\Point $shifted ?? new \\Lib\\Point[x => 1, y => 2];");
+        def.Should().Contain("public \\Lib\\Box<int> $boxed ?? new \\Lib\\Box[value => 1];");
+        def.Should().NotContain(" with ");
+
+        var parsed = ParserTestHelper.ParseTyhpdefContent(def);
+        parsed.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", parsed.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}"))
+            + "\n--- generated ---\n" + def);
+    }
 }
