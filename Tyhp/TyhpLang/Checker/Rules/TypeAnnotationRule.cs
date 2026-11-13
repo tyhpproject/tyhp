@@ -46,7 +46,36 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     break;
                 case PhpConstDeclListAst constList:
                     CheckFileLevelTypedConsts(constList, state, diagnostics);
+                    CheckFileLevelConstValues(constList, state, diagnostics);
                     break;
+            }
+        }
+
+        /// <summary>
+        /// A file-level <c>const X = expr;</c> emits <c>const X = expr;</c> (or <c>\define</c>), so
+        /// the value must be a constant expression PHP loads. <c>new ClassName(...)</c> is allowed
+        /// there. Class constants are checked from <c>CheckClassConstants</c>.
+        /// </summary>
+        private static void CheckFileLevelConstValues(
+            PhpConstDeclListAst constList,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (state.EnclosingObject is not null
+                || constList.AstGrammarAddons.ContainsKey("objectShapeMember")
+                || FallbackDeclaration.IsFallback(constList))
+            {
+                return;
+            }
+
+            foreach (var constant in constList.GetAllNotNull())
+            {
+                if (constant.Value is not null
+                    && !CheckerHelpers.IsConstantExpression(constant.Value, state))
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics, state, constant, MessageCode.CheckerNonConstantExpression);
+                }
             }
         }
 

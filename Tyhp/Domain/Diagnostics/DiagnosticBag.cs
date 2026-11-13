@@ -17,6 +17,7 @@ namespace Tyhp.Domain.Diagnostics
     public class DiagnosticBag : IEnumerable<IDiagnostic>
     {
         private readonly ConcurrentBag<IDiagnostic> _diagnostics = new();
+        private int _suppressAdditions;
         private readonly ConcurrentDictionary<DiagnosticIdentity, byte> _seen = new();
         private readonly ConcurrentDictionary<DiagnosticIdentity, byte> _retracted = new();
         private readonly IReadOnlySet<MessageCode> _suppressedWarnings;
@@ -47,9 +48,26 @@ namespace Tyhp.Domain.Diagnostics
         /// Warning-severity diagnostics whose code is in the suppressed-warning list are dropped.
         /// </summary>
         /// <param name="diagnostic">The diagnostic to add.</param>
+        /// <summary>
+        /// Drops diagnostics added until <see cref="EndSuppress"/> (nestable). Used when a
+        /// constructor is walked early so a subclass can see its parent's initialization
+        /// facts; that walk is repeated when the declaring class is checked, and the
+        /// repeated diagnostics are the ones that should stick. Must not record the
+        /// suppressed diagnostic as already seen, or the real one would be de-duplicated.
+        /// </summary>
+        internal void BeginSuppress() => Interlocked.Increment(ref this._suppressAdditions);
+
+        /// <summary>Ends one <see cref="BeginSuppress"/>.</summary>
+        internal void EndSuppress() => Interlocked.Decrement(ref this._suppressAdditions);
+
         public void Add(IDiagnostic diagnostic)
         {
             ArgumentNullException.ThrowIfNull(diagnostic);
+
+            if (Volatile.Read(ref this._suppressAdditions) > 0)
+            {
+                return;
+            }
 
             if (diagnostic.Severity == DiagnosticSeverity.Warning
                 && this._suppressedWarnings.Count > 0

@@ -22,7 +22,7 @@ public class LazyNewEmitterTests
             namespace App;
 
             class User {
-                public int $id;
+                public int $id = 0;
             }
 
             function make(): User {
@@ -337,7 +337,7 @@ public class LazyNewEmitterTests
             namespace App;
 
             class Query {
-                public int $limit;
+                public int $limit = 0;
                 public function lazy(): int {
                     return 1;
                 }

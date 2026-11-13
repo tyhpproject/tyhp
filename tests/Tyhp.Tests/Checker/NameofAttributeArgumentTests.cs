@@ -20,7 +20,7 @@ public class NameofAttributeArgumentTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Widget {
-                public string $name;
+                public string $name = '';
             }
 
             #[\Attribute(\Attribute::TARGET_CLASS)]
@@ -43,11 +43,11 @@ public class NameofAttributeArgumentTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Widget {
-                public string $name;
+                public string $name = '';
             }
 
             class Other {
-                public string $name;
+                public string $name = '';
             }
 
             #[\Attribute(\Attribute::TARGET_CLASS)]
@@ -70,7 +70,7 @@ public class NameofAttributeArgumentTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Widget {
-                public string $name;
+                public string $name = '';
             }
 
             #[\Attribute(\Attribute::TARGET_CLASS)]
@@ -90,11 +90,11 @@ public class NameofAttributeArgumentTests
     private const string GenericAttributeFixture = """
         <?tyhp
         class Widget {
-            public string $name;
+            public string $name = '';
         }
 
         class Other {
-            public string $name;
+            public string $name = '';
         }
 
         #[\Attribute(\Attribute::TARGET_PROPERTY)]
@@ -112,7 +112,7 @@ public class NameofAttributeArgumentTests
         var diagnostics = CompileAndCheck(GenericAttributeFixture + """
             class Holder {
                 #[InverseOf<Widget>(nameof(Widget::$name))]
-                public string $x;
+                public string $x = '';
             }
             """);
 
@@ -125,7 +125,7 @@ public class NameofAttributeArgumentTests
         var diagnostics = CompileAndCheck(GenericAttributeFixture + """
             class Holder {
                 #[InverseOf<Widget>(nameof(Other::$name))]
-                public string $x;
+                public string $x = '';
             }
             """);
 
@@ -138,7 +138,7 @@ public class NameofAttributeArgumentTests
         var diagnostics = CompileAndCheck(GenericAttributeFixture + """
             class Holder {
                 #[InverseOf<Widget>('missing')]
-                public string $x;
+                public string $x = '';
             }
             """);
 
@@ -151,7 +151,7 @@ public class NameofAttributeArgumentTests
         var diagnostics = CompileAndCheck(GenericAttributeFixture + """
             class Holder {
                 #[InverseOf<Widget>('name')]
-                public string $x;
+                public string $x = '';
             }
             """);
 
@@ -164,7 +164,7 @@ public class NameofAttributeArgumentTests
         var diagnostics = CompileAndCheck(GenericAttributeFixture + """
             class Holder {
                 #[InverseOf<Widget>(fn (Widget $w) => $w->name)]
-                public string $x;
+                public string $x = '';
             }
             """);
 
@@ -421,7 +421,7 @@ public class NameofAttributeArgumentTests
         var diagnostics = CompileAndCheck(ClassAttributeFixture + """
             class Holder {
                 #[Reference(Widget::class, column: 'id')]
-                public int $widgetId;
+                public int $widgetId = 0;
             }
             """);
 
@@ -434,7 +434,7 @@ public class NameofAttributeArgumentTests
         var diagnostics = CompileAndCheck(ClassAttributeFixture + """
             class Holder {
                 #[Reference('NoSuchClass')]
-                public int $widgetId;
+                public int $widgetId = 0;
             }
             """);
 
@@ -446,12 +446,12 @@ public class NameofAttributeArgumentTests
     private const string ListAttributeFixture = """
         <?tyhp
         class Widget {
-            public string $name;
-            public string $slug;
+            public string $name = '';
+            public string $slug = '';
         }
 
         class Other {
-            public string $name;
+            public string $name = '';
         }
 
         #[\Attribute(\Attribute::TARGET_CLASS | \Attribute::TARGET_PROPERTY)]
@@ -506,7 +506,7 @@ public class NameofAttributeArgumentTests
         var diagnostics = CompileAndCheck(ListAttributeFixture + """
             class Holder {
                 #[Index(unique: true)]
-                public string $slug;
+                public string $slug = '';
             }
             """);
 
@@ -519,7 +519,7 @@ public class NameofAttributeArgumentTests
         var diagnostics = CompileAndCheck(ListAttributeFixture + """
             class Holder {
                 #[Index(['nonsense'])]
-                public string $slug;
+                public string $slug = '';
             }
             """);
 

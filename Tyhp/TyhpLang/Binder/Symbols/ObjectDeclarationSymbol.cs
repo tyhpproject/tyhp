@@ -169,6 +169,27 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         public HashSet<string>? InheritedPropertiesInitializedByConstruction { get; set; }
 
         /// <summary>
+        /// True after this type's constructor-initialization facts have been recorded
+        /// (its own constructor walk, or the inherited constructor when it declares none).
+        /// </summary>
+        public bool InstanceConstructionRecorded { get; set; }
+
+        /// <summary>
+        /// Private instance properties that are initialized only because this type's
+        /// constructor runs (its own private properties, or an ancestor's when that
+        /// ancestor constructor is invoked). A subclass that cannot name them still has
+        /// to call <c>parent::__construct</c> so those writes happen.
+        /// </summary>
+        public HashSet<ObjectPropertySymbol>? PrivatePropertiesInitializedByConstruction { get; set; }
+
+        /// <summary>
+        /// Private ancestor properties left uninitialized because this type replaced
+        /// <c>__construct</c> and did not invoke the parent constructor on every path
+        /// that reaches the end.
+        /// </summary>
+        public List<ObjectPropertySymbol>? UninitializedAncestorPrivateProperties { get; set; }
+
+        /// <summary>
         /// Fast lookup for class constants and enum cases. Names are case-sensitive (PHP), and this
         /// namespace is independent of <see cref="Members"/> so <c>const TAG</c> and <c>tag()</c> coexist.
         /// </summary>

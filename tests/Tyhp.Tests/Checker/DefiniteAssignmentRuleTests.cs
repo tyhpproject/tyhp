@@ -305,6 +305,37 @@ public class DefiniteAssignmentRuleTests
         diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerVariablePossiblyUndefined);
     }
 
+    [Fact]
+    public void Check_UnassignedStringLocalEcho_Reports4014()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(): void {
+                string $s;
+                echo $s;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerVariablePossiblyUndefined);
+    }
+
+    [Fact]
+    public void Check_AssignedStringLocalEcho_DoesNotReport4014()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(): void {
+                string $s;
+                $s = 'a';
+                echo $s;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerVariablePossiblyUndefined);
+        diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
+    }
+
     private static DiagnosticBag CompileAndCheck(string content)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));

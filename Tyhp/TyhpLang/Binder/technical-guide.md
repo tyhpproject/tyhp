@@ -509,7 +509,7 @@ The binder evaluates Composer constraints against `CompilationOptions.PhpVersion
 
 #### `#[\Tyhp\Php]` gates (Story 20.5)
 
-When registering a named declaration, the binder looks for `#[\Tyhp\Php]` on the AST (`AstAttributes`). The attribute is identified by resolving the name to FQCN `\Tyhp\Php` (loaded from `tyhp/core` `package.tyhpdef`) or by the written name `\Tyhp\Php` / `Tyhp\Php`. It is **not** a binder builtin allowlist entry like `Override` / `AllowUnset`.
+When registering a named declaration, the binder looks for `#[\Tyhp\Php]` on the AST (`AstAttributes`). The attribute is identified by resolving the name to FQCN `\Tyhp\Php` (loaded from `tyhp/core` `package.tyhpdef`) or by the written name `\Tyhp\Php` / `Tyhp\Php`. It is **not** a binder builtin allowlist entry like `Override`.
 
 The `version` argument is read as a string literal, positional (`#[\Tyhp\Php(">=8.4")]`) or named (`#[\Tyhp\Php(version: ">=8.4")]`). Missing or non-string arguments report `CheckerPhpVersionAttributeInvalidArgument` (4305) and the attribute is ignored as a gate (enclosing `declare(php=…)` still applies). Invalid Composer strings omit the symbol without throwing; diagnostic 4300 is checker-owned.
 

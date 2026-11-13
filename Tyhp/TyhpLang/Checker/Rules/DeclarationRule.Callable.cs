@@ -509,15 +509,33 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         : PropertyInitializationAnalysis.SeedForInstanceMethod(
                             enclosingObject, context.SymbolTree, context.GlobalScope);
                 methodState.ReplacePropertyInit(seeded);
+                if (methodSymbol is ObjectConstructorMethodSymbol)
+                {
+                    methodState.ConstructorExits = new ConstructorExitCollector(methodSymbol);
+                    if (PropertyInitializationAnalysis.HasUnconditionalParentDelegation(method))
+                    {
+                        PropertyInitializationAnalysis.CreditParentConstructorCall(
+                            methodState, enclosingObject, context.SymbolTree, context.GlobalScope);
+                    }
+                }
             }
 
+            // Constructor hook bodies read `$this->prop` with post-construction facts, which this
+            // method records after the body. Check them once those facts exist.
+            var deferConstructorHookBodies = methodSymbol is ObjectConstructorMethodSymbol;
             RegisterParameters(
                 method.Parameters,
                 AuthoredMethodParameters(methodSymbol),
                 methodState,
                 state,
                 context,
-                diagnostics);
+                diagnostics,
+                checkHookBodies: !deferConstructorHookBodies);
+            if (deferConstructorHookBodies)
+            {
+                CheckPromotedSetHooksRunBeforeBody(method, state, context, diagnostics);
+            }
+
             ValidateMagicMethodIfNeeded(method.Identifier, method.Parameters, method.ReturnType, methodSymbol.IsStatic, method, state, context, diagnostics);
             RejectReservedGenericVariantName(method.Identifier, method, state, diagnostics);
             RejectReservedPropertyHookMethodName(method.Identifier, method, state, diagnostics);
@@ -544,7 +562,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     if (methodSymbol is ObjectConstructorMethodSymbol && state.EnclosingObject is { } ctorOwner)
                     {
                         PropertyInitializationAnalysis.RecordPostConstructionState(
-                            ctorOwner, methodState, context.SymbolTree, context.GlobalScope);
+                            ctorOwner,
+                            methodState,
+                            inheritAncestorConstructor: false,
+                            context.SymbolTree,
+                            context.GlobalScope);
                     }
 
                     if (methodState.IsTypeGuardFunction && !methodState.HasReturnedOnAllPaths)
@@ -582,6 +604,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 PropertyInitializationAnalysis.RecordPostConstructionState(
                     emptyCtorOwner,
                     constructorFinalState: null,
+                    inheritAncestorConstructor: false,
                     context.SymbolTree,
                     context.GlobalScope);
             }
@@ -593,6 +616,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 CheckerHelpers.ReportError(
                     diagnostics, state, method, MessageCode.CheckerMissingReturnStatement, method.Identifier);
+            }
+
+            if (deferConstructorHookBodies)
+            {
+                CheckPromotedPropertyHookBodies(method, state, context, diagnostics);
             }
         }
 

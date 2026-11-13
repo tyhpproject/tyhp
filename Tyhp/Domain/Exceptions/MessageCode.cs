@@ -551,12 +551,11 @@ namespace Tyhp.Domain.Exceptions
             CheckerPropertyPossiblyUninitialized = 4157,
 
             /// <summary>
-            /// <c>unset($this->prop)</c> on a declared typed property without
-            /// <c>#[\Tyhp\AllowUnset]</c>. PHP returns the slot to the uninitialized state, which
-            /// would invalidate property-init guarantees (Prop-init #8). Prefer <c>?T = null</c>,
-            /// or opt in with the attribute when distinguishing "no value" from null is required.
+            /// <c>unset</c> of a local variable, a typed instance property, or a static property.
+            /// That returns the slot to the uninitialized state. Assign <c>null</c> on a nullable
+            /// declaration to drop the value. Array-offset <c>unset</c> is not this diagnostic.
             /// </summary>
-            CheckerUnsetTypedPropertyWithoutAllowUnset = 4158,
+            CheckerUnsetStorageSlot = 4158,
 
             /// <summary>
             /// A non-nullable struct property without a default was not set while
@@ -1386,6 +1385,25 @@ namespace Tyhp.Domain.Exceptions
             /// a following <c>with</c> is a second list on a value that is not a variable.
             /// </summary>
             CheckerStructInitializerFollowedByWith = 4417,
+
+            /// <summary>
+            /// A typed static property on a class or trait has no initializer. The slot is
+            /// created when the type is loaded, so the declaration needs a value
+            /// (<c>public static string $name = ''</c>, or <c>public static ?string $name = null</c>).
+            /// </summary>
+            CheckerStaticPropertyRequiresInitializer = 4418,
+
+            /// <summary>
+            /// A typed instance property is not definitely initialized when construction
+            /// of this class finishes. Reported on the constructor, or on the property
+            /// or class when no constructor is declared. A declaration initializer counts
+            /// even if a subclass replaces <c>__construct</c>. A promoted parameter counts
+            /// only when the constructor that declares it runs. A subclass that declares
+            /// <c>__construct</c> does not run the parent constructor unless
+            /// <c>parent::__construct</c> (or <c>: parent(…)</c>) dominates the end of
+            /// the subclass constructor.
+            /// </summary>
+            CheckerPropertyNotInitializedByConstructor = 4419,
 
             // Deprecation warnings (4500+ range)
             CheckerDeprecatedUsage = 4500,

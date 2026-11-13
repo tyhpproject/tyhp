@@ -39,13 +39,6 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         /// </summary>
         public bool MayBeUninitializedAfterConstruction { get; set; }
 
-        /// <summary>
-        /// True when the declaration carries <c>#[\Tyhp\AllowUnset]</c> (Prop-init #8). Without
-        /// this attribute, <c>unset($this->prop)</c> is rejected; with it, <c>unset</c> clears
-        /// initialization state and instance-method reads start possibly-uninitialized.
-        /// </summary>
-        public bool AllowsUnset { get; set; }
-
         public ObjectPropertySymbol(
             string name,
             string? sourceFile = null,

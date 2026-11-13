@@ -37,7 +37,7 @@ public class PropertyTypeStampEmitterTests
             public array<string, Post> $byKey = [];
             public ?Table<Blog> $blogs = null;
             public UserId $owner = 0;
-            public Address $address;
+            public Address $address = new Address[city => ''];
             public array<Address> $addresses = [];
             public ?Post $featured = null;
             public int|string $mixedKey = 0;
@@ -69,7 +69,7 @@ public class PropertyTypeStampEmitterTests
         var php = this.CompileAndEmit(Sample);
 
         php.Should().Contain("#[\\Tyhp\\PropertyType('App\\\\UserId')]\n    public int $owner = 0;");
-        php.Should().Contain("#[\\Tyhp\\PropertyType('struct App\\\\Address')]\n    public array $address;");
+        php.Should().Contain("#[\\Tyhp\\PropertyType('struct App\\\\Address')]\n    public array $address = ['city' => ''];");
         php.Should().Contain("#[\\Tyhp\\PropertyType('array<struct App\\\\Address>')]\n    public array $addresses = [];");
     }
 

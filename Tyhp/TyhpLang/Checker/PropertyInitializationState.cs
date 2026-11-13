@@ -46,4 +46,38 @@ namespace Tyhp.TyhpLang.Checker
             };
         }
     }
+
+    /// <summary>
+    /// What a <c>return</c> inside a constructor leaves initialized. A <c>return</c> ends
+    /// construction there, so the properties and the parent constructor call that matter are the
+    /// ones on that path, not the ones at the end of the body.
+    /// </summary>
+    internal sealed class ConstructorExit
+    {
+        public ConstructorExit(HashSet<string> initializedProperties, bool parentConstructorInvoked)
+        {
+            InitializedProperties = initializedProperties;
+            ParentConstructorInvoked = parentConstructorInvoked;
+        }
+
+        public HashSet<string> InitializedProperties { get; }
+
+        public bool ParentConstructorInvoked { get; }
+    }
+
+    /// <summary>
+    /// The <c>return</c> exits of one constructor body. <see cref="Owner"/> is that constructor's
+    /// symbol; a <c>return</c> that belongs to a nested callable is not recorded.
+    /// </summary>
+    internal sealed class ConstructorExitCollector
+    {
+        public ConstructorExitCollector(Binder.Symbols.Interfaces.IBaseSymbol owner)
+        {
+            Owner = owner;
+        }
+
+        public Binder.Symbols.Interfaces.IBaseSymbol Owner { get; }
+
+        public List<ConstructorExit> Exits { get; } = [];
+    }
 }

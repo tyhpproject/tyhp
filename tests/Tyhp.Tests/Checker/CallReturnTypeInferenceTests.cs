@@ -222,7 +222,7 @@ public class CallReturnTypeInferenceTests
             <?tyhp
             namespace Test;
             class Promise<TReturn> {
-                private TReturn $value;
+                public function __construct(private TReturn $value) {}
                 public static function await<T>(Promise<T> $promise): T {
                     return $promise->value;
                 }

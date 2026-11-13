@@ -47,6 +47,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
+            if (state.EnclosingObject is { } ctorOwner
+                && PropertyInitializationAnalysis.IsParentConstructorCall(deref))
+            {
+                PropertyInitializationAnalysis.CreditParentConstructorCall(
+                    state, ctorOwner, context.SymbolTree, context.GlobalScope);
+            }
+
             // PhpDereferenceableAst suppresses the generic child walk, so nested expression
             // rules (yield / await / unary / binary / …) never see a bare call-argument
             // statement unless we CheckNode the arguments here. Inline functions are skipped

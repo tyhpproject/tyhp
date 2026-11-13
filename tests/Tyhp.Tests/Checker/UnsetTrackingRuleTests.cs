@@ -11,56 +11,54 @@ namespace Tyhp.Tests.Checker;
 public class UnsetTrackingRuleTests
 {
     [Fact]
-    public void Check_UnsetTypedLocal_ThenRead_Reports4014()
+    public void Check_UnsetTypedLocal_Reports4158_AndDoesNotClearAssignment()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(): int {
-                int $x = 1;
-                unset($x);
-                return $x;
+            function demo(): string {
+                string $s = 'a';
+                unset($s);
+                return $s;
             }
             """);
 
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerVariablePossiblyUndefined);
-    }
-
-    [Fact]
-    public void Check_UnsetTypedLocal_ThenReassign_DoesNotReport4014()
-    {
-        var diagnostics = CompileAndCheck("""
-            <?tyhp
-            function demo(): int {
-                int $x = 1;
-                unset($x);
-                $x = 2;
-                return $x;
-            }
-            """);
-
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerUnsetStorageSlot
+            && d.Message.Contains("$s", StringComparison.Ordinal)
+            && !d.Message.Contains("AllowUnset", StringComparison.Ordinal));
         diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerVariablePossiblyUndefined);
     }
 
     [Fact]
-    public void Check_UnsetTypedLocal_IssetGuard_DoesNotReport4014()
+    public void Check_NullableLocalAssignedNull_IsOk()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            function demo(): int {
-                int $x = 1;
-                unset($x);
-                if (isset($x)) {
-                    return $x;
-                }
-                return 0;
+            function demo(): ?string {
+                ?string $s = 'a';
+                $s = null;
+                return $s;
             }
             """);
 
-        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerVariablePossiblyUndefined);
+        diagnostics.Errors.Should().BeEmpty(Describe(diagnostics));
     }
 
     [Fact]
-    public void Check_UnsetTypedPropertyWithoutAllowUnset_Reports4158()
+    public void Check_UnsetParameter_Reports4158()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(string $s): void {
+                unset($s);
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerUnsetStorageSlot);
+    }
+
+    [Fact]
+    public void Check_UnsetTypedInstanceProperty_Reports4158()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
@@ -72,169 +70,49 @@ public class UnsetTrackingRuleTests
             }
             """);
 
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerUnsetTypedPropertyWithoutAllowUnset);
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerUnsetStorageSlot
+            && d.Message.Contains("$this->value", StringComparison.Ordinal)
+            && !d.Message.Contains("AllowUnset", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void Check_UnsetAllowUnsetProperty_ThenRead_Reports4157()
+    public void Check_AllowUnsetAttribute_DoesNotMakeUnsetLegal()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Box {
                 #[\Tyhp\AllowUnset]
                 private int $value = 0;
-                public function clearAndRead(): int {
-                    unset($this->value);
-                    return $this->value;
-                }
-            }
-            """);
-
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerPropertyPossiblyUninitialized);
-        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerUnsetTypedPropertyWithoutAllowUnset);
-    }
-
-    [Fact]
-    public void Check_UnsetAllowUnsetProperty_ThenReassign_DoesNotReport4157()
-    {
-        var diagnostics = CompileAndCheck("""
-            <?tyhp
-            class Box {
-                #[\Tyhp\AllowUnset]
-                private int $value = 0;
-                public function clearAndSet(int $v): int {
-                    unset($this->value);
-                    $this->value = $v;
-                    return $this->value;
-                }
-            }
-            """);
-
-        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerPropertyPossiblyUninitialized);
-        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerUnsetTypedPropertyWithoutAllowUnset);
-    }
-
-    [Fact]
-    public void Check_UnsetAllowUnsetProperty_NullCoalesceGuard_DoesNotReport4157()
-    {
-        var diagnostics = CompileAndCheck("""
-            <?tyhp
-            class Box {
-                #[\Tyhp\AllowUnset]
-                private int $value = 0;
-                public function clearAndRead(): int {
-                    unset($this->value);
-                    return $this->value ?? 0;
-                }
-            }
-            """);
-
-        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerPropertyPossiblyUninitialized);
-    }
-
-    [Fact]
-    public void Check_AllowUnsetProperty_InstanceMethodEntry_Reports4157()
-    {
-        // Cross-method: AllowUnset props are not definitely initialized at method entry.
-        var diagnostics = CompileAndCheck("""
-            <?tyhp
-            class Box {
-                #[\Tyhp\AllowUnset]
-                private int $value = 0;
-                public function get(): int {
-                    return $this->value;
-                }
-            }
-            """);
-
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerPropertyPossiblyUninitialized);
-    }
-
-    [Fact]
-    public void Check_AllowUnsetProperty_IssetGuard_DoesNotReport4157()
-    {
-        var diagnostics = CompileAndCheck("""
-            <?tyhp
-            class Box {
-                #[\Tyhp\AllowUnset]
-                private int $value = 0;
-                public function get(): int {
-                    if (isset($this->value)) {
-                        return $this->value;
-                    }
-                    return 0;
-                }
-            }
-            """);
-
-        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerPropertyPossiblyUninitialized);
-    }
-
-    [Fact]
-    public void SCRATCH_UnsetAllowUnsetProperty_CoalesceAssignGuard_DoesNotReport4157()
-    {
-        var diagnostics = CompileAndCheck("""
-            <?tyhp
-            class Box {
-                #[\Tyhp\AllowUnset]
-                private int $value = 0;
-                public function clearAndCoalesceAssign(): int {
-                    unset($this->value);
-                    $this->value ??= 5;
-                    return $this->value;
-                }
-            }
-            """);
-
-        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerPropertyPossiblyUninitialized);
-    }
-
-    [Fact]
-    public void SCRATCH_UnsetMultipleTargetsInOneStatement_BothCleared()
-    {
-        var diagnostics = CompileAndCheck("""
-            <?tyhp
-            class Box {
-                #[\Tyhp\AllowUnset]
-                private int $a = 0;
-                #[\Tyhp\AllowUnset]
-                private int $b = 0;
                 public function clear(): void {
-                    unset($this->a, $this->b);
-                }
-                public function readA(): int {
-                    return $this->a;
+                    unset($this->value);
                 }
             }
             """);
 
-        // clear() itself does not read after unset, but readA at method-entry should
-        // still be flagged since AllowUnset props are never definite at entry.
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerPropertyPossiblyUninitialized);
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerUnsetStorageSlot
+            && !d.Message.Contains("AllowUnset", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void SCRATCH_UnsetPromotedAllowUnsetProperty_ThenRead_Reports4157()
+    public void Check_UnsetOtherInstanceProperty_Reports4158()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Box {
-                public function __construct(
-                    #[\Tyhp\AllowUnset]
-                    public int $value = 0,
-                ) {}
-                public function clearAndRead(): int {
-                    unset($this->value);
-                    return $this->value;
-                }
+                public int $value = 0;
+            }
+            function demo(Box $b): void {
+                unset($b->value);
             }
             """);
 
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerPropertyPossiblyUninitialized);
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerUnsetStorageSlot);
     }
 
     [Fact]
-    public void SCRATCH_UnsetPromotedPropertyWithoutAllowUnset_Reports4158()
+    public void Check_UnsetPromotedProperty_Reports4158()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
@@ -246,79 +124,228 @@ public class UnsetTrackingRuleTests
             }
             """);
 
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerUnsetTypedPropertyWithoutAllowUnset);
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerUnsetStorageSlot);
     }
 
     [Fact]
-    public void SCRATCH_UnsetInLoopBody_ThenReadAfterLoop_Reports4157()
+    public void Check_UnsetReadonlyProperty_Reports4158()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Box {
-                #[\Tyhp\AllowUnset]
-                private int $value = 0;
-                public function clearInLoop(array $items): int {
-                    foreach ($items as $item) {
-                        unset($this->value);
-                    }
-                    return $this->value;
+                public readonly string $name;
+                public function __construct(string $name) {
+                    $this->name = $name;
+                    unset($this->name);
                 }
             }
             """);
 
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerPropertyPossiblyUninitialized);
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerUnsetStorageSlot);
     }
 
     [Fact]
-    public void SCRATCH_UnsetInTryBlock_ThenReadInFinally_Reports4157()
+    public void Check_UnsetHookedProperty_Reports4158()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Box {
-                #[\Tyhp\AllowUnset]
-                private int $value = 0;
-                public function clearInTry(): int {
-                    try {
-                        unset($this->value);
-                    } finally {
-                        return $this->value;
-                    }
+                public string $name {
+                    get => 'a';
+                }
+                public function clear(): void {
+                    unset($this->name);
                 }
             }
             """);
 
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerPropertyPossiblyUninitialized);
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerUnsetStorageSlot);
     }
 
     [Fact]
-    public void SCRATCH_UnsetNonThisProperty_NotFlagged()
+    public void Check_UnsetStaticProperty_Reports4158()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Foo {
+                public static string $staticProp = '';
+                public static function clear(): void {
+                    unset(Foo::$staticProp);
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d =>
+            d.Code == MessageCode.CheckerUnsetStorageSlot
+            && d.Message.Contains("Foo::$staticProp", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_UnsetSelfStaticProperty_Reports4158()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Foo {
+                public static string $staticProp = '';
+                public static function clear(): void {
+                    unset(self::$staticProp);
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerUnsetStorageSlot);
+    }
+
+    [Fact]
+    public void Check_StaticPropertyWithoutInitializer_Reports4418()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Foo {
+                public static string $x;
+            }
+            """);
+
+        diagnostics.Errors.Should().ContainSingle(d =>
+            d.Code == MessageCode.CheckerStaticPropertyRequiresInitializer
+            && d.Message.Contains("`$x`", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_ArrayOffsetUnset_IsAllowed()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Box {
-                private int $value = 0;
+                public array<string, int> $items = [];
+                public function remove(string $key): void {
+                    unset($this->items[$key]);
+                }
             }
-            function demo(Box $b): void {
-                unset($b->value);
+            class Foo {
+                public static array<string, int> $items = [];
+                public static function remove(string $key): void {
+                    unset(self::$items[$key]);
+                    unset(Foo::$items[$key]);
+                }
+            }
+            function demo(array<int, string> $arr, int $i): void {
+                unset($arr[$i]);
             }
             """);
 
-        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerUnsetTypedPropertyWithoutAllowUnset);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerUnsetStorageSlot);
+        diagnostics.Errors.Should().BeEmpty(Describe(diagnostics));
     }
 
     [Fact]
-    public void SCRATCH_AllowUnsetOnClass_TargetMismatchReports()
+    public void Check_NestedArrayOffsetUnset_OnTypedProperty_IsAllowed()
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            #[\Tyhp\AllowUnset]
             class Box {
-                private int $value = 0;
+                public array<string, array<string, int>> $map = [];
+                public function remove(string $a, string $b): void {
+                    unset($this->map[$a][$b]);
+                }
+            }
+            function demo(Box $box, string $key): void {
+                unset($box->map[$key]);
             }
             """);
 
-        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerAttributeTargetMismatch);
+        diagnostics.Errors.Should().BeEmpty(Describe(diagnostics));
     }
+
+    [Fact]
+    public void Check_UnsetOptionalStructProperty_IsAllowed()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Opt = struct { string $a; ?string $b; };
+            function named(Opt $t): void {
+                unset($t->b);
+            }
+            function anonymous(struct { string $a; ?string $b; } $t): void {
+                unset($t->b);
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerUnsetStorageSlot);
+    }
+
+    [Fact]
+    public void Check_UnsetPropertyOfNullableReceiver_Reports4158()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Box {
+                public int $value = 0;
+            }
+            function demo(?Box $b): void {
+                if ($b !== null) {
+                    unset($b->value);
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerUnsetStorageSlot);
+    }
+
+    [Fact]
+    public void Check_UnsetPropertyWithDynamicName_IsNotAResolvedSlot()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Box {
+                public int $value = 0;
+                public function drop(string $name): void {
+                    unset($this->{$name});
+                    unset($this->$name);
+                    unset($this->{'value'});
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerUnsetStorageSlot);
+    }
+
+    [Fact]
+    public void Check_RejectedUnsetOfProperty_DoesNotClearPropertyInitialization()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Box {
+                public int $value;
+                public function __construct(int $value) {
+                    $this->value = $value;
+                    unset($this->value);
+                    echo $this->value;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerUnsetStorageSlot);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerPropertyPossiblyUninitialized);
+    }
+
+    [Fact]
+    public void Check_UnsetMixedTargets_ReportsOnlyTheStorageSlot()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            function demo(array<int, string> $arr): void {
+                string $s = 'a';
+                unset($arr[0], $s);
+            }
+            """);
+
+        diagnostics.Errors.Where(d => d.Code == MessageCode.CheckerUnsetStorageSlot)
+            .Should().ContainSingle();
+    }
+
+    private static string Describe(DiagnosticBag diagnostics) =>
+        string.Join("; ", diagnostics.Errors.Select(e => $"{e.Code} {e.Message}"));
 
     private static DiagnosticBag CompileAndCheck(string content)
     {

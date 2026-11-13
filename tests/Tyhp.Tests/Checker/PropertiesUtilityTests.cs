@@ -25,8 +25,8 @@ public class PropertiesUtilityTests
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
             class Widget {
-                public string $name;
-                public int $age;
+                public string $name = '';
+                public int $age = 0;
             }
 
             function demo(__Properties<Widget> $props): void {}
@@ -76,8 +76,8 @@ public class PropertiesUtilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Widget {
-                public string $name;
-                public int $age;
+                public string $name = '';
+                public int $age = 0;
             }
 
             function demo(): void {
@@ -96,7 +96,7 @@ public class PropertiesUtilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Widget {
-                public string $name;
+                public string $name = '';
             }
 
             function demo(): void {
@@ -115,7 +115,7 @@ public class PropertiesUtilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Widget {
-                public string $name;
+                public string $name = '';
             }
 
             function demo(): void {
@@ -153,9 +153,9 @@ public class PropertiesUtilityTests
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
             class Widget {
-                public string $name;
-                protected int $age;
-                private bool $hidden;
+                public string $name = '';
+                protected int $age = 0;
+                private bool $hidden = false;
                 public static string $stat = '';
             }
 
@@ -177,7 +177,7 @@ public class PropertiesUtilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Widget {
-                public string $name;
+                public string $name = '';
                 public static string $stat = '';
             }
 
@@ -210,8 +210,8 @@ public class PropertiesUtilityTests
         var ok = CompileAndCheck("""
             <?tyhp
             class Widget {
-                public string $name;
-                public int $age;
+                public string $name = '';
+                public int $age = 0;
             }
 
             function patch<T extends object>(T $object, __Properties<T> $withProperties = []): T {
@@ -230,7 +230,7 @@ public class PropertiesUtilityTests
         var extra = CompileAndCheck("""
             <?tyhp
             class Widget {
-                public string $name;
+                public string $name = '';
             }
 
             function patch<T extends object>(T $object, __Properties<T> $withProperties = []): T {
@@ -249,7 +249,7 @@ public class PropertiesUtilityTests
         var mismatch = CompileAndCheck("""
             <?tyhp
             class Widget {
-                public string $name;
+                public string $name = '';
             }
 
             function patch<T extends object>(T $object, __Properties<T> $withProperties = []): T {
@@ -271,8 +271,8 @@ public class PropertiesUtilityTests
     {
         var diagnostics = CompileAndCheck("""
             <?tyhp
-            class A { public int $a; }
-            class B { public string $b; }
+            class A { public int $a = 0; }
+            class B { public string $b = ''; }
 
             function patch<T extends object>(T $object, __Properties<T> $withProperties = []): T {
                 return $object;
@@ -304,7 +304,7 @@ public class PropertiesUtilityTests
         var ok = CompileAndCheck("""
             <?tyhp
             class Widget {
-                public string $name;
+                public string $name = '';
             }
 
             function demo(Widget $w): void {
@@ -323,7 +323,7 @@ public class PropertiesUtilityTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Widget {
-                public string $name;
+                public string $name = '';
             }
 
             function demo(): void {

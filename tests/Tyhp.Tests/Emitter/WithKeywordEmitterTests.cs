@@ -177,6 +177,9 @@ public class WithKeywordEmitterTests
             }
             class MyClass {
                 public Inner $a;
+                public function __construct() {
+                    $this->a = new Inner();
+                }
             }
             function demo(Inner $c): void {
                 $b = new MyClass() with [

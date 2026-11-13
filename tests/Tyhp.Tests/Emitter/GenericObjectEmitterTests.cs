@@ -246,6 +246,10 @@ public class GenericObjectEmitterTests
                 public ?\Closure<callable(): bool> $isset = null;
                 public TValue $value;
 
+                public function __construct(TValue $value): void {
+                    $this->value = $value;
+                }
+
                 public function typeOfValue(): \Tyhp\Type {
                     return typeof(TValue);
                 }
@@ -810,7 +814,9 @@ public class GenericObjectEmitterTests
             class Box<T> {
                 public T $value;
 
-                public function __construct(): void {}
+                public function __construct(T $initial): void {
+                    $this->value = $initial;
+                }
 
                 public function describe(): \Tyhp\Type {
                     return typeof(T);
@@ -1081,7 +1087,9 @@ public class GenericObjectEmitterTests
             class Box<T> {
                 public T $value;
 
-                public function __construct(): void {}
+                public function __construct(T $initial): void {
+                    $this->value = $initial;
+                }
 
                 public function describe(): \Tyhp\Type {
                     return typeof(T);
@@ -1108,7 +1116,12 @@ public class GenericObjectEmitterTests
             class Holder<T> {
                 public Cell<T> $cell;
                 public Bag<T> $bag;
-                public array<T> $items;
+                public array<T> $items = [];
+
+                public function __construct(): void {
+                    $this->cell = new Cell<T>();
+                    $this->bag = new Bag<T>();
+                }
 
                 public function describe(): \Tyhp\Type {
                     return typeof(T);

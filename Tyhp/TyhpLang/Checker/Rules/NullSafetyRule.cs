@@ -33,6 +33,17 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
         public void Check(IBase2Ast node, CheckerState state, CheckerRuleContext context, DiagnosticBag diagnostics)
         {
+            // An assignment to a hooked property runs its `set` hook, which can read other
+            // properties before the constructor has assigned them.
+            if (node is PhpBinaryOpAst assignment
+                && assignment.Left is PhpDereferenceableAst assignedAccess
+                && PhpAssignmentOperatorExtensions.FromToken(
+                    GetTokenType(assignment.Operator),
+                    assignment.Operator?.ValueString) is not null)
+            {
+                CheckHookRunsDuringConstruction(assignedAccess, runsSetHook: true, state, context);
+            }
+
             switch (node)
             {
                 case PhpBinaryOpAst binary when IsSimpleAssignWrite(binary):
@@ -146,6 +157,45 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
         }
 
+        /// <summary>
+        /// In a constructor, <c>$this->hooked</c> runs the property's <c>get</c> hook on a read
+        /// and its <c>set</c> hook on a write. The hook body is checked once, with the facts that
+        /// hold after construction, so a property it reads that this path has not initialized yet
+        /// is reported here, at the access that runs the hook (TYHP4157).
+        /// </summary>
+        private static void CheckHookRunsDuringConstruction(
+            PhpDereferenceableAst access,
+            bool runsSetHook,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            if (state.EnclosingCallable is not ObjectConstructorMethodSymbol
+                || state.IsInsideClosure
+                || state.EnclosingObject is not { } owner
+                || PropertyInitializationAnalysis.ThisMemberKey(access) is not { } key
+                || PropertyInitializationAnalysis.FindHookedInstanceProperty(
+                    owner, key, context.SymbolTree, context.GlobalScope) is not { } hooked)
+            {
+                return;
+            }
+
+            foreach (var read in PropertyInitializationAnalysis.HookReadsOfProperties(
+                hooked, runsSetHook, owner, context.SymbolTree, context.GlobalScope))
+            {
+                if (state.LookupPropertyInit(read) is not { IsDefinitelyInitialized: false })
+                {
+                    continue;
+                }
+
+                CheckerHelpers.ReportError(
+                    context,
+                    state,
+                    access,
+                    MessageCode.CheckerPropertyPossiblyUninitialized,
+                    read.StartsWith('$') ? read[1..] : read);
+            }
+        }
+
         private static void CheckPropertyUse(
             PhpDereferenceableAst deref,
             CheckerState state,
@@ -174,6 +224,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
+            CheckHookRunsDuringConstruction(deref, runsSetHook: false, state, context);
+
             var propertyKey = memberName.StartsWith('$') ? memberName : "$" + memberName;
             var propState = state.LookupPropertyInit(propertyKey);
             if (propState is null || propState.IsDefinitelyInitialized)
@@ -194,7 +246,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
         /// True for plain <c>$x = …</c> / <c>$this->prop = …</c> (and <c>:=</c>) where the left
         /// is write-only. Compound assignments (<c>+=</c>, <c>??=</c>, …) still read the left-hand side.
         /// </summary>
-        private static bool IsSimpleAssignWrite(IBase2Ast node)
+        internal static bool IsSimpleAssignWrite(IBase2Ast node)
         {
             if (node is not PhpBinaryOpAst binary)
             {
@@ -219,13 +271,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
             return op is PhpAssignmentOperator.Assign or PhpAssignmentOperator.UsingEqual;
         }
 
-        private static bool IsCoalesce(IBase2Ast node) =>
+        internal static bool IsCoalesce(IBase2Ast node) =>
             node is PhpBinaryOpAst binary
             && PhpBinaryOperatorExtensions.FromToken(
                 GetTokenType(binary.Operator),
                 binary.Operator?.ValueString) == PhpBinaryOperator.Coalesce;
 
-        private static bool IsCoalesceAssign(IBase2Ast node)
+        internal static bool IsCoalesceAssign(IBase2Ast node)
         {
             if (node is not PhpBinaryOpAst binary)
             {
@@ -238,7 +290,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             return op == PhpAssignmentOperator.CoalesceAssign;
         }
 
-        private static string? GetMemberName(IExpression? expression) =>
+        internal static string? GetMemberName(IExpression? expression) =>
             expression switch
             {
                 PhpNameAst name => name.ValueString,

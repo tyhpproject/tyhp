@@ -20,6 +20,9 @@ public class ExpressionClosureParameterEmitterTests
             }
             class Query {
                 public \Tyhp\Expression<callable(User): bool> $stored;
+                public function __construct(\Tyhp\Expression<callable(User): bool> $stored) {
+                    $this->stored = $stored;
+                }
                 public function where(\Tyhp\Expression<callable(User): bool> $predicate): void {}
                 public function orderBy(\Tyhp\PropertyPath<callable(User): string> $path): void {}
                 public function id(\Tyhp\Expression<callable(User): bool> $predicate): \Tyhp\Expression<callable(User): bool> {

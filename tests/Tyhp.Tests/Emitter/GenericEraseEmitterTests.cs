@@ -38,7 +38,7 @@ public class GenericEraseEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Box<T> {
-                public T $value;
+                public ?T $value = null;
             }
             """);
 
@@ -56,7 +56,7 @@ public class GenericEraseEmitterTests
             <?tyhp
             #[\Tyhp\EraseGeneric]
             class Box<T> {
-                public T $value;
+                public ?T $value = null;
             }
             """);
 
@@ -75,7 +75,7 @@ public class GenericEraseEmitterTests
             <?tyhp
             #[\Tyhp\EraseGeneric]
             class Box<T> {
-                public T $value;
+                public ?T $value = null;
                 public function describe(): \Tyhp\Type {
                     return typeof(T);
                 }
@@ -95,7 +95,7 @@ public class GenericEraseEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Box<T> {
-                public T $value;
+                public ?T $value = null;
             }
             function make(): Box {
                 return new Box<int>();
@@ -112,7 +112,7 @@ public class GenericEraseEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Box<T> {
-                public T $value;
+                public ?T $value = null;
             }
             function make(): Box<int> {
                 return new Box();

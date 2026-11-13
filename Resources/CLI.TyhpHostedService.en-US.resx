@@ -850,17 +850,19 @@ Trait method bodies are not checked here; PHP applies the attribute on the compo
 
 Prefer declaring the property as nullable with an explicit null default (`?T $prop = null`) when the code does not need to distinguish "no value" from "value is null". Otherwise assign it in the constructor on all paths, or guard the read with `??` / `isset` (which do not throw on uninitialized typed properties).
 
-Assignment via a helper method called from the constructor does not count — only a direct `$this->prop = …` in the constructor body (or a declaration-level initializer / promoted parameter) is a guaranteed source.</value>
+Assignment via a helper method called from the constructor does not count — only a direct `$this->prop = …` in the constructor body (or a declaration-level initializer / promoted parameter of a constructor that runs) is a guaranteed source.
+
+A declaration initializer is applied when the object is created, including when a subclass replaces the constructor. A promoted parameter is written only when the constructor that declares it runs. A subclass that declares `__construct` does not run the parent constructor unless `parent::__construct(…)` runs on every path that reaches the end of the subclass constructor.</value>
     <comment>Long-form explanation for tyhp --explain TYHP4157</comment>
   </data>
   <data name="ERROR_TYHP4158" xml:space="preserve">
-    <value>Cannot `unset` typed property `${0}` without `#[\Tyhp\AllowUnset]`; prefer `?T ${0} = null`, or add the attribute when distinguishing uninitialized from null is required</value>
-    <comment>Checker: unset of typed property without AllowUnset (Prop-init #8)</comment>
+    <value>Cannot `unset` `{0}`; assign `null` on a nullable declaration to drop the value</value>
+    <comment>Checker: unset of a local, typed instance property, or static property</comment>
   </data>
   <data name="EXPLAIN_TYHP4158" xml:space="preserve">
-    <value>PHP's unset() on a typed property returns the slot to the uninitialized state, which defeats property-initialization analysis.
+    <value>`unset` on a local variable, a typed instance property, or a static property returns that slot to the uninitialized state.
 
-Prefer declaring the property as nullable with an explicit null default (`?T $prop = null`) when "no value" and null are the same. Only opt in with `#[\Tyhp\AllowUnset]` when code genuinely needs the uninitialized state; then every unguarded read may report TYHP4157, and unset itself clears definite-initialization within the method.</value>
+Declare the slot nullable and assign null (`?string $name = null`) to drop the value. Unsetting an array element (`unset($items[$i])`, `unset($obj->items[$key])`) is allowed.</value>
     <comment>Long-form explanation for tyhp --explain TYHP4158</comment>
   </data>
   <data name="ERROR_TYHP4159" xml:space="preserve">
@@ -1924,6 +1926,28 @@ Raise `output.phpVersion` to 8.5. `new … with` on the same class is available 
   <data name="EXPLAIN_TYHP4417" xml:space="preserve">
     <value>A bracket initializer is already the struct's entry list. A following `with` would start a second list on that result. Put every entry inside the brackets: `new Name[name => 'a', retries => 5]`.</value>
     <comment>Long-form explanation for tyhp --explain TYHP4417</comment>
+  </data>
+  <data name="ERROR_TYHP4418" xml:space="preserve">
+    <value>Typed static property `{0}` must have an initializer</value>
+    <comment>Checker: typed static property declared without a default value</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4418" xml:space="preserve">
+    <value>A typed static property is initialized when its declaring type is loaded, so the declaration requires an initializer. Write a value on the property (`public static string $name = ''`). When the property may hold no value, declare it nullable and initialize it to null (`public static ?string $name = null`).
+
+A static property declared on a trait follows the same rule.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4418</comment>
+  </data>
+  <data name="ERROR_TYHP4419" xml:space="preserve">
+    <value>Typed property `${0}` on `{1}` is not initialized after construction</value>
+    <comment>Checker: typed instance property is not definitely initialized when construction of this class finishes. {0} = property name, {1} = declaring type</comment>
+  </data>
+  <data name="EXPLAIN_TYHP4419" xml:space="preserve">
+    <value>A typed instance property must be initialized by the time construction of the class finishes. A declaration initializer counts, including when a subclass replaces `__construct`. A promoted parameter is written only when the constructor that declares it runs. A direct `$this->prop = …` in the constructor counts; an assignment in a helper called from the constructor does not.
+
+A subclass that declares `__construct` does not run the parent constructor unless `parent::__construct(…)` or `: parent(…)` runs on every path that reaches the end of the subclass constructor. A call in only one arm of an `if` / `else` does not cover the other arm, and a `return` before the call leaves the parent constructor unrun on that path. A subclass that declares no constructor runs the parent constructor.
+
+A private property of an ancestor is not assigned from the subclass. When that ancestor constructor is what initializes it, call `parent::__construct`. A property introduced by a trait follows the same rules in each class that uses the trait.</value>
+    <comment>Long-form explanation for tyhp --explain TYHP4419</comment>
   </data>
   <data name="WARNING_TYHP4500" xml:space="preserve">
     <value>`{0}` is deprecated{1}</value>

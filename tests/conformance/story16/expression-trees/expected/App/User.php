@@ -10,6 +10,6 @@ namespace App;
 
 class User
 {
-    public string $lastName;
-    public mixed $value;
+    public string $lastName = '';
+    public mixed $value = null;
 }

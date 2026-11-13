@@ -322,7 +322,6 @@ namespace Tyhp.TyhpLang.Binder
 
             if (propDecl.Properties == null) return;
 
-            var allowsUnset = DeclarationHasAllowUnsetAttribute(propDecl);
             foreach (var prop in propDecl.Properties.GetAllNotNull())
             {
                 var symbolType = isStatic ? SymbolType.StaticObjectProperty : SymbolType.InstanceObjectProperty;
@@ -351,8 +350,6 @@ namespace Tyhp.TyhpLang.Binder
                 propSymbol.DeclaredType = type;
                 propSymbol.DefaultValue = prop.DefaultValue;
                 ApplyPropertyHookFlags(propSymbol, prop.Hooks);
-                propSymbol.AllowsUnset = allowsUnset
-                    || DeclarationHasAllowUnsetAttribute(prop);
 
                 if (!objScope.TryAddChildSymbol(propSymbol, out var existing))
                 {
@@ -756,7 +753,6 @@ namespace Tyhp.TyhpLang.Binder
 
                     propSymbol.DeclaredType = param.Type;
                     propSymbol.DefaultValue = param.DefaultValue;
-                    propSymbol.AllowsUnset = DeclarationHasAllowUnsetAttribute(param);
                     ApplyPropertyHookFlags(propSymbol, param.PropertyHooks as PhpPropertyHookListAst);
 
                     if (objScope.TryAddChildSymbol(propSymbol, out var existingProp))
@@ -922,42 +918,5 @@ namespace Tyhp.TyhpLang.Binder
             node is null
                 ? null
                 : !string.IsNullOrEmpty(node.Identifier) ? node.Identifier : node.ValueString;
-
-        /// <summary>
-        /// Prop-init #8: <c>#[\Tyhp\AllowUnset]</c> (or unqualified <c>AllowUnset</c>) on a property
-        /// declaration or promoted constructor parameter.
-        /// </summary>
-        private static bool DeclarationHasAllowUnsetAttribute(IBase2Ast? node)
-        {
-            if (node is null)
-            {
-                return false;
-            }
-
-            foreach (var attribute in node.AstAttributes)
-            {
-                if (attribute is not PhpAttributeAst attr)
-                {
-                    continue;
-                }
-
-                var name = attr.Name switch
-                {
-                    PhpNameAst n => n.ValueString,
-                    TokenValueAst t => t.ValueString,
-                    IExpression e => e.Identifier,
-                    _ => null,
-                };
-
-                if (name is not null
-                    && (string.Equals(name, "AllowUnset", StringComparison.OrdinalIgnoreCase)
-                        || name.EndsWith("\\AllowUnset", StringComparison.OrdinalIgnoreCase)))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
     }
 }

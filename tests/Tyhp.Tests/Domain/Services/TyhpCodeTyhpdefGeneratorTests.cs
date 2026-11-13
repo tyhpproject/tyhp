@@ -2013,7 +2013,7 @@ public class TyhpCodeTyhpdefGeneratorTests
                     }
                 }
                 class Tracked<T> {
-                    public T $value;
+                    public ?T $value = null;
                 }
                 """);
 

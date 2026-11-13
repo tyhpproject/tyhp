@@ -13,7 +13,7 @@ class User
     use HasId;
 
     public const FLAG = 1;
-    public string $name;
+    public string $name = '';
     public function greet(): string
     {
         return 'hi';

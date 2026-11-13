@@ -285,23 +285,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
-            if (IsAllowUnsetAttribute(attribute)
-                && target is not PhpPropertyDeclAst
-                && target is not PhpParameterAst)
-            {
-                // \AllowUnset is Tyhp-only, not a PHP Core engine attribute — never skipped by
-                // #[\DelayedTargetValidation].
-                CheckerHelpers.ReportError(
-                    diagnostics,
-                    state,
-                    attribute,
-                    MessageCode.CheckerAttributeTargetMismatch,
-                    attributeName,
-                    DescribeTarget(target, state));
-                return;
-            }
-
-            // Built-in attributes without ExtCore meta (Override / AllowUnset / NoDiscard) rely on
+            // Built-in attributes without ExtCore meta (Override / NoDiscard) rely on
             // the special cases above; skip symbol-driven TARGET_* when there is no BoundSymbol meta.
             if (attribute.Name is not PhpNameAst { BoundSymbol: ObjectDeclarationSymbol attributeClass })
             {
@@ -930,8 +914,6 @@ namespace Tyhp.TyhpLang.Checker.Rules
             => name is not null
                 && (string.Equals(name, "Override", StringComparison.OrdinalIgnoreCase)
                     || name.EndsWith("\\Override", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(name, "AllowUnset", StringComparison.OrdinalIgnoreCase)
-                    || name.EndsWith("\\AllowUnset", StringComparison.OrdinalIgnoreCase)
                     // PHP 8.5; ExtCore stub lands in Story 21 — allow unbound use until then.
                     || string.Equals(name, "NoDiscard", StringComparison.OrdinalIgnoreCase)
                     || name.EndsWith("\\NoDiscard", StringComparison.OrdinalIgnoreCase)
@@ -945,14 +927,6 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     // Compile-time PHP version gate (Story 20.5). Omitted variants skip bind,
                     // so the attribute name may have no BoundSymbol on the checker walk.
                     || PhpVersionRule.IsTyhpPhpFullyQualifiedName(name));
-
-        private static bool IsAllowUnsetAttribute(PhpAttributeAst attribute)
-        {
-            var name = GetAttributeName(attribute.Name);
-            return name is not null
-                && (string.Equals(name, "AllowUnset", StringComparison.OrdinalIgnoreCase)
-                    || name.EndsWith("\\AllowUnset", StringComparison.OrdinalIgnoreCase));
-        }
 
         private static bool IsRepeatableAttributeClass(ObjectDeclarationSymbol symbol)
         {

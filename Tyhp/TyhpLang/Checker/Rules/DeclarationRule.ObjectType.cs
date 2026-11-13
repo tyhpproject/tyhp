@@ -1125,6 +1125,222 @@ namespace Tyhp.TyhpLang.Checker.Rules
             declaration.DeclaringAstNode is PhpObjectTypeDeclAst declaringAst
             && CollectGeneratedOperatorMethodNames(declaringAst).Contains(methodName);
 
+        private readonly HashSet<ObjectDeclarationSymbol> _constructionEnsureStack = new();
+
+        /// <summary>
+        /// Records <paramref name="symbol"/>'s constructor-initialization facts if the declaring
+        /// class has not been checked yet (a subclass can appear first). The walk suppresses
+        /// diagnostics; the class is still checked normally later, and that pass reports them.
+        /// </summary>
+        private void EnsureInstanceConstructionRecorded(
+            ObjectDeclarationSymbol symbol,
+            CheckerRuleContext context)
+        {
+            if (symbol.InstanceConstructionRecorded || symbol.IsStruct)
+            {
+                return;
+            }
+
+            if (symbol.ObjectKind is PhpTypeDeclType.Interface or PhpTypeDeclType.Enum)
+            {
+                symbol.InstanceConstructionRecorded = true;
+                return;
+            }
+
+            if (!_constructionEnsureStack.Add(symbol))
+            {
+                return;
+            }
+
+            try
+            {
+                if (TypeComparer.TryGetParentDeclaration(symbol, context.SymbolTree, context.GlobalScope) is { } parent)
+                {
+                    EnsureInstanceConstructionRecorded(parent, context);
+                }
+
+                if (PropertyInitializationAnalysis.IsTyhpdefDeclaration(symbol))
+                {
+                    PropertyInitializationAnalysis.RecordPostConstructionState(
+                        symbol,
+                        constructorFinalState: null,
+                        inheritAncestorConstructor: true,
+                        context.SymbolTree,
+                        context.GlobalScope);
+                    return;
+                }
+
+                var constructor = FindDeclaredConstructor(symbol);
+                if (constructor is null
+                    && PropertyInitializationAnalysis.FindTraitConstructor(
+                        symbol, context.SymbolTree, context.GlobalScope) is { } traitConstructor)
+                {
+                    WalkConstructorForInitialization(symbol, traitConstructor.Method, context, traitConstructor.Trait);
+                    return;
+                }
+
+                if (constructor?.Body is null)
+                {
+                    PropertyInitializationAnalysis.RecordPostConstructionState(
+                        symbol,
+                        constructorFinalState: null,
+                        inheritAncestorConstructor: constructor is null,
+                        context.SymbolTree,
+                        context.GlobalScope);
+                    return;
+                }
+
+                WalkConstructorForInitialization(symbol, constructor, context, symbol);
+            }
+            finally
+            {
+                _constructionEnsureStack.Remove(symbol);
+            }
+        }
+
+        /// <summary>
+        /// Walks <paramref name="method"/> as <paramref name="symbol"/>'s constructor.
+        /// <paramref name="constructorOwner"/> is the declaration the constructor is written on:
+        /// <paramref name="symbol"/>, or a used trait when the class declares none.
+        /// </summary>
+        private void WalkConstructorForInitialization(
+            ObjectDeclarationSymbol symbol,
+            PhpMethodDeclAst method,
+            CheckerRuleContext context,
+            ObjectDeclarationSymbol constructorOwner)
+        {
+            var objectType = CheckedTypes.FromSymbol(symbol);
+            var methodState = new CheckerState
+            {
+                ScopeType = ScopeType.InstanceMethodDeclaration,
+                EnclosingObject = symbol,
+                EnclosingObjectType = objectType,
+                EnclosingCallable = method.BoundSymbol as ObjectMethodSymbol,
+                ObjectGenerics = symbol.GenericParameters,
+                CurrentFileName = symbol.SourceFile ?? "",
+                NameResolutionScope = symbol.ContainingScope,
+            };
+            if (method.BoundSymbol is ObjectMethodSymbol methodSymbol)
+            {
+                methodState.FunctionGenerics = methodSymbol.GenericParameters;
+            }
+
+            methodState.Variables["this"] = VariableState.ForParameter(
+                new VariableSymbol("this") { IsParameter = true },
+                new StaticCheckedType(objectType),
+                isReference: false);
+            methodState.ReplacePropertyInit(
+                PropertyInitializationAnalysis.SeedForConstructor(
+                    symbol, context.SymbolTree, context.GlobalScope, constructorOwner));
+            if (methodState.EnclosingCallable is { } constructorSymbol)
+            {
+                methodState.ConstructorExits = new ConstructorExitCollector(constructorSymbol);
+            }
+
+            if (PropertyInitializationAnalysis.HasUnconditionalParentDelegation(method))
+            {
+                PropertyInitializationAnalysis.CreditParentConstructorCall(
+                    methodState, symbol, context.SymbolTree, context.GlobalScope);
+            }
+
+            context.Diagnostics.BeginSuppress();
+            try
+            {
+                context.CheckStatementBlock(method.Body, methodState);
+            }
+            finally
+            {
+                context.Diagnostics.EndSuppress();
+                context.ClearCachedTypesUnder(method.Body);
+            }
+
+            PropertyInitializationAnalysis.RecordPostConstructionState(
+                symbol,
+                methodState,
+                inheritAncestorConstructor: false,
+                context.SymbolTree,
+                context.GlobalScope);
+        }
+
+        private static PhpMethodDeclAst? FindDeclaredConstructor(ObjectDeclarationSymbol symbol)
+        {
+            foreach (var member in symbol.Members.Values)
+            {
+                if (member is ObjectConstructorMethodSymbol { DeclaringAstNode: PhpMethodDeclAst method })
+                {
+                    return method;
+                }
+            }
+
+            return null;
+        }
+
+        private static void ReportUninitializedInstanceProperties(
+            ObjectDeclarationSymbol objectSymbol,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics,
+            bool inheritsAncestorConstructor)
+        {
+            if (objectSymbol.IsStruct
+                || objectSymbol.ObjectKind != PhpTypeDeclType.Class
+                || PropertyInitializationAnalysis.IsTyhpdefDeclaration(objectSymbol))
+            {
+                return;
+            }
+
+            var missing = PropertyInitializationAnalysis.CollectUninitializedAfterConstruction(
+                objectSymbol, context.SymbolTree, context.GlobalScope);
+            if (missing.Count == 0)
+            {
+                return;
+            }
+
+            var constructor = FindDeclaredConstructor(objectSymbol);
+            foreach (var prop in missing)
+            {
+                var display = PropertyInitializationAnalysis.PropertyDiagnosticName(prop);
+                if (string.IsNullOrEmpty(display))
+                {
+                    continue;
+                }
+
+                // A class that declares no constructor runs the nearest ancestor's. A property
+                // it inherits was already reported where the ancestor's constructor (or the
+                // ancestor's declaration) falls short, so it is not reported again on every
+                // descendant.
+                if (inheritsAncestorConstructor
+                    && !PropertyInitializationAnalysis.IsIntroducedBy(
+                        objectSymbol, prop, context.SymbolTree, context.GlobalScope))
+                {
+                    continue;
+                }
+
+                IBase2Ast? node = constructor;
+                if (node is null)
+                {
+                    var declaredHere = objectSymbol.Members.TryGetValue(prop.Name, out var member)
+                        && ReferenceEquals(member, prop);
+                    node = declaredHere && prop.DeclaringAstNode is IBase2Ast declared
+                        ? declared
+                        : objectSymbol.DeclaringAstNode as IBase2Ast;
+                }
+
+                if (node is null)
+                {
+                    continue;
+                }
+
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    node,
+                    MessageCode.CheckerPropertyNotInitializedByConstructor,
+                    display,
+                    PropertyInitializationAnalysis.DeclaringTypeName(prop, objectSymbol));
+            }
+        }
+
         private void CheckObjectBody(
             PhpClassBodyAst? body,
             ObjectDeclarationSymbol objectSymbol,
@@ -1139,9 +1355,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             ValidateOperatorOverloadSet(body, objectState, diagnostics);
 
-            // Prop-init #7: analyze the constructor before other instance methods so
-            // MayBeUninitializedAfterConstruction is set before method-body reads are checked.
+            // Prop-init #7: analyze the constructor before other instance methods and before
+            // property-hook bodies, so MayBeUninitializedAfterConstruction is set before those
+            // reads are checked. Hook declaration shape still runs with the property.
             var methods = new List<PhpMethodDeclAst>();
+            var properties = new List<PhpPropertyDeclAst>();
             PhpMethodDeclAst? constructor = null;
             foreach (var member in body.GetAllNotNull())
             {
@@ -1159,7 +1377,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
                         break;
                     case PhpPropertyDeclAst property:
-                        CheckProperty(property, objectState, context, diagnostics);
+                        CheckProperty(property, objectState, context, diagnostics, checkHookBodies: false);
+                        properties.Add(property);
                         break;
                     case PhpEnumCaseAst enumCase:
                         CheckEnumCase(enumCase, objectSymbol, objectState, context, diagnostics);
@@ -1173,17 +1392,42 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 }
             }
 
+            if (TypeComparer.TryGetParentDeclaration(objectSymbol, context.SymbolTree, context.GlobalScope) is { } constructionParent)
+            {
+                EnsureInstanceConstructionRecorded(constructionParent, context);
+            }
+
+            var inheritsAncestorConstructor = false;
             if (constructor is not null)
             {
                 CheckMethod(constructor, objectState, context, diagnostics);
             }
+            else if (PropertyInitializationAnalysis.FindTraitConstructor(
+                objectSymbol, context.SymbolTree, context.GlobalScope) is { } traitConstructor)
+            {
+                // No constructor on the class: PHP imports the trait's, which replaces the
+                // inherited one. Its body is walked as this class's constructor; the trait's own
+                // diagnostics come from checking the trait.
+                WalkConstructorForInitialization(
+                    objectSymbol, traitConstructor.Method, context, traitConstructor.Trait);
+            }
             else
             {
+                inheritsAncestorConstructor = true;
                 PropertyInitializationAnalysis.RecordPostConstructionState(
                     objectSymbol,
                     constructorFinalState: null,
+                    inheritAncestorConstructor: true,
                     context.SymbolTree,
                     context.GlobalScope);
+            }
+
+            ReportUninitializedInstanceProperties(
+                objectSymbol, objectState, context, diagnostics, inheritsAncestorConstructor);
+
+            foreach (var property in properties)
+            {
+                CheckPropertyHookBodies(property, objectState, context, diagnostics);
             }
 
             foreach (var method in methods)
@@ -1604,7 +1848,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
-            if (enumCase.Value is not null && !CheckerHelpers.IsConstantExpression(enumCase.Value, state))
+            if (enumCase.Value is not null
+                && !CheckerHelpers.IsConstantExpression(
+                    enumCase.Value,
+                    state,
+                    CheckerHelpers.ConstantExpressionPosition.NewNotAllowed))
             {
                 CheckerHelpers.ReportError(diagnostics, state, enumCase, MessageCode.CheckerNonConstantExpression);
             }
@@ -1677,7 +1925,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             foreach (var constant in constList.GetAllNotNull())
             {
-                if (constant.Value is not null && !CheckerHelpers.IsConstantExpression(constant.Value, state))
+                if (constant.Value is not null
+                    && !CheckerHelpers.IsConstantExpression(
+                        constant.Value,
+                        state,
+                        CheckerHelpers.ConstantExpressionPosition.NewNotAllowed))
                 {
                     CheckerHelpers.ReportError(
                         diagnostics, state, constant, MessageCode.CheckerNonConstantExpression);

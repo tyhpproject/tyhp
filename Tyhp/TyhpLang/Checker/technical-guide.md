@@ -264,7 +264,7 @@ Tyhp/TyhpLang/Checker/
 
 | Rule | Primary concern |
 |------|-----------------|
-| `DeclarationRule` | Namespaces, classes, functions, methods, properties; owns scope setup; property-hook shape (duplicate / invalid name / `&set` / get parameters), modifier + visibility (TYHP4154 / TYHP4004), final-override (TYHP4166), `&get` version gate (TYHP4167, skipped on tyhpdef declarations), TYHP8015 if a tyhpdef hook body still reaches the checker, TYHP4326 when a user `.tyhp` type lists `\Traversable` in `extends`/`implements` (only `\Iterator` / `\IteratorAggregate` may extend it), TYHP4337 when a user `.tyhp` type lists `\UnitEnum` / `\BackedEnum` (only the engine `\BackedEnum` may extend `\UnitEnum`), TYHP4338 when a user enum redeclares `cases` / `from` / `tryFrom`, TYHP4024 for a magic method PHP never allows on an enum (`EnumForbiddenMagicMethods`; `__construct` also in tyhpdef), TYHP4379 for an enum `__debugInfo()` below an 8.6 target, and TYHP4378 for a default on a non-static readonly property (own `readonly` or a `readonly class`) below an 8.6 target; promoted parameters and structs are exempt. In a `readonly class` (`IsReadonlyClassContext`, from `EnclosingObject.Visibility`) every instance property and promoted parameter is treated as readonly for TYHP4378 and TYHP4155 (hooks), and a static property is TYHP4109. A `readonly class` that uses a trait reports TYHP4380 (`CheckReadonlyClassTraitProperties`) for each static trait property and each instance trait property without `readonly`, when the target is PHP 8.2 or newer; readonly instance properties are allowed, and the check is skipped below 8.2. The 8.6 gates read `TargetPhpVersionText` (unset → `CompilationOptions.DefaultPhpVersionWhenUnset`). Tyhpdef harvest shells are skipped structurally, not by `#[\Tyhp\Php]` |
+| `DeclarationRule` | Namespaces, classes, functions, methods, properties; owns scope setup; property-hook shape (duplicate / invalid name / `&set` / get parameters), modifier + visibility (TYHP4154 / TYHP4004), final-override (TYHP4166), `&get` version gate (TYHP4167, skipped on tyhpdef declarations), TYHP8015 if a tyhpdef hook body still reaches the checker, TYHP4326 when a user `.tyhp` type lists `\Traversable` in `extends`/`implements` (only `\Iterator` / `\IteratorAggregate` may extend it), TYHP4337 when a user `.tyhp` type lists `\UnitEnum` / `\BackedEnum` (only the engine `\BackedEnum` may extend `\UnitEnum`), TYHP4338 when a user enum redeclares `cases` / `from` / `tryFrom`, TYHP4024 for a magic method PHP never allows on an enum (`EnumForbiddenMagicMethods`; `__construct` also in tyhpdef), TYHP4379 for an enum `__debugInfo()` below an 8.6 target, and TYHP4378 for a default on a non-static readonly property (own `readonly` or a `readonly class`) below an 8.6 target; promoted parameters and structs are exempt. In a `readonly class` (`IsReadonlyClassContext`, from `EnclosingObject.Visibility`) every instance property and promoted parameter is treated as readonly for TYHP4378 and TYHP4155 (hooks), and a static property is TYHP4109. A typed static property on a class or trait must have an initializer (TYHP4418), reported on that declaration; tyhpdef declarations are skipped, and interface properties, enum properties, and static properties of a readonly class are not this check. A `readonly class` that uses a trait reports TYHP4380 (`CheckReadonlyClassTraitProperties`) for each static trait property and each instance trait property without `readonly`, when the target is PHP 8.2 or newer; readonly instance properties are allowed, and the check is skipped below 8.2. The 8.6 gates read `TargetPhpVersionText` (unset → `CompilationOptions.DefaultPhpVersionWhenUnset`). Tyhpdef harvest shells are skipped structurally, not by `#[\Tyhp\Php]` |
 | `TypeAnnotationRule` | Required annotations / typed locals. TYHP4016 wraps the subject in backticks: `$name` for a variable, parameter, or property (`FormatTypeRequiredName` keeps a single `$` when the AST name already includes it), and `return type` for a missing function or method return type |
 | `ControlFlowRule` | if/loops/try/return/throw/ternary/match conditions; duplicate catch type (TYHP4124 warning) labels the first catch type |
 | `TypeCompatibilityRule` | Assignments, calls, `new`, member access, arrays; readonly writes (TYHP4021, `IsReadonlyAssignmentTarget`: a receiver other than `$this` inside the class, or a write from a function, the file scope, or a class that is not the declaring class or a subclass; properties with an explicit set visibility and trait-declared properties are skipped); `new Name()` where `Name` is not a declared, imported, aliased, or built-in class is TYHP4197 at the class name (`new $cls`, `new class {}`, and `new self/static/parent` are not checked); `new` on a type alias is TYHP4069 (TYHP4347 when the alias is, or renames/generic-wraps, an object shape); `new T()` requires `T extends __New<Shape>` (TYHP4355) and checks args against the shape constructor (TYHP4357); `new $cls()` on `__ClassName<Shape>` without `__New` is TYHP4356 (`__ClassName<__New<Shape>>` uses the same 4357 ctor check); `__New<T>` where T is not a shape alias is TYHP4351; failing `__New` constructability is TYHP4352/4353/4354; **mixed use-site** (TYHP4160); **Unresolved receiver** member/call/index (TYHP4197, suppressed when the receiver subtree already has an error); **possibly-null receiver** member/call/struct-or-object index (TYHP4198); call/ctor arity (TYHP4142/4143); undeclared member on a closed member receiver (scalars / `\Closure` / structs), on a fully-resolved class / interface / bare `object` without a magic accessor, or on a shape-only receiver (TYHP4101); a plain `$var = expr` applies the assignment after `expr` is checked (`CheckDeferredVariableAssignment`), so `$b = $b->next()` reads `$b` under its pre-assignment narrowing; `$x->__construct()` on a shape-typed value is TYHP4359; unresolved free-function call (TYHP4182); type-alias factory type arguments (TYHP4186); `fromCallable` private-method visibility (TYHP4025); `bind`/`bindTo`/`call` leftover-scope / non-rebindable (TYHP4334 / TYHP4336); array access on non-array/string/ArrayAccess (TYHP4093); ArrayAccess struct/array `TKey` (TYHP4330); ArrayAccessShape wide key (TYHP4331) / append (TYHP4332); homogeneous `$obj[] =` uses `offsetSet`'s first parameter (WeakMap `TKey extends object` rejects null; `ArrayAccess::offsetSet(null or TKey, …)` allows append); int-alias structs skip homogeneous ArrayAccess checks so `$args[0]` is the field; bare `array` / `array<V>` index keys are `int\|string` (`CheckedTypes.PhpArrayKey`); `array<int, V>` still rejects string keys; string offset keys stay `int`; `list()` / `[]` destructure on array, string, or ArrayAccess (`ArrayAccessDestructureSupport`; TYHP4094 otherwise; spread TYHP4095). `lazy new` of an internal class other than `\stdClass`, a class that extends one, or a non-class (struct, interface, enum, trait, type parameter, class-name brand) is TYHP4402 (`LazyNewSupport`). A class with no stored instance property warns TYHP4403 and still type-checks (PHP returns a normal object from `newLazyGhost` and never calls the initializer, so the emitter falls back to `new`); the injected `$__tyhpGeneric` bag of a runtime-tracked generic class, or of a class extending one, is a stored property, so such a class does not warn. Tracking is only complete after the walk, so a candidate whose class or ancestor declares type parameters is queued (`DeferLazyNewNoStateWarning`) and reported by `FlushPendingLazyNewWarnings` at the end of `Check`; constructor mismatches use the same codes as `new`. Engine classes are recognized by source path (`RuntimePackagePaths.IsEnginePhpPackageSource`, plus `packages/tyhpdef/php-ext-` and `php/_tyhpdef/`), not by a symbol flag |
@@ -272,7 +272,7 @@ Tyhp/TyhpLang/Checker/
 | `NullSafetyRule` | Definite assignment / non-null use sites |
 | `TypeNarrowingRule` | Smart casts (static helper, not `ICheckerRule`) |
 | `ClosureRule` + `ClosureParameterInference` | Closures / contextual params |
-| `UnsetTrackingRule` | `unset` vs definite assignment / `AllowUnset` |
+| `UnsetTrackingRule` | `unset` of a local, a typed instance property, or a static property (TYHP4158); array-offset `unset` stays allowed |
 | `StructRule` / `WithKeywordRule` | Anonymous `TyhpStructDeclAst` (incl. ObjectGenerics / constraints) and `with` forms (member substitution on generic structs). Named `type Name = struct { };` aliases are `ObjectDeclarationSymbol` with `IsStruct`; `DeclarationRule` checks the alias body under that struct's generic scope. Anonymous shapes are `StructCheckedType`; `StructPropertyInfo.StringKeyAlias` carries a string key alias for the emitter. `clone` accepts a struct operand, and `NullSafetyRule` records the types of `isset`/`empty` operand chains (`RecordProbeOperandTypes`) even though it skips traversing them, so the emitter can rewrite them. On a class or other non-struct object (including a nullable class, a union of classes, `object`, and a type parameter), an unkeyed `with` entry is TYHP4409; a target that can be a struct (`IsNonStructWithTarget`) is left to the struct rules. A spread is checked only when the source is a named struct, a generic struct instance, or an anonymous struct (TYHP4410 for an array, `mixed`, a nullable struct, a union, or the bare `struct` bound). Each source field is matched to a property by its PHP array key — the alias when the field has one, such as `'status_code'`, including properties inherited through `extends` — and a key that is not a property is TYHP4411. Entries and spreads apply left to right; a later write to the same property replaces an earlier one, and that winning value is assignability-checked and passed through the same readonly checks as a keyed entry. A struct receiver (named, generic instance, or anonymous shape) checks its own list. `new Name[...]` is that list on a `new` whose `IsStructInitializer` flag is set. When the name is a known non-struct, the initializer is TYHP4412 and the list is not checked again; the ordinary `new` diagnostics are skipped for it. The message adds `new Name() with [...]` only when that form can be constructed: a class that is not abstract, including `self`, `static`, and `parent` when they name one. A type alias (including an alias of a class or a struct), an interface, an enum, a trait, an object shape, or an abstract class does not get that hint. The language server offers the same rewrite only when the hint is present. A name that resolves to nothing keeps the ordinary unresolved-name diagnostics. An unkeyed struct entry is TYHP4413. A spread source must be a struct (TYHP4414). Each source field must exist on the target through `extends` (TYHP4415), be assignable to the target field, and use the same PHP array key, so an alias such as `'status_code'` or `0` cannot rename the key (TYHP4416). A required target field is satisfied by a keyed entry or by a spread field that is required or defaulted on the source; a nullable source field with no default does not satisfy it. Later entries stay provided. Spread field types are checked against the same generic instantiation as keyed values. `new Name[...] with [...]` is TYHP4417. TYHP4159 names the form that was written: `new Name[prop => value]` for a bracket initializer, `new Name() with [prop => value]` for `with`, and either form for a bare `new Name()`. Bare `new Name[]` is the desugared `with`, so the missing-field diagnostic is reported once. Object `with` lists are unchanged. |
 | `AsyncRule` / `DisposableRule` | await / disposables / emit flags |
 | `CompileTimeRule` | `nameof` / `typeof` / `default` / `variable_exists`. `typeof` takes a `typeExpr` (`TyhpTypeofAst.TypeExpression`); the checker resolves that annotation (aliases included — not mixed) and flags Mechanism D / GenericObject when it names those generic parameters (same as `default`). `TypeInferrer` types `typeof(...)` as `\Tyhp\Type`. `nameof(T)` still accepts in-scope class or method generics via `IsInScopeGenericParameter`. `typeof(Class)` binds the written class name to its declaration (so the emitter spells it for a class in another namespace or behind an import alias). Because the rule suppresses child traversal, `typeof` and `nameof` call `MarkImportNames` on their operand so the imports they use are not reported unused. `nameof` resolves names from the declaring file or namespace-block scope when there is no enclosing callable (top-level statements). `nameof(Type::$member)` / `nameof($obj->member)` / `nameof(Type::CONST)` of a single level reports TYHP4101 when that member is not declared on a known owner. `IsConstantExpression` treats `nameof` as a constant because it folds to a string literal. |
@@ -1490,7 +1490,7 @@ Wrapping a call is the intentional-discard form for `#[\NoDiscard]`:
 - `(void) call` → suppress TYHP4165. Used return (including `$_ = …`) does not warn.
   Not gated on `output.phpVersion`.
 - ExtCore `NoDiscard` class is Story 21; until then unbound `#[\NoDiscard]` is
-  allow-listed like `Override` / `AllowUnset`, and the attribute is detected by name
+  allow-listed like `Override`, and the attribute is detected by name
   on the callee declaration
 
 `for` condition lists (`for_cond_exprs`): only the **last** item is a boolean
@@ -1556,7 +1556,7 @@ guessing. A **promoted constructor parameter** is both a parameter and a
 property, so the generic flag check matches when the attribute has
 `TARGET_PARAMETER` **or** `TARGET_PROPERTY` (for example Core `\Override` is
 `TARGET_METHOD|TARGET_PROPERTY` and is legal on a promoted param once property
-targets are allowed). `Override` / `AllowUnset` keep name-based special cases.
+targets are allowed). `Override` keeps a name-based special case.
 Unbound `#[\Tyhp\Php]` on omitted version-gated variants is treated as a known
 compile-time attribute (same allow-list as `Override` / `NoDiscard` /
 `Deprecated`) so those arms do not produce TYHP4126.
@@ -1580,7 +1580,7 @@ unused-return is still TYHP4165. Userland attributes still get TYHP4127.
 `output.phpVersion` **&lt; 8.5** ignores the skip (property `#[\Override]` remains
 4127 even with this attribute). Unbound Core names (isolated tests without the
 ExtCore stub) are treated as engine classes; declarations under `runtime/packages/php/`, `/packages/tyhpdef/php/`, or the resolved runtime-src `tyhpdef/php` package are engine sources too. A user `.tyhp` class that reuses a
-Core name is not. `\Tyhp\AllowUnset` / `\Tyhp\Php` are not Core and are not
+Core name is not. `\Tyhp\Php` is not Core and is not
 skipped. Covered by `AttributeRuleTests.cs`.
 
 `#[\Deprecated]` (`Deprecated` / `\Deprecated`, optional `$message` / `$since`)
@@ -2061,7 +2061,83 @@ LHS as reads. Dereferencing a possibly-null receiver (`$user->name`, `$a->m()`,
 property-init maps (Prop-init #7), including enclosing-class static properties
 so `self::$x` shares `$this->prop` narrowing, and records post-construction
 guarantees on instance symbols for later methods. Static methods seed only
-static properties. `UnsetTrackingRule` implements Prop-init #8.
+static properties. A typed static property is not instance construction
+(`CheckerStaticPropertyRequiresInitializer`, TYHP4418): `public static string $name = ''`
+or `public static ?string $name = null`. The diagnostic is on the declaration. Tyhpdef
+declarations are not checked, because they describe PHP. An interface property cannot
+take an initializer, an enum cannot declare a property, and a readonly class cannot
+declare a static property, so those declarations are not also asked for an initializer.
+
+After a class constructor finishes, or when the class declares none, every typed
+instance storage property visible on `$this` must be initialized
+(`CheckerPropertyNotInitializedByConstructor`, TYHP4419). The same three sources
+count as for a TYHP4157 read: a declaration initializer, a promoted parameter of
+a constructor that actually runs, and a direct `$this->prop = …` in that
+constructor. A helper call does not count. Hooked properties are not storage.
+A declaration initializer is applied when the object is allocated, including when
+a subclass replaces `__construct`. A default on a promoted parameter is not that
+initializer: the parameter is written only when its constructor runs.
+
+A property hook body is checked after those construction facts are recorded and uses
+the same initialization map as an instance method, including a hook on a promoted
+constructor parameter. A read in the hook of a typed property the constructor
+initializes on every path is not TYHP4157. A read of a property that construction
+leaves uninitialized is still TYHP4157. That map describes an object after construction.
+A hook can also run during it: `$this->hooked` in a constructor runs the `get` hook on a
+read and the `set` hook on a write (including a compound assignment), and PHP runs the
+`set` hook of a promoted parameter on entry, in parameter order, before the body.
+`NullSafetyRule` reports TYHP4157 at that access for each property the hook reads
+through `$this->name` (found by `PropertyInitializationAnalysis.HookReadsOfProperties`,
+which follows reads of other hooked properties and ignores `isset` / `empty` / `??`
+probes and properties the hook assigns itself) that the constructor path has not
+initialized yet. `DeclarationRule.CheckPromotedSetHooksRunBeforeBody` does the same for
+promoted `set` hooks against the constructor entry map. A call to an ordinary method
+from the constructor is not followed.
+
+A subclass that declares `__construct` does not keep the parent constructor's
+results unless `parent::__construct(…)` runs on every path that reaches the end
+of the subclass constructor, or the subclass assigns the inherited property
+itself. Dominance uses the same join as `$this->prop =`. A call in both arms of
+`if` / `else` counts. A call in one arm does not cover the other. A path that
+throws abandons the object and does not reach the end. A path that `return`s
+ends construction: the constructor's `return` statements are recorded as exits
+(`ConstructorExitCollector`), and a property counts as initialized, or the
+parent constructor as run, only when it holds at every exit as well as at the
+end. A closure or arrow function body does not count. `: parent(…)` is that call
+unconditionally, before the body. A subclass that declares no constructor
+inherits the nearest ancestor constructor, so that constructor's initializations
+apply, including through further descendants that also declare none; a property
+the subclass inherits is reported on the class whose constructor falls short, not
+again on each descendant. A class that declares no constructor but uses a trait
+that declares one runs the trait constructor in place of the inherited one, and
+that body is walked as the class's constructor.
+
+A private ancestor property is not visible on the subclass and is not reported
+as an assignment the subclass must write. When the ancestor constructor is what
+initializes it and the subclass replaces `__construct` without a dominating
+`parent::__construct`, TYHP4419 names that private property on the subclass
+constructor.
+
+A property a trait introduces is checked on each using class, including a class
+that extends another type. An initializer on the trait property is a declaration
+guarantee. The trait is not required to declare a constructor. Tyhpdef types are
+not reported. Invoking a tyhpdef constructor — a dominating `parent::__construct`,
+or inheriting it by declaring none — is credited with that stub's typed instance
+properties that have no initializer, because the stub has no body to walk. A
+tyhpdef type whose stub chain declares no constructor has nothing to call, so a
+subclass that replaces `__construct` is not asked to initialize its properties.
+An anonymous class is named `class@anonymous` in the diagnostic.
+
+`UnsetTrackingRule` rejects `unset` of a local variable, a typed
+instance property, or a static property (`CheckerUnsetStorageSlot`, TYHP4158).
+Array-offset `unset` (`unset($items[$i])`, `unset($obj->items[$key])`) stays
+allowed. Every `unset` target drops member-access narrowing under its path; a
+rejected `unset` does not clear definite-assignment or property-initialization
+state. Only a bare identifier names an instance property: a computed name
+(`->{$name}`, `->$name`, `->{'literal'}`) is not a resolved slot, the same rule
+`TypeInferrer.InferInstanceMember` uses. A struct receiver (named, generic, or
+anonymous) is array-backed, so `unset($struct->optional)` removes an optional key
+and is allowed.
 
 ### 8.5 Code quality (`CodeQualityRule`)
 
@@ -2626,6 +2702,7 @@ normalizes to an `int|string` key and admits both.
 | `CheckerHelpers.NamesGenericParameterIn` / `SoleTypeName` | Generic runtime-use detection |
 | `CheckerHelpers.IsInStaticContext` | `$this` / generic-static diagnostics |
 | `CheckerHelpers.IsExtensionReceiverThis` | Allow the extension receiver `$this` in static extension methods (not TYHP4097) |
+| `CheckerHelpers.IsConstantExpression` | Constant-required positions. Parameter defaults, `static` variable initializers, global constants, and attribute arguments accept `new ClassName(...)` with constant arguments. A property initializer, a class constant, and an enum case value (`ConstantExpressionPosition.NewNotAllowed`) do not (TYHP4090): `new` (including inside an array or conditional). Every position rejects what PHP never accepts in a constant expression: `clone`, `static::`, `$var::NAME`, `instanceof` / `is`, `|>`, `@`, `(void)`, `(decimal)`, `++` / `--`, and a struct initializer spread. `new Name[]` / `new Name[k => v]` with constant entries and no spread stays constant because it emits an array; a spread lowers to `\array_replace`. Static variable initializers and global constants are not checked here |
 | `PropertyInitializationAnalysis.*` | Seed/record `$this` init maps |
 | `CheckedTypeDisplay.FormatUnion` / `FormatNullable` | Canonical diagnostic `DisplayName` for unions / nullables (`?T` vs `…|null`) |
 | `ClosureParameterInference.*` | Contextual closure params + `InferredClosureSignature` for emit |
@@ -2657,7 +2734,8 @@ normalizes to an `int|string` key and admits both.
    clearest statement of this).
 
 2. **Class members bypass `CheckNode`** — `DeclarationRule` owns object body
-   order (attributes, async validation, property-init seeding). Registry rules
+   order (attributes, async validation, property-init seeding, hook bodies after
+   construction facts). Registry rules
    for `PhpMethodDeclAst` would double-fire or never fire; code chooses
    explicit static hooks. Property-hook final overrides (TYHP4166) are checked
    here too: walk ancestors like `TryFindOverriddenMethod`, but continue past a

@@ -22,7 +22,7 @@ public class InstanceofGenericParameterEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             final class Box<TReturn extends void|mixed = void> {
-                private TReturn $value;
+                private ?TReturn $value = null;
                 public function setIfMatches(mixed $value): void {
                     if ($value instanceof TReturn) {
                         $this->value = $value;
@@ -202,7 +202,7 @@ public class InstanceofGenericParameterEmitterTests
                         $this->value = $value;
                     }
                 }
-                private TReturn $value;
+                private ?TReturn $value = null;
             }
             """);
 

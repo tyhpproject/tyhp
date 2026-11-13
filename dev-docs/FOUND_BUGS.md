@@ -21,8 +21,6 @@ Severity (Ready and NEEDS INPUT items):
 
 ## Ready
 
----
-
 ## NEEDS INPUT
 
 ### 3. `tyhpGenericObjectInitInterface` is never emitted

@@ -49,6 +49,8 @@ namespace Tyhp.TyhpLang.Checker
             IsInSwitchContext = source.IsInSwitchContext;
             BreakableScopes = source.BreakableScopes;
             HasReturnedOnAllPaths = source.HasReturnedOnAllPaths;
+            ParentConstructorInvoked = source.ParentConstructorInvoked;
+            ConstructorExits = source.ConstructorExits;
             TrackArrayAccessShapeOffsetGetCoverage = source.TrackArrayAccessShapeOffsetGetCoverage;
             TrackArrayAccessShapeOffsetSetCoverage = source.TrackArrayAccessShapeOffsetSetCoverage;
             HasArrayAccessShapeCoverage = source.HasArrayAccessShapeCoverage;
@@ -204,6 +206,30 @@ namespace Tyhp.TyhpLang.Checker
         /// walking to warn TYHP4012 on the first following unreachable statement.
         /// </summary>
         public bool HasReturnedOnAllPaths { get; set; }
+
+        /// <summary>
+        /// True when <c>parent::__construct(…)</c> (including a <c>: parent(…)</c> delegation)
+        /// has run on every path that reaches this state. Joined with AND, the same way a
+        /// property assignment is definite only when every reaching path assigns it.
+        /// </summary>
+        public bool ParentConstructorInvoked { get; set; }
+
+        /// <summary>
+        /// Collects what is initialized at each <c>return</c> inside the constructor being
+        /// walked. A <c>return</c> ends construction at that point, so it is an exit the
+        /// end-of-body state does not describe. Shared (by reference) across the code-block
+        /// splits of one constructor body; <see langword="null"/> outside a constructor.
+        /// </summary>
+        internal ConstructorExitCollector? ConstructorExits { get; set; }
+
+        /// <summary>
+        /// Marks <see cref="ParentConstructorInvoked"/> on this path.
+        /// </summary>
+        public void NoteParentConstructorInvoked()
+        {
+            ThrowIfLocked();
+            ParentConstructorInvoked = true;
+        }
 
         /// <summary>
         /// When set, a reachable value <c>return</c> assignable to the per-key field type
@@ -493,6 +519,7 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             HasReturnedOnAllPaths = HasReturnedOnAllPaths && branchState.HasReturnedOnAllPaths;
+            ParentConstructorInvoked = ParentConstructorInvoked && branchState.ParentConstructorInvoked;
             HasArrayAccessShapeCoverage = HasArrayAccessShapeCoverage || branchState.HasArrayAccessShapeCoverage;
             MergeReferenceGroups(branchState);
             MergePropertyInitMaps(branchState);
@@ -516,6 +543,7 @@ namespace Tyhp.TyhpLang.Checker
             AbsorbJoinedPropertyInit(joined);
             AbsorbJoinedIndexAccessNarrowing(joined);
             AbsorbJoinedMemberAccessNarrowing(joined);
+            ParentConstructorInvoked = joined.ParentConstructorInvoked;
             HasArrayAccessShapeCoverage = HasArrayAccessShapeCoverage || joined.HasArrayAccessShapeCoverage;
         }
 
@@ -855,52 +883,6 @@ namespace Tyhp.TyhpLang.Checker
             var local = source.Clone();
             local.NarrowedType = null;
             PropertyInit[propertyKey] = local;
-        }
-
-        /// <summary>
-        /// Marks a tracked <c>$this->prop</c> uninitialized after <c>unset($this->prop)</c>
-        /// (Prop-init #8). Clone-on-write into this scope, mirroring <see cref="AssignProperty"/>.
-        /// </summary>
-        public void UnsetProperty(string propertyKey)
-        {
-            ThrowIfLocked();
-            PropertyInitializationState? source = null;
-            if (PropertyInit.TryGetValue(propertyKey, out var existing))
-            {
-                source = existing;
-            }
-            else if (LookupPropertyInit(propertyKey) is { } lookedUp)
-            {
-                source = lookedUp;
-            }
-            else
-            {
-                return;
-            }
-
-            var local = source.Clone();
-            local.IsDefinitelyInitialized = false;
-            local.NarrowedType = null;
-            PropertyInit[propertyKey] = local;
-        }
-
-        /// <summary>
-        /// Clears definite-assignment after <c>unset($x)</c> (Prop-init #8). Subsequent reads
-        /// report TYHP4014 until reassigned. Clone-on-write like <see cref="AssignVariable"/>.
-        /// </summary>
-        public void UnsetVariable(string name)
-        {
-            ThrowIfLocked();
-            var location = FindVariableLocation(name);
-            if (location is null)
-            {
-                return;
-            }
-
-            var variable = BindLocally(location.Value.scope, location.Value.variable, name);
-            variable.IsDefinitelyAssigned = false;
-            variable.IsPossiblyUndefined = true;
-            variable.NarrowedType = null;
         }
 
         public PropertyInitializationState? LookupPropertyInit(string propertyKey)

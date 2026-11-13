@@ -3,8 +3,8 @@ declare(strict_types=1);
 namespace App;
 
 class User {
-    public string $lastName;
-    public mixed $value;
+    public string $lastName = '';
+    public mixed $value = null;
 }
 
 function sortBy(\Tyhp\Expression<callable(User, User): int> $cmp): void {}

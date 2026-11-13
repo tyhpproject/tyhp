@@ -162,7 +162,7 @@ public class Phase5RuleTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             final class Box<T> {
-                public T $value;
+                public function __construct(public T $value) {}
                 public function take(mixed $other): ?T {
                     if ($other instanceof self<T>) {
                         return $other->value;

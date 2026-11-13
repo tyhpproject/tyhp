@@ -22,7 +22,7 @@ public class ExpressionEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class User {
-                public int $age;
+                public int $age = 0;
             }
             function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
@@ -62,7 +62,7 @@ public class ExpressionEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class User {
-                public int $age;
+                public int $age = 0;
             }
             function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
@@ -80,7 +80,7 @@ public class ExpressionEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class User {
-                public int $age;
+                public int $age = 0;
             }
             function takeExpr(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function takeClosure(\Closure $c): void {}
@@ -99,7 +99,7 @@ public class ExpressionEmitterTests
         var (_, required) = CompileAndEmitWithPackages("""
             <?tyhp
             class User {
-                public int $age;
+                public int $age = 0;
             }
             function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
@@ -152,7 +152,7 @@ public class ExpressionEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class User {
-                public string $name;
+                public string $name = '';
             }
             function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
@@ -170,7 +170,7 @@ public class ExpressionEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class User {
-                public string $lastName;
+                public string $lastName = '';
             }
             function sortBy(\Tyhp\Expression<callable(User, User): int> $cmp): void {}
             function demo(): void {
@@ -190,7 +190,7 @@ public class ExpressionEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class User {
-                public mixed $value;
+                public mixed $value = null;
             }
             function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
@@ -209,7 +209,7 @@ public class ExpressionEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class User {
-                public mixed $value;
+                public mixed $value = null;
             }
             class Address {}
             function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
@@ -228,7 +228,7 @@ public class ExpressionEmitterTests
             <?tyhp
             namespace App;
             class User {
-                public string $lastName;
+                public string $lastName = '';
             }
             function sortBy(\Tyhp\Expression<callable(User, User): int> $cmp): void {}
             function demo(): void {
@@ -246,7 +246,7 @@ public class ExpressionEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class User {
-                public int $age;
+                public int $age = 0;
             }
             function demo(): void {
                 \Tyhp\Expression<callable(User $u): bool> $e = fn ($u) => $u->age > 18;
@@ -271,7 +271,7 @@ public class ExpressionEmitterTests
         var php = CompileAndEmit($$"""
             <?tyhp
             class User {
-                public mixed $value;
+                public mixed $value = null;
             }
             function take(\Tyhp\Expression<callable(User): bool> $pred): void {}
             function demo(): void {
