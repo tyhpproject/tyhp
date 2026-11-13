@@ -535,6 +535,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 state.HasArrayAccessShapeCoverage = true;
             }
 
+            // A `return` in a constructor ends construction on this path; remember what it left
+            // initialized so the constructor's guarantee covers it too.
+            PropertyInitializationAnalysis.NoteConstructorReturn(state, context.SymbolTree, context.GlobalScope);
+
             state.HasReturnedOnAllPaths = true;
         }
 

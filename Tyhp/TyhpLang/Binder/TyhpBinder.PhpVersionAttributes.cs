@@ -155,15 +155,54 @@ namespace Tyhp.TyhpLang.Binder
                     name);
             }
 
-            var omit = IsPhpVersionGateOmitted(evaluation);
-            if (omit || (versionOverlap && existingBoundOverlap))
+            var disposition = DecidePhpVersionGate(evaluation);
+            if (versionOverlap && existingBoundOverlap)
             {
-                records.Add(new GatedDeclarationRecord(effectiveConstraints, Bound: false, node, signature));
+                // The name is already compiled for this floor. An overlapping sibling is a
+                // duplicate (4303), not a second runtime body.
+                disposition = PhpGateDisposition.Omitted;
+            }
+
+            var bound = disposition == PhpGateDisposition.Bound;
+            records.Add(new GatedDeclarationRecord(
+                effectiveConstraints,
+                bound,
+                node,
+                signature,
+                RuntimeOnly: disposition == PhpGateDisposition.RuntimeOnly));
+            return bound;
+        }
+
+        /// <summary>
+        /// True when <paramref name="node"/> was just recorded as a method (or other declaration)
+        /// whose gate misses the compile target but is still true on some newer PHP.
+        /// </summary>
+        private bool IsRuntimeOnlyPhpVersionGate(
+            IBaseScope parentScope,
+            string name,
+            SymbolType symbolType,
+            IBase2Ast node)
+        {
+            var key = new GatedDeclarationKey(
+                GetGatedContainerKey(parentScope),
+                GatedNameKey(name, symbolType),
+                NormalizeGatedKind(symbolType));
+            if (!_phpVersionGatedDeclarations.TryGetValue(key, out var records))
+            {
                 return false;
             }
 
-            records.Add(new GatedDeclarationRecord(effectiveConstraints, Bound: true, node, signature));
-            return true;
+            for (var index = records.Count - 1; index >= 0; index--)
+            {
+                if (!ReferenceEquals(records[index].Node, node))
+                {
+                    continue;
+                }
+
+                return records[index].RuntimeOnly;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -343,8 +382,34 @@ namespace Tyhp.TyhpLang.Binder
         }
 
         private bool IsPhpVersionGateOmitted(PhpVersionGateEvaluation evaluation)
-            => evaluation.AttributeConstraintInvalid
-                || !IsEffectiveConstraintSetSatisfied(evaluation.EffectiveConstraints);
+            => DecidePhpVersionGate(evaluation) != PhpGateDisposition.Bound;
+
+        /// <summary>
+        /// <see cref="PhpGateDisposition.Bound"/> when the gate holds at <c>output.phpVersion</c>.
+        /// <see cref="PhpGateDisposition.RuntimeOnly"/> when it misses that version but
+        /// <see cref="PhpVersionConstraint.ClassifyAtOrAbove"/> is still conditional, so a newer
+        /// PHP can run the body. <see cref="PhpGateDisposition.Omitted"/> when the gate is invalid
+        /// or never true at or above the floor.
+        /// </summary>
+        private PhpGateDisposition DecidePhpVersionGate(PhpVersionGateEvaluation evaluation)
+        {
+            if (evaluation.AttributeConstraintInvalid)
+            {
+                return PhpGateDisposition.Omitted;
+            }
+
+            if (IsEffectiveConstraintSetSatisfied(evaluation.EffectiveConstraints))
+            {
+                return PhpGateDisposition.Bound;
+            }
+
+            var kind = PhpVersionConstraint.ClassifyAtOrAbove(
+                evaluation.EffectiveConstraints,
+                GetTargetPhpVersion()).Kind;
+            return kind == PhpRuntimeGateKind.Never
+                ? PhpGateDisposition.Omitted
+                : PhpGateDisposition.RuntimeOnly;
+        }
 
         private List<PhpAttributeAst> CollectTyhpPhpAttributes(
             IBaseScope fromScope,
@@ -569,10 +634,18 @@ namespace Tyhp.TyhpLang.Binder
             bool AnyArgumentInvalid,
             bool AttributeConstraintInvalid);
 
+        private enum PhpGateDisposition
+        {
+            Bound,
+            Omitted,
+            RuntimeOnly,
+        }
+
         private sealed record GatedDeclarationRecord(
             IReadOnlyList<string> Constraints,
             bool Bound,
             IBase2Ast Node,
-            string? Signature);
+            string? Signature,
+            bool RuntimeOnly = false);
     }
 }

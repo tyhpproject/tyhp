@@ -1,6 +1,7 @@
 using Tyhp.Domain.Diagnostics;
 using Tyhp.Domain.Exceptions;
 using Tyhp.TyhpLang.Ast;
+using Tyhp.TyhpLang.Checker;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder;
 using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
@@ -598,6 +599,16 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
+            // `new Name[...]` on a known non-struct is reported from WithKeywordRule. Skip the
+            // ordinary `new` diagnostics so they do not pile on after that error. A name that
+            // resolves to nothing keeps them.
+            if (newExpr.IsStructInitializer
+                && WithKeywordRule.NonStructInitializerKind(
+                    newExpr, context.ResolveExpressionType(newExpr, state), state, context) is not null)
+            {
+                return;
+            }
+
             if (TryReportObjectShapeUsedAsClass(classRef, state, context, diagnostics)
                 || TryReportTypeAliasUsedAsNewTarget(classRef, state, context, diagnostics))
             {
@@ -607,6 +618,16 @@ namespace Tyhp.TyhpLang.Checker.Rules
             var classType = context.ResolveExpressionType(newExpr, state);
             if (TryGetGenericTypeParameter(classRef, classType, state, out var typeParam))
             {
+                if (newExpr.IsLazy)
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        newExpr,
+                        MessageCode.CheckerLazyNewNotCapable,
+                        typeParam.Name);
+                }
+
                 var paramType = CheckedTypes.FromSymbol(typeParam);
                 if (TypeComparer.TryGetNewUtility(paramType, out var newUtility))
                 {
@@ -671,6 +692,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
+            if (newExpr.IsLazy)
+            {
+                CheckLazyNew(newExpr, objectDecl, state, context, diagnostics);
+            }
+
             if (objectDecl.IsExtern)
             {
                 return;
@@ -704,10 +730,56 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     }
 
                     ValidateConstructorCallArguments(
-                        newExpr, objectDecl, classType, state, context, diagnostics);
+                        newExpr.Arguments, newExpr, objectDecl, classType, state, context, diagnostics);
 
                     break;
             }
+        }
+
+        /// <summary>
+        /// <c>lazy new</c> of a resolved class. Internal classes other than <c>\stdClass</c> are
+        /// an error. A class with no stored instance property is a warning; the expression stays
+        /// valid and the constructor still runs.
+        /// </summary>
+        private static void CheckLazyNew(
+            PhpNewAst newExpr,
+            ObjectDeclarationSymbol objectDecl,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (LazyNewSupport.IsDisallowedLazyTarget(objectDecl, context.SymbolTree, context.GlobalScope))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    newExpr,
+                    MessageCode.CheckerLazyNewNotCapable,
+                    LazyNewSupport.DisplayName(objectDecl));
+                return;
+            }
+
+            if (LazyNewSupport.HasLazyCapableInstanceProperty(
+                    objectDecl, context.SymbolTree, context.GlobalScope))
+            {
+                return;
+            }
+
+            // A tracked generic class stores the injected `$__tyhpGeneric` bag, which is a real
+            // instance property, so its ghost stays lazy. Whether the class is tracked is only known
+            // once every body has been checked; report after the walk.
+            var warning = CheckerHelpers.CreateWarning(
+                state,
+                newExpr,
+                MessageCode.CheckerLazyNewHasNoLazyProperty,
+                LazyNewSupport.DisplayName(objectDecl));
+            if (LazyNewSupport.MightInheritGenericBag(objectDecl, context.SymbolTree, context.GlobalScope))
+            {
+                context.DeferLazyNewNoStateWarning(newExpr, objectDecl, warning);
+                return;
+            }
+
+            diagnostics.Add(warning);
         }
 
         /// <summary>
@@ -734,11 +806,68 @@ namespace Tyhp.TyhpLang.Checker.Rules
         }
 
         /// <summary>
+        /// Attribute arguments are a constructor call. <c>#[Name&lt;T&gt;(...)]</c> substitutes
+        /// <c>T</c> the same way <c>new Name&lt;T&gt;(...)</c> does, so a
+        /// <c>__PropertyName&lt;T&gt;</c> parameter accepts <c>nameof(T::$prop)</c> and rejects
+        /// a name that is not a property of <c>T</c>.
+        /// </summary>
+        internal static void CheckAttributeConstructorArguments(
+            PhpAttributeAst attribute,
+            ObjectDeclarationSymbol attributeClass,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var constructed = ResolveAttributeConstructedType(
+                attribute, attributeClass, state, context, diagnostics);
+            ValidateConstructorCallArguments(
+                attribute.Arguments,
+                attribute,
+                attributeClass,
+                constructed,
+                state,
+                context,
+                diagnostics);
+        }
+
+        private static ICheckedType ResolveAttributeConstructedType(
+            PhpAttributeAst attribute,
+            ObjectDeclarationSymbol attributeClass,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            var baseType = CheckedTypes.FromSymbol(attributeClass);
+            if (attribute.Name is not PhpNameAst className
+                || !className.AstGrammarAddons.TryGetValue("identifier", out var addon)
+                || addon is not PhpTypeExpressionListAst typeArgList
+                || !typeArgList.GetAllNotNull().Any())
+            {
+                return baseType;
+            }
+
+            var args = typeArgList
+                .GetAllNotNull()
+                .Select(arg => context.ResolveTypeAnnotation(arg, state))
+                .ToList();
+            return Tyhp.TyhpLang.Checker.GenericTypeArgumentValidator.ValidateInstantiation(
+                baseType,
+                args,
+                className,
+                state,
+                context.SymbolTree,
+                context.GlobalScope,
+                diagnostics,
+                context.ResolveTypeAnnotation);
+        }
+
+        /// <summary>
         /// Validates named-argument form and argument types against <c>__construct</c> (or the
         /// implicit empty parameter list when no constructor is declared).
         /// </summary>
         private static void ValidateConstructorCallArguments(
-            PhpNewAst newExpr,
+            PhpArgumentListAst? arguments,
+            IBase2Ast reportNode,
             ObjectDeclarationSymbol objectDecl,
             ICheckedType constructedType,
             CheckerState state,
@@ -752,28 +881,28 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 ctor = resolvedCtor;
                 parameters = ctor.Parameters;
-                CheckMemberVisibility(ctor, state, newExpr, diagnostics);
+                CheckMemberVisibility(ctor, state, reportNode, diagnostics);
             }
 
             ValidateArgumentArity(
-                newExpr.Arguments,
+                arguments,
                 parameters,
                 state,
                 diagnostics,
-                newExpr,
+                reportNode,
                 objectDecl.Name);
 
-            if (newExpr.Arguments is null)
+            if (arguments is null)
             {
                 return;
             }
 
-            ValidateNamedArguments(newExpr.Arguments, state, newExpr, diagnostics);
+            ValidateNamedArguments(arguments, state, reportNode, diagnostics);
             // Pass the constructed receiver (`new static<T>` → `Promise<T>`) so constructor
             // parameters like `callable(): TReturn` substitute class generics the same way
             // instance-method calls already do via ResolveMemberDeclaredType.
             ValidateArgumentTypes(
-                newExpr.Arguments,
+                arguments,
                 parameters,
                 state,
                 context,
@@ -824,7 +953,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         newExpr,
                         MessageCode.CheckerStructRequiredPropertyNotSet,
                         bareName,
-                        structDecl.Name);
+                        structDecl.Name,
+                        WithKeywordRule.RequiredPropertyConstructionHint(structDecl.Name, bareName, null));
                 }
             }
         }
@@ -884,6 +1014,16 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (!SymbolNameTypeHelper.TryGetClassNameBrandArgument(classNameType, out var brand))
             {
                 return false;
+            }
+
+            if (newExpr.IsLazy)
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    newExpr,
+                    MessageCode.CheckerLazyNewNotCapable,
+                    GetClassNameBrandNewDisplay(classRef, classNameType));
             }
 
             if (TypeComparer.TryGetNewUtility(brand, out var newUtility))

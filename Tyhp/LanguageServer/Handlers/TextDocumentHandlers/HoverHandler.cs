@@ -21,6 +21,12 @@ namespace Tyhp.LanguageServer
         {
             try
             {
+                Hover? structKey = await this.TryStructKeyHoverAsync(arg, cancellationToken).ConfigureAwait(false);
+                if (structKey is not null)
+                {
+                    return structKey;
+                }
+
                 (Workspace.DocumentState State, SymbolLookupResult Lookup)? resolved =
                     await this.LookupSymbolAsync(arg, cancellationToken).ConfigureAwait(false);
                 if (resolved is null)
@@ -78,6 +84,61 @@ namespace Tyhp.LanguageServer
                 this.LogFeatureFailure("textDocument/hover", ex);
                 return null;
             }
+        }
+
+        private async Task<Hover?> TryStructKeyHoverAsync(
+            TextDocumentPositionParams arg,
+            CancellationToken cancellationToken)
+        {
+            if (arg.TextDocument?.Uri is null || arg.Position is null)
+            {
+                return null;
+            }
+
+            (Workspace.DocumentState State, Tyhp.TyhpLang.Ast.SrcFileAst Ast, string Content)? document =
+                await this.GetAnalyzedAstAsync(arg.TextDocument.Uri, cancellationToken).ConfigureAwait(false);
+            if (document is null)
+            {
+                return null;
+            }
+
+            var (line, column) = PositionUtilities.FromLspPosition(arg.Position);
+            IReadOnlyList<Tyhp.TyhpLang.Ast.Interfaces.IBase2Ast>? path = this._symbolFinder.FindPathAtPosition(
+                document.Value.Ast,
+                line,
+                column);
+            if (path is null)
+            {
+                return null;
+            }
+
+            Tyhp.TyhpLang.Binder.Scopes.GlobalScope? scope = this._analysis.GetGlobalScope();
+            Tyhp.TyhpLang.Binder.Scopes.Interfaces.IBaseScope? fromScope = scope is null
+                ? null
+                : this._symbolFinder.FindScopeAtPosition(document.Value.Ast, scope, line, column);
+            if (!StructInitializerSupport.TryGetHoverField(
+                path,
+                scope,
+                this._analysis.GetSymbolTree(),
+                fromScope ?? scope,
+                this._analysis.GetInferredType,
+                out Tyhp.TyhpLang.Binder.Symbols.ObjectPropertySymbol? property,
+                out Tyhp.TyhpLang.Ast.Interfaces.IBase2Ast? keyNode)
+                || property is null
+                || keyNode is null)
+            {
+                return null;
+            }
+
+            return new Hover
+            {
+                Contents = new MarkupContent
+                {
+                    Kind = MarkupKind.Markdown,
+                    Value = SymbolFormatter.FormatStructFieldHover(property),
+                },
+                Range = PositionUtilities.ToLspRange(keyNode),
+            };
         }
 
         private static string? GetHoverName(Tyhp.TyhpLang.Ast.Interfaces.IBase2Ast node)

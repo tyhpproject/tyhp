@@ -29,7 +29,8 @@ namespace Tyhp.TyhpLang.Checker
         /// Makes <paramref name="file"/> the call-site file for extension <c>operator convert</c>
         /// lookups on this thread until the returned scope is disposed. The symbol set is fixed
         /// while a file is checked, so the scope also caches the convert-to index that
-        /// <see cref="EnumerateConvertibleSources"/> builds.
+        /// <see cref="EnumerateConvertibleSources"/> builds and the declaration scopes that
+        /// <see cref="EnumerateClassOperatorOverloads"/> finds.
         /// </summary>
         public static IDisposable UseConvertSite(SrcFileAst? file)
         {
@@ -43,6 +44,10 @@ namespace Tyhp.TyhpLang.Checker
             public SrcFileAst? File { get; } = file;
 
             public Dictionary<string, List<ConvertToCandidate>>? ConvertToIndex { get; set; }
+
+            public GlobalScope? ObjectScopesRoot { get; set; }
+
+            public Dictionary<ObjectDeclarationSymbol, ObjectDeclarationScope?>? ObjectScopes { get; set; }
         }
 
         private sealed class ConvertSiteScope(ConvertSiteState? previous) : IDisposable
@@ -384,7 +389,7 @@ namespace Tyhp.TyhpLang.Checker
             ObjectDeclarationSymbol typeSymbol,
             GlobalScope globalScope)
         {
-            var objectScope = FindObjectDeclarationScope(globalScope, typeSymbol);
+            var objectScope = FindObjectDeclarationScopeAtSite(globalScope, typeSymbol);
             if (objectScope != null)
             {
                 foreach (var symbol in ((IBaseScope)objectScope).GetAllChildSymbols())
@@ -408,6 +413,31 @@ namespace Tyhp.TyhpLang.Checker
                     yield return classOverload;
                 }
             }
+        }
+
+        private static ObjectDeclarationScope? FindObjectDeclarationScopeAtSite(
+            GlobalScope globalScope,
+            ObjectDeclarationSymbol typeSymbol)
+        {
+            if (_convertSite is not { } site)
+            {
+                return FindObjectDeclarationScope(globalScope, typeSymbol);
+            }
+
+            if (site.ObjectScopes is null || !ReferenceEquals(site.ObjectScopesRoot, globalScope))
+            {
+                site.ObjectScopesRoot = globalScope;
+                site.ObjectScopes = new Dictionary<ObjectDeclarationSymbol, ObjectDeclarationScope?>(
+                    ReferenceEqualityComparer.Instance);
+            }
+
+            if (!site.ObjectScopes.TryGetValue(typeSymbol, out var objectScope))
+            {
+                objectScope = FindObjectDeclarationScope(globalScope, typeSymbol);
+                site.ObjectScopes[typeSymbol] = objectScope;
+            }
+
+            return objectScope;
         }
 
         private static ObjectDeclarationScope? FindObjectDeclarationScope(

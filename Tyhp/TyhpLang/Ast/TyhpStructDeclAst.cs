@@ -15,7 +15,8 @@ namespace Tyhp.TyhpLang.Ast
     ///     ;
     ///
     /// Used as:
-    ///   - Anonymous struct expression (via newDereferenceableGrammarAddon #tyhpNewAnonStructInstance)
+    ///   - Anonymous struct expression (`#tyhpNewAnonStructInstance`, or
+    ///     `#tyhpNewAnonStructInitializer` when a bracket list follows the body)
     /// Named structs are `type Name = struct { … }` (`TyhpStructShapeAst` on a type alias).
     /// </summary>
     public class TyhpStructDeclAst : Base2Ast, IStatement

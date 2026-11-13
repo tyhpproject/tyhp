@@ -414,7 +414,7 @@ public class ExpressionCheckerTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class User {
-                public string $firstName;
+                public string $firstName = '';
             }
             class QueryBuilder<T> {
                 public function select<R>(\Tyhp\Expression<callable(T): R> $selector): static {
@@ -442,7 +442,7 @@ public class ExpressionCheckerTests
             namespace App;
             use \Tyhp\Expression;
             class User {
-                public string $firstName;
+                public string $firstName = '';
             }
             class QueryBuilder<T> {
                 public function where(Expression<callable(T): bool> $predicate): static {
@@ -474,8 +474,8 @@ public class ExpressionCheckerTests
             use \Tyhp\Expression;
             use \Tyhp\Expression\ExpressionVisitor;
             class User {
-                public string $firstName;
-                public string $lastName;
+                public string $firstName = '';
+                public string $lastName = '';
             }
             class QueryBuilder<T> {
                 public function where(Expression<callable(T): bool> $predicate): static {

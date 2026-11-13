@@ -8,10 +8,32 @@ using Antlr4.Runtime;
     public partial class TyhpdefParser : Parser {
         protected string _languageMode = "";
 
+        /// <summary>
+        /// <c>&lt;?=</c> in a <c>.tyhp</c> file is a Tyhp echo. <c>phpEchoBlock</c>
+        /// assigns <c>_languageMode = "php"</c> so the shared echo production matches;
+        /// Tyhp expression predicates stay active while that expression is parsed.
+        /// </summary>
+        private bool _tyhpEcho;
+
         public long LanguageModeTotalTime = 0L;
         public long LanguageModeTotalCalls = 0L;
 
+        /// <summary>
+        /// Enables Tyhp expressions inside <c>&lt;?=</c> for a <c>.tyhp</c> file.
+        /// </summary>
+        public void ConfigureTyhpEcho(bool enabled)
+        {
+            this._tyhpEcho = enabled;
+        }
+
         public bool isLanguageMode(string mode) {
+            if (this._tyhpEcho
+                && mode == "tyhp"
+                && this._languageMode == "php")
+            {
+                return true;
+            }
+
             return _languageMode == mode;
         }
 
@@ -142,13 +164,34 @@ using Antlr4.Runtime;
         /// True when lookahead is <c>new struct { … }</c> (optional empty
         /// <c>()</c>, optional <c>extends</c>), not <c>new struct()</c> /
         /// <c>new struct;</c> constructing a class named <c>struct</c>.
+        /// A bracket list after the body is still this form;
+        /// <see cref="anonymousStructIsFollowedByInitializer"/> distinguishes it.
         /// </summary>
-        public bool looksLikeAnonymousStruct() {
+        public bool looksLikeAnonymousStruct() => AnonymousStructBodyOpenIndex() >= 0;
+
+        /// <summary>
+        /// True when lookahead is <c>new struct { … }[</c> (optional empty
+        /// <c>()</c>, optional <c>extends</c>, optional whitespace before <c>[</c>).
+        /// </summary>
+        public bool anonymousStructIsFollowedByInitializer() {
+            int index = AnonymousStructBodyOpenIndex();
+            if (index < 0 || !TrySkipBalancedCurlyBraces(ref index)) {
+                return false;
+            }
+
+            return TokenStream.LA(index) == TyhpdefParser.T_OPEN_SQUARE_BRACE;
+        }
+
+        /// <summary>
+        /// Lookahead index of the <c>{</c> that opens <c>new struct { … }</c>,
+        /// or -1 when the lookahead is a class named <c>struct</c>.
+        /// </summary>
+        private int AnonymousStructBodyOpenIndex() {
             if (!isLanguageMode("tyhp")
                 || TokenStream.LA(1) != TyhpdefParser.T_NEW
                 || TokenStream.LA(2) != TyhpdefParser.T_STRING
                 || !isStructKeyword(TokenStream.LT(2))) {
-                return false;
+                return -1;
             }
 
             int index = 3;
@@ -156,25 +199,25 @@ using Antlr4.Runtime;
                 index++;
                 if (!IsClassNameHeadToken(TokenStream.LA(index))
                     && !IsTypeNameHeadToken(TokenStream.LA(index))) {
-                    return false;
+                    return -1;
                 }
 
                 index++;
                 if (TokenStream.LA(index) == TyhpdefParser.T_SYM_LT
                     && !TrySkipGenericArgumentList(ref index)) {
-                    return false;
+                    return -1;
                 }
             }
 
             if (TokenStream.LA(index) == TyhpdefParser.T_OPEN_ROUND_BRACE) {
                 if (TokenStream.LA(index + 1) != TyhpdefParser.T_CLOSE_ROUND_BRACE) {
-                    return false;
+                    return -1;
                 }
 
                 index += 2;
             }
 
-            return TokenStream.LA(index) == TyhpdefParser.T_OPEN_CURLY_BRACE;
+            return TokenStream.LA(index) == TyhpdefParser.T_OPEN_CURLY_BRACE ? index : -1;
         }
 
         /// <summary>
@@ -267,24 +310,46 @@ using Antlr4.Runtime;
         }
 
         /// <summary>
+        /// <c>lazy new</c> names a class (<c>Foo</c>, <c>self</c>, <c>parent</c>, <c>static</c>).
+        /// A variable, a parenthesized expression, or an anonymous <c>class</c> is not a target.
+        /// Called after <c>lazy new</c> has been consumed, so lookahead is the class token.
+        /// </summary>
+        public bool lazyNewNamesAClass() => IsClassNameHeadToken(TokenStream.LA(1));
+
+        /// <summary>
         /// Reports whether the <c>new</c> expression starting at the current token is followed
-        /// by an argument list, for example <c>new Foo(1)</c> or <c>new Box&lt;int&gt;(1)</c>.
+        /// by an argument list or a struct initializer, for example <c>new Foo(1)</c>,
+        /// <c>new Box&lt;int&gt;(1)</c>, <c>new Box&lt;int&gt;[value =&gt; 1]</c>,
+        /// <c>new Box&lt;array&lt;int&gt;&gt;[</c>, or <c>lazy new Foo(1)</c>.
+        /// A leading <c>lazy</c> is skipped. <c>[</c> counts only in Tyhp mode.
         /// </summary>
         /// <remarks>
         /// <c>new X&lt;T&gt;(args)</c> is ambiguous with the comparison chain
         /// <c>(new X) &lt; T &gt; (args)</c>, because the argument-less
         /// <c>newNonDereferenceable</c> alternative can consume the generic argument list on
         /// its own. This lookahead lets that alternative be ruled out before prediction
-        /// commits to it. Only the unambiguous <c>new NAME [&lt;...&gt;] (</c> shape is
+        /// commits to it. A closing <c>&gt;&gt;</c> may be one <c>T_SR</c> token, which
+        /// closes two generic levels. Only the unambiguous
+        /// <c>new NAME [&lt;...&gt;] (</c> or <c>new NAME [&lt;...&gt;] [</c> shape is
         /// recognized; every other shape returns false, leaving prediction as it was.
         /// </remarks>
         public bool newIsFollowedByArgumentList() {
-            if (TokenStream.LA(1) != TyhpdefParser.T_NEW
-                || !IsClassNameHeadToken(TokenStream.LA(2))) {
+            int nameIndex = 2;
+            if (TokenStream.LA(1) == TyhpdefParser.T_TYHP_LAZY) {
+                if (TokenStream.LA(2) != TyhpdefParser.T_NEW) {
+                    return false;
+                }
+
+                nameIndex = 3;
+            } else if (TokenStream.LA(1) != TyhpdefParser.T_NEW) {
                 return false;
             }
 
-            int index = 3;
+            if (!IsClassNameHeadToken(TokenStream.LA(nameIndex))) {
+                return false;
+            }
+
+            int index = nameIndex + 1;
             if (TokenStream.LA(index) == TyhpdefParser.T_SYM_LT) {
                 int depth = 0;
                 int remaining = MaxGenericArgumentLookahead;
@@ -298,7 +363,13 @@ using Antlr4.Runtime;
                         depth++;
                     } else if (tokenType == TyhpdefParser.T_SYM_GT) {
                         depth--;
+                    } else if (tokenType == TyhpdefParser.T_SR) {
+                        depth -= 2;
                     } else if (CannotAppearInGenericArguments(tokenType)) {
+                        return false;
+                    }
+
+                    if (depth < 0) {
                         return false;
                     }
 
@@ -313,7 +384,12 @@ using Antlr4.Runtime;
                 }
             }
 
-            return TokenStream.LA(index) == TyhpdefParser.T_OPEN_ROUND_BRACE;
+            int next = TokenStream.LA(index);
+            if (next == TyhpdefParser.T_OPEN_ROUND_BRACE) {
+                return true;
+            }
+
+            return next == TyhpdefParser.T_OPEN_SQUARE_BRACE && isLanguageMode("tyhp");
         }
 
         /// <summary>
@@ -594,7 +670,13 @@ using Antlr4.Runtime;
                     depth++;
                 } else if (tokenType == TyhpdefParser.T_SYM_GT) {
                     depth--;
+                } else if (tokenType == TyhpdefParser.T_SR) {
+                    depth -= 2;
                 } else if (CannotAppearInGenericArguments(tokenType, allowParens: true)) {
+                    return false;
+                }
+
+                if (depth < 0) {
                     return false;
                 }
 

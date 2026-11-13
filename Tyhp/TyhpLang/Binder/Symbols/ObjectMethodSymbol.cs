@@ -40,6 +40,14 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         public bool IsStatic { get; internal set; }
 
         /// <summary>
+        /// True when this method's <c>#[\Tyhp\Php]</c> gate is not satisfied at
+        /// <c>output.phpVersion</c> but is still true for some newer PHP. It is not registered
+        /// for lookup or body checking. Emit writes the body behind <c>\PHP_VERSION_ID</c>, and
+        /// library <c>package.tyhpdef</c> still lists the method.
+        /// </summary>
+        public bool IsPhpVersionRuntimeOnly { get; internal set; }
+
+        /// <summary>
         /// When set, this method was imported from a tyhpdef under an <c>as</c> alias: <see cref="BaseSymbol.Name"/>
         /// is the Tyhp-facing name and this is the original PHP method name to emit.
         /// </summary>

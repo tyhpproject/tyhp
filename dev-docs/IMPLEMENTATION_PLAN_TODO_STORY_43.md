@@ -1,11 +1,14 @@
 # Implementation Plan: Story 43 — Runtime `is Closure<…>` / `is Fiber<…>` via Reflection
 
 > **Roadmap position:** Story 43 — **Tier 4 — Future plans**
-> **Direct dependencies (new numbering):** 08, 15, 21.6
+> **Direct dependencies (new numbering):** 08, 15, 21.6, 29.1
 > **New story:** split from Story 31 Idea 14 on 2026-11-03. No legacy number.
 > **Conventions:** Diagnostic codes, config keys, and canonical paths are governed by `CONVENTIONS.md`; new
 > `tyhp.json` keys proposed here are provisional and must be registered in `CONVENTIONS.md` §4 when the story is
 > scheduled. See `ROADMAP.md` for the full tiered sequence.
+> **Pre-stable reservation (Story 29.1 Part C):** before the first stable release, `is` / `instanceof` with type
+> arguments on `\Closure` / `\Fiber` is a compile error pointing to `as`, so this story only gives an error case a
+> meaning.
 
 > **Documentation requirement.** When scheduled, this story must carry a user documentation & AIDevGuide
 > phase: the `tyhp-docs-src/content/` pages that describe the shipped surface, plus the affected

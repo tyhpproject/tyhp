@@ -14,6 +14,7 @@ namespace Tyhp.LanguageServer.Analysis
     using Tyhp.TyhpLang.Ast;
     using Tyhp.TyhpLang.Ast.Interfaces;
     using Tyhp.TyhpLang.Binder;
+    using Tyhp.TyhpLang.Binder.BuiltIn;
     using Tyhp.TyhpLang.Binder.Scopes;
     using Tyhp.TyhpLang.Checker;
 
@@ -27,6 +28,11 @@ namespace Tyhp.LanguageServer.Analysis
                 ? StringComparer.OrdinalIgnoreCase
                 : StringComparer.Ordinal;
 
+        private static readonly StringComparison PathComparison =
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+
         private readonly WorkspaceManager _workspace;
         private readonly CompilationService _compilation;
         private readonly DiagnosticsPublisher _publisher;
@@ -37,6 +43,9 @@ namespace Tyhp.LanguageServer.Analysis
         private readonly object _scopeLock = new();
         private readonly List<FileSystemWatcher> _watchers = [];
         private readonly ConcurrentDictionary<string, byte> _pendingDiskChanges = new(PathComparer);
+        private readonly TyhpdefSourceCache _tyhpdefSources = new();
+        private readonly IdleMemoryCompactor _compactor;
+        private HashSet<string>? _projectSourceFiles;
         private GlobalScope? _globalScope;
         private SymbolTree? _symbolTree;
         private IReadOnlyDictionary<IBase2Ast, ICheckedType>? _expressionTypes;
@@ -60,8 +69,17 @@ namespace Tyhp.LanguageServer.Analysis
             this._configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             this._symbolFinder = symbolFinder ?? throw new ArgumentNullException(nameof(symbolFinder));
             this._project = configuration.Project;
-            this._options = CloneOptions(configuration.CompilationOptions);
+            this._options = this.CloneBindOptions(configuration.CompilationOptions);
+            this._compactor = new IdleMemoryCompactor(
+                TimeSpan.FromMilliseconds(Math.Max(0, configuration.IdleCompactionDelay)),
+                this.IsIdle);
         }
+
+        /// <summary>Tyhpdef sources reused across analysis cycles.</summary>
+        internal TyhpdefSourceCache TyhpdefSources => this._tyhpdefSources;
+
+        /// <summary>True once the disk watcher for the project has started.</summary>
+        internal bool IsWatching => this._watchers.Count > 0;
 
         /// <summary>Latest project-wide scope from the last successful bind, or null.</summary>
         public GlobalScope? GetGlobalScope()
@@ -165,6 +183,7 @@ namespace Tyhp.LanguageServer.Analysis
             finally
             {
                 this._analysisGate.Release();
+                this._compactor.NotifyWork();
             }
         }
 
@@ -259,6 +278,8 @@ namespace Tyhp.LanguageServer.Analysis
             }
 
             this.StopWatchers();
+            this._compactor.Dispose();
+            this._tyhpdefSources.Invalidate();
             CancellationTokenSource? diskDebounce = Interlocked.Exchange(ref this._diskDebounce, null);
             if (diskDebounce is not null)
             {
@@ -277,7 +298,32 @@ namespace Tyhp.LanguageServer.Analysis
             this._projectAsts.Clear();
         }
 
+        /// <summary>
+        /// True when no analysis cycle holds the gate and no disk reload is pending.
+        /// </summary>
+        private bool IsIdle()
+        {
+            if (this._disposed != 0)
+            {
+                return false;
+            }
+
+            return this._analysisGate.CurrentCount > 0 && Volatile.Read(ref this._diskDebounce) is null;
+        }
+
         private async Task RunAnalysisCycleAsync(Uri? changedUri, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await this.RunAnalysisCycleCoreAsync(changedUri, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                this._compactor.NotifyWork();
+            }
+        }
+
+        private async Task RunAnalysisCycleCoreAsync(Uri? changedUri, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             this.RefreshProject();
@@ -344,6 +390,11 @@ namespace Tyhp.LanguageServer.Analysis
             {
                 try
                 {
+                    foreach (SrcFileAst ast in allAsts)
+                    {
+                        AstBindState.Clear(ast);
+                    }
+
                     var binder = new TyhpBinder(diagnostics, this._options);
                     scope = binder.Bind(allAsts);
                     if (scope is not null)
@@ -461,7 +512,7 @@ namespace Tyhp.LanguageServer.Analysis
                 await this._analysisGate.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                    if (File.Exists(filePath))
+                    if (File.Exists(filePath) && this.IsProjectMember(filePath))
                     {
                         this.ParseDiskFile(filePath, CancellationToken.None);
                     }
@@ -579,7 +630,7 @@ namespace Tyhp.LanguageServer.Analysis
 
         private async Task ScanProjectFilesAsync(CancellationToken cancellationToken)
         {
-            IReadOnlyCollection<string> files = this.CollectProjectSourceFiles();
+            HashSet<string> files = this.CollectProjectSourceFiles();
             HashSet<string> openPaths = this._workspace.GetAllDocuments()
                 .Select(document => CanonicalPath(document.FilePath))
                 .ToHashSet(PathComparer);
@@ -658,7 +709,26 @@ namespace Tyhp.LanguageServer.Analysis
             }
         }
 
-        private IReadOnlyCollection<string> CollectProjectSourceFiles()
+        /// <summary>
+        /// Project files matched by <c>tyhp.json</c> <c>include</c>/<c>exclude</c>, plus every open
+        /// Tyhp/tyhpdef document. Refreshes the cached project file set used by
+        /// <see cref="IsProjectMember"/>.
+        /// </summary>
+        private HashSet<string> CollectProjectSourceFiles()
+        {
+            var files = new HashSet<string>(this.RefreshProjectFileSet(), PathComparer);
+            foreach (DocumentState document in this._workspace.GetAllDocuments())
+            {
+                if (IsAnalyzableLanguage(document.LanguageMode))
+                {
+                    files.Add(CanonicalPath(document.FilePath));
+                }
+            }
+
+            return files;
+        }
+
+        private HashSet<string> RefreshProjectFileSet()
         {
             var files = new HashSet<string>(PathComparer);
             try
@@ -678,15 +748,30 @@ namespace Tyhp.LanguageServer.Analysis
                     Message.Localize("CLI_LanguageServerWorkspaceScanFailed", ex.GetType().Name, ex.Message));
             }
 
-            foreach (DocumentState document in this._workspace.GetAllDocuments())
+            Volatile.Write(ref this._projectSourceFiles, files);
+            return files;
+        }
+
+        /// <summary>
+        /// True when <paramref name="path"/> is a source file of the loaded project. Always true
+        /// when no <c>tyhp.json</c> is loaded. A miss rescans the project globs once, so files
+        /// created after the last scan are recognized.
+        /// </summary>
+        private bool IsProjectMember(string path)
+        {
+            if (this._project is null)
             {
-                if (IsAnalyzableLanguage(document.LanguageMode))
-                {
-                    files.Add(CanonicalPath(document.FilePath));
-                }
+                return true;
             }
 
-            return files;
+            string canonical = CanonicalPath(path);
+            HashSet<string>? known = Volatile.Read(ref this._projectSourceFiles);
+            if (known is not null && known.Contains(canonical))
+            {
+                return true;
+            }
+
+            return this.RefreshProjectFileSet().Contains(canonical);
         }
 
         private void RefreshProject()
@@ -694,7 +779,7 @@ namespace Tyhp.LanguageServer.Analysis
             if (this._configuration.Project is not null)
             {
                 this._project = this._configuration.Project;
-                this._options = CloneOptions(this._configuration.CompilationOptions);
+                this._options = this.CloneBindOptions(this._configuration.CompilationOptions);
                 return;
             }
 
@@ -719,6 +804,7 @@ namespace Tyhp.LanguageServer.Analysis
                     Project.Singleton = this._project;
                 }
                 this._options = CompilationOptions.FromProject(this._project);
+                this._options.TyhpdefSourceProvider = this._tyhpdefSources;
                 this._configuration.Project = this._project;
                 this._configuration.TyhpProjectPath = projectFile;
                 this._configuration.CompilationOptions = this._options;
@@ -770,18 +856,95 @@ namespace Tyhp.LanguageServer.Analysis
             return options;
         }
 
-        private void StartWatchers()
+        private CompilationOptions CloneBindOptions(CompilationOptions? source)
         {
-            this.StopWatchers();
-            string? root = this._workspace.WorkspaceRoot;
-            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+            CompilationOptions options = CloneOptions(source);
+            options.TyhpdefSourceProvider = this._tyhpdefSources;
+            return options;
+        }
+
+        /// <summary>
+        /// With a loaded project, the deepest directory containing <c>tyhp.json</c> and every
+        /// project source file, or the project directory when <c>include</c> reaches near the file
+        /// system root. Without a project, the LSP workspace root.
+        /// </summary>
+        internal string? ResolveWatchRoot()
+        {
+            if (this._project is null)
             {
-                string? projectPath = this._project?.GetProjectPath();
-                root = !string.IsNullOrWhiteSpace(projectPath) && Directory.Exists(projectPath)
-                    ? projectPath
+                string? workspaceRoot = this._workspace.WorkspaceRoot;
+                return !string.IsNullOrWhiteSpace(workspaceRoot) && Directory.Exists(workspaceRoot)
+                    ? workspaceRoot
                     : null;
             }
 
+            string projectDir = CanonicalPath(this._project.GetProjectPath());
+            if (!Directory.Exists(projectDir))
+            {
+                return null;
+            }
+
+            string root = projectDir;
+            foreach (string file in Volatile.Read(ref this._projectSourceFiles) ?? [])
+            {
+                string? dir = Path.GetDirectoryName(file);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    root = CommonAncestor(root, dir);
+                }
+            }
+
+            const int MinWatchRootDepth = 3;
+            if (!PathComparer.Equals(root, projectDir) && PathDepth(root) < MinWatchRootDepth)
+            {
+                return projectDir;
+            }
+
+            return Directory.Exists(root) ? root : projectDir;
+        }
+
+        private static string CommonAncestor(string a, string b)
+        {
+            string current = a;
+            while (!IsSameOrUnder(b, current))
+            {
+                string? parent = Path.GetDirectoryName(current);
+                if (string.IsNullOrEmpty(parent))
+                {
+                    return Path.GetPathRoot(a) ?? a;
+                }
+
+                current = parent;
+            }
+
+            return current;
+        }
+
+        private static bool IsSameOrUnder(string path, string directory)
+        {
+            if (PathComparer.Equals(path, directory))
+            {
+                return true;
+            }
+
+            string prefix = Path.EndsInDirectorySeparator(directory)
+                ? directory
+                : directory + Path.DirectorySeparatorChar;
+            return path.StartsWith(prefix, PathComparison);
+        }
+
+        private static int PathDepth(string path)
+        {
+            string root = Path.GetPathRoot(path) ?? string.Empty;
+            return path[root.Length..]
+                .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)
+                .Length;
+        }
+
+        private void StartWatchers()
+        {
+            this.StopWatchers();
+            string? root = this.ResolveWatchRoot();
             if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
             {
                 return;
@@ -850,16 +1013,14 @@ namespace Tyhp.LanguageServer.Analysis
                 return;
             }
 
-            string name = Path.GetFileName(path);
-            bool isProjectConfig = string.Equals(name, "tyhp.json", StringComparison.OrdinalIgnoreCase);
-            bool isSource = path.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase)
-                || path.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase);
-            if (!isProjectConfig && !isSource)
+            DiskChangeKind kind = ClassifyDiskPath(path);
+            if (kind == DiskChangeKind.None
+                || (kind == DiskChangeKind.ProjectConfig && !this.IsOwnProjectConfig(path)))
             {
                 return;
             }
 
-            if (!isProjectConfig)
+            if (kind is DiskChangeKind.Source or DiskChangeKind.Tyhpdef)
             {
                 string canonical = CanonicalPath(path);
                 foreach (DocumentState document in this._workspace.GetAllDocuments())
@@ -903,38 +1064,40 @@ namespace Tyhp.LanguageServer.Analysis
                 List<string> changed = [.. this._pendingDiskChanges.Keys];
                 this._pendingDiskChanges.Clear();
 
-                bool configChanged = changed.Exists(path =>
-                    string.Equals(Path.GetFileName(path), "tyhp.json", StringComparison.OrdinalIgnoreCase));
+                bool configChanged = changed.Exists(path => ClassifyDiskPath(path) == DiskChangeKind.ProjectConfig);
+                bool tyhpdefsChanged = configChanged || changed.Exists(path =>
+                    ClassifyDiskPath(path) is DiskChangeKind.Tyhpdef or DiskChangeKind.ComposerManifest);
                 if (configChanged)
                 {
                     this._configuration.Project = null;
+                }
+
+                if (tyhpdefsChanged)
+                {
+                    this._tyhpdefSources.Invalidate();
                 }
 
                 await this._analysisGate.WaitAsync(cts.Token).ConfigureAwait(false);
                 try
                 {
                     this.RefreshProject();
+                    bool sourcesChanged = false;
                     if (configChanged)
                     {
                         this._projectAsts.Clear();
                         await this.ScanProjectFilesAsync(cts.Token).ConfigureAwait(false);
+                        this.StartWatchers();
+                        sourcesChanged = true;
                     }
                     else
                     {
-                        foreach (string path in changed)
-                        {
-                            if (File.Exists(path))
-                            {
-                                this.ParseDiskFile(path, cts.Token);
-                            }
-                            else
-                            {
-                                this._projectAsts.TryRemove(CanonicalPath(path), out _);
-                            }
-                        }
+                        sourcesChanged = this.ApplySourceDiskChanges(changed, cts.Token);
                     }
 
-                    await this.RunAnalysisCycleAsync(changedUri: null, cts.Token).ConfigureAwait(false);
+                    if (sourcesChanged || tyhpdefsChanged)
+                    {
+                        await this.RunAnalysisCycleAsync(changedUri: null, cts.Token).ConfigureAwait(false);
+                    }
                 }
                 finally
                 {
@@ -953,6 +1116,99 @@ namespace Tyhp.LanguageServer.Analysis
                 Interlocked.CompareExchange(ref this._diskDebounce, null, cts);
                 cts.Dispose();
             }
+        }
+
+        private enum DiskChangeKind
+        {
+            None,
+            ProjectConfig,
+            ComposerManifest,
+            Tyhpdef,
+            Source,
+        }
+
+        private static DiskChangeKind ClassifyDiskPath(string path)
+        {
+            string name = Path.GetFileName(path);
+            if (string.Equals(name, "tyhp.json", StringComparison.OrdinalIgnoreCase))
+            {
+                return DiskChangeKind.ProjectConfig;
+            }
+
+            if (string.Equals(name, "composer.json", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "composer.lock", StringComparison.OrdinalIgnoreCase))
+            {
+                return DiskChangeKind.ComposerManifest;
+            }
+
+            if (path.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase))
+            {
+                return DiskChangeKind.Tyhpdef;
+            }
+
+            return path.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase)
+                ? DiskChangeKind.Source
+                : DiskChangeKind.None;
+        }
+
+        /// <summary>
+        /// True for the loaded project's <c>tyhp.json</c>, or for any <c>tyhp.json</c> while no
+        /// project is loaded.
+        /// </summary>
+        private bool IsOwnProjectConfig(string path)
+        {
+            string? projectFile = this._project?.GetConfigValue("*project_file_path");
+            return string.IsNullOrWhiteSpace(projectFile)
+                || PathComparer.Equals(CanonicalPath(path), CanonicalPath(projectFile));
+        }
+
+        /// <summary>
+        /// Re-parses changed project sources and drops deleted or non-project ones from the
+        /// project AST set. Tyhpdefs are reparsed only when they are already in that set; the
+        /// tyhpdef loader picks up the rest. Returns whether the project AST set changed.
+        /// </summary>
+        private bool ApplySourceDiskChanges(IReadOnlyList<string> changed, CancellationToken cancellationToken)
+        {
+            HashSet<string>? members = null;
+            bool sourcesChanged = false;
+            foreach (string path in changed)
+            {
+                DiskChangeKind kind = ClassifyDiskPath(path);
+                string canonical = CanonicalPath(path);
+                bool member;
+                if (kind == DiskChangeKind.Source)
+                {
+                    if (this._project is null)
+                    {
+                        member = true;
+                    }
+                    else
+                    {
+                        members ??= this.RefreshProjectFileSet();
+                        member = members.Contains(canonical);
+                    }
+                }
+                else if (kind == DiskChangeKind.Tyhpdef)
+                {
+                    member = this._projectAsts.ContainsKey(canonical);
+                }
+                else
+                {
+                    continue;
+                }
+
+                if (member && File.Exists(path))
+                {
+                    this.ParseDiskFile(path, cancellationToken);
+                    sourcesChanged = true;
+                }
+                else if (this._projectAsts.TryRemove(canonical, out _))
+                {
+                    sourcesChanged = true;
+                }
+            }
+
+            return sourcesChanged;
         }
 
         /// <summary>
@@ -1064,6 +1320,7 @@ namespace Tyhp.LanguageServer.Analysis
                 SkipChecking = source.SkipChecking,
                 StrictMode = source.StrictMode,
                 ApplyTyhpdefOverlays = source.ApplyTyhpdefOverlays,
+                TyhpdefSourceProvider = source.TyhpdefSourceProvider,
                 SuppressedWarnings = source.SuppressedWarnings,
                 GarbageCollectInterval = source.GarbageCollectInterval,
                 PreReadThreshold = source.PreReadThreshold,

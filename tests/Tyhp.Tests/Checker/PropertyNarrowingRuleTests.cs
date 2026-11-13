@@ -391,12 +391,11 @@ public class PropertyNarrowingRuleTests
     }
 
     [Fact]
-    public void Check_PropertyUnset_ClearsNarrowing()
+    public void Check_PropertyUnset_IsRejectedAndDoesNotClearInitialization()
     {
         var errors = CompileAndCheck("""
             <?tyhp
             class Holder {
-                #[\Tyhp\AllowUnset]
                 public \Exception $err;
                 public function __construct(\Exception $e) {
                     $this->err = $e;
@@ -410,8 +409,11 @@ public class PropertyNarrowingRuleTests
             }
             """);
         errors.Should().Contain(
+            d => d.Code == MessageCode.CheckerUnsetStorageSlot,
+            $"unset of a typed property is rejected: {Describe(errors)}");
+        errors.Should().NotContain(
             d => d.Code == MessageCode.CheckerPropertyPossiblyUninitialized,
-            $"unset should clear narrowing: {Describe(errors)}");
+            $"unset does not return the property to uninitialized: {Describe(errors)}");
     }
 
     [Fact]

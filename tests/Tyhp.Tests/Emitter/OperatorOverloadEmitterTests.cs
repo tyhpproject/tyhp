@@ -299,6 +299,9 @@ public class OperatorOverloadEmitterTests
             }
             class Holder {
                 public Money $money;
+                public function __construct() {
+                    $this->money = new Money();
+                }
             }
             function bump(Holder $h): void {
                 $h->money++;
@@ -324,9 +327,15 @@ public class OperatorOverloadEmitterTests
             }
             class Box {
                 public Money $money;
+                public function __construct() {
+                    $this->money = new Money();
+                }
             }
             class Outer {
                 public Box $box;
+                public function __construct() {
+                    $this->box = new Box();
+                }
             }
             function bump(Outer $o): void {
                 $o->box->money++;
@@ -430,9 +439,15 @@ public class OperatorOverloadEmitterTests
             }
             class Box {
                 public Money $money;
+                public function __construct() {
+                    $this->money = new Money();
+                }
             }
             class Outer {
                 public Box $box;
+                public function __construct() {
+                    $this->box = new Box();
+                }
             }
             function takeOld(Outer $o): Money {
                 $b = $o->box->money++;
@@ -1016,9 +1031,15 @@ public class OperatorOverloadEmitterTests
             }
             class Box {
                 public Money $money;
+                public function __construct() {
+                    $this->money = new Money();
+                }
             }
             class Outer {
                 public Box $box;
+                public function __construct() {
+                    $this->box = new Box();
+                }
             }
             function bump(Outer $o): void {
                 $o->box->money += 10;
@@ -1345,7 +1366,10 @@ public class OperatorOverloadEmitterTests
                 }
             }
             class Wallet {
-                public Money $balance = new Money();
+                public Money $balance;
+                public function __construct() {
+                    $this->balance = new Money();
+                }
                 public function deposit(int $n): void {
                     $this->balance += $n;
                 }
@@ -1369,7 +1393,10 @@ public class OperatorOverloadEmitterTests
                 }
             }
             class Wallet {
-                public Money $balance = new Money();
+                public Money $balance;
+                public function __construct() {
+                    $this->balance = new Money();
+                }
                 public function peek(): Money {
                     return $this->balance + 10;
                 }
@@ -1419,10 +1446,16 @@ public class OperatorOverloadEmitterTests
                 }
             }
             class Box {
-                public Money $money = new Money();
+                public Money $money;
+                public function __construct() {
+                    $this->money = new Money();
+                }
             }
             class Outer {
-                public Box $box = new Box();
+                public Box $box;
+                public function __construct() {
+                    $this->box = new Box();
+                }
                 public function bump(): void {
                     $this->box->money += 10;
                 }

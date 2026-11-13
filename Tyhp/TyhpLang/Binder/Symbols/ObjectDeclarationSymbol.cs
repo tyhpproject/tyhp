@@ -15,6 +15,7 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         private List<ITypeExpression>? _implementsTypes;
         private Dictionary<string, IBaseSymbol>? _members;
         private Dictionary<string, IBaseSymbol>? _constants;
+        private List<ObjectMethodSymbol>? _phpVersionRuntimeOnlyMethods;
         private List<ObjectOperatorOverloadMethodSymbol>? _extensionContributedOperators;
 
         public ObjectDeclarationSymbol(string name, IBase2Ast? declaringNode = null, string sourceFile = "", MemberModifier visibility = MemberModifier.None)
@@ -168,6 +169,27 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
         public HashSet<string>? InheritedPropertiesInitializedByConstruction { get; set; }
 
         /// <summary>
+        /// True after this type's constructor-initialization facts have been recorded
+        /// (its own constructor walk, or the inherited constructor when it declares none).
+        /// </summary>
+        public bool InstanceConstructionRecorded { get; set; }
+
+        /// <summary>
+        /// Private instance properties that are initialized only because this type's
+        /// constructor runs (its own private properties, or an ancestor's when that
+        /// ancestor constructor is invoked). A subclass that cannot name them still has
+        /// to call <c>parent::__construct</c> so those writes happen.
+        /// </summary>
+        public HashSet<ObjectPropertySymbol>? PrivatePropertiesInitializedByConstruction { get; set; }
+
+        /// <summary>
+        /// Private ancestor properties left uninitialized because this type replaced
+        /// <c>__construct</c> and did not invoke the parent constructor on every path
+        /// that reaches the end.
+        /// </summary>
+        public List<ObjectPropertySymbol>? UninitializedAncestorPrivateProperties { get; set; }
+
+        /// <summary>
         /// Fast lookup for class constants and enum cases. Names are case-sensitive (PHP), and this
         /// namespace is independent of <see cref="Members"/> so <c>const TAG</c> and <c>tag()</c> coexist.
         /// </summary>
@@ -197,6 +219,21 @@ namespace Tyhp.TyhpLang.Binder.Symbols {
                     yield return constant;
                 }
             }
+        }
+
+        /// <summary>
+        /// Class, trait, or enum methods whose <c>#[\Tyhp\Php]</c> gate misses
+        /// <c>output.phpVersion</c> but still holds on a newer PHP. Not in <see cref="Members"/>,
+        /// so lookup at this floor does not see them. Emit and library tyhpdef generation do.
+        /// </summary>
+        public IReadOnlyList<ObjectMethodSymbol> PhpVersionRuntimeOnlyMethods =>
+            this._phpVersionRuntimeOnlyMethods
+            ?? (IReadOnlyList<ObjectMethodSymbol>)Array.Empty<ObjectMethodSymbol>();
+
+        internal void AddPhpVersionRuntimeOnlyMethod(ObjectMethodSymbol method)
+        {
+            this._phpVersionRuntimeOnlyMethods ??= new List<ObjectMethodSymbol>();
+            this._phpVersionRuntimeOnlyMethods.Add(method);
         }
 
         /// <summary>

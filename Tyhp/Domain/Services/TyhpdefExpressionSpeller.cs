@@ -107,6 +107,12 @@ namespace Tyhp.Domain.Services
 
         private string? SpellBinary(PhpBinaryOpAst binary)
         {
+            if (binary.Left is PhpNewAst { IsStructInitializer: true } initializer
+                && string.Equals(binary.Operator?.ValueString, "with", StringComparison.Ordinal))
+            {
+                return this.SpellStructInitializer(initializer, binary.Right);
+            }
+
             var op = binary.Operator?.ValueString ?? "";
             // `(a | b) | c` parses identically to `a | b | c` (left-associative), so a left
             // operand with the same operator needs no parentheses.
@@ -359,12 +365,50 @@ namespace Tyhp.Domain.Services
 
         private string? SpellNew(PhpNewAst newExpr)
         {
-            if (newExpr.AnonymousClass != null)
+            var className = this.SpellNewClassName(newExpr);
+            if (className is null)
             {
                 return null;
             }
 
             var args = this.SpellArgumentList(newExpr.Arguments);
+            return "new " + className + "(" + args + ")";
+        }
+
+        /// <summary>
+        /// <c>new Name[…]</c> is a <c>with</c> expression in the bound tree. tyhpdef has no
+        /// <c>with</c> operator, so a library default is spelled with the bracket list.
+        /// </summary>
+        private string? SpellStructInitializer(PhpNewAst newExpr, IExpression? pairs)
+        {
+            var className = this.SpellNewClassName(newExpr);
+            if (className is null)
+            {
+                return null;
+            }
+
+            var inner = pairs switch
+            {
+                null => "",
+                PhpArrayPairListAst list => this.SpellArrayPairs(list),
+                PhpArrayAst array => this.SpellArrayPairs(array.ArrayPairs),
+                _ => null,
+            };
+            if (inner is null)
+            {
+                return null;
+            }
+
+            return "new " + className + "[" + inner + "]";
+        }
+
+        private string? SpellNewClassName(PhpNewAst newExpr)
+        {
+            if (newExpr.AnonymousClass != null)
+            {
+                return null;
+            }
+
             var className = newExpr.ClassName switch
             {
                 TyhpGenericIdentifierAst generic => this.SpellGenericName(generic),
@@ -372,12 +416,7 @@ namespace Tyhp.Domain.Services
                 IExpression expr => this.Spell(expr),
                 _ => newExpr.ClassName?.Identifier,
             };
-            if (string.IsNullOrWhiteSpace(className))
-            {
-                return null;
-            }
-
-            return "new " + className + "(" + args + ")";
+            return string.IsNullOrWhiteSpace(className) ? null : className;
         }
 
         private string? SpellInlineFunction(PhpInlineFunctionAst inlineFn)

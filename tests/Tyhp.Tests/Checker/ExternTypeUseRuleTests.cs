@@ -107,6 +107,63 @@ public class ExternTypeUseRuleTests
     }
 
     [Fact]
+    public void Check_StringArgumentToExternUnionParameter_IsNotAUse()
+    {
+        var diagnostics = CompileAndCheckWithTyhpdef("""
+            <?tyhpdef
+            extern \SortDirection;
+            class \Demo\Builder {
+                public function orderBy(string $column, \SortDirection|string $direction = 'asc'): static;
+            }
+            """, """
+            <?tyhp
+            function demo(\Demo\Builder $query): void {
+                $query->orderBy('id', 'asc');
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerExternTypeUsed);
+        diagnostics.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Check_MixedArgumentToExternUnionParameter_Reports4307()
+    {
+        var diagnostics = CompileAndCheckWithTyhpdef("""
+            <?tyhpdef
+            extern \SortDirection;
+            class \Demo\Builder {
+                public function orderBy(string $column, \SortDirection|string $direction): static;
+            }
+            """, """
+            <?tyhp
+            function demo(\Demo\Builder $query, mixed $direction): void {
+                $query->orderBy('id', $direction);
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerExternTypeUsed);
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType);
+    }
+
+    [Fact]
+    public void Check_NullArgumentToNullableExternParameter_IsNotAUse()
+    {
+        var diagnostics = CompileAndCheckWithTyhpdef("""
+            <?tyhpdef
+            extern \SortDirection;
+            function \take(?\SortDirection $direction): void;
+            """, """
+            <?tyhp
+            function demo(): void {
+                \take(null);
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerExternTypeUsed);
+    }
+
+    [Fact]
     public void Check_ConstructRealClassPassingExternParam_Reports4307AtArgument()
     {
         var diagnostics = CompileAndCheckWithTyhpdef(ExternTyhpdef, """

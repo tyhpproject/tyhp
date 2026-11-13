@@ -1224,6 +1224,13 @@ public interface ITyhpdefParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitOptionalTypeWithoutStatic([NotNull] TyhpdefParser.OptionalTypeWithoutStaticContext context);
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpLazyNew</c>
+	/// labeled alternative in <see cref="TyhpdefParser.newDereferenceable"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpLazyNew([NotNull] TyhpdefParser.TyhpLazyNewContext context);
+	/// <summary>
 	/// Visit a parse tree produced by the <c>newClassInstance</c>
 	/// labeled alternative in <see cref="TyhpdefParser.newDereferenceable"/>.
 	/// </summary>
@@ -1252,12 +1259,33 @@ public interface ITyhpdefParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitTyhpNewAnonStructInstance([NotNull] TyhpdefParser.TyhpNewAnonStructInstanceContext context);
 	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpLazyNewNonDereferenceable</c>
+	/// labeled alternative in <see cref="TyhpdefParser.newNonDereferenceable"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpLazyNewNonDereferenceable([NotNull] TyhpdefParser.TyhpLazyNewNonDereferenceableContext context);
+	/// <summary>
 	/// Visit a parse tree produced by the <c>newClassInstanceNonDereferenceable</c>
 	/// labeled alternative in <see cref="TyhpdefParser.newNonDereferenceable"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitNewClassInstanceNonDereferenceable([NotNull] TyhpdefParser.NewClassInstanceNonDereferenceableContext context);
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpNewStructInitializer</c>
+	/// labeled alternative in <see cref="TyhpdefParser.newNonDereferenceable"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpNewStructInitializer([NotNull] TyhpdefParser.TyhpNewStructInitializerContext context);
+	/// <summary>
+	/// Visit a parse tree produced by the <c>tyhpNewAnonStructInitializer</c>
+	/// labeled alternative in <see cref="TyhpdefParser.newNonDereferenceable"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTyhpNewAnonStructInitializer([NotNull] TyhpdefParser.TyhpNewAnonStructInitializerContext context);
 	/// <summary>
 	/// Visit a parse tree produced by the <c>newNonDereferenceableGrammarAddonHandler</c>
 	/// labeled alternative in <see cref="TyhpdefParser.newNonDereferenceable"/>.

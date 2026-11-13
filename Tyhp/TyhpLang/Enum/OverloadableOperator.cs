@@ -31,6 +31,7 @@ namespace Tyhp.TyhpLang.Enum {
         BooleanNot,
         IsEmpty,
         Convert,
+        Default,
     }
 
     public static class OverloadableOperatorHelper
@@ -115,6 +116,7 @@ namespace Tyhp.TyhpLang.Enum {
                 {
                     "empty" => OverloadableOperator.IsEmpty,
                     "convert" => OverloadableOperator.Convert,
+                    "default" => OverloadableOperator.Default,
                     _ => OverloadableOperator.Invalid,
                 },
             };

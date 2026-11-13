@@ -8,15 +8,17 @@ namespace Tyhp.TyhpLang
     public static class GeneratedNames
     {
         /// <summary>
-        /// Suffix on the generic variant a callable is emitted alongside when it needs its own generic
-        /// parameters at runtime (Mechanism D binder; also Mechanism C class bag / factory names).
+        /// Suffix on Mechanism C class bag / factory names, on a layout-1 callable binder, and on
+        /// the companion a later <c>#[\Tyhp\InferGeneric]</c> method keeps beside its plain method.
+        /// A layout-2 callable is the binder under its declared name and does not use this suffix.
         /// The <c>__tyhpGeneric</c> spelling is shared ABI legacy — do not rename casually.
         /// See <see cref="Emitter.TyhpEmitter"/>.
         /// </summary>
         public const string GenericVariantSuffix = "__tyhpGeneric";
 
         /// <summary>
-        /// Prefix on the hidden parameter carrying one bound type argument into a generic variant.
+        /// Prefix on the hidden parameter of a layout-1 binder (<c>$__generic_T</c>). Layout-2
+        /// binder parameters are named after the type parameter (<c>$T</c>).
         /// </summary>
         public const string GenericVariantParameterPrefix = "__generic_";
 
@@ -62,6 +64,16 @@ namespace Tyhp.TyhpLang
         /// </summary>
         public static string GenericFactory(string fullyQualifiedName) =>
             "new_" + MangleFullyQualifiedName(fullyQualifiedName) + GenericVariantSuffix;
+
+        /// <summary>
+        /// Lazy-ghost factory for <c>lazy new</c> of a Mechanism C class, named
+        /// <c>new_&lt;MangledFqn&gt;__tyhpLazy</c>. Emitted only when every version at or above
+        /// <c>output.phpVersion</c> is at least 8.4 and the class has a lazy-capable instance
+        /// property. The <see cref="GenericFactory"/> name stays the eager factory and is the one
+        /// stamped on <c>#[\Tyhp\GenericRuntime]</c>.
+        /// </summary>
+        public static string GenericLazyFactory(string fullyQualifiedName) =>
+            "new_" + MangleFullyQualifiedName(fullyQualifiedName) + "__tyhpLazy";
 
         /// <summary>
         /// Flattens a namespace-qualified name into a single PHP identifier segment.
@@ -128,6 +140,21 @@ namespace Tyhp.TyhpLang
             name is not null
             && name.Length >= ExtensionBackerSuffix.Length
             && name.EndsWith(ExtensionBackerSuffix, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Static method emitted for <c>operator default(): self</c>. The runtime hook calls
+        /// this name when a generic <c>default(T)</c> is bound to that class. PHP method names
+        /// are case-insensitive, so any capitalization collides.
+        /// </summary>
+        public const string OperatorDefaultMethod = "__tyhpDefault";
+
+        /// <summary>
+        /// True when <paramref name="name"/> is the reserved <c>operator default</c> method,
+        /// compared case-insensitively.
+        /// </summary>
+        public static bool IsOperatorDefaultMethod(string? name) =>
+            name is not null
+            && name.Equals(OperatorDefaultMethod, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// Prefix on call-site temps for a repeated splice parameter or receiver

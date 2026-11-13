@@ -127,16 +127,11 @@
                 op = TokenValueAst.CreateError(context, languageMode);
             }
 
-            PhpParameterAst leftParam;
-            if (opCtx.LeftParameter != null)
-            {
-                leftParam = this.VisitAttributedParameter(opCtx.LeftParameter);
-            }
-            else
-            {
-                this.ReportMissingRequired(opCtx, "tyhpClassOperatorOverload.LeftParameter");
-                leftParam = this.CreateErrorParameter(context, languageMode);
-            }
+            // `operator default()` declares no operand. Other operators still require one;
+            // OperatorOverloadRule reports that. A missing operand is not a parse error.
+            PhpParameterAst? leftParam = opCtx.LeftParameter != null
+                ? this.VisitAttributedParameter(opCtx.LeftParameter)
+                : null;
 
             var rightParam = opCtx.RightParameter != null
                 ? this.VisitAttributedParameter(opCtx.RightParameter)

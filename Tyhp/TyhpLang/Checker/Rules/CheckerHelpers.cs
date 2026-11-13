@@ -979,9 +979,22 @@ namespace Tyhp.TyhpLang.Checker.Rules
             MessageCode code,
             params object[] args)
         {
+            diagnostics.Add(CreateWarning(state, node, code, args));
+        }
+
+        /// <summary>
+        /// Builds a warning at <paramref name="node"/> without adding it, for a diagnostic that is
+        /// reported after the walk once whole-program facts are known.
+        /// </summary>
+        public static Diagnostic CreateWarning(
+            CheckerState state,
+            IBase2Ast node,
+            MessageCode code,
+            params object[] args)
+        {
             var fileName = ResolveDiagnosticFileName(state, node);
             DiagnosticExtensions.GetOptionalEnd(node, out var endLine, out var endColumn);
-            diagnostics.Add(Diagnostic.Warning(code, fileName, node.Line, node.Column, args, endLine, endColumn));
+            return Diagnostic.Warning(code, fileName, node.Line, node.Column, args, endLine, endColumn);
         }
 
         public static void ReportInfo(
@@ -1688,7 +1701,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 if (objectDecl is not null && !DeclaresStaticProperty(symbolTree, objectDecl, methodName))
                 {
-                    if (symbolTree.ResolveStaticMember(methodName, objectDecl, new DiagnosticBag())
+                    // Method-only: a class constant spelled like the call (`Type::int` beside
+                    // `Type::int()` via `__callStatic`) must not hide the method.
+                    if (symbolTree.ResolveStaticMethodMember(methodName, objectDecl, new DiagnosticBag())
                             is ObjectMethodSymbol staticMember
                         && (staticMember.IsStatic || allowInstanceForwarding))
                     {
@@ -2580,16 +2595,45 @@ namespace Tyhp.TyhpLang.Checker.Rules
         }
 
         /// <summary>
+        /// Where a constant expression is required. PHP accepts <c>new</c> in parameter defaults,
+        /// <c>static</c> variable initializers, global constant initializers, and attribute
+        /// arguments. A property initializer, a class constant, and an enum case value are none of
+        /// those.
+        /// </summary>
+        public enum ConstantExpressionPosition
+        {
+            /// <summary><c>new ClassName(...)</c> with constant arguments is a constant expression.</summary>
+            AllowsNew,
+
+            /// <summary>
+            /// Property initializer, class constant, or enum case value. <c>new</c> is not a
+            /// constant expression. A struct initializer that lowers to an array literal
+            /// (<c>new Name[]</c> / <c>new Name[k =&gt; v]</c> with constant entries and no spread)
+            /// still is.
+            /// </summary>
+            NewNotAllowed,
+        }
+
+        /// <summary>
         /// True when <paramref name="expression"/> is a compile-time constant and therefore legal in
-        /// a constant-required context (property / parameter default, class constant, enum case
-        /// value, attribute argument).
+        /// a constant-required context (property initializer, parameter default, class constant, enum
+        /// case value, attribute argument).
         /// </summary>
         /// <param name="state">
         /// Enclosing checker state, used only to tell <c>default(&lt;concrete type&gt;)</c> — which
         /// folds to a literal — apart from <c>default(&lt;generic parameter&gt;)</c>, whose value is
         /// not known until runtime. Omitting it treats every <c>default()</c> as non-constant.
         /// </param>
-        public static bool IsConstantExpression(IExpression? expression, CheckerState? state = null) =>
+        /// <param name="position">
+        /// <see cref="ConstantExpressionPosition.NewNotAllowed"/> also rejects <c>new</c>. Every
+        /// position rejects the operations PHP does not accept in any constant expression:
+        /// <c>clone</c>, <c>static::</c>, <c>instanceof</c> / <c>is</c>, <c>|&gt;</c>, <c>@</c>,
+        /// <c>(void)</c>, <c>(decimal)</c>, <c>++</c> / <c>--</c>, and a struct initializer spread.
+        /// </param>
+        public static bool IsConstantExpression(
+            IExpression? expression,
+            CheckerState? state = null,
+            ConstantExpressionPosition position = ConstantExpressionPosition.AllowsNew) =>
             expression switch
             {
                 null => false,
@@ -2597,29 +2641,40 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 PhpScalarAst => true,
                 TokenValueAst => true,
                 PhpArrayAst array => array.ArrayPairs is null
-                    || array.ArrayPairs.GetAllExcludingSkippedSlots().All(pair => IsConstantArrayPair(pair, state)),
+                    || array.ArrayPairs.GetAllExcludingSkippedSlots().All(pair => IsConstantArrayPair(pair, state, position)),
                 PhpArrayPairListAst arrayPairs =>
-                    arrayPairs.GetAllExcludingSkippedSlots().All(pair => IsConstantArrayPair(pair, state)),
+                    arrayPairs.GetAllExcludingSkippedSlots().All(pair => IsConstantArrayPair(pair, state, position)),
                 PhpEncapsListAst encaps =>
                     encaps.GetAllNotNull().All(item => item is PhpEncapsStringAst),
-                PhpBinaryOpAst binary => IsConstantBinary(binary, state),
-                PhpUnaryOpAst unary => IsConstantExpression(unary.Operand as IExpression, state),
+                PhpBinaryOpAst binary => IsConstantBinary(binary, state, position),
+                PhpUnaryOpAst unary => IsConstantUnary(unary, state, position),
                 PhpTernaryOpAst ternary =>
-                    IsConstantExpression(ternary.Condition as IExpression, state)
-                    && IsConstantExpression(ternary.TrueExpr as IExpression, state)
-                    && IsConstantExpression(ternary.FalseExpr as IExpression, state),
+                    IsConstantExpression(ternary.Condition as IExpression, state, position)
+                    && IsConstantExpression(ternary.TrueExpr as IExpression, state, position)
+                    && IsConstantExpression(ternary.FalseExpr as IExpression, state, position),
                 // `default(int)` folds to `0`, `default(Foo)` to `null` — both valid PHP constant
                 // initializers. `default(T)` cannot fold, because the value depends on the type
                 // argument bound at construction time.
                 TyhpDefaultAst defaultExpr => IsConstantDefault(defaultExpr, state),
-                // Class-constant and enum-case access (`Foo::BAR`, `Color::Red`) are constant
-                // expressions and valid in property/parameter defaults and other const contexts.
-                PhpDereferenceableAst { Suffix: PhpClassConstantAccessAst } => true,
+                // `nameof(...)` folds to a string literal, so it is legal in attribute arguments,
+                // constants, and other constant-required contexts. A nameof that does not name a
+                // real symbol is still rejected by CompileTimeRule.
+                TyhpNameofAst => true,
+                // Class-constant and enum-case access (`Foo::BAR`, `Color::Red`, `self::class`) are
+                // constant expressions. `static::` is late-bound and is not a constant expression
+                // anywhere.
+                PhpDereferenceableAst { Suffix: PhpClassConstantAccessAst } deref =>
+                    deref.Base is not PhpVariableAst
+                    && !IsStaticQualifier(deref.Base as IExpression),
                 PhpDereferenceableAst { Base: PhpNameAst name, Suffix: null } =>
                     name.BoundSymbol is ConstantSymbol,
-                // PHP 8.1+: `new ClassName(...constant args)` is a constant expression (property /
-                // parameter defaults, statics, attributes). Anonymous / dynamic class names are not.
-                PhpNewAst newExpr => IsConstantNew(newExpr, state),
+                // `new ClassName(...constant args)` is a constant expression where PHP allows it
+                // (parameter defaults, static variables, global constants, attribute arguments).
+                // Anonymous / dynamic class names are not. Property initializers, class constants,
+                // and enum case values are not in that list.
+                PhpNewAst newExpr =>
+                    position != ConstantExpressionPosition.NewNotAllowed
+                    && IsConstantNew(newExpr, state, position),
                 PhpVariableAst => false,
                 PhpInlineFunctionAst => false,
                 TyhpAsyncBlockAst => false,
@@ -3250,15 +3305,23 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 || string.Equals(opText, "is", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool IsConstantArrayPair(PhpArrayPairAst arrayPair, CheckerState? state) =>
-            (arrayPair.KeyExpr is null || IsConstantExpression(arrayPair.KeyExpr, state))
-            && IsConstantExpression(arrayPair.ValueExpr, state);
+        private static bool IsConstantArrayPair(
+            PhpArrayPairAst arrayPair,
+            CheckerState? state,
+            ConstantExpressionPosition position) =>
+            (arrayPair.KeyExpr is null || IsConstantExpression(arrayPair.KeyExpr, state, position))
+            && IsConstantExpression(arrayPair.ValueExpr, state, position);
 
         /// <summary>
         /// PHP 8.1 <c>new in initializers</c>: a compile-time class name with constant arguments.
         /// Rejects anonymous classes and dynamic names (<c>new $class</c>, <c>new (expr)</c>).
+        /// Callers that pass <see cref="ConstantExpressionPosition.NewNotAllowed"/> do not reach
+        /// this; those positions cannot contain <c>new</c>.
         /// </summary>
-        private static bool IsConstantNew(PhpNewAst newExpr, CheckerState? state)
+        private static bool IsConstantNew(
+            PhpNewAst newExpr,
+            CheckerState? state,
+            ConstantExpressionPosition position)
         {
             if (newExpr.AnonymousClass is not null || newExpr.ClassName is null)
             {
@@ -3274,7 +3337,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             foreach (var arg in newExpr.Arguments?.GetAllNotNull() ?? [])
             {
-                if (arg.Expression is not IExpression expr || !IsConstantExpression(expr, state))
+                if (arg.Expression is not IExpression expr || !IsConstantExpression(expr, state, position))
                 {
                     return false;
                 }
@@ -3283,11 +3346,150 @@ namespace Tyhp.TyhpLang.Checker.Rules
             return true;
         }
 
-        private static bool IsConstantBinary(PhpBinaryOpAst binary, CheckerState? state)
+        private static bool IsConstantUnary(
+            PhpUnaryOpAst unary,
+            CheckerState? state,
+            ConstantExpressionPosition position)
         {
+            if (!IsConstantUnaryOperator(unary))
+            {
+                return false;
+            }
+
+            return IsConstantExpression(unary.Operand as IExpression, state, position);
+        }
+
+        /// <summary>
+        /// Unary operations PHP accepts inside a constant expression: <c>+</c> <c>-</c> <c>!</c>
+        /// <c>~</c> and the casts that stay casts. <c>(void)</c> is not a value.
+        /// <c>(decimal)</c> lowers to a call. <c>clone</c>, <c>@</c>, <c>++</c>, <c>--</c>, and
+        /// <c>await</c> are not constant expressions.
+        /// </summary>
+        private static bool IsConstantUnaryOperator(PhpUnaryOpAst unary)
+        {
+            var text = unary.Operator?.ValueString?.Trim();
+            if (text is "+" or "-" or "!" or "~")
+            {
+                return true;
+            }
+
+            if (IsPhpValueCastSpelling(text))
+            {
+                return true;
+            }
+
+            var token = unary.Operator?.ValueInt64 is long value ? (int)value : -1;
+            return token is Parser.TyhpParser.T_SYM_PLUS
+                or Parser.TyhpParser.T_SYM_MINUS
+                or Parser.TyhpParser.T_SYM_BANG
+                or Parser.TyhpParser.T_SYM_TILDE
+                or Parser.TyhpParser.T_INT_CAST
+                or Parser.TyhpParser.T_DOUBLE_CAST
+                or Parser.TyhpParser.T_STRING_CAST
+                or Parser.TyhpParser.T_ARRAY_CAST
+                or Parser.TyhpParser.T_OBJECT_CAST
+                or Parser.TyhpParser.T_BOOL_CAST;
+        }
+
+        /// <summary>
+        /// Cast spellings that remain PHP casts in a constant expression. <c>(void)</c> and
+        /// <c>(decimal)</c> are excluded.
+        /// </summary>
+        private static bool IsPhpValueCastSpelling(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            var spelled = text.Trim().Trim('(', ')').Trim().ToLowerInvariant();
+            return spelled is "int" or "integer"
+                or "bool" or "boolean"
+                or "string" or "binary"
+                or "float" or "double" or "real"
+                or "array"
+                or "object";
+        }
+
+        private static bool IsConstantBinary(
+            PhpBinaryOpAst binary,
+            CheckerState? state,
+            ConstantExpressionPosition position)
+        {
+            // `new Name[...]` lowers to an array literal when the entries are constant and there
+            // is no spread. A spread lowers to `\array_replace`, which no constant expression can
+            // call. A non-struct bracket initializer is rejected separately.
+            if (IsConstantStructInitializer(binary, state, position))
+            {
+                return true;
+            }
+
+            if (!IsConstantBinaryOperator(binary))
+            {
+                return false;
+            }
+
             var left = binary.Left as IExpression;
             var right = binary.Right as IExpression;
-            return IsConstantExpression(left, state) && IsConstantExpression(right, state);
+            return IsConstantExpression(left, state, position)
+                && IsConstantExpression(right, state, position);
+        }
+
+        /// <summary>
+        /// <c>new Name[]</c> / <c>new Name[k =&gt; v]</c> with constant entries. The bracket form
+        /// is a <c>with</c> binary whose left <c>new</c> is marked <see cref="PhpNewAst.IsStructInitializer"/>.
+        /// </summary>
+        private static bool IsConstantStructInitializer(
+            PhpBinaryOpAst binary,
+            CheckerState? state,
+            ConstantExpressionPosition position)
+        {
+            if (!IsWithOperator(binary.Operator)
+                || binary.Left is not PhpNewAst { IsStructInitializer: true }
+                || binary.Right is not PhpArrayPairListAst pairs)
+            {
+                return false;
+            }
+
+            foreach (var pair in pairs.GetAllExcludingSkippedSlots())
+            {
+                if (pair.IsExpansion)
+                {
+                    return false;
+                }
+
+                if (pair.KeyExpr is not null
+                    && !IsConstantExpression(pair.KeyExpr, state, position))
+                {
+                    return false;
+                }
+
+                if (!IsConstantExpression(pair.ValueExpr, state, position))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Binary operations PHP accepts inside a constant expression. <c>instanceof</c> / <c>is</c>,
+        /// <c>|&gt;</c>, assignment, and <c>with</c> (other than a constant struct initializer) are not.
+        /// </summary>
+        private static bool IsConstantBinaryOperator(PhpBinaryOpAst binary)
+        {
+            var token = binary.Operator?.ValueInt64 is long value ? (int)value : -1;
+            var op = PhpBinaryOperatorExtensions.FromToken(token, binary.Operator?.ValueString);
+            return op is not null
+                && op != PhpBinaryOperator.Pipe
+                && op != PhpBinaryOperator.InstanceOf;
+        }
+
+        private static bool IsStaticQualifier(IExpression? expression)
+        {
+            var text = GetExpressionText(expression);
+            return string.Equals(text, "static", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -3302,8 +3504,57 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return false;
             }
 
-            return !NamesGenericParameterIn(defaultExpr.TypeExpression, state.FunctionGenerics)
-                && !NamesGenericParameterIn(defaultExpr.TypeExpression, state.ObjectGenerics);
+            if (NamesGenericParameterIn(defaultExpr.TypeExpression, state.FunctionGenerics)
+                || NamesGenericParameterIn(defaultExpr.TypeExpression, state.ObjectGenerics))
+            {
+                return false;
+            }
+
+            // Property initializers and parameter defaults are checked before expression typing,
+            // so the type argument may not be bound yet. Resolve it here. A class that declares
+            // `operator default` evaluates that body and is not a constant. A class without the
+            // operator still folds to null.
+            BindDefaultTarget(defaultExpr.TypeExpression, state);
+            return OperatorDefault.TryResolveUsableTarget(defaultExpr.TypeExpression, state.EnclosingObject) is null;
+        }
+
+        /// <summary>
+        /// Binds the type argument of <c>default(Type)</c> when the constant-expression check
+        /// runs before expression typing. A throwaway diagnostic bag keeps a failed lookup from
+        /// becoming a second diagnostic; the type checker reports the real unresolved name.
+        /// </summary>
+        private static void BindDefaultTarget(ITypeExpression? typeExpr, CheckerState state)
+        {
+            if (typeExpr is null || typeExpr.BoundSymbol is not null)
+            {
+                return;
+            }
+
+            var scope = state.NameResolutionScope
+                ?? state.EnclosingFunction?.ContainingScope
+                ?? state.EnclosingObject?.ContainingScope;
+            if (scope is null)
+            {
+                return;
+            }
+
+            GlobalScope? global = null;
+            for (IBaseScope? current = scope; current is not null; current = current.ParentScope)
+            {
+                if (current is GlobalScope found)
+                {
+                    global = found;
+                    break;
+                }
+            }
+
+            if (global is null)
+            {
+                return;
+            }
+
+            var resolver = new NameResolver(new SymbolTree(global), new DiagnosticBag());
+            resolver.ResolveType(typeExpr, scope);
         }
 
         /// <summary>
@@ -3370,8 +3621,85 @@ namespace Tyhp.TyhpLang.Checker.Rules
         }
 
         /// <summary>
+        /// An <c>async</c> <c>#[\Tyhp\InferGeneric]</c> callable whose return type names one of its
+        /// type parameters has to be a variant even when the body never reifies that parameter.
+        /// The promise's type argument is the settled return type, and the PHP return hint erases it.
+        /// </summary>
+        public static bool AsyncInferGenericReturnNeedsVariant(
+            bool isAsync,
+            IBase2Ast declaration,
+            IBase2Ast? returnType,
+            IReadOnlyList<GenericTypeParameterSymbol> generics) =>
+            isAsync
+            && generics.Count > 0
+            && InferGenericAttributeSupport.HasInferGeneric(declaration)
+            && TypeMentionsGenericParameter(returnType, generics);
+
+        /// <summary>
+        /// True when <paramref name="typeExpr"/> names one of <paramref name="generics"/>, including
+        /// inside a union, an intersection, or a type-argument list.
+        /// </summary>
+        public static bool TypeMentionsGenericParameter(
+            IBase2Ast? typeExpr,
+            IReadOnlyList<GenericTypeParameterSymbol> generics,
+            int depth = 0)
+        {
+            if (typeExpr is null || generics.Count == 0 || depth > 500)
+            {
+                return false;
+            }
+
+            if (NamesGenericParameterIn(typeExpr, generics))
+            {
+                return true;
+            }
+
+            if (typeExpr is TyhpGenericIdentifierAst { GenericArguments: PhpTypeExpressionListAst genericArgs }
+                && TypeArgumentListMentionsGeneric(genericArgs, generics, depth))
+            {
+                return true;
+            }
+
+            foreach (var key in (string[])["typeName", "identifier", "memberName"])
+            {
+                if (typeExpr.AstGrammarAddons.TryGetValue(key, out var addon)
+                    && addon is PhpTypeExpressionListAst typeArgList
+                    && TypeArgumentListMentionsGeneric(typeArgList, generics, depth))
+                {
+                    return true;
+                }
+            }
+
+            foreach (var child in typeExpr.AstChildren)
+            {
+                if (TypeMentionsGenericParameter(child, generics, depth + 1))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TypeArgumentListMentionsGeneric(
+            PhpTypeExpressionListAst typeArgList,
+            IReadOnlyList<GenericTypeParameterSymbol> generics,
+            int depth)
+        {
+            foreach (var arg in typeArgList.GetAllNotNull())
+            {
+                if (TypeMentionsGenericParameter(arg, generics, depth + 1))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// True when a subtree uses one of <paramref name="generics"/> in a construct that needs the
-        /// bound type at runtime: <c>typeof(T)</c>, <c>default(T)</c>, <c>instanceof T</c> /
+        /// bound type at runtime: <c>typeof(T)</c>, <c>default(T)</c>, <c>T::class</c>, <c>instanceof T</c> /
         /// <c>is T</c> (and aliases), <c>new T()</c> (a type parameter as the class name), a type
         /// argument on <c>new Foo&lt;T&gt;</c> / <c>new static&lt;T&gt;</c> (Mechanism C factory),
         /// or a type argument on a call (<c>decode&lt;T&gt;()</c> / <c>Type::isType&lt;T&gt;()</c>)
@@ -3421,6 +3749,12 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     }
 
                     break;
+
+                case PhpDereferenceableAst { Suffix: PhpClassConstantAccessAst { Member: PhpNameAst classMember } } className
+                    when string.Equals(classMember.ValueString, "class", StringComparison.OrdinalIgnoreCase)
+                        && NamesGenericParameterIn(className.Base as IBase2Ast, generics):
+                    // `T::class` is the bound class name, same as `Foo::class`.
+                    return true;
 
                 case PhpNewAst newExpr:
                     // `new T()` — the class name itself is the generic parameter (Mechanism C/D).
@@ -3898,8 +4232,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
         /// <summary>
         /// Resolves an alias body in the alias's declaration context: class-level aliases treat
-        /// <c>self</c>/<c>static</c>/<c>parent</c> as the owning class, and alias generic
-        /// parameters (<c>type Row&lt;T&gt;</c>) are in scope.
+        /// <c>self</c>/<c>static</c>/<c>parent</c> as the owning class, alias generic
+        /// parameters (<c>type Row&lt;T&gt;</c>) are in scope, and unqualified names in the
+        /// body resolve in the namespace that declared the alias. A use site in another
+        /// namespace must not re-resolve those names (a union of structs would otherwise
+        /// collapse to an unresolved type).
         /// </summary>
         internal static CheckerState WithAliasBodyContext(CheckerState state, IBaseSymbol alias)
         {
@@ -3914,7 +4251,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 ? alias.ContainingScope?.DeclarationSymbol as ObjectDeclarationSymbol
                 : null;
 
-            if (owner is null && (aliasGenerics is null || aliasGenerics.Count == 0))
+            var declaringScope = alias.ContainingScope;
+            var needsDeclaringScope = declaringScope is not null
+                && !ReferenceEquals(state.NameResolutionScope, declaringScope);
+
+            if (owner is null
+                && (aliasGenerics is null || aliasGenerics.Count == 0)
+                && !needsDeclaringScope)
             {
                 return state;
             }
@@ -3933,6 +4276,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (aliasGenerics is { Count: > 0 })
             {
                 forked.FunctionGenerics = aliasGenerics;
+            }
+
+            if (needsDeclaringScope)
+            {
+                forked.NameResolutionScope = declaringScope;
             }
 
             return forked;

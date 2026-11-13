@@ -290,7 +290,7 @@ public class ReadonlyClassPropertyTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             trait Counts {
-                public static int $hits;
+                public static int $hits = 0;
             }
 
             readonly class UsesCounts {
@@ -332,7 +332,7 @@ public class ReadonlyClassPropertyTests
         var diagnostics = CompileAndCheck("""
             <?tyhp
             trait Counts {
-                public int $hits;
+                public int $hits = 0;
             }
 
             class UsesCounts {
@@ -352,7 +352,7 @@ public class ReadonlyClassPropertyTests
             <?tyhp
             trait Counts {
                 public int $hits;
-                public static int $total;
+                public static int $total = 0;
                 public readonly int $kept;
             }
 
@@ -435,7 +435,7 @@ public class ReadonlyClassPropertyTests
             <?tyhp
             trait Counts {
                 public int $hits;
-                public static int $total;
+                public static int $total = 0;
             }
 
             readonly class UsesCounts {

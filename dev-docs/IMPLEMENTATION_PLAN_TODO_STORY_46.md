@@ -13,6 +13,9 @@
 > regenerated from that prompt, so a change missing from it is reverted by the next regeneration).
 > Update `tyhp_2600_asyncAndAwait.md`, the `tyhp/async` package, and `cli_interopContract.md` (new helpers).
 
+> **Status (2026-11-04):** Delivered by the `tyhp/io` package (HTTP, files, processes, sockets, Redis, PostgreSQL,
+> MySQL, and PDO through `tyhp/parallel` workers), first in the Tier 4 order as a close-out. Remaining: check the
+> Acceptance list below against `tyhp/io` and its tests, then mark this plan done.
 > **Prerequisites:** Story 04 (`tyhp/async` event loop, `Promise`, Fibers), Story 08/11 (`async`/`await` emit).
 > **Source:** `LANGUAGE_ASSESSMENT.md` §4.5 / §6.7. Locked onto this story 2026-09-15 (not 21.12).
 

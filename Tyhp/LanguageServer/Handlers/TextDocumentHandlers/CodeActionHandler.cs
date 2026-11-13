@@ -14,7 +14,7 @@ namespace Tyhp.LanguageServer
     public sealed partial class TyhpLanguageServer
     {
         /// <summary>
-        /// Quick fixes (auto-import, remove unused import) and organize-imports.
+        /// Quick fixes, the struct-initializer refactor, and organize-imports.
         /// </summary>
         [JsonRpcMethod(Methods.TextDocumentCodeActionName, UseSingleObjectParameterDeserialization = true)]
         public async Task<CodeAction[]> HandleCodeAction(

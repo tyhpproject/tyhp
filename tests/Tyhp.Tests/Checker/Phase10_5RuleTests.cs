@@ -238,8 +238,8 @@ public class Phase10_5RuleTests
         var (checker, file, _, diagnostics) = CompileForChecker("""
             <?tyhp
             class Widget {
-                public string $name;
-                public int $age;
+                public string $name = '';
+                public int $age = 0;
             }
 
             function demo(__AsReadOnly<Widget> $value): void {}

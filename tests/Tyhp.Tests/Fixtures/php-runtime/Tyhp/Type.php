@@ -17,7 +17,7 @@ namespace Tyhp;
  * `returns()` on a shape are accepted so emitted declarations load, but signatures are not compared.
  * Callable-shape `is()` here is existence-only (`\is_callable`), same contract as core v1.
  */
-class Type implements \Stringable
+class Type implements \Stringable, TypeLike
 {
     private static array $singletons = [];
 
@@ -289,6 +289,43 @@ class Type implements \Stringable
     public static function callableShape(?string $name = null): self
     {
         return new self('callableShape', $name);
+    }
+
+    public function toType(): self
+    {
+        return $this;
+    }
+
+    public function immutable(): self
+    {
+        return $this;
+    }
+
+    public function or(TypeLike|string ...$others): self
+    {
+        return $this;
+    }
+
+    public static function arg(TypeLike|string|null $type): ?self
+    {
+        if ($type === null) {
+            return null;
+        }
+
+        if ($type instanceof self) {
+            return $type;
+        }
+
+        if ($type instanceof TypeLike) {
+            return $type->toType();
+        }
+
+        return self::fromClassName($type);
+    }
+
+    public static function fromCallableReturn(mixed $callable): ?self
+    {
+        return self::mixed();
     }
 
     public static function fromClassName(string $className): self

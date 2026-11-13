@@ -739,6 +739,15 @@ namespace Tyhp.TyhpLang.Checker
                 return;
             }
 
+            // PHPDoc `Builder<*>` is emitted as `Builder<mixed>`. In a tyhpdef that `mixed`
+            // means some type that meets the bound, not the top type. A `.tyhp` file that
+            // writes the same argument still has to satisfy the bound. `G<Post>` is already
+            // assignable to `G<mixed>` (`IsCovariantToMixedGenericArg`).
+            if (TypeComparer.IsMixedType(arg) && IsTyhpdefNode(reportNode))
+            {
+                return;
+            }
+
             // Overlay `fromCallable` returns
             // `\Closure<C, __CallableThis<C>, __CallableScope<C>>`. Those utilities inhabit
             // TThis / TScope by definition (Story 21.6 Decision 7) and stay deferred while C
@@ -937,6 +946,30 @@ namespace Tyhp.TyhpLang.Checker
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// True when <paramref name="node"/> was parsed from a <c>.tyhpdef</c>. PHPDoc wildcards
+        /// in those files are <c>mixed</c> and satisfy generic bounds.
+        /// </summary>
+        private static bool IsTyhpdefNode(IBase2Ast node)
+        {
+            // Prefer the owning file. A `.tyhp` type argument is checked even when a token's
+            // language mode was left as tyhpdef. `.tyhpdef` also ends with `.tyhp`, so the
+            // def check comes first.
+            var file = node is Base2Ast ast ? ast.OwningFile?.Identifier ?? "" : "";
+            if (file.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase)
+                || file.Contains("<tyhpdef:", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (file.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return string.Equals(node.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -1252,18 +1285,26 @@ namespace Tyhp.TyhpLang.Checker
             // when a tyhpdef generic like `array_values<TKey extends int|string, …>` cannot yet
             // infer `TKey` from arguments, do not cascade TYHP4035 on top of the missing inference.
             // Same allowance as <see cref="IsObjectConstraint"/> for unresolved / in-scope params.
+            // Int and string literals (`'get'|'set'`, `0|1`) are keys: they are values of those types.
             type.Kind == CheckedTypeKind.Unresolved
             || type is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol }
             || Rules.CheckerHelpers.IsBuiltInName(type, "int")
             || Rules.CheckerHelpers.IsBuiltInName(type, "string")
             || IsStringSymbolNameType(type)
+            || IsIntOrStringLiteral(type)
             || (type is UnionCheckedType union
                 && union.Members.All(m =>
                     m.Kind == CheckedTypeKind.Unresolved
                     || m is SimpleCheckedType { ResolvedSymbol: GenericTypeParameterSymbol }
                     || Rules.CheckerHelpers.IsBuiltInName(m, "int")
                     || Rules.CheckerHelpers.IsBuiltInName(m, "string")
-                    || IsStringSymbolNameType(m)));
+                    || IsStringSymbolNameType(m)
+                    || IsIntOrStringLiteral(m)));
+
+        private static bool IsIntOrStringLiteral(ICheckedType type) =>
+            type is LiteralCheckedType { UnderlyingType: var underlying }
+            && (Rules.CheckerHelpers.IsBuiltInName(underlying, "string")
+                || Rules.CheckerHelpers.IsBuiltInName(underlying, "int"));
 
         /// <summary>
         /// Symbol-name types (<c>__PropertyName&lt;T&gt;</c>, <c>__ClassName&lt;T&gt;</c>, …) are strings,

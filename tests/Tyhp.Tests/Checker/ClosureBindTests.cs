@@ -234,6 +234,182 @@ public class ClosureBindTests
             + Describe(errors));
     }
 
+    [Fact]
+    public void Bind_ConcreteClosure_AcceptsSameCallAsBindTo()
+    {
+        // The `$closure` parameter is `\Closure<TCallableShape, TOldThis, TOldScope>`. While the
+        // callee generics are unbound, its invariant this/scope slots must still accept a
+        // closure with a known this/scope (TYHP4010 otherwise).
+        var errors = CompileOverlay("""
+            <?tyhp
+            function demo(object $object, \Closure<callable(object): void, ?object, null> $call): void {
+                \Closure::bind($call, null, $object);
+                $call->bindTo(null, $object);
+            }
+            """);
+
+        errors.Should().BeEmpty("Closure::bind must accept the closure bindTo accepts: " + Describe(errors));
+    }
+
+    [Fact]
+    public void Bind_StaticClosure_AcceptsObjectScope()
+    {
+        var errors = CompileOverlay("""
+            <?tyhp
+            class Host {
+                public function demo(object $object): void {
+                    $call = static function (object $target): void {};
+                    \Closure::bind($call, null, $object);
+                    $call->bindTo(null, $object);
+                }
+            }
+            """);
+
+        errors.Should().BeEmpty(Describe(errors));
+    }
+
+    [Fact]
+    public void Bind_OmittedScopeAndObjectScope_AcceptInstanceClosure()
+    {
+        var errors = CompileOverlay("""
+            <?tyhp
+            class Host {
+                public function demo(): void {
+                    $fn = function (): void {};
+                    \Closure::bind($fn, $this);
+                    \Closure::bind($fn, $this, $this);
+                    $fn->bindTo($this);
+                    $fn->bindTo($this, $this);
+                }
+            }
+            """);
+
+        errors.Should().BeEmpty("Closure::bind must accept an instance closure: " + Describe(errors));
+    }
+
+    [Fact]
+    public void Bind_StaticSentinelLiteral_ReportsLikeBindTo()
+    {
+        // The literal 'static' is widened to `string` before the `TNewScope extends 'static'`
+        // check, for bind and bindTo alike. Both calls must report the same diagnostics.
+        var errors = CompileOverlay("""
+            <?tyhp
+            class Host {
+                public function demo(): void {
+                    $fn = function (): void {};
+                    \Closure::bind($fn, $this, 'static');
+                    $fn->bindTo($this, 'static');
+                }
+            }
+            """);
+
+        var bind = errors.Where(d => d.Line == 5).Select(d => d.Code).Order().ToList();
+        var bindTo = errors.Where(d => d.Line == 6).Select(d => d.Code).Order().ToList();
+        bind.Should().Equal(bindTo, Describe(errors));
+        errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType,
+            Describe(errors));
+    }
+
+    [Fact]
+    public void Bind_UnrelatedClass_ErrorsWhenTThisIsKnown()
+    {
+        var errors = CompileOverlay("""
+            <?tyhp
+            class Host {
+                public function demo(): void {
+                    $fn = function (): void {};
+                    \Closure::bind($fn, new Other());
+                }
+            }
+            class Other {}
+            """);
+
+        errors.Should().ContainSingle(d => d.Code == MessageCode.CheckerClosureBindIncompatible,
+            "unrelated $newThis must error for static bind: " + Describe(errors));
+        errors.Should().NotContain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType,
+            Describe(errors));
+    }
+
+    [Fact]
+    public void Bind_TypedClosure_ChecksThisAgainstDeclaredThis()
+    {
+        // A closure whose `$this` is `Host` is not widened to accept an unrelated `$newThis`,
+        // while a subclass instance is allowed. bindTo reports the same.
+        var errors = CompileOverlay("""
+            <?tyhp
+            class Host {}
+            class Sub extends Host {}
+            class Other {}
+            function demo(\Closure<callable(): void, Host, Host> $c, Sub $sub, Other $other): void {
+                \Closure::bind($c, $sub);
+                $c->bindTo($sub);
+                \Closure::bind($c, $other);
+                $c->bindTo($other);
+            }
+            """);
+
+        errors.Should().OnlyContain(d => d.Code == MessageCode.CheckerClosureBindIncompatible,
+            Describe(errors));
+        errors.Select(d => d.Line).Order().Should().Equal([8, 9], Describe(errors));
+    }
+
+    [Fact]
+    public void Bind_StaticClosure_RejectsInstanceThis_LikeBindTo()
+    {
+        // A closure without `$this` has scope `null`; an omitted scope keeps it, so a non-null
+        // `$newThis` has no scope to run in.
+        var errors = CompileOverlay("""
+            <?tyhp
+            class Host {
+                public function demo(object $object): void {
+                    $call = static function (): void {};
+                    \Closure::bind($call, $object);
+                    $call->bindTo($object);
+                }
+            }
+            """);
+
+        errors.Should().OnlyContain(d => d.Code == MessageCode.CheckerClosureBindIncompatible,
+            Describe(errors));
+        errors.Select(d => d.Line).Order().Should().Equal([5, 6], Describe(errors));
+    }
+
+    [Fact]
+    public void Bind_NonClosureArgument_StillReportsIncompatibleArgument()
+    {
+        // The wide this/scope placeholders apply to the this/scope slots only; a value that is
+        // not a Closure is still rejected as the first argument.
+        var errors = CompileOverlay("""
+            <?tyhp
+            function demo(object $object): void {
+                \Closure::bind($object, $object);
+                \Closure::bind(1, null);
+            }
+            """);
+
+        errors.Should().Contain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType && d.Line == 3,
+            Describe(errors));
+        errors.Should().Contain(d => d.Code == MessageCode.CheckerIncompatibleArgumentType && d.Line == 4,
+            Describe(errors));
+    }
+
+    [Fact]
+    public void Bind_Arrow_ErrorsNonRebindable()
+    {
+        var errors = CompileOverlay("""
+            <?tyhp
+            class Host {
+                public function demo(): void {
+                    $fn = fn (): int => 0;
+                    \Closure::bind($fn, $this);
+                }
+            }
+            """);
+
+        errors.Should().Contain(d => d.Code == MessageCode.CheckerClosureNonRebindable,
+            "arrow Closure::bind must error: " + Describe(errors));
+    }
+
     private static ICheckedType UnwrapClosure(ICheckedType type)
     {
         while (type is NullableCheckedType nullable)
@@ -280,6 +456,24 @@ public class ClosureBindTests
 
         matches.Should().HaveCountGreaterThan(index, "expected bindTo call return types");
         return matches[index];
+    }
+
+    private static IReadOnlyList<IDiagnostic> CompileOverlay(string content)
+    {
+        using var builder = IsolatedCompilation.CreateOverlayProject(
+            phpVersion: "8.5",
+            includeTyhpdef: SyntheticPhpStubs.ClosureFiberHarvest,
+            overlayTyhpdef: SyntheticPhpStubs.ClosureFiberOverlay,
+            userTyhp: content);
+        var result = IsolatedCompilation.BindProject(builder, skipChecking: true);
+        result.GlobalScope.Should().NotBeNull(
+            "bind should succeed: " + Describe(result.Diagnostics.Errors));
+        result.ParsedFiles.Should().NotBeNull().And.NotBeEmpty();
+
+        var symbolTree = new SymbolTree(result.GlobalScope!);
+        var checker = new TyhpChecker(result.Diagnostics, symbolTree, result.GlobalScope!);
+        checker.Check(result.ParsedFiles!);
+        return result.Diagnostics.Errors;
     }
 
     private static string? ExprText(IExpression? expression) => expression switch

@@ -70,6 +70,20 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 CheckerHelpers.ReportError(
                     diagnostics, state, expression, MessageCode.CheckerNonConstantExpression);
+                return;
+            }
+
+            if (Tyhp.TyhpLang.Checker.NameofTypeInferrer.TryGetUndeclaredMember(
+                    expression, state, context.SymbolTree, context.GlobalScope,
+                    out var memberName, out var ownerDisplay))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    expression,
+                    MessageCode.CheckerSymbolNameNotFound,
+                    memberName,
+                    ownerDisplay);
             }
         }
 

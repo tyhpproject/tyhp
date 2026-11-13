@@ -222,7 +222,7 @@ public class CallReturnTypeInferenceTests
             <?tyhp
             namespace Test;
             class Promise<TReturn> {
-                private TReturn $value;
+                public function __construct(private TReturn $value) {}
                 public static function await<T>(Promise<T> $promise): T {
                     return $promise->value;
                 }
@@ -504,6 +504,57 @@ public class CallReturnTypeInferenceTests
 
         errors.Should().BeEmpty(
             $"typed constants should satisfy a matching declared return type: {Describe(errors)}");
+    }
+
+    [Fact]
+    public void StaticCall_ResolvesToCallStatic_WhenAConstantSharesTheName()
+    {
+        // `Type::int` (a constant) and `Type::int()` (a `__callStatic` factory) live in different
+        // namespaces. The call must not be typed from, or hidden by, the constant.
+        var errors = CompileAndCheck("""
+            <?tyhp
+            namespace Test;
+            enum Kind { case Int; }
+            class Factory {
+                public const Kind make = Kind::Int;
+                public static function __callStatic(string $name, array<int, mixed> $arguments): self {
+                    return new self();
+                }
+                public function viaCall(): self {
+                    return Factory::make();
+                }
+                public function viaConstant(): Kind {
+                    return Factory::make;
+                }
+            }
+            """);
+
+        errors.Should().BeEmpty(
+            $"Factory::make() is the __callStatic result and Factory::make the constant: {Describe(errors)}");
+    }
+
+    [Fact]
+    public void StaticCall_ResolvesToStaticMethod_WhenAConstantSharesTheName()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            namespace Test;
+            class Counter {
+                public const int total = 1;
+                public static function total(): string {
+                    return 'x';
+                }
+                public function viaCall(): string {
+                    return Counter::total();
+                }
+                public function viaConstant(): int {
+                    return Counter::total;
+                }
+            }
+            """);
+
+        errors.Should().BeEmpty(
+            $"Counter::total() is the static method and Counter::total the constant: {Describe(errors)}");
     }
 
     [Fact]
@@ -936,6 +987,37 @@ public class CallReturnTypeInferenceTests
         result.Diagnostics.Errors.Should().NotContain(
             d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied,
             $"__PropertyName<Node> is a string key: {Describe(result.Diagnostics.Errors.ToList())}");
+    }
+
+    [Fact]
+    public void StringAndIntLiteralUnions_AreArrayKeys()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            function accept(
+                array<'get'|'set', string> $hooks,
+                array<0|1, string> $bits,
+            ): void {}
+            """);
+
+        errors.Should().NotContain(
+            d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied,
+            $"literal unions are int|string keys: {Describe(errors)}");
+        errors.Should().BeEmpty(Describe(errors));
+    }
+
+    [Fact]
+    public void NonIntOrStringLiteralKeys_StillViolateArrayKeyConstraint()
+    {
+        var errors = CompileAndCheck("""
+            <?tyhp
+            function floats(array<1.5, string> $a): void {}
+            function bools(array<true, string> $a): void {}
+            function mixedUnion(array<'a'|1.5, string> $a): void {}
+            """);
+
+        errors.Count(d => d.Code == MessageCode.CheckerGenericConstraintNotSatisfied)
+            .Should().Be(3, $"float, bool, and float-containing literal keys are not int|string: {Describe(errors)}");
     }
 
     private static string Describe(IReadOnlyList<IDiagnostic> errors) =>

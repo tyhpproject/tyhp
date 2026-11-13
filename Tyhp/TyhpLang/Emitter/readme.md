@@ -180,8 +180,6 @@ if ($otherCondition) {
             $alertService->info("Found last name: " . $v->last_name);
         }
     }
-
-    unset($values);
 } else {
     $alertService->error("Condition is FALSE");
 }
@@ -222,8 +220,6 @@ if ($otherCondition) {
                 $alertService->info("Found last name: " . $v->last_name);
             }
         }
-
-        unset($values);
     } finally {
         \Tyhp\DisposableHelper::dispose(...($__disposable2n5ers4iu7ou7i34 ?? []));
     }

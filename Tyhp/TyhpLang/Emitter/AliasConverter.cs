@@ -71,6 +71,16 @@ namespace Tyhp.TyhpLang.Emitter
         // variable lookups resolve against the correct scope frame.
         private readonly Stack<IBase2Ast> _functionStack = new();
 
+        /// <summary>
+        /// Arrow <c>fn</c>s whose body is captured as an expression tree. Extension calls
+        /// inside them stay method calls until the tree is built; the backing closure is
+        /// spliced afterwards so <c>compile()</c> still runs the extension body.
+        /// </summary>
+        private readonly HashSet<PhpInlineFunctionAst> _expressionTreeLambdas =
+            new(ReferenceEqualityComparer.Instance);
+
+        private bool _forceExtensionSplice;
+
         // Checker types carried from an authored expression to the node that replaced it while
         // rewriting (see CarryCheckedTypeToReplacement). EmitContext.ExpressionTypes is read-only
         // and keyed by authored nodes, so rewritten nodes are recorded here.
@@ -94,12 +104,18 @@ namespace Tyhp.TyhpLang.Emitter
         // hint spelling. Hint positions (parameters, properties, returns) still erase to `array`.
         private int _typeofTypeExprDepth;
 
-        // Member names that follow `->` (properties/methods) must never be rewritten through the
-        // tyhpdef alias map. The map is case-insensitive (PHP class names are), so a member like
-        // `$this->promise` would otherwise collide with a same-named class alias (`Promise`) and
-        // miscompile to `$this->Tyhp\Promise`. Collected up front by reference identity because the
-        // tree walk transforms member-name children before reaching their member-access parent.
+        // Member names that follow `->`, `::`, or `$arr->key` must never be rewritten through
+        // the free-name alias map. The map is case-insensitive (PHP class names are), so
+        // `$this->promise` would otherwise collide with a class `Promise`. Named-argument
+        // labels are tracked separately (`_protectedArgumentLabels`). Collected up front by
+        // reference identity because the tree walk transforms these name children before
+        // their parent.
         private readonly HashSet<IBase2Ast> _protectedMemberNames =
+            new(ReferenceEqualityComparer.Instance);
+
+        // Named-argument labels (`column:`). Same collection timing as member names, but they
+        // are not members: neither the free-name map nor the member-alias map may rewrite them.
+        private readonly HashSet<IBase2Ast> _protectedArgumentLabels =
             new(ReferenceEqualityComparer.Instance);
 
         private CallSiteSpliceEngine? _spliceEngine;
@@ -122,6 +138,7 @@ namespace Tyhp.TyhpLang.Emitter
             _ = this._context.Config.TargetPhpVersion;
 
             this._protectedMemberNames.Clear();
+            this._protectedArgumentLabels.Clear();
             this._pendingSpliceHoists.Clear();
             this._refHoistForbidden.Clear();
             this._spliceContext = this.CreateSpliceContext();
@@ -135,6 +152,8 @@ namespace Tyhp.TyhpLang.Emitter
             this._typedTypeExprsByFunction.Clear();
             this._globalTypedTypeExprs.Clear();
             this._functionStack.Clear();
+            this._expressionTreeLambdas.Clear();
+            this._forceExtensionSplice = false;
             this._classStack.Clear();
             this._typeofTypeExprDepth = 0;
             AstWalker.WalkStatements(
@@ -699,6 +718,15 @@ namespace Tyhp.TyhpLang.Emitter
 
         private ObjectDeclarationSymbol? ResolveStructTypeFromTypeExpression(ITypeExpression? typeExpr)
         {
+            // Hint erasure rewrites `Point` to `array` and stamps the struct on that node.
+            // A later read of the same declared type (`$this->point->x` after the constructor
+            // signature was walked) still names the struct.
+            if (typeExpr is IBase2Ast stamped
+                && stamped.BoundSymbol is ObjectDeclarationSymbol { IsStruct: true } stampedStruct)
+            {
+                return stampedStruct;
+            }
+
             switch (typeExpr)
             {
                 case PhpNamedTypeAst named:
@@ -708,6 +736,17 @@ namespace Tyhp.TyhpLang.Emitter
                 case PhpTypeExpressionAst composite:
                 {
                     var parts = composite.Types?.GetAllNotNull().ToList() ?? [];
+
+                    // A union with several non-null arms (`Plain|Rich`, `A|B`) is not one struct:
+                    // taking its first struct arm would read a class arm, or an arm that stores the
+                    // field under another key, as an array key. The checker's union type decides in
+                    // `TryRewriteStructUnionPropertyAccess`.
+                    if (composite.TypeKind is PhpTypeKind.Union
+                        && parts.Count(part => part is not PhpBuiltinTypeAst { Identifier: "null" or "void" or "never" }) > 1)
+                    {
+                        return null;
+                    }
+
                     // `Point` and `?Point` (nullable wrapper / single-element union) both carry one
                     // named type we can resolve as a struct.
                     foreach (var part in parts)
@@ -756,6 +795,11 @@ namespace Tyhp.TyhpLang.Emitter
 
         private IBase2Ast? PreTransformWith(IBase2Ast node)
         {
+            // Member names and argument labels are collected up front for the original tree.
+            // Trees built later (an inlined extension body, a spliced operator) are clones whose
+            // name nodes are not in those sets, so protect them as the walk enters each node.
+            this.CollectProtectedMemberName(node);
+
             // Runs as the pre-transform for every node: enter a scope frame for function-like
             // nodes so struct-typed variable lookups resolve correctly. The matching pop happens
             // in the post-transform (TransformNode). Function-like nodes never short-circuit here
@@ -779,6 +823,7 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             this.MarkStructReadExemptions(node);
+            this.NoteExpressionTreeLambda(node);
 
             // Expand statement-context object `with` inside blocks before children are walked.
             if (node is PhpStatementBlockAst block)
@@ -825,6 +870,7 @@ namespace Tyhp.TyhpLang.Emitter
                     this.ResolveStructType,
                     this.ResolveAnonymousStructShape,
                     this.TransformStructDefaultValue,
+                    this.GuaranteedSpreadKeys,
                     out var rewritten)
                     ? rewritten
                     : null;
@@ -1163,12 +1209,12 @@ namespace Tyhp.TyhpLang.Emitter
         }
 
         private static ObjectDeclarationSymbol? FindObjectSymbol(IBaseScope? scope, string name)
-        {
-            if (scope is null)
-            {
-                return null;
-            }
+            => scope is null
+                ? null
+                : EmitLookupCache.GetOrSearch(EmitLookupKind.Object, scope, name, SearchObjectSymbol);
 
+        private static ObjectDeclarationSymbol? SearchObjectSymbol(IBaseScope scope, string name)
+        {
             if (scope.FindChildSymbolByName(name) is ObjectDeclarationSymbol direct && !direct.IsStruct)
             {
                 return direct;
@@ -1176,7 +1222,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             foreach (var childScope in scope.GetAllChildScopes())
             {
-                if (FindObjectSymbol(childScope, name) is { } found)
+                if (SearchObjectSymbol(childScope, name) is { } found)
                 {
                     return found;
                 }
@@ -1370,6 +1416,11 @@ namespace Tyhp.TyhpLang.Emitter
                 case PhpMemberAccessAst memberAccess when memberAccess.Key is PhpNameAst keyName:
                     this._protectedMemberNames.Add(keyName);
                     break;
+                case PhpArgumentAst { Name: PhpNameAst label }:
+                    // `column:` is a parameter name. Qualifying it as the class `Column` emits
+                    // `\Ns\Column: $column`, which PHP cannot parse.
+                    this._protectedArgumentLabels.Add(label);
+                    break;
             }
         }
 
@@ -1381,6 +1432,12 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             var text = name.ValueString ?? "";
+
+            // A named-argument label is an identifier, not a type or a member. Keep the source spelling.
+            if (this._protectedArgumentLabels.Contains(name))
+            {
+                return name;
+            }
 
             // Member positions (`->name`, `::name`, `$arr->key`) are protected from the free-name alias map
             // so a class alias like `Promise` cannot rewrite `$this->promise` or `Route::view`. They still erase
@@ -1785,6 +1842,33 @@ namespace Tyhp.TyhpLang.Emitter
             return checkedType as StructCheckedType;
         }
 
+        /// <summary>
+        /// PHP array keys a spread source always contains: required or defaulted fields.
+        /// A nullable field with no default may be absent, so it is not included. An unknown
+        /// source contributes nothing, and a default is then kept.
+        /// </summary>
+        private IReadOnlySet<string> GuaranteedSpreadKeys(IExpression expression)
+        {
+            ICheckedType? checkedType = null;
+            if (expression is IBase2Ast node)
+            {
+                this.TryGetCheckedExpressionType(node, out checkedType);
+            }
+
+            ObjectDeclarationSymbol? declaration = null;
+            if (checkedType is not null)
+            {
+                declaration = TryGetStructDeclaration(checkedType);
+            }
+
+            if (declaration is null && checkedType is not StructCheckedType)
+            {
+                declaration = this.ResolveStructType(expression);
+            }
+
+            return StructEmissionHelper.CollectGuaranteedSpreadKeys(checkedType, declaration);
+        }
+
         private ObjectDeclarationSymbol? ResolveStructFromNew(PhpNewAst newExpr)
         {
             if (newExpr.ClassName is PhpNameAst name
@@ -1851,9 +1935,81 @@ namespace Tyhp.TyhpLang.Emitter
                 }
             }
 
+            // `$this->options->cwd`: the checker memoizes the whole chain (`cwd`'s type),
+            // not the intermediate `$this->options`. That receiver is a class property
+            // (including a promoted constructor parameter) whose declared type is the struct.
+            if (this.TryResolveStructFromInstanceProperty(expression) is { } fromProperty)
+            {
+                return fromProperty;
+            }
+
             return StructEmissionHelper.ResolveStructTypeFromExpression(
                 expression,
                 this._context.GlobalScope);
+        }
+
+        /// <summary>
+        /// The struct a class or struct property is declared as, when
+        /// <paramref name="expression"/> is <c>$obj-&gt;prop</c> and <c>prop</c>'s declared
+        /// type is a struct. A nullsafe hop stays unresolved here so
+        /// <c>$obj?-&gt;prop-&gt;field</c> keeps PHP's chain short-circuit instead of becoming
+        /// <c>$obj?-&gt;prop['field']</c>.
+        /// </summary>
+        private ObjectDeclarationSymbol? TryResolveStructFromInstanceProperty(IExpression? expression)
+        {
+            if (expression is not PhpDereferenceableAst
+                {
+                    Base: IExpression receiver,
+                    Suffix: PhpInstanceMemberAccessAst memberAccess,
+                })
+            {
+                return null;
+            }
+
+            if (memberAccess.Accessor?.ValueInt64 == TyhpParser.T_NULLSAFE_OBJECT_OPERATOR
+                || this.IsUnresolvedCheckedReceiver(expression))
+            {
+                return null;
+            }
+
+            var memberName = this.GetMemberName(memberAccess.MemberName);
+            if (string.IsNullOrWhiteSpace(memberName))
+            {
+                return null;
+            }
+
+            if (this.ResolveReceiverType(receiver) is not ObjectDeclarationSymbol owner)
+            {
+                return null;
+            }
+
+            var property = TryGetInstanceProperty(owner, memberName);
+            return property?.DeclaredType is null
+                ? null
+                : this.ResolveStructTypeFromTypeExpression(property.DeclaredType);
+        }
+
+        /// <summary>
+        /// Declared instance property <paramref name="memberName"/> on <paramref name="owner"/>
+        /// or a bound ancestor. Inherited members are not copied into
+        /// <see cref="ObjectDeclarationSymbol.Members"/>.
+        /// </summary>
+        private static ObjectPropertySymbol? TryGetInstanceProperty(
+            ObjectDeclarationSymbol owner,
+            string memberName)
+        {
+            var current = owner;
+            for (var depth = 0; current is not null && depth < 32; depth++)
+            {
+                if (WithKeywordHelper.TryGetProperty(current, memberName) is { } property)
+                {
+                    return property;
+                }
+
+                current = current.ExtendsType?.BoundSymbol as ObjectDeclarationSymbol;
+            }
+
+            return null;
         }
 
         private static string? GetClassNameReferenceText(IClassNameReference? className) =>
@@ -1868,6 +2024,13 @@ namespace Tyhp.TyhpLang.Emitter
         private bool TryRewriteExtensionMethodCall(PhpDereferenceableAst callNode, out IBase2Ast rewritten)
         {
             rewritten = callNode;
+
+            // The tree has to see `$s->startsWith($prefix)` as a method call. Splicing first
+            // would leave `\str_starts_with(...)`, which has no tree form (TYHP5024).
+            if (!this._forceExtensionSplice && this.IsInsideExpressionTreeLambda())
+            {
+                return false;
+            }
 
             if (callNode.Suffix is not PhpCallAst call)
             {
@@ -2291,6 +2454,15 @@ namespace Tyhp.TyhpLang.Emitter
             var structDecl = this.ResolveStructType(accessNode.Base as IExpression);
             if (structDecl is null)
             {
+                // A union of structs is still an array at runtime. A field every arm
+                // declares (`$node->kind`, `$value->ok`) erases to that array key.
+                // A field only some arms declare stays `->` until narrowing leaves
+                // the arms that have it, which the single-struct path then erases.
+                if (this.TryRewriteStructUnionPropertyAccess(accessNode, memberAccess, out rewritten))
+                {
+                    return true;
+                }
+
                 return this.TryRewriteAnonymousStructPropertyAccess(accessNode, memberAccess, out rewritten);
             }
 
@@ -2321,6 +2493,108 @@ namespace Tyhp.TyhpLang.Emitter
                 ? this.GuardOptionalStructRead(accessNode, rewrittenNode)
                 : rewrittenNode;
             return true;
+        }
+
+        /// <summary>
+        /// <c>$node-&gt;kind</c> on <c>ExtParseNode</c> (a union of structs) is
+        /// <c>$node['kind']</c>. The rewrite runs only when every concrete arm is a
+        /// struct and they agree on the array key. A class in the union, or two
+        /// arms that store the field under different keys, stays <c>-&gt;</c>.
+        /// </summary>
+        private bool TryRewriteStructUnionPropertyAccess(
+            PhpDereferenceableAst accessNode,
+            PhpInstanceMemberAccessAst memberAccess,
+            out IBase2Ast rewritten)
+        {
+            rewritten = accessNode;
+            if (accessNode.Base is not IBase2Ast baseNode
+                || !this.TryGetCheckedExpressionType(baseNode, out var checkedType))
+            {
+                return false;
+            }
+
+            var memberName = this.GetMemberName(memberAccess.MemberName);
+            if (string.IsNullOrWhiteSpace(memberName)
+                || !TryFindSharedStructUnionProperty(checkedType, memberName, out var property))
+            {
+                return false;
+            }
+
+            var keyExpr = StructEmissionHelper.GetStructArrayKey(property).ToScalarAst(accessNode);
+            var rewrittenNode = PhpDereferenceableAst.CreateFromContext(
+                accessNode.Base!,
+                PhpArrayAccessAst.CreateFromContext(keyExpr, accessNode),
+                accessNode);
+            rewritten = this.IsOptionalStructRead(accessNode, property)
+                ? this.GuardOptionalStructRead(accessNode, rewrittenNode)
+                : rewrittenNode;
+            return true;
+        }
+
+        private static bool TryFindSharedStructUnionProperty(
+            ICheckedType type,
+            string memberName,
+            [NotNullWhen(true)] out ObjectPropertySymbol? property)
+        {
+            property = null;
+            var arms = new List<ICheckedType>();
+            CollectUnionArms(type, arms);
+            if (arms.Count < 2)
+            {
+                return false;
+            }
+
+            StructArrayKey? key = null;
+            var structs = 0;
+            foreach (var arm in arms)
+            {
+                if (arm.IsNever || TypeComparer.IsUnresolvedType(arm))
+                {
+                    continue;
+                }
+
+                if (TypeComparer.TryGetObjectDeclaration(arm) is not { IsStruct: true } decl
+                    || !StructEmissionHelper.TryResolveStructProperty(decl, memberName, out var armProperty)
+                    || armProperty is null)
+                {
+                    return false;
+                }
+
+                var armKey = StructEmissionHelper.GetStructArrayKey(armProperty);
+                if (key is null)
+                {
+                    key = armKey;
+                    property = armProperty;
+                }
+                else if (key != armKey)
+                {
+                    return false;
+                }
+
+                structs++;
+            }
+
+            return structs >= 2 && property is not null;
+        }
+
+        private static void CollectUnionArms(ICheckedType type, List<ICheckedType> arms)
+        {
+            while (type is NullableCheckedType nullable)
+            {
+                type = nullable.InnerType;
+            }
+
+            if (type is UnionCheckedType union)
+            {
+                foreach (var member in union.Members)
+                {
+                    CollectUnionArms(member, arms);
+                }
+
+                return;
+            }
+
+            arms.Add(type);
         }
 
         /// <summary>
@@ -3084,7 +3358,8 @@ namespace Tyhp.TyhpLang.Emitter
                 return typedVar;
             }
 
-            if (ExpressionTreeEmissionHelper.TryRewriteInlineFn(
+            if (assigned is PhpInlineFunctionAst assignedFn
+                && ExpressionTreeEmissionHelper.TryRewriteInlineFn(
                     assigned,
                     typedVar.TypeExpression,
                     this.ResolveTypeSymbolFromTypeExpression,
@@ -3099,10 +3374,158 @@ namespace Tyhp.TyhpLang.Emitter
                 && expressionRewritten is IBase2Ast expressionAst)
             {
                 this._context.RequirePackage("tyhp/lambda");
+                if (!this.IsInsideExpressionTreeLambda())
+                {
+                    this.SpliceExpressionClosure(assignedFn);
+                }
+
                 typedNode.ReplaceChild(assigned, expressionAst);
             }
 
             return typedVar;
+        }
+
+        /// <summary>
+        /// Records arrow <c>fn</c>s that will be rewritten to expression trees, before their
+        /// bodies are walked, so extension calls inside them are not spliced yet.
+        /// </summary>
+        private void NoteExpressionTreeLambda(IBase2Ast node)
+        {
+            if (node is PhpInlineFunctionAst arrow
+                && arrow.IsArrowFunction
+                && this.IsInsideExpressionTreeLambda())
+            {
+                this._expressionTreeLambdas.Add(arrow);
+            }
+
+            switch (node)
+            {
+                case PhpDereferenceableAst callNode when callNode.Suffix is PhpCallAst { Arguments: { } arguments }:
+                    if (this.TryResolveCalleeParameters(callNode, out var parameters, out _))
+                    {
+                        this.NoteExpressionTreeArguments(arguments, parameters);
+                    }
+
+                    break;
+                case PhpNewAst newExpr when newExpr.Arguments is { } ctorArgs
+                    && this.ResolveObjectDeclarationFromClassNameReference(newExpr.ClassName) is { } objectDecl
+                    && TryGetInstanceMethod(objectDecl, "__construct") is { } ctor:
+                    this.NoteExpressionTreeArguments(ctorArgs, ctor.Parameters);
+                    break;
+                case TyhpTypedVarExprAst typed
+                    when typed.AssignedExpression is PhpInlineFunctionAst assigned
+                    && assigned.IsArrowFunction
+                    && typed.TypeExpression is { } type
+                    && this.DeclaredTypeIsExpression(type):
+                    this._expressionTreeLambdas.Add(assigned);
+                    break;
+            }
+        }
+
+        private void NoteExpressionTreeArguments(
+            PhpArgumentListAst arguments,
+            IReadOnlyList<ParameterInfo> parameters)
+        {
+            var positionalIndex = 0;
+            foreach (var arg in arguments.GetAllNotNull())
+            {
+                if (arg.IsVariadic)
+                {
+                    continue;
+                }
+
+                ParameterInfo? param = null;
+                if (arg.Name?.ValueString is { } named)
+                {
+                    param = parameters.FirstOrDefault(p =>
+                        string.Equals(
+                            p.Name.TrimStart('$'),
+                            named.TrimStart('$'),
+                            StringComparison.OrdinalIgnoreCase));
+                }
+                else if (positionalIndex < parameters.Count)
+                {
+                    param = parameters[positionalIndex++];
+                }
+
+                if (param?.DeclaredType is { } declared
+                    && arg.Expression is PhpInlineFunctionAst fn
+                    && fn.IsArrowFunction
+                    && this.DeclaredTypeIsExpression(declared))
+                {
+                    this._expressionTreeLambdas.Add(fn);
+                }
+            }
+        }
+
+        private bool DeclaredTypeIsExpression(ITypeExpression type)
+        {
+            if (ExpressionTreeEmissionHelper.IsExpressionTypeExpression(
+                    type,
+                    this.ResolveTypeSymbolFromTypeExpression))
+            {
+                return true;
+            }
+
+            if (type is PhpTypeExpressionAst { TypeKind: PhpTypeKind.Union, Types: { } members })
+            {
+                foreach (var member in members.GetAllNotNull())
+                {
+                    if (this.DeclaredTypeIsExpression(member))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsInsideExpressionTreeLambda()
+        {
+            foreach (var frame in this._functionStack)
+            {
+                if (frame is PhpInlineFunctionAst fn && this._expressionTreeLambdas.Contains(fn))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Splices extension calls in a tree's backing closure after the tree has been built
+        /// from the unspliced method calls. Nested closures are included.
+        /// </summary>
+        private void SpliceExpressionClosure(PhpInlineFunctionAst closure)
+        {
+            if (closure.Body is not PhpStatementBlockAst body)
+            {
+                return;
+            }
+
+            var previous = this._forceExtensionSplice;
+            this._forceExtensionSplice = true;
+            try
+            {
+                AstWalker.TransformTree(body, this.SpliceExtensionNode);
+            }
+            finally
+            {
+                this._forceExtensionSplice = previous;
+            }
+        }
+
+        private IBase2Ast SpliceExtensionNode(IBase2Ast node)
+        {
+            if (node is PhpDereferenceableAst dereferenceable
+                && this.TryRewriteExtensionMethodCall(dereferenceable, out var rewritten))
+            {
+                return rewritten;
+            }
+
+            return node;
         }
 
         /// <summary>
@@ -3225,7 +3648,8 @@ namespace Tyhp.TyhpLang.Emitter
                 }
 
                 // fn => \Tyhp\Expr::param(...)->…->backedBy(fn)
-                if (ExpressionTreeEmissionHelper.TryRewriteInlineFn(
+                if (arg.Expression is PhpInlineFunctionAst argumentFn
+                    && ExpressionTreeEmissionHelper.TryRewriteInlineFn(
                         arg.Expression,
                         param.DeclaredType,
                         this.ResolveTypeSymbolFromTypeExpression,
@@ -3240,6 +3664,13 @@ namespace Tyhp.TyhpLang.Emitter
                     && expressionRewritten is IBase2Ast expressionAst)
                 {
                     this._context.RequirePackage("tyhp/lambda");
+                    // Nested trees are rebuilt from this fn. Splice only the outermost closure,
+                    // after that rebuild has read the unspliced method calls.
+                    if (!this.IsInsideExpressionTreeLambda())
+                    {
+                        this.SpliceExpressionClosure(argumentFn);
+                    }
+
                     argNode.ReplaceChild(arg.Expression, expressionAst);
                     continue;
                 }

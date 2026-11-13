@@ -63,6 +63,16 @@ namespace Tyhp.TyhpLang.Emitter
                     continue;
                 }
 
+                if (op == OverloadableOperator.Default)
+                {
+                    if (!isExtension)
+                    {
+                        this.EmitDefaultOperator(parent, forms, emittedNames);
+                    }
+
+                    continue;
+                }
+
                 if (forms[0].RightParameter == null)
                 {
                     this.EmitUnaryGroup(parent, op, forms, isExtension, emittedNames);
@@ -135,6 +145,50 @@ namespace Tyhp.TyhpLang.Emitter
                 "else {",
                 block => this.EmitOperatorThrow(block, forms[0], "$l", "$r")));
             this.EmitBraceSegments(forms[0], methodBlock, EmitType.FunctionStatement, segments);
+        }
+
+        private void EmitDefaultOperator(
+            EmitItem parent,
+            IReadOnlyList<TyhpOperatorOverloadAst> forms,
+            HashSet<string> emittedNames)
+        {
+            var methodName = GeneratedNames.OperatorDefaultMethod;
+            if (!emittedNames.Add(methodName))
+            {
+                return;
+            }
+
+            TyhpOperatorOverloadAst? form = null;
+            foreach (var candidate in forms)
+            {
+                if (candidate.Body is not null
+                    && !candidate.IsExtensionOperator
+                    && !candidate.IsInlineExtension)
+                {
+                    form = candidate;
+                    break;
+                }
+            }
+
+            if (form is null)
+            {
+                return;
+            }
+
+            var (isAbstract, isFinal) = this.GetModifierFlags(forms);
+            if (isAbstract)
+            {
+                return;
+            }
+
+            var prefix = (isFinal ? "final " : string.Empty) + "public static function";
+            var methodBlock = EmitItem.BlockBraceNextLine(
+                form,
+                EmitType.ObjectStaticMethods,
+                $"{prefix} {methodName}(): static",
+                "}",
+                parent);
+            this.EmitFunctionBody(form.Body, methodBlock);
         }
 
         private void EmitUnaryGroup(

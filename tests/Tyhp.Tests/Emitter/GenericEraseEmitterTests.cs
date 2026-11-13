@@ -38,7 +38,7 @@ public class GenericEraseEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Box<T> {
-                public T $value;
+                public ?T $value = null;
             }
             """);
 
@@ -56,7 +56,7 @@ public class GenericEraseEmitterTests
             <?tyhp
             #[\Tyhp\EraseGeneric]
             class Box<T> {
-                public T $value;
+                public ?T $value = null;
             }
             """);
 
@@ -75,7 +75,7 @@ public class GenericEraseEmitterTests
             <?tyhp
             #[\Tyhp\EraseGeneric]
             class Box<T> {
-                public T $value;
+                public ?T $value = null;
                 public function describe(): \Tyhp\Type {
                     return typeof(T);
                 }
@@ -95,7 +95,7 @@ public class GenericEraseEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Box<T> {
-                public T $value;
+                public ?T $value = null;
             }
             function make(): Box {
                 return new Box<int>();
@@ -112,7 +112,7 @@ public class GenericEraseEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Box<T> {
-                public T $value;
+                public ?T $value = null;
             }
             function make(): Box<int> {
                 return new Box();
@@ -254,6 +254,56 @@ public class GenericEraseEmitterTests
 
         php.Should().Contain("function walk(\\Iterator $it): void");
         php.Should().NotContain("Generic::bind");
+    }
+
+    [Fact]
+    public void Emit_UnsupportedCallableLayout_Reports5023()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "tyhp-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var tyhpPath = Path.Combine(tempDir, "main.tyhp");
+        var defPath = Path.Combine(tempDir, "lib.tyhpdef");
+        File.WriteAllText(tyhpPath, """
+            <?tyhp
+            function run(string $json): mixed {
+                return \Vendor\decode<int>($json);
+            }
+            """);
+        File.WriteAllText(defPath, """
+            <?tyhpdef
+            namespace Vendor;
+            #[\Tyhp\GenericRuntime(erased: false, binder: "decode", layouts: [3], compiler: "future")]
+            function decode<T>(string $json): T;
+            """);
+
+        try
+        {
+            using var compilationService = new CompilationService();
+            var result = compilationService.ParseFiles(
+                [tyhpPath, defPath],
+                IsolatedCompilation.CreateOptions(tempDir, phpVersion: "8.4"));
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["output:phpVersion"] = "8.4",
+                })
+                .Build();
+            var project = new Project(configuration);
+            var context = EmitContext.Create(
+                result.GlobalScope,
+                result.Diagnostics,
+                project,
+                result.RequiresRuntimeGenericTracking,
+                requiresGenericVariant: result.RequiresGenericVariant,
+                genericCallTargets: result.GenericCallTargets);
+            new TyhpEmitter(context).Emit(result.ParsedFiles!);
+            result.Diagnostics.Errors.Should().Contain(d =>
+                d.Code == MessageCode.EmitterGenericRuntimeLayoutUnsupported);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
+        }
     }
 
     [Fact]

@@ -46,9 +46,16 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return;
             }
 
-            ValidateParameterCount(overload, isUnary, opEnum, state, diagnostics);
-            ValidateSelfParameter(overload, opEnum, state, diagnostics);
-            ValidateConvertNotSelfToSelf(overload, opEnum, state, diagnostics);
+            if (opEnum == OverloadableOperator.Default)
+            {
+                ValidateDefaultOperator(overload, state, diagnostics);
+            }
+            else
+            {
+                ValidateParameterCount(overload, isUnary, opEnum, state, diagnostics);
+                ValidateSelfParameter(overload, opEnum, state, diagnostics);
+                ValidateConvertNotSelfToSelf(overload, opEnum, state, diagnostics);
+            }
 
             // SuppressChildTraversal means CheckNode never reaches LeftParameter/RightParameter, so
             // #[…] on an operand (attributedParameter operands) would otherwise never be validated —
@@ -83,13 +90,100 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (overload.Body is not null)
             {
                 var bodyState = state.Split(ScopeType.StaticMethodDeclaration);
+                if (opEnum == OverloadableOperator.Default
+                    && OperatorDefault.ReturnTypeIsSelf(overload.ReturnType)
+                    && state.EnclosingObjectType is { } expectedReturn)
+                {
+                    bodyState.ExpectedReturnType = expectedReturn;
+                }
+
                 // Same seed as DeclarationRule.CheckMethod / ExtensionRule.RegisterExtensionParameters:
                 // Split(StaticMethodDeclaration) starts with an empty Variables map, so $value
                 // would otherwise be unresolved and (float)$value->value would TYHP4205.
                 RegisterOperatorParameter(overload.LeftParameter, bodyState, context);
                 RegisterOperatorParameter(overload.RightParameter, bodyState, context);
                 context.CheckStatementBlock(overload.Body, bodyState);
+                if (opEnum == OverloadableOperator.Default && state.EnclosingObject is { } owner)
+                {
+                    OperatorDefault.CheckRecursion(overload, owner, bodyState, context, diagnostics);
+                }
             }
+        }
+
+        private static void ValidateDefaultOperator(
+            TyhpOperatorOverloadAst overload,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (overload.LeftParameter is not null || overload.RightParameter is not null)
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    overload.LeftParameter ?? (IBase2Ast)overload,
+                    MessageCode.CheckerOperatorDefaultHasParameters);
+            }
+
+            if (!OperatorDefault.ReturnTypeIsSelf(overload.ReturnType))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    overload.ReturnType ?? (IBase2Ast)overload,
+                    MessageCode.CheckerOperatorDefaultReturnNotSelf,
+                    OperatorDefault.SpelledTypeName(overload.ReturnType) ?? "no type");
+            }
+
+            if (DisallowedDefaultTarget(overload, state) is { } target)
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    overload,
+                    MessageCode.CheckerOperatorDefaultNotAllowed,
+                    target);
+            }
+        }
+
+        private static string? DisallowedDefaultTarget(
+            TyhpOperatorOverloadAst overload,
+            CheckerState state)
+        {
+            if (overload.IsExtensionOperator
+                || overload.IsInlineExtension
+                || state.EnclosingObject?.IsExtension == true)
+            {
+                return "an extension";
+            }
+
+            if (overload.Modifiers.Contains(PhpModifier.Abstract))
+            {
+                return "an abstract operator";
+            }
+
+            var kind = state.EnclosingObject?.ObjectKind;
+            if (kind == PhpTypeDeclType.Interface)
+            {
+                return "an interface";
+            }
+
+            if (kind == PhpTypeDeclType.Trait)
+            {
+                return "a trait";
+            }
+
+            if ((state.Modifiers & MemberModifier.Abstract) != 0
+                || (state.EnclosingObject?.Visibility & MemberModifier.Abstract) != 0)
+            {
+                return "an abstract class";
+            }
+
+            if (kind is not null && kind is not (PhpTypeDeclType.Class or PhpTypeDeclType.Enum))
+            {
+                return "this type";
+            }
+
+            return null;
         }
 
         private static void RegisterOperatorParameter(

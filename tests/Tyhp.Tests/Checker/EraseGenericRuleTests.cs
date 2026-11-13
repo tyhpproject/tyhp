@@ -83,7 +83,7 @@ public class EraseGenericRuleTests
             <?tyhp
             #[\Tyhp\EraseGeneric]
             class Box<T> {
-                public T $value;
+                public function __construct(public T $value) {}
             }
             """);
 
@@ -100,7 +100,7 @@ public class EraseGenericRuleTests
             <?tyhp
             #[\Tyhp\EraseGeneric]
             class Box<T> {
-                public T $value;
+                public function __construct(public T $value) {}
                 public function describe(): \Tyhp\Type {
                     return typeof(T);
                 }

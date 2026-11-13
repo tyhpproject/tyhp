@@ -47,6 +47,13 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerRuleContext context,
             DiagnosticBag diagnostics)
         {
+            if (state.EnclosingObject is { } ctorOwner
+                && PropertyInitializationAnalysis.IsParentConstructorCall(deref))
+            {
+                PropertyInitializationAnalysis.CreditParentConstructorCall(
+                    state, ctorOwner, context.SymbolTree, context.GlobalScope);
+            }
+
             // PhpDereferenceableAst suppresses the generic child walk, so nested expression
             // rules (yield / await / unary / binary / …) never see a bare call-argument
             // statement unless we CheckNode the arguments here. Inline functions are skipped
@@ -942,9 +949,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             if (arg.Expression is PhpInlineFunctionAst closure)
             {
-                var ambient = state.SnapShot();
-                ClosureParameterInference.SetExpectedClosureTypeFromArgument(paramType, ambient);
-                context.CheckNode(closure, ambient);
+                CheckInlineFunctionArgument(
+                    arg, closure, paramType, state, context, diagnostics, allowOperatorConvert: false);
                 return;
             }
 
@@ -2660,9 +2666,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
         {
             if (arg.Expression is PhpInlineFunctionAst closure)
             {
-                var ambient = state.SnapShot();
-                ClosureParameterInference.SetExpectedClosureTypeFromArgument(expectedParamType, ambient);
-                context.CheckNode(closure, ambient);
+                CheckInlineFunctionArgument(
+                    arg, closure, expectedParamType, state, context, diagnostics, allowOperatorConvert: false);
                 return;
             }
 
@@ -2784,6 +2789,147 @@ namespace Tyhp.TyhpLang.Checker.Rules
             return true;
         }
 
+        /// <summary>
+        /// Checks an inline function argument against <paramref name="expectedParamType"/>.
+        /// <see cref="ClosureRule"/> applies the expected callable return only when the
+        /// closure omits its return type. An explicit return is compared with that facet
+        /// afterwards, using the same assignability as a non-inline argument (TYHP4010).
+        /// </summary>
+        private static void CheckInlineFunctionArgument(
+            PhpArgumentAst arg,
+            PhpInlineFunctionAst closure,
+            ICheckedType expectedParamType,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics,
+            bool allowOperatorConvert)
+        {
+            // Pass the caller state as ambient so ClosureRule can clone `use ($x)` captures
+            // from real outer locals. ClosureRule splits its own body scope.
+            var ambient = state.SnapShot();
+            ClosureParameterInference.SetExpectedClosureTypeFromArgument(expectedParamType, ambient);
+            context.CheckNode(closure, ambient);
+
+            if (closure.ReturnType is null
+                || ExplicitClosureReturnIsCompatible(
+                    closure, expectedParamType, state, context, allowOperatorConvert))
+            {
+                return;
+            }
+
+            var argType = context.ResolveExpressionType(closure, state);
+            CheckerHelpers.ReportError(
+                diagnostics,
+                state,
+                arg,
+                MessageCode.CheckerIncompatibleArgumentType,
+                argType.DisplayName,
+                expectedParamType.DisplayName);
+        }
+
+        /// <summary>
+        /// True when an explicit closure return is assignable to the expected callable
+        /// facet's return, or when that comparison does not apply. Parameter mismatches
+        /// are already reported while the closure is checked.
+        /// </summary>
+        private static bool ExplicitClosureReturnIsCompatible(
+            PhpInlineFunctionAst closure,
+            ICheckedType expectedParamType,
+            CheckerState state,
+            CheckerRuleContext context,
+            bool allowOperatorConvert)
+        {
+            var argType = context.ResolveExpressionType(closure, state);
+            if (IsArgumentCompatible(argType, expectedParamType, state, context, allowOperatorConvert))
+            {
+                return true;
+            }
+
+            var parameterCount = closure.Parameters?.GetAllNotNull().Count() ?? 0;
+            IReadOnlyList<CallableCheckedType> expectedFacets =
+                CallableArityFacetBuilder.TrySelectCallableFacetForClosure(
+                    expectedParamType, parameterCount, out var expectedFacet)
+                && expectedFacet is not null
+                    ? [expectedFacet]
+                    // A closure with fewer parameters than every expected facet selects none.
+                    // Its return still has to match one of them.
+                    : CallableArityFacetBuilder.GetCallableFacets(expectedParamType);
+            if (expectedFacets.Count == 0)
+            {
+                // No callable facet to compare. Parameter errors were already reported.
+                return true;
+            }
+
+            // Probe with the expected parameters so a parameter mismatch, already reported
+            // on the closure, is not also TYHP4010. Incompatibility is then the return,
+            // including callable return covariance.
+            if (CallableArityFacetBuilder.TrySelectCallableFacetForClosure(
+                    argType, parameterCount, out var actualFacet)
+                && actualFacet is not null
+                && ClosureReturnIsCompatibleWithAny(
+                    expectedFacets, actualFacet.ReturnType, state, context, allowOperatorConvert))
+            {
+                return true;
+            }
+
+            // An async closure is typed as callable(): Promise<R> while its annotation is R.
+            // Executor parameters (callable(): T after __Awaited<T> settles) match R.
+            if (closure.ReturnType is null)
+            {
+                return false;
+            }
+
+            var declaredReturn = context.ResolveTypeAnnotation(
+                closure.ReturnType, state, isReturnTypePosition: true);
+            return ClosureReturnIsCompatibleWithAny(
+                expectedFacets, declaredReturn, state, context, allowOperatorConvert);
+        }
+
+        private static bool ClosureReturnIsCompatibleWithAny(
+            IReadOnlyList<CallableCheckedType> expectedFacets,
+            ICheckedType actualReturn,
+            CheckerState state,
+            CheckerRuleContext context,
+            bool allowOperatorConvert)
+        {
+            foreach (var expectedFacet in expectedFacets)
+            {
+                if (ClosureReturnIsCompatible(
+                        expectedFacet, actualReturn, state, context, allowOperatorConvert))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool ClosureReturnIsCompatible(
+            CallableCheckedType expectedFacet,
+            ICheckedType actualReturn,
+            CheckerState state,
+            CheckerRuleContext context,
+            bool allowOperatorConvert)
+        {
+            var probe = new CallableCheckedType(
+                expectedFacet.ParameterTypes,
+                actualReturn,
+                expectedFacet.ParameterNames,
+                expectedFacet.LastParameterIsVariadic,
+                expectedFacet.IsAnyArity);
+            return IsArgumentCompatible(probe, expectedFacet, state, context, allowOperatorConvert);
+        }
+
+        private static bool IsArgumentCompatible(
+            ICheckedType source,
+            ICheckedType target,
+            CheckerState state,
+            CheckerRuleContext context,
+            bool allowOperatorConvert) =>
+            allowOperatorConvert
+                ? context.IsAssignableAllowingOperatorConvert(source, target, state)
+                : context.IsAssignable(source, target, state);
+
         private static void CheckArgumentAgainstParameterType(
             PhpArgumentAst arg,
             ICheckedType expectedParamType,
@@ -2817,17 +2963,19 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             if (ExternTypeUse.IsTyhpSource(state, arg))
             {
-                var externParams = ExternTypeUse.CollectExternSymbols(expectedParamType);
-                var reported = false;
-                foreach (var externParam in externParams)
+                var externParams = ExternTypeUse.CollectExternSymbols(expectedParamType).ToList();
+                if (externParams.Count > 0)
                 {
-                    ExternTypeUse.Report(diagnostics, state, arg, externParam);
-                    reported = true;
-                }
+                    var argumentType = context.ResolveExpressionType(arg.Expression, state);
+                    if (!ExternTypeUse.AssignsWithoutExtern(argumentType, expectedParamType, state, context))
+                    {
+                        foreach (var externParam in externParams)
+                        {
+                            ExternTypeUse.Report(diagnostics, state, arg, externParam);
+                        }
 
-                if (reported)
-                {
-                    return;
+                        return;
+                    }
                 }
             }
 
@@ -2917,9 +3065,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 // here first emptied Variables, so captures were typed as unresolved/mixed
                 // and nested calls like `self::_await($promise)` / `$generator->valid()`
                 // falsely failed. ClosureRule splits its own body scope.
-                var ambient = state.SnapShot();
-                ClosureParameterInference.SetExpectedClosureTypeFromArgument(expectedParamType, ambient);
-                context.CheckNode(closure, ambient);
+                CheckInlineFunctionArgument(
+                    arg, closure, expectedParamType, state, context, diagnostics, allowOperatorConvert: true);
                 return;
             }
 
@@ -3680,6 +3827,9 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 _ => TypeComparer.IsVoidType(bound),
             };
 
+        private static ICheckedType WideClosureThisPlaceholder() =>
+            new NullableCheckedType(CheckedTypes.FromSymbol(new BuiltInTypeSymbol("object")));
+
         private static ICheckedType CovariantPlaceholder(
             GenericTypeParameterSymbol parameter,
             IReadOnlySet<GenericTypeParameterSymbol>? voidAdmitting) =>
@@ -3797,6 +3947,35 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     if (!covariant && !IsCovariantContainer(generic.BaseType))
                     {
                         result = CheckedTypes.Never;
+                        return true;
+                    }
+
+                    // `\Closure`'s this/scope slots are invariant, and `mixed` is not a wide
+                    // slot, so `\Closure<shape, null, Host>` is not assignable to
+                    // `\Closure<mixed, mixed, mixed>`. Unbound this/scope stay gradual
+                    // (`?object` / `null`), the same omitted-slot rule as a one-arg Closure.
+                    if (covariant && CallableArityFacetBuilder.IsClosureTypeName(generic.BaseType))
+                    {
+                        var closureArgs = new List<ICheckedType>(generic.TypeArguments.Count);
+                        for (var i = 0; i < generic.TypeArguments.Count; i++)
+                        {
+                            var argument = generic.TypeArguments[i];
+                            if (i > 0 && ContainsUnboundCalleeGeneric(argument, genericParameters))
+                            {
+                                closureArgs.Add(i == 1 ? WideClosureThisPlaceholder() : CheckedTypes.Null);
+                                continue;
+                            }
+
+                            if (!TrySubstituteUnboundShape(
+                                    argument, genericParameters, covariant, out var closureMapped, voidAdmitting))
+                            {
+                                return false;
+                            }
+
+                            closureArgs.Add(closureMapped);
+                        }
+
+                        result = generic.With(generic.BaseType, closureArgs);
                         return true;
                     }
 

@@ -608,7 +608,7 @@ namespace Tyhp.TyhpLang.Emitter
                     {
                         for (var i = phpVars.Count - 1; i >= 0; i--)
                         {
-                            EmitDisposeForUsingResource(usingBlock, block, phpVars[i], isAsync, collectErrors: false);
+                            this.EmitDisposeForUsingResource(usingBlock, block, phpVars[i], isAsync, collectErrors: false);
                         }
 
                         return;
@@ -617,7 +617,7 @@ namespace Tyhp.TyhpLang.Emitter
                     EmitItem.Line(usingBlock, EmitType.SubBlockStatement, "$__disposeErrors = [];", block);
                     for (var i = phpVars.Count - 1; i >= 0; i--)
                     {
-                        EmitDisposeForUsingResource(usingBlock, block, phpVars[i], isAsync, collectErrors: true);
+                        this.EmitDisposeForUsingResource(usingBlock, block, phpVars[i], isAsync, collectErrors: true);
                     }
 
                     var throwIfErrors = EmitItem.Block(
@@ -637,7 +637,7 @@ namespace Tyhp.TyhpLang.Emitter
             return this.ApplyDocComment(usingBlock, first);
         }
 
-        private static void EmitDisposeForUsingResource(
+        private void EmitDisposeForUsingResource(
             TyhpUsingBlockAst usingBlock,
             EmitItem finallyBlock,
             string phpVar,
@@ -646,21 +646,21 @@ namespace Tyhp.TyhpLang.Emitter
         {
             if (isAsync)
             {
-                EmitAsyncDisposeForUsingResource(usingBlock, finallyBlock, phpVar, collectErrors);
+                this.EmitAsyncDisposeForUsingResource(usingBlock, finallyBlock, phpVar, collectErrors);
                 return;
             }
 
             var disposeGuard = EmitItem.Block(
                 usingBlock,
                 EmitType.SubBlockStatement,
-                $"if ({phpVar} instanceof \\Tyhp\\Contracts\\IsDisposable) {{",
+                $"if ({DisposableGuardCondition(phpVar, "\\Tyhp\\Contracts\\IsDisposable")}) {{",
                 "}",
                 finallyBlock);
 
             EmitDisposeCall(usingBlock, disposeGuard, $"{phpVar}->dispose();", collectErrors);
         }
 
-        private static void EmitAsyncDisposeForUsingResource(
+        private void EmitAsyncDisposeForUsingResource(
             TyhpUsingBlockAst usingBlock,
             EmitItem finallyBlock,
             string phpVar,
@@ -670,7 +670,7 @@ namespace Tyhp.TyhpLang.Emitter
             var asyncGuard = EmitItem.Block(
                 usingBlock,
                 EmitType.SubBlockStatement,
-                $"if ({phpVar} instanceof \\Tyhp\\Contracts\\AsyncIsDisposable) {{",
+                $"if ({DisposableGuardCondition(phpVar, "\\Tyhp\\Contracts\\AsyncIsDisposable")}) {{",
                 "}",
                 finallyBlock);
             EmitDisposeCall(
@@ -682,7 +682,7 @@ namespace Tyhp.TyhpLang.Emitter
             var syncGuard = EmitItem.Block(
                 usingBlock,
                 EmitType.SubBlockStatement,
-                $"elseif ({phpVar} instanceof \\Tyhp\\Contracts\\IsDisposable) {{",
+                $"elseif ({DisposableGuardCondition(phpVar, "\\Tyhp\\Contracts\\IsDisposable")}) {{",
                 "}",
                 finallyBlock);
             EmitDisposeCall(usingBlock, syncGuard, $"{phpVar}->dispose();", collectErrors);

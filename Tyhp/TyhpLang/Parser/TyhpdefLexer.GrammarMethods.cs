@@ -7,6 +7,14 @@ namespace Tyhp.TyhpLang.Parser {
 
     public partial class TyhpdefLexer : Lexer {
         protected string _languageMode = "";
+
+        /// <summary>
+        /// <c>&lt;?=</c> in a <c>.tyhp</c> file is a Tyhp echo. The shared open-tag
+        /// rule assigns <c>phpEcho</c>; this flag replaces that with <c>tyhp</c> so
+        /// Tyhp keywords are active inside the echo. <c>.php</c> files leave it false.
+        /// </summary>
+        private bool _echoInTyhp;
+
         protected bool _taglessMode = false;
         protected string _taglessLanguageMode = "";
         protected DiagnosticBag? _taglessDiagnostics;
@@ -29,10 +37,32 @@ namespace Tyhp.TyhpLang.Parser {
         private int _prepareLessColumn = -1;
         private readonly HashSet<IToken> _reclassifyCandidates = new();
 
-        // `x with [key => value, …]` key tracking (see ReclassifyWithInitializerKey).
+        // `x with [key => value, …]` and `new Name[key => value, …]` key tracking
+        // (see ReclassifyWithInitializerKey).
         private readonly Stack<int> _withInitializerDepths = new();
         private int _withBracketDepth;
         private int _previousDefaultTokenType = -1;
+        private StructInitializerScan _structInitScan;
+        private int _structInitAngleDepth;
+        private int _structInitBraceDepth;
+
+        private enum StructInitializerScan
+        {
+            None = 0,
+            SawNew,
+            SawName,
+            SawStructWord,
+            InGeneric,
+            AfterGeneric,
+            SawExtends,
+            SawExtendsName,
+            InExtendsGeneric,
+            AfterExtendsGeneric,
+            SawStructParen,
+            SawStructEmptyParen,
+            InAnonBody,
+            AfterAnonBody,
+        }
 
         private List<int> shouldPopList = new List<int>();
 
@@ -103,6 +133,14 @@ namespace Tyhp.TyhpLang.Parser {
             return nextToken?.Type;
         }
 
+        /// <summary>
+        /// <c>&lt;?=</c> lexes as Tyhp when <paramref name="enabled"/> is true.
+        /// </summary>
+        public void ConfigureEchoInTyhp(bool enabled)
+        {
+            this._echoInTyhp = enabled;
+        }
+
         public void ConfigureTagless(
             bool enabled,
             string languageMode,
@@ -110,6 +148,7 @@ namespace Tyhp.TyhpLang.Parser {
             string? fileName = null
         )
         {
+            this.ConfigureEchoInTyhp(IsTyhpSourceFile(fileName));
             this._taglessMode = enabled;
             this._taglessLanguageMode = languageMode ?? "";
             this._taglessDiagnostics = diagnostics;
@@ -179,6 +218,9 @@ namespace Tyhp.TyhpLang.Parser {
             this._withInitializerDepths.Clear();
             this._withBracketDepth = 0;
             this._previousDefaultTokenType = -1;
+            this._structInitScan = StructInitializerScan.None;
+            this._structInitAngleDepth = 0;
+            this._structInitBraceDepth = 0;
             this.ApplyTaglessStartMode();
         }
 
@@ -289,12 +331,15 @@ namespace Tyhp.TyhpLang.Parser {
         }
 
         /// <summary>
-        /// Records the previous default-channel token, then, inside the array literal that
-        /// follows <c>with</c>, retokenizes a reserved word used as a bare key
-        /// (<c>with [class =&gt; 'X', function =&gt; 'f']</c>) as <c>T_STRING</c>. Only a word
+        /// Records the previous default-channel token, then, inside an initializer array,
+        /// retokenizes a reserved word used as a bare key
+        /// (<c>with [class =&gt; 'X']</c>, <c>new Opts[class =&gt; 'X']</c>,
+        /// <c>new Box&lt;int&gt;[class =&gt; 'X']</c>,
+        /// <c>new struct { … }[class =&gt; 'X']</c>) as <c>T_STRING</c>. Only a word
         /// in key position (right after the opening <c>[</c> or a <c>,</c> of that array) and
         /// followed by <c>=&gt;</c> changes. The previous-token record is what lets
         /// <c>function await</c> stay an identifier; the key retokenizing is tyhp-only.
+        /// <c>new $classes['k']</c> and <c>new Inner()['a']</c> do not open an initializer.
         /// </summary>
         private void ReclassifyWithInitializerKey(CommonToken token)
         {
@@ -309,25 +354,31 @@ namespace Tyhp.TyhpLang.Parser {
 
             if (this._languageMode != "tyhp")
             {
+                this._structInitScan = StructInitializerScan.None;
+                this._structInitAngleDepth = 0;
+                this._structInitBraceDepth = 0;
                 return;
             }
 
+            bool isBracket = false;
             switch (type)
             {
                 case TyhpdefLexer.T_OPEN_SQUARE_BRACE:
                     this._withBracketDepth++;
-                    if (previous == TyhpdefLexer.T_TYHP_WITH)
+                    if (previous == TyhpdefLexer.T_TYHP_WITH || this.IsStructInitializerOpenBracket())
                     {
                         this._withInitializerDepths.Push(this._withBracketDepth);
                     }
 
-                    return;
+                    isBracket = true;
+                    break;
                 case TyhpdefLexer.T_OPEN_ROUND_BRACE:
                 case TyhpdefLexer.T_OPEN_CURLY_BRACE:
                 case TyhpdefLexer.T_DOLLAR_OPEN_CURLY_BRACES:
                 case TyhpdefLexer.T_ATTRIBUTE:
                     this._withBracketDepth++;
-                    return;
+                    isBracket = true;
+                    break;
                 case TyhpdefLexer.T_CLOSE_SQUARE_BRACE:
                 case TyhpdefLexer.T_CLOSE_ROUND_BRACE:
                 case TyhpdefLexer.T_CLOSE_CURLY_BRACE:
@@ -342,7 +393,14 @@ namespace Tyhp.TyhpLang.Parser {
                         this._withBracketDepth--;
                     }
 
-                    return;
+                    isBracket = true;
+                    break;
+            }
+
+            this.AdvanceStructInitializerScan(token);
+            if (isBracket)
+            {
+                return;
             }
 
             if (type == TyhpdefLexer.T_STRING
@@ -360,6 +418,261 @@ namespace Tyhp.TyhpLang.Parser {
                 this._previousDefaultTokenType = TyhpdefLexer.T_STRING;
             }
         }
+
+        /// <summary>
+        /// True when the current <c>[</c> opens <c>new Name[…]</c>, <c>new Name&lt;T&gt;[…]</c>,
+        /// or <c>new struct { … }[…]</c>. Called before the scan consumes this bracket.
+        /// </summary>
+        private bool IsStructInitializerOpenBracket()
+            => this._structInitScan is StructInitializerScan.SawName
+                or StructInitializerScan.SawStructWord
+                or StructInitializerScan.AfterGeneric
+                or StructInitializerScan.AfterAnonBody;
+
+        private void AdvanceStructInitializerScan(CommonToken token)
+        {
+            int type = token.Type;
+            switch (this._structInitScan)
+            {
+                case StructInitializerScan.None:
+                    if (type == TyhpdefLexer.T_NEW)
+                    {
+                        this._structInitScan = StructInitializerScan.SawNew;
+                    }
+
+                    return;
+                case StructInitializerScan.SawNew:
+                    if (IsStaticClassNameToken(type))
+                    {
+                        this._structInitScan = IsStructWord(token)
+                            ? StructInitializerScan.SawStructWord
+                            : StructInitializerScan.SawName;
+                        return;
+                    }
+
+                    this.RestartStructInitializerScan(token);
+                    return;
+                case StructInitializerScan.SawName:
+                    if (type == TyhpdefLexer.T_SYM_LT)
+                    {
+                        this._structInitScan = StructInitializerScan.InGeneric;
+                        this._structInitAngleDepth = 1;
+                        return;
+                    }
+
+                    if (type == TyhpdefLexer.T_OPEN_SQUARE_BRACE)
+                    {
+                        this._structInitScan = StructInitializerScan.None;
+                        return;
+                    }
+
+                    this.RestartStructInitializerScan(token);
+                    return;
+                case StructInitializerScan.SawStructWord:
+                    if (type == TyhpdefLexer.T_SYM_LT)
+                    {
+                        this._structInitScan = StructInitializerScan.InGeneric;
+                        this._structInitAngleDepth = 1;
+                        return;
+                    }
+
+                    if (type == TyhpdefLexer.T_OPEN_SQUARE_BRACE)
+                    {
+                        this._structInitScan = StructInitializerScan.None;
+                        return;
+                    }
+
+                    if (type == TyhpdefLexer.T_EXTENDS)
+                    {
+                        this._structInitScan = StructInitializerScan.SawExtends;
+                        return;
+                    }
+
+                    if (type == TyhpdefLexer.T_OPEN_ROUND_BRACE)
+                    {
+                        this._structInitScan = StructInitializerScan.SawStructParen;
+                        return;
+                    }
+
+                    if (type == TyhpdefLexer.T_OPEN_CURLY_BRACE)
+                    {
+                        this._structInitScan = StructInitializerScan.InAnonBody;
+                        this._structInitBraceDepth = 1;
+                        return;
+                    }
+
+                    this.RestartStructInitializerScan(token);
+                    return;
+                case StructInitializerScan.InGeneric:
+                    this.AdvanceGenericDepth(token, StructInitializerScan.AfterGeneric);
+                    return;
+                case StructInitializerScan.AfterGeneric:
+                    this._structInitScan = StructInitializerScan.None;
+                    if (type != TyhpdefLexer.T_OPEN_SQUARE_BRACE)
+                    {
+                        this.RestartStructInitializerScan(token);
+                    }
+
+                    return;
+                case StructInitializerScan.SawExtends:
+                    if (IsStaticClassNameToken(type))
+                    {
+                        this._structInitScan = StructInitializerScan.SawExtendsName;
+                        return;
+                    }
+
+                    this.RestartStructInitializerScan(token);
+                    return;
+                case StructInitializerScan.SawExtendsName:
+                    if (type == TyhpdefLexer.T_SYM_LT)
+                    {
+                        this._structInitScan = StructInitializerScan.InExtendsGeneric;
+                        this._structInitAngleDepth = 1;
+                        return;
+                    }
+
+                    if (type == TyhpdefLexer.T_OPEN_CURLY_BRACE)
+                    {
+                        this._structInitScan = StructInitializerScan.InAnonBody;
+                        this._structInitBraceDepth = 1;
+                        return;
+                    }
+
+                    this.RestartStructInitializerScan(token);
+                    return;
+                case StructInitializerScan.InExtendsGeneric:
+                    this.AdvanceGenericDepth(token, StructInitializerScan.AfterExtendsGeneric);
+                    return;
+                case StructInitializerScan.AfterExtendsGeneric:
+                    if (type == TyhpdefLexer.T_OPEN_CURLY_BRACE)
+                    {
+                        this._structInitScan = StructInitializerScan.InAnonBody;
+                        this._structInitBraceDepth = 1;
+                        return;
+                    }
+
+                    this.RestartStructInitializerScan(token);
+                    return;
+                case StructInitializerScan.SawStructParen:
+                    if (type == TyhpdefLexer.T_CLOSE_ROUND_BRACE)
+                    {
+                        this._structInitScan = StructInitializerScan.SawStructEmptyParen;
+                        return;
+                    }
+
+                    this.RestartStructInitializerScan(token);
+                    return;
+                case StructInitializerScan.SawStructEmptyParen:
+                    if (type == TyhpdefLexer.T_OPEN_CURLY_BRACE)
+                    {
+                        this._structInitScan = StructInitializerScan.InAnonBody;
+                        this._structInitBraceDepth = 1;
+                        return;
+                    }
+
+                    this.RestartStructInitializerScan(token);
+                    return;
+                case StructInitializerScan.InAnonBody:
+                    if (type == TyhpdefLexer.T_OPEN_CURLY_BRACE)
+                    {
+                        this._structInitBraceDepth++;
+                    }
+                    else if (type == TyhpdefLexer.T_CLOSE_CURLY_BRACE)
+                    {
+                        this._structInitBraceDepth--;
+                        if (this._structInitBraceDepth <= 0)
+                        {
+                            this._structInitScan = StructInitializerScan.AfterAnonBody;
+                            this._structInitBraceDepth = 0;
+                        }
+                    }
+
+                    return;
+                case StructInitializerScan.AfterAnonBody:
+                    this._structInitScan = StructInitializerScan.None;
+                    if (type != TyhpdefLexer.T_OPEN_SQUARE_BRACE)
+                    {
+                        this.RestartStructInitializerScan(token);
+                    }
+
+                    return;
+            }
+        }
+
+        private void AdvanceGenericDepth(CommonToken token, StructInitializerScan whenClosed)
+        {
+            int type = token.Type;
+            if (type == TyhpdefLexer.T_SYM_LT)
+            {
+                this._structInitAngleDepth++;
+                return;
+            }
+
+            if (type == TyhpdefLexer.T_SYM_GT)
+            {
+                this._structInitAngleDepth--;
+            }
+            else if (type == TyhpdefLexer.T_SR)
+            {
+                this._structInitAngleDepth -= 2;
+            }
+            else if (type == TyhpdefLexer.T_VARIABLE
+                || type == TyhpdefLexer.T_SYM_SEMICOLON
+                || type == TyhpdefLexer.T_OPEN_CURLY_BRACE
+                || type == TyhpdefLexer.T_CLOSE_CURLY_BRACE
+                || type == TyhpdefLexer.T_CLOSE_TAG
+                || type == TyhpdefLexer.T_OPEN_SQUARE_BRACE)
+            {
+                this.RestartStructInitializerScan(token);
+                return;
+            }
+            else
+            {
+                return;
+            }
+
+            if (this._structInitAngleDepth < 0)
+            {
+                this.RestartStructInitializerScan(token);
+                return;
+            }
+
+            if (this._structInitAngleDepth == 0)
+            {
+                this._structInitScan = whenClosed;
+            }
+        }
+
+        private void RestartStructInitializerScan(CommonToken token)
+        {
+            this._structInitScan = StructInitializerScan.None;
+            this._structInitAngleDepth = 0;
+            this._structInitBraceDepth = 0;
+            if (token.Type == TyhpdefLexer.T_NEW)
+            {
+                this._structInitScan = StructInitializerScan.SawNew;
+            }
+        }
+
+        private static bool IsStaticClassNameToken(int tokenType)
+        {
+            switch (tokenType)
+            {
+                case TyhpdefLexer.T_STRING:
+                case TyhpdefLexer.T_NAME_QUALIFIED:
+                case TyhpdefLexer.T_NAME_FULLY_QUALIFIED:
+                case TyhpdefLexer.T_NAME_RELATIVE:
+                case TyhpdefLexer.T_STATIC:
+                case TyhpdefLexer.T_TYHP_PARENT:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool IsStructWord(CommonToken token)
+            => token.Type == TyhpdefLexer.T_STRING
+                && string.Equals(token.Text, "struct", StringComparison.OrdinalIgnoreCase);
 
         private static bool IsBareWord(string? text)
         {
@@ -793,9 +1106,28 @@ namespace Tyhp.TyhpLang.Parser {
             return c is ' ' or '\t' or '\n' or '\r';
         }
 
+        private static bool IsTyhpSourceFile(string? fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+            {
+                return false;
+            }
+
+            return fileName.EndsWith(".tyhp", StringComparison.OrdinalIgnoreCase)
+                && !fileName.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase);
+        }
+
         private IToken LexBaseToken()
         {
             IToken token = base.NextToken();
+            // The shared rule assigns phpEcho. A `.tyhp` file reassigns tyhp before
+            // the echo expression is lexed, so `is` / `typeof` / `with` / `nameof`
+            // reclassify. A `.php` file keeps phpEcho.
+            if (this._echoInTyhp && token.Type == TyhpdefLexer.T_OPEN_TAG_WITH_ECHO)
+            {
+                this._languageMode = "tyhp";
+            }
+
             // `${expr}` enters scripting on that expression's first token
             // (`ST_LOOKING_FOR_VARNAME`'s `more` + pushMode), so the mode changes
             // while the token is lexed. It is still a scripting-mode identifier.
@@ -865,6 +1197,14 @@ namespace Tyhp.TyhpLang.Parser {
                 return;
             }
 
+            // `lazy` stays an identifier except immediately before `new`.
+            if (tyhp && EqualsKeyword(text, "lazy")
+                && this.PeekNextDefaultChannelTokenType() == TyhpdefLexer.T_NEW)
+            {
+                token.Type = TyhpdefLexer.T_TYHP_LAZY;
+                return;
+            }
+
             if (tyhp && EqualsKeyword(text, "using"))
             {
                 token.Type = TyhpdefLexer.T_TYHP_USING;
@@ -917,7 +1257,8 @@ namespace Tyhp.TyhpLang.Parser {
             {
                 if (this.streamLA(1, "[+/*%~!>.<&^|=-]", startIdx: start)
                     || this.streamLA(6, "(?i:empty)\\b.", startIdx: start)
-                    || this.streamLA(8, "(?i:convert)\\b.", startIdx: start))
+                    || this.streamLA(8, "(?i:convert)\\b.", startIdx: start)
+                    || this.streamLA(8, "(?i:default)\\b.", startIdx: start))
                 {
                     token.Type = TyhpdefLexer.T_TYHP_OPERATOR;
                 }

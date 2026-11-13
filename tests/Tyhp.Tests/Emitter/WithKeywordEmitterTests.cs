@@ -177,6 +177,9 @@ public class WithKeywordEmitterTests
             }
             class MyClass {
                 public Inner $a;
+                public function __construct() {
+                    $this->a = new Inner();
+                }
             }
             function demo(Inner $c): void {
                 $b = new MyClass() with [
@@ -548,5 +551,59 @@ public class WithKeywordEmitterTests
             """);
 
         output.Should().Be("9,2,128,3\n");
+    }
+
+    [Fact]
+    public void Emit_ObjectWithSpread_Php84_UsesObjectHelper()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Point {
+                public int $x = 0;
+                public int $y = 0;
+            }
+
+            type Src = struct {
+                int $x = 0;
+                int $y = 0;
+            };
+
+            function copy(Point $p, Src $src): Point {
+                return clone $p with [...$src, x => 1];
+            }
+
+            function make(Src $src): Point {
+                return new Point() with [...$src];
+            }
+            """);
+
+        php.Should().Contain(@"\Tyhp\ObjectHelper::with(clone $p, [...$src, 'x' => 1])");
+        php.Should().Contain(@"\Tyhp\ObjectHelper::with(new Point(), [...$src])");
+        php.Should().NotContain(" with ");
+    }
+
+    [Fact]
+    public void Emit_ObjectWithSpread_Php85_UsesNativeClone()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Point {
+                public int $x = 0;
+                public int $y = 0;
+            }
+
+            type Src = struct {
+                int $x = 0;
+                int $y = 0;
+            };
+
+            function copy(Point $p, Src $src): Point {
+                return clone $p with [...$src, x => 1];
+            }
+            """, phpVersion: "8.5");
+
+        php.Should().Contain("clone($p, [...$src, 'x' => 1])");
+        php.Should().NotContain("ObjectHelper");
+        php.Should().NotContain(" with ");
     }
 }

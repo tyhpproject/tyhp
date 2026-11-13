@@ -177,6 +177,28 @@ namespace Tyhp.TyhpLang.Ast {
             this.EndIndex = context.EndIndex;
         }
 
+        /// <summary>
+        /// Replaces the source span with <paramref name="start"/> through <paramref name="stop"/>.
+        /// End column stays exclusive, matching <see cref="SetContext(ParserRuleContext?, string?)"/>.
+        /// </summary>
+        internal void SetSpanFromTokens(IToken? start, IToken? stop)
+        {
+            if (start != null)
+            {
+                this.Line = start.Line;
+                this.Column = start.Column;
+                this.StartIndex = start.StartIndex;
+            }
+
+            if (stop != null && stop.StopIndex >= 0 && stop.StartIndex >= 0)
+            {
+                this.EndLine = stop.Line;
+                var stopTokenLength = stop.StopIndex - stop.StartIndex + 1;
+                this.EndColumn = stop.Column + Math.Max(0, stopTokenLength);
+                this.EndIndex = stop.StopIndex;
+            }
+        }
+
         protected bool HasFlag(long flag)
             => HasFlag(Convert.ToInt16(flag));
 

@@ -2,7 +2,7 @@
 
 > **What this is:** the single ordered index the author follows top-to-bottom. Stories live in
 > `IMPLEMENTATION_PLAN_TODO_STORY_NN.md`, renumbered into clean, zero-padded, dependency-ordered, tiered sequence
-> (`01`–`30`, no gaps), followed by the Tier 4 future-plans stories `31`–`47`. Conventions (diagnostic codes, config keys, paths) are centralized in `CONVENTIONS.md`.
+> (`01`–`30`, no gaps), followed by the Tier 4 future-plans stories `31`–`47`. Stories **48** and **49** keep the next numbers and are sequenced in Tier 3 between 22.1 and 22.2 (48, then 49); roadmap order, not the story number, decides when they happen. Conventions (diagnostic codes, config keys, paths) are centralized in `CONVENTIONS.md`.
 > PHP engine syntax-dispatch types (Traversable, ArrayAccess, Generator, magic methods, …) are
 > inventoried in `PHP_LANGUAGE_HOOKS.md` (audit contract; Stories 21.6 / 21.7 implement a subset).
 > Story 21.8 finishes `tyhpdef/php` Layer 3 overlays (generics, structs, DateTime operators) plus the
@@ -31,8 +31,11 @@ testing-first, with anti-drift guardrails, deferring breadth:
   The web playground (Story 22) stays in this tier numerically but is **deferred** until a compile host exists (docs
   currently ship on GitHub Pages, which cannot run the thin `tyhp build` backend).
 - **Tier 3 — Advanced:** emitted static-analysis docblocks and Tyhp templates (Story 22.1, first in the tier),
-  optimizer passes, promise interop with other PHP async libraries (Story 24.1),
-  remaining advanced language features, the reflection API, and final documentation/polish.
+  PHP 8.4 lazy objects (Story 48, sequenced immediately after 22.1), calling Tyhp packages from PHP (Story 49, after 48),
+  struct initializers `new Name[...]` (Story 22.2), the language changes that would break compatibility after the
+  first stable release (Stories 35, 34, 32, 41, moved from Tier 4), optimizer passes, promise interop with other PHP async libraries (Story 24.1),
+  remaining advanced language features, the reflection API, pre-stable compatibility reservations for the remaining
+  Tier 4 stories (Story 29.1), and final documentation/polish.
 
 ### Flagships
 
@@ -177,7 +180,14 @@ Look at FOUND_BUGS.md and fix as many as possible.
 
 | New | Story | Direct deps |
 |-----|-------|-------------|
-| **22.1** | **PHPDoc in emitted PHP & Tyhp templates** *(Part A = PHPStan/Psalm docblocks; Part B = `<?=` as a Tyhp echo in `.tyhp` files; priority 1 in this tier)* — *NEW* | 08, 08.5, 09, 11, 15; Part B: `FOUND_BUGS.md` #40, 19.5 |
+| **22.1** | **PHPDoc in emitted PHP & Tyhp templates** *(Part A = PHPStan/Psalm docblocks; Part B = `<?=` as a Tyhp echo in `.tyhp` files; priority 1 in this tier; **shipped in 805.1.2-beta.4**)* — *NEW* | 08, 08.5, 09, 11, 15; Part B: `FOUND_BUGS.md` #40, 19.5 |
+| **48** | **PHP 8.4 lazy objects** *(`lazy new`, `\Tyhp\Lazy`, typed Reflection lazy callbacks, disposal that skips an uninitialized ghost; sequenced here, numbered 48 so 22.1 and 22.2 stay put)* — *NEW* | 08, 11, 21.8, 27.1 |
+| **49** | **Calling Tyhp packages from PHP** *(binder-first generics `Json::decode($T)($json)`, `Box::new` / `Box::type`, `#[\Tyhp\InferGeneric]`, `T::int` constants and `TypeLike`, `Tyhp\async` / `Tyhp\await`, `_expr` / `_path`, and the Packages for PHP docs; sequenced after 48, numbered 49)* — *NEW* | 08, 11, 21.12, 22.1, 27.3; PHP docs slice: rhetoric Phase 14 |
+| **22.2** | **Struct initializers** *(`new Name[key => value]` and `new Name[]` as struct construction; checked spread `...$src` in struct initializers and struct `with` lists)* — *NEW* | 08, 11, 19, 19.5, 27.1 |
+| **35** | **No uninitialized storage** *(ban `unset` on properties and locals, remove `AllowUnset`, require property init; moved from Tier 4)* | 08 |
+| **34** | **`operator default()`** *(author-defined default value for a class type; moved from Tier 4)* | 06, 08, 11 |
+| **32** | **Scalar-conversion contracts** *(`*Convertible`, cast lowering; moved from Tier 4)* | 06, 08, 09, 11, 15 |
+| **41** | **Trait-requirement abstract members** *(emit-only; moved from Tier 4)* | 08, 09, 11 |
 | **23** | Compiler optimizer (MVP) | 03, 08, 09, **20.6** |
 | **24** | Advanced optimizations | 23 |
 | **24.1** | **Promise interop** *(additive — `Promise::from`, suggested outbound wrappers, optional React/Revolt loop driver; does not gate 25)* | `tyhp/async` (04 / 06) |
@@ -185,11 +195,32 @@ Look at FOUND_BUGS.md and fix as many as possible.
 | **26** | Null-conditional chaining with assignment | all earlier (01–25) |
 | **28** | Generic type parameter defaults | all earlier (01–27) |
 | **29** | Tyhp reflection API (sourcemap-backed) | 17, 23, 04, 20, 03, 19, 25, 26, 27, 28 |
-| **30** | Documentation & polish (final capstone) | all earlier (01–29) |
+| **29.1** | **Pre-stable compatibility reservations** *(fully qualified symbol-name literals and `string`-typed `nameof()` of top-level symbols; `internal` emit location not contract; reject `is \Closure<…>` / `is \Fiber<…>`; reserve leading `!` in glob arrays; lock decisions in Stories 31, 36, 47)* — *NEW* | 08, 08.5, 10, 15, 21, 21.6 |
+| **30** | Documentation & polish (final capstone) | all earlier (01–29.1, 32, 34, 35, 41) |
 
-**Story 22.1 — PHPDoc in emitted PHP & Tyhp templates (first in Tier 3).** Both parts came from public beta feedback (r/PHP, 2026-11). **Part A** emits PHPStan/Psalm/PHPDoc tags wherever the native PHP declaration loses type information (generics, struct shapes, `class-string`, callable signatures), so PHPStan, Psalm, and IDEs see compiled Tyhp code as precisely as the source; author docblocks and emitter directives are preserved. **Part B** makes `<?=` in a `.tyhp` file a Tyhp echo (parsed and checked as Tyhp), so HTML templates can be written as typed functions; `.php` files are unchanged. Part B depends on `FOUND_BUGS.md` #40. Numbered after the deferred playground (Story 22) but does not depend on it. Formerly Story 31 Ideas 4 and 18. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_22.1.md`.
+> **Stories 35, 34, 32, 41 (moved from Tier 4 on 2026-11-04).** Each would break code that is valid at the end of
+> Tier 3 if it shipped after the first stable release, so they land before it. They keep their numbers and run in
+> the table order: after 22.2, before 23. "All earlier" in the rows for 25, 26, 28, and 30 includes them.
+
+**Story 22.1 — PHPDoc in emitted PHP & Tyhp templates (first in Tier 3; shipped in 805.1.2-beta.4).** Both parts came from public beta feedback (r/PHP, 2026-11). **Part A** emits PHPStan/Psalm/PHPDoc tags wherever the native PHP declaration loses type information (generics, struct shapes, `class-string`, callable signatures), so PHPStan, Psalm, and IDEs see compiled Tyhp code as precisely as the source; author docblocks and emitter directives are preserved. **Part B** makes `<?=` in a `.tyhp` file a Tyhp echo (parsed and checked as Tyhp), so HTML templates can be written as typed functions; `.php` files are unchanged. Part B depends on `FOUND_BUGS.md` #40. Numbered after the deferred playground (Story 22) but does not depend on it. Formerly Story 31 Ideas 4 and 18. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_22.1.md`.
+
+**Story 48 — PHP 8.4 lazy objects (after 22.1, before 22.2).** `lazy new`, `\Tyhp\Lazy` (`ghost`, `proxy`, `isLazy`, `initialize`, `reset`, `preset`), typed Reflection lazy callbacks, and disposal that does not initialize an untouched ghost. Numbered 48, the next unused plan number after 47, because 22.1 and 22.2 stay adjacent and are not renumbered. Roadmap order places the work here. `tyhp/rhetoric` lazy loading is out of scope and tracked in that package's own plan. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_48.md`.
+
+**Story 49 — Calling Tyhp packages from PHP (after 48, before 22.2).** Makes emitted `tyhp/*` PHP read like an ordinary PHP library. A generic that needs its type arguments at runtime is emitted under its own name as the binder (`Json::decode($T)($json)`, stamped `layouts: [2]`; layout 1 stays supported). Generic classes get `Box::new(T)(...)` and `Box::type(T)`. `#[\Tyhp\InferGeneric]` keeps argument-inferred generics (the async API) plain calls. `\Tyhp\Type` gains `T::int`-style constants backed by a `\Tyhp\BuiltIn` enum, a `\Tyhp\TypeLike` interface, and positional or named `T::generic`. `tyhp/async` adds `Tyhp\async` / `Tyhp\await`; `tyhp/lambda` adds `_expr` / `_path`. Ends with a **Packages for PHP** docs section, absorbing the former `tyhp-runtime-src` PHP docs plan; that slice waits on rhetoric Phase 14. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_49.md`.
+
+**Story 22.2 — Struct initializers.** From public beta feedback (r/PHP, 2026-11), which asked for named-argument struct construction. `new Opts[name => 'ann']` means `new Opts() with [name => 'ann']`, and `new Opts[]` means `new Opts()`; both older spellings stay. Structs only: the bracket form on a class is an error. Adds checked spread (`new Opts[...$base, name => 'bob']`) and rejects unkeyed entries in struct initializers and every struct `with` list, which the checker skips today. Spread emits `\array_replace`, never PHP literal spread, so integer-key aliases survive. Includes language server key completion and a code action that rewrites `new X() with [...]`. Resolves `DESIGN_OPEN_QUESTIONS.md` §23. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_22.2.md`.
+
+**Story 35 — No uninitialized storage (after 22.2).** Remove PHP's uninitialized property/local slot from Tyhp: no `AllowUnset`, no `unset` on properties or locals, statics need initializers, and instance properties (including inherited ones) must be set by declaration, promotion, or the constructor. Breaking for code that uses `unset` or `#[\Tyhp\AllowUnset]` today, which is why it lands before stable. Removes `AllowUnset` from `tyhp/core`. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_35.md`.
+
+**Story 34 — `operator default()` (after 35).** A class declares the value `default(MyClass)` produces, so object types can have a real default instead of `null`. Stage 2 of `FOUND_BUGS.md` #4 (stage 1, typing a class-type `default()` as `null`, has shipped). Follows 35 because both settle how storage gets its initial value, including which `default()` forms are constant initializers. Additive for classes without the operator. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_34.md`.
+
+**Story 32 — Scalar-conversion contracts (after 34).** `StringConvertible` / `IntConvertible` / `FloatConvertible` / `BoolConvertible` / `DecimalConvertible` interfaces, and cast lowering that calls the contract method when the operand implements it (explicit casts first). Changes what existing casts do at runtime (manual `implements`, `mixed` / `object` operands, precedence over `operator convert`), so it lands before stable. Native `\Stringable` from `__toString()` is Story 21.7, not this story. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_32.md`.
+
+**Story 41 — Trait-requirement abstract members (after 32, before 23).** When a trait `extends` / `implements`, emit `abstract` members for the signatures it uses, so PHP consumers of the trait fail at composition instead of at call time. A trait clause may also name an object-shape alias; classes, enums, and interfaces still may not. It changes the emitted PHP that plain-PHP consumers of published packages compile against. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_41.md`.
 
 **Story 24.1 — Promise interop (additive, between 24 and 25).** `async` / `await` stay `\Tyhp\Promise` and `\Tyhp\EventLoop`. `Promise::from` adopts a foreign thenable. Recommended packages (`tyhp/async-http-promise`, `tyhp/async-guzzle`, `tyhp/async-react`, `tyhp/async-amp`) wrap a Tyhp promise as the foreign interface and, optionally, replace the loop owner with ReactPHP or Revolt. They are `suggest`ed, not `require`d. One loop owns the thread. Does not depend on the optimizer and does not gate Story 25. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_24.1.md`.
+
+**Story 29.1 — Pre-stable compatibility reservations (after 29, before 30).** The remaining Tier 4 stories can ship after the first stable release only if a few things that are accepted today become errors or stop being promised first. Symbol-name string literals (`__ClassName`, `__FunctionName`, …) must be fully qualified, as PHP reads them at runtime, and `nameof()` of a class, function, or constant is typed `string` (it emits the short name), so Story 31 never has to rewrite their values. The interop contract stops promising where `internal` symbols are emitted (Story 31 lowering). `is` / `instanceof` with type arguments on `\Closure` / `\Fiber` becomes an error (Story 43). A glob string starting with `!` becomes `ConfigInvalidGlobPattern` (Story 42). It also records the decisions Stories 31, 36, and 47 must follow to stay additive. Does not depend on Story 29. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_29.1.md`.
 
 † See "Judgment calls" — Story 21 has a forward dependency on Story 28.
 
@@ -197,30 +228,53 @@ Look at FOUND_BUGS.md and fix as many as possible.
 
 > Large, cross-cutting work sequenced **after** the features it builds on. Not part of the contiguous `01`–`30`
 > spine; queued for after the capstone. Stories 32–47 were split out of Story 31 on 2026-11-03 (they were its
-> Ideas 2–19; Ideas 4 and 18 became Story 22.1). Each is self-contained and can be scheduled on its own once its
-> dependencies land; the order below is numeric, not a priority order.
+> Ideas 2–19; Ideas 4 and 18 became Story 22.1). Stories 32, 34, 35, and 41 moved to Tier 3 on 2026-11-04 because
+> shipping them after the first stable release would break compatibility; Story 29.1 reserves what the rest need.
+> The table is in the planned order (set 2026-11-04): small and independent work first, then the type system, then
+> runtime contracts, then extensibility, and the linker last. Stories keep their numbers. Stories 48 and 49 are not in
+> this table; they are sequenced in Tier 3 between 22.1 and 22.2.
 
 | New | Story | Direct deps |
 |-----|-------|-------------|
-| **31** | **Tyhp Link** (compiled autoloading & linking; Appendix A = binder eager-resolution optimization) | 06, 08, 08.5, 09, 11, 13, 15, 17, 18, 23, 24, 25 |
-| **32** | Scalar-conversion contracts (`*Convertible`, Stringable-style casts) *(was Story 31 Idea 2)* | 06, 08, 09, 11, 15 |
+| **46** | Async HTTP, filesystem, and database I/O *(was Idea 17; **delivered by `tyhp/io`**, close-out only)* | 04, 08, 11 |
+| **45** | Precompiled tyhpdef symbol cache (cold start) *(was Idea 16)* | 05, 13, 21 |
+| **42** | Anti-glob (`!` prefix) in JSON config glob arrays *(was Idea 13)* | 10, 21, 29.1 |
+| **40** | Pipe-emit chained extension calls (`\|>` on PHP 8.5+) *(was Idea 11)* | 09, 11, 14.5 |
 | **33** | Default interface implementations (interface-attached traits) *(was Idea 3)* | 06, 08, 09, 11 |
-| **34** | `operator default()` — author-defined default value for a class type *(was Idea 5)* | 06, 08, 11 |
-| **35** | No uninitialized storage (ban `unset`, require property init) *(was Idea 6)* | 08 |
+| **47** | Declaration-site generic variance (`in` / `out`) *(was Idea 19)* | 08, 28 |
 | **36** | Conditional return types v1 (overload desugar, `extends ? :`, `match`, `contains F`) *(was Idea 7)* | 08, 11 |
 | **37** | Advanced conditional types v2 (`infer`, distributive `...T`, recursion) *(was Idea 8)* | 08, 36 |
+| **44** | Opt-in runtime checks for erased Tyhp contracts *(was Idea 15)* | 04, 08, 09, 11, 15 |
+| **43** | Runtime `is Closure<…>` / `is Fiber<…>` via reflection *(was Idea 14)* | 08, 15, **21.6**, 29.1 |
 | **38** | Compiler plugins v1 (Tyhp/PHP host, `p"ns:…"` islands, backtick operators) *(was Idea 9)* | 06, 08, 09, 10, 11, 13, 20 |
 | **39** | Compiler plugins v2 (typed transform, IDE islands, fix-its, statements, sandbox) *(was Idea 10)* | 08, 19.5, 23, 24, 38 |
-| **40** | Pipe-emit chained extension calls (`\|>` on PHP 8.5+) *(was Idea 11)* | 09, 11, 14.5 |
-| **41** | Trait-requirement abstract members *(was Idea 12)* | 08, 09, 11 |
-| **42** | Anti-glob (`!` prefix) in JSON config glob arrays *(was Idea 13)* | 10, 21 |
-| **43** | Runtime `is Closure<…>` / `is Fiber<…>` via reflection *(was Idea 14)* | 08, 15, **21.6** |
-| **44** | Opt-in runtime checks for erased Tyhp contracts *(was Idea 15)* | 04, 08, 09, 11, 15 |
-| **45** | Precompiled tyhpdef symbol cache (cold start) *(was Idea 16)* | 05, 13, 21 |
-| **46** | Async HTTP, filesystem, and database I/O *(was Idea 17)* | 04, 08, 11 |
-| **47** | Declaration-site generic variance (`in` / `out`) *(was Idea 19)* | 08, 28 |
+| **31** | **Tyhp Link** (compiled autoloading & linking; Appendix A = binder eager-resolution optimization) | 06, 08, 08.5, 09, 11, 13, 15, 17, 18, 23, 24, 25, 29.1 |
 
-**Story 31 — Tyhp Link.** A build-time *linker* + tiered runtime *loader* that beats Composer autoloading by using the
+**Story 46 — Async HTTP, filesystem, and database I/O (delivered; close-out first).** Non-blocking I/O on `tyhp/async`'s existing loop, so `await` has real I/O to wait on. `tyhp/io` already ships this and more than the plan's v1: HTTP, files, processes, sockets, Redis, PostgreSQL, MySQL, and PDO through `tyhp/parallel` workers. What remains is to check the plan's acceptance list against `tyhp/io` and its tests, and mark the plan done. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_46.md`.
+
+**Story 45 — Precompiled tyhpdef symbol cache (first).** Persist a bound-symbol snapshot of `tyhpdef/php` and runtime package tyhpdefs so cold CLI runs do not re-bind the stub corpus. First because a slow cold start (about 12.6 s cold against 0.4 s warm, `LANGUAGE_ASSESSMENT.md` §4.5) is the first thing new users and CI meet after the stable release. No language surface and no Tier 4 dependencies. Starts by measuring parse, bind, and check times. Story 31 Appendix A (binder eager resolution) is independent of Story 31's linker and can be pulled forward next to this story if the measurements point at binding.
+
+**Story 42 — Anti-glob prefix (after 45).** A `!` string in any JSON glob array (`include`, `overlay`, `tyhpdefInclude`, …) drops matching paths from that array's sibling globs. No new keys. Small, and gives the leading `!` that Story 29.1 reserves its meaning.
+
+**Story 40 — Pipe-emit chained extension calls (after 42).** Emit PHP 8.5 `|>` for receiver-only extension chains (`$s->a()->b()`) instead of nested static calls, when `output.phpVersion` ≥ 8.5. Emit-only and small; readable output matters more as PHP 8.5 adoption grows.
+
+**Story 33 — Default interface implementations (after 40).** An interface may declare `use SomeTrait;`; implementing classes get the trait injected at compile time, with defined precedence and collision rules. Completes Story 32 (now Tier 3): default cross-conversions for `*Convertible` interfaces live in an interface-attached trait. No dependency on the type-system stories that follow.
+
+**Story 47 — Declaration-site generic variance (after 33, before 36).** `out T` / `in T` on class, interface, and trait type parameters. The subtyping code already honors variance, but there is no syntax and no variance-safety check; open questions moved from `DESIGN_OPEN_QUESTIONS.md` §6. Before conditional types because their `T extends X` tests run through generic subtyping. Arrays keep `arrayLikeCovariant` (Story 29.1 Part E).
+
+**Story 36 — Conditional return types (v1) (after 47).** Generic conditional and `match` return types (`T extends X ? A : B`), bitmask flag presence (`contains F`), and clean overload sets desugared to the same checker IR. Non-distributive. High value for tyhpdef accuracy (flag-dependent builtins such as `json_decode`). `.tyhp` overload sets keep first-match order (Story 29.1 Part E).
+
+**Story 37 — Advanced conditional types (v2) (after 36).** `infer`, explicit distributive `...T` / `match (...T)`, recursive conditionals, tuple/variadic and template-literal inference, and body-vs-arms checking, on top of Story 36's IR. Directly after 36 while that IR is fresh.
+
+**Story 44 — Opt-in runtime checks for erased contracts (after 37).** At public PHP-callable boundaries, assert struct shapes (and later generic bounds) that the checker proved in Tyhp. The runtime counterpart to Story 22.1's docblocks. After the type-system stories so the checks cover the settled type language.
+
+**Story 43 — Runtime `is Closure<…>` / `is Fiber<…>` (after 44).** Best-effort runtime `is` on Closure/Fiber type arguments via reflection (PHP runtime types only). Story 21.6 ships compile-time `as`, and Story 29.1 makes the form an error until this lands. Next to 44 because both add `tyhp/core` runtime helpers; shipped in one release, they share one `interopContractVersion` bump.
+
+**Story 38 — Compiler plugins v1 (after 43).** Out-of-process Tyhp/PHP plugin host with staged hooks (pre-binder `AstTransform`, `Check`, `Emit`); Composer packages with `plugin.tyhp.json`; project + global discovery; `p'…'` / `p"…"` / `p<<<` DSL islands; backtick operators; process order, options schema, and a test harness. After the language stories so the plugin API exposes a settled type system and emitter rather than one still changing.
+
+**Story 39 — Compiler plugins v2 (after 38).** Post-binder transform + rebind; TextMate/VS Code + PhpStorm island highlighting via Story 19.5; diagnostic spans and fix-its; statement-form islands; sandbox (TBD); shared plugin cache; optimizer hooks. Schedule only after v1 has real plugins.
+
+**Story 31 — Tyhp Link (last).** A build-time *linker* + tiered runtime *loader* that beats Composer autoloading by using the
 checker's full type graph: a three-tier model (`opcache.preload` → Tyhp fast loader → Composer PSR-4 fallback), dual
 emission (readable PSR-4 for debug + optimized topo-sorted bundles for release), function/constant lowering
 (`internal`-driven, `[GlobalFunction]` opt-out), a `[Preload]` root-set attribute, and the **emit-time
@@ -228,60 +282,9 @@ canonicalization + lowering/relocation invariant** that make string-based symbol
 canonicalize/relocate (including symbol names inside Story 22.1's generated docblocks). The **symbol-name types
 themselves** (`__ClassName`, `__FunctionName`, …) were split out into **Story 08.5** (they are a linker-independent
 checker feature); Story 31 consumes them. Appendix A plans a binder two-pass optimization (eager resolution plus a
-deferred work list). Detail in `IMPLEMENTATION_PLAN_TODO_STORY_31.md`.
-
-**Story 32 — Scalar-conversion contracts.** `StringConvertible` / `IntConvertible` / `FloatConvertible` /
-`BoolConvertible` / `DecimalConvertible` interfaces, and cast lowering that calls the contract method when the operand
-implements it (explicit casts first). Native `\Stringable` from `__toString()` is Story 21.7, not this story.
-
-**Story 33 — Default interface implementations.** An interface may declare `use SomeTrait;`; implementing classes get
-the trait injected at compile time, with defined precedence and collision rules.
-
-**Story 34 — `operator default()`.** A class declares the value `default(MyClass)` produces, so object types can have a
-real default instead of `null`. Stage 2 of `FOUND_BUGS.md` #6.
-
-**Story 35 — No uninitialized storage.** Remove PHP's uninitialized property/local slot from Tyhp: no `AllowUnset`,
-statics need initializers, instance properties must be set by declaration, promotion, or the constructor.
-
-**Story 36 — Conditional return types (v1).** Generic conditional and `match` return types (`T extends X ? A : B`),
-bitmask flag presence (`contains F`), and clean overload sets desugared to the same checker IR. Non-distributive.
-
-**Story 37 — Advanced conditional types (v2).** `infer`, explicit distributive `...T` / `match (...T)`, recursive
-conditionals, tuple/variadic and template-literal inference, and body-vs-arms checking, on top of Story 36's IR.
-
-**Story 38 — Compiler plugins v1.** Out-of-process Tyhp/PHP plugin host with staged hooks (pre-binder `AstTransform`,
-`Check`, `Emit`); Composer packages with `plugin.tyhp.json`; project + global discovery; `p'…'` / `p"…"` / `p<<<`
-DSL islands; backtick operators; process order, options schema, and a test harness.
-
-**Story 39 — Compiler plugins v2.** Post-binder transform + rebind; TextMate/VS Code + PhpStorm island highlighting via
-Story 19.5; diagnostic spans and fix-its; statement-form islands; sandbox (TBD); shared plugin cache; optimizer hooks.
-Schedule only after v1 has real plugins.
-
-**Story 40 — Pipe-emit chained extension calls.** Emit PHP 8.5 `|>` for receiver-only extension chains
-(`$s->a()->b()`) instead of nested static calls, when `output.phpVersion` ≥ 8.5. Emit-only.
-
-**Story 41 — Trait-requirement abstract members.** When a trait `extends` / `implements`, emit `abstract` members for
-the signatures it uses, so PHP consumers of the trait fail at composition instead of at call time. Emit-only.
-
-**Story 42 — Anti-glob prefix.** A `!` string in any JSON glob array (`include`, `overlay`, `tyhpdefInclude`, …) drops
-matching paths from that array's sibling globs. No new keys.
-
-**Story 43 — Runtime `is Closure<…>` / `is Fiber<…>`.** Best-effort runtime `is` on Closure/Fiber type arguments via
-reflection (PHP runtime types only). Story 21.6 ships compile-time `as`; a `tyhp/core` helper would bump the interop
-contract.
-
-**Story 44 — Opt-in runtime checks for erased contracts.** At public PHP-callable boundaries, assert struct shapes (and
-later generic bounds) that the checker proved in Tyhp. The runtime counterpart to Story 22.1's docblocks.
-
-**Story 45 — Precompiled tyhpdef symbol cache.** Persist a bound-symbol snapshot of `tyhpdef/php` and runtime package
-tyhpdefs so cold CLI runs do not re-bind the stub corpus.
-
-**Story 46 — Async HTTP, filesystem, and database I/O.** Non-blocking I/O on `tyhp/async`'s existing loop, so `await`
-has real I/O to wait on.
-
-**Story 47 — Declaration-site generic variance.** `out T` / `in T` on class, interface, and trait type parameters. The
-subtyping code already honors variance, but there is no syntax and no variance-safety check; open questions moved
-from `DESIGN_OPEN_QUESTIONS.md` §6.
+deferred work list). Last because it is the largest story and its lowering/relocation invariant must account for every
+source of symbol references in emitted PHP, including plugin `Emit` hooks (38, 39) and runtime-check helpers (44).
+Follows the Story 29.1 constraints. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_31.md`.
 
 ---
 
@@ -331,6 +334,9 @@ from `DESIGN_OPEN_QUESTIONS.md` §6.
 | — | **27.3** | Split runtime / docs / AIDevGuide / IDE plugin into dedicated git repos *(NEW, additive — implement after 27.2, before deferred 22)* | 2 |
 | — | **22** | Web playground *(NEW · deferred — no GitHub Pages compile host)* | 2 |
 | — | **22.1** | PHPDoc in emitted PHP & Tyhp templates *(NEW — from Story 31 Ideas 4 and 18; first in Tier 3)* | 3 |
+| — | **48** | PHP 8.4 lazy objects *(NEW — sequenced after 22.1, before 22.2; numbered 48)* | 3 |
+| — | **49** | Calling Tyhp packages from PHP *(NEW — sequenced after 48, before 22.2; numbered 49; absorbs the runtime-src PHP docs plan)* | 3 |
+| — | **22.2** | Struct initializers (`new Name[...]`) *(NEW — from r/PHP beta feedback)* | 3 |
 | 4.5 | **23** | Compiler optimizer (MVP) *(moved to Tier 3)* | 3 |
 | 4.6 | **24** | Advanced optimizations *(moved to Tier 3)* | 3 |
 | — | **24.1** | Promise interop *(NEW, additive — between 24 and 25; does not gate 25)* | 3 |
@@ -338,6 +344,7 @@ from `DESIGN_OPEN_QUESTIONS.md` §6.
 | 19 | **26** | Null-conditional chaining with assignment | 3 |
 | 21 | **28** | Generic type parameter defaults | 3 |
 | 22 | **29** | Tyhp reflection API | 3 |
+| — | **29.1** | Pre-stable compatibility reservations *(NEW — from the 2026-11-04 Tier 4 compatibility review)* | 3 |
 | 99 | **30** | Documentation & polish | 3 |
 
 ## New → Old mapping (inverse)
@@ -386,6 +393,9 @@ from `DESIGN_OPEN_QUESTIONS.md` §6.
 | 27.3 | *(NEW — was 27.2 repo split)* |
 | 22 | *(NEW)* |
 | 22.1 | *(NEW — from Story 31 Ideas 4 and 18)* |
+| 48 | *(NEW — sequenced after 22.1, before 22.2)* |
+| 49 | *(NEW — sequenced after 48, before 22.2)* |
+| 22.2 | *(NEW)* |
 | 23 | 4.5 |
 | 24 | 4.6 |
 | 24.1 | *(NEW)* |
@@ -393,9 +403,10 @@ from `DESIGN_OPEN_QUESTIONS.md` §6.
 | 26 | 19 |
 | 28 | 21 |
 | 29 | 22 |
+| 29.1 | *(NEW)* |
 | 30 | 99 |
 
-> The new sequence is **contiguous `01`–`30`** with additive sub-stories (`08.5`, `10.5`, `14.5`, `16.5`, `19.5`, `20.5`, `20.7`, `20.6`, `21.1`, `21.5`, `21.6`, `21.7`, `21.8`, `21.9`, `21.10`, `21.11`, `21.12`, `22.1`, `24.1`, `27.1`, `27.2`, `27.3`) inserted where needed.
+> The new sequence is **contiguous `01`–`30`** with additive sub-stories (`08.5`, `10.5`, `14.5`, `16.5`, `19.5`, `20.5`, `20.7`, `20.6`, `21.1`, `21.5`, `21.6`, `21.7`, `21.8`, `21.9`, `21.10`, `21.11`, `21.12`, `22.1`, `22.2`, `24.1`, `27.1`, `27.2`, `27.3`, `29.1`) inserted where needed. Stories **48** and **49** are sequenced between 22.1 and 22.2 (48, then 49) and keep their numbers.
 > **20.7 before 20.6:** 20.6 was allocated first; hooked-property tyhpdef syntax must land before the splice engine can see `&get` vs by-value `get` on generated tyhpdefs.
 > **21.1 before 21.5:** `extern` must land before `--vendor` generation so optional-peer tyhpdefs are loadable.
 > **21.6 after 16.5 and 21:** Closure/Fiber/Generator typing is overlay + checker; independent of 21.5 Composer glue.
@@ -596,6 +607,20 @@ from `DESIGN_OPEN_QUESTIONS.md` §6.
   Idea 4) emits PHPStan/Psalm/PHPDoc tags where native PHP types are lossy; Part B (was Idea 18) makes `<?=` in a
   `.tyhp` file a Tyhp echo for typed HTML templates. Prioritized after public beta feedback (2026-11). Detail in
   `IMPLEMENTATION_PLAN_TODO_STORY_22.1.md`.
+- **Story 48 — PHP 8.4 lazy objects (Tier 3, after 22.1, before 22.2):** `lazy new` and `\Tyhp\Lazy`. Numbered 48
+  so 22.1 and 22.2 are not renumbered. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_48.md`.
+- **Story 49 — Calling Tyhp packages from PHP (Tier 3, after 48, before 22.2):** binder-first generics, generated
+  `new()` / `type()` on generic classes, `#[\Tyhp\InferGeneric]`, `Type` constants and `TypeLike`, `Tyhp\async` /
+  `Tyhp\await`, `_expr` / `_path`, and the Packages for PHP docs section (formerly
+  `tyhp-runtime-src/dev-docs/IMPLEMENTATION_PLAN_TYHP_PHP_DOCS.md`). Detail in `IMPLEMENTATION_PLAN_TODO_STORY_49.md`.
+- **Story 22.2 — Struct initializers (Tier 3, after 49):** `new Name[key => value]` / `new Name[]` construct a
+  struct (same checks and emit as `new Name() with [...]`), plus checked spread in struct initializers and struct
+  `with` lists. From public beta feedback (2026-11); resolves `DESIGN_OPEN_QUESTIONS.md` §23. Detail in
+  `IMPLEMENTATION_PLAN_TODO_STORY_22.2.md`.
+- **Story 29.1 — Pre-stable compatibility reservations (Tier 3, after 29, before 30):** turns code that Stories 31,
+  42, and 43 would change the meaning of into errors before the first stable release, narrows the `internal` interop
+  promise, and records compatibility decisions in the Story 31, 36, and 47 plans. From the 2026-11-04 Tier 4
+  compatibility review. Detail in `IMPLEMENTATION_PLAN_TODO_STORY_29.1.md`.
 
 ---
 

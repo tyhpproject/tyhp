@@ -1676,8 +1676,9 @@ public class TyhpCodeTyhpdefGeneratorTests
             string.Join("; ", build.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
 
         var def = File.ReadAllText(Path.Combine(library.ProjectDirectory, "package.tyhpdef"));
-        def.Should().Contain("binder:");
-        def.Should().Contain("decode__tyhpGeneric");
+        def.Should().Contain("binder: \"decode\"");
+        def.Should().Contain("layouts: [2]");
+        def.Should().NotContain("decode__tyhpGeneric");
 
         var php = EmitAgainstTyhpdef(
             def,
@@ -1692,9 +1693,9 @@ public class TyhpCodeTyhpdefGeneratorTests
             }
             """);
 
-        // Foreign compiled-library generic sites always bind through \Tyhp\Generic::bind
-        // (Workstream A). The binder name is baked into the tyhpdef stamp, not into consumer PHP.
-        php.Should().Contain("\\Tyhp\\Generic::bind(\\Lib\\Json::decode(...)");
+        // A layout-2 foreign callable is the binder, so the call is name(types)(args).
+        php.Should().Contain("\\Lib\\Json::decode(");
+        php.Should().NotContain("\\Tyhp\\Generic::bind");
         php.Should().NotContain("decode__tyhpGeneric");
         php.Should().NotContain("Json::decode($json)");
     }
@@ -1842,7 +1843,8 @@ public class TyhpCodeTyhpdefGeneratorTests
             string.Join("; ", build.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
 
         var def = File.ReadAllText(Path.Combine(library.ProjectDirectory, "package.tyhpdef"));
-        def.Should().Contain("jsonDecodeAs__tyhpGeneric");
+        def.Should().Contain("binder: \"jsonDecodeAs\"");
+        def.Should().NotContain("jsonDecodeAs__tyhpGeneric");
         def.Should().Contain("global use extension \\Lib\\StringHelpers;");
 
         var php = EmitAgainstTyhpdef(
@@ -1858,13 +1860,11 @@ public class TyhpCodeTyhpdefGeneratorTests
             }
             """);
 
-        // Foreign compiled-library generic sites always bind through \Tyhp\Generic::bind
-        // (Workstream A), including extension backers. The binder name lives in the tyhpdef
-        // stamp, not baked into consumer PHP.
-        php.Should().Contain("\\Tyhp\\Generic::bind(\\Lib\\StringHelpers::jsonDecodeAs(...)");
+        // A layout-2 extension backer is called as name(types)(args), not Generic::bind.
+        php.Should().Contain("jsonDecodeAs(");
+        php.Should().NotContain("\\Tyhp\\Generic::bind");
         php.Should().NotContain("jsonDecodeAs__tyhpGeneric");
         php.Should().NotContain("jsonDecodeAs($s)");
-        php.Should().NotContain("jsonDecodeAs(null");
     }
 
     [Fact]
@@ -2013,7 +2013,7 @@ public class TyhpCodeTyhpdefGeneratorTests
                     }
                 }
                 class Tracked<T> {
-                    public T $value;
+                    public ?T $value = null;
                 }
                 """);
 
@@ -2076,6 +2076,48 @@ public class TyhpCodeTyhpdefGeneratorTests
         def.Should().Contain("type AuthoredClock = object {");
         def.Should().Contain("function take(");
         def.Should().Contain("AuthoredClock $c): int;");
+
+        var parsed = ParserTestHelper.ParseTyhpdefContent(def);
+        parsed.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", parsed.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}"))
+            + "\n--- generated ---\n" + def);
+    }
+
+    [Fact]
+    public void Library_StructInitializerPropertyDefault_SpellsBracketForm()
+    {
+        using var project = new TestProjectBuilder();
+        project
+            .WithTyhpJson("""
+                {
+                    "type": "library",
+                    "include": ["**/*.tyhp"],
+                    "output": { "path": "build/" }
+                }
+                """)
+            .WithTyhpFile("points.tyhp", """
+                <?tyhp
+                namespace Lib;
+
+                type Point = struct { int $x = 0; int $y = 0; };
+                type Box<T> = struct { T $value; };
+
+                class Holder {
+                    public Point $origin = new Point[];
+                    public Point $shifted = new Point[x => 1, y => 2];
+                    public Box<int> $boxed = new Box<int>[value => 1];
+                }
+                """);
+
+        var result = project.RunBuild();
+        result.Diagnostics.Errors.Should().BeEmpty(
+            string.Join("; ", result.Diagnostics.Errors.Select(e => $"{e.Code} {e.Message}")));
+
+        var def = File.ReadAllText(Path.Combine(project.ProjectDirectory, "package.tyhpdef"));
+        def.Should().Contain("public \\Lib\\Point $origin ?? new \\Lib\\Point[];");
+        def.Should().Contain("public \\Lib\\Point $shifted ?? new \\Lib\\Point[x => 1, y => 2];");
+        def.Should().Contain("public \\Lib\\Box<int> $boxed ?? new \\Lib\\Box[value => 1];");
+        def.Should().NotContain(" with ");
 
         var parsed = ParserTestHelper.ParseTyhpdefContent(def);
         parsed.Diagnostics.Errors.Should().BeEmpty(

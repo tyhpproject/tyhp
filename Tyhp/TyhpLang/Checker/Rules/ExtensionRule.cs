@@ -332,6 +332,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 CheckerHelpers.FlagGenericVariantIfNeeded(
                     function.Body, methodSymbol, methodSymbol.GenericParameters, context);
+                if (CheckerHelpers.AsyncInferGenericReturnNeedsVariant(
+                    methodSymbol.IsAsync, function, function.ReturnType, methodSymbol.GenericParameters))
+                {
+                    context.MarkRequiresGenericVariant(methodSymbol);
+                }
             }
 
             funcState.HasReturnedOnAllPaths = false;

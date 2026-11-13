@@ -24,6 +24,12 @@ namespace Tyhp.LanguageServer.Configuration
         public bool EnableDiagnostics { get; init; } = true;
 
         /// <summary>
+        /// Quiet period in milliseconds after analysis before the server runs a full compacting
+        /// garbage collection. Default 5000. Zero disables it.
+        /// </summary>
+        public int IdleCompactionDelay { get; init; } = 5000;
+
+        /// <summary>
         /// Path to <c>tyhp.json</c>, resolved from the workspace root or client
         /// initialization options.
         /// </summary>

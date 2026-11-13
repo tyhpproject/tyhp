@@ -42,6 +42,16 @@ class Box
         $__tyhp_obj->__construct();
         return $__tyhp_obj;
     }
+    final public static function new_App_Box__tyhpLazy(?\Tyhp\Type $__generic_T): self
+    {
+        self::$__reflectedClass__tyhpGeneric ??= new \ReflectionClass(self::class);
+        return self::$__reflectedClass__tyhpGeneric->newLazyGhost(
+            function (self $__tyhp_obj) use ($__generic_T): void {
+                $__tyhp_obj->__initGenerics__tyhpGeneric($__generic_T);
+                $__tyhp_obj->__construct();
+            }
+        );
+    }
     /**
      * @param T $value
      */
@@ -62,7 +72,7 @@ class Box
         if ($this->__tyhpGeneric->isInitialized(\App\Box::class)) {
             return;
         }
-        $t = $generics[0] ?? \Tyhp\Type::mixed();
+        $t = ($generics[0] ?? \Tyhp\Type::mixed())->immutable();
         $this->__tyhpGeneric->init(static::class, \App\Box::class, new \Tyhp\NamedType('T', $t));
         $this->__tyhpGeneric->setPropertyType('item', \Tyhp\Type::nullable($t));
         $this->__tyhpGeneric->markBound();

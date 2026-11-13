@@ -4,7 +4,9 @@ namespace Tyhp.LanguageServer.Analysis
     using Tyhp.TyhpLang.Ast;
     using Tyhp.TyhpLang.Ast.Interfaces;
     using Tyhp.TyhpLang.Binder;
+    using Tyhp.TyhpLang.Checker;
     using Tyhp.TyhpLang.Binder.Scopes;
+    using Tyhp.TyhpLang.Binder.Scopes.Interfaces;
     using Tyhp.TyhpLang.Binder.Symbols;
     using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
     using Tyhp.TyhpLang.Enum;
@@ -77,7 +79,8 @@ namespace Tyhp.LanguageServer.Analysis
             string content,
             GlobalScope? scope,
             SymbolTree? tree,
-            SymbolFinder finder)
+            SymbolFinder finder,
+            Func<IBase2Ast, ICheckedType?>? getInferredType = null)
         {
             ArgumentNullException.ThrowIfNull(ast);
             ArgumentNullException.ThrowIfNull(finder);
@@ -85,7 +88,7 @@ namespace Tyhp.LanguageServer.Analysis
 
             var tokens = new List<SemanticTokenSpan>();
             var path = new List<IBase2Ast>();
-            Walk(ast, ast, content, scope, tree, finder, path, tokens);
+            Walk(ast, ast, content, scope, tree, finder, path, tokens, getInferredType);
             return Encode(tokens);
         }
 
@@ -169,16 +172,17 @@ namespace Tyhp.LanguageServer.Analysis
             SymbolTree? tree,
             SymbolFinder finder,
             List<IBase2Ast> path,
-            List<SemanticTokenSpan> tokens)
+            List<SemanticTokenSpan> tokens,
+            Func<IBase2Ast, ICheckedType?>? getInferredType)
         {
             path.Add(node);
-            TryEmit(ast, node, content, scope, tree, finder, path, tokens);
-            WalkExtensionBlockAddons(ast, node, content, scope, tree, finder, path, tokens);
+            TryEmit(ast, node, content, scope, tree, finder, path, tokens, getInferredType);
+            WalkExtensionBlockAddons(ast, node, content, scope, tree, finder, path, tokens, getInferredType);
             foreach (IBase2Ast? child in node.AstChildren)
             {
                 if (child is not null)
                 {
-                    Walk(ast, child, content, scope, tree, finder, path, tokens);
+                    Walk(ast, child, content, scope, tree, finder, path, tokens, getInferredType);
                 }
             }
 
@@ -197,7 +201,8 @@ namespace Tyhp.LanguageServer.Analysis
             SymbolTree? tree,
             SymbolFinder finder,
             List<IBase2Ast> path,
-            List<SemanticTokenSpan> tokens)
+            List<SemanticTokenSpan> tokens,
+            Func<IBase2Ast, ICheckedType?>? getInferredType)
         {
             ITypeExpression? target;
             TyhpGenericsTypeArgumentListAst? generics;
@@ -217,12 +222,12 @@ namespace Tyhp.LanguageServer.Analysis
 
             if (generics is not null)
             {
-                Walk(ast, generics, content, scope, tree, finder, path, tokens);
+                Walk(ast, generics, content, scope, tree, finder, path, tokens, getInferredType);
             }
 
             if (target is not null)
             {
-                Walk(ast, target, content, scope, tree, finder, path, tokens);
+                Walk(ast, target, content, scope, tree, finder, path, tokens, getInferredType);
             }
         }
 
@@ -234,8 +239,25 @@ namespace Tyhp.LanguageServer.Analysis
             SymbolTree? tree,
             SymbolFinder finder,
             List<IBase2Ast> path,
-            List<SemanticTokenSpan> tokens)
+            List<SemanticTokenSpan> tokens,
+            Func<IBase2Ast, ICheckedType?>? getInferredType)
         {
+            if (path.Count >= 2 && path[^2] is PhpArrayPairAst)
+            {
+                IBaseScope? keyScope = scope is null || node.Line < 1
+                    ? scope
+                    : finder.FindScopeAtPosition(ast, scope, node.Line, node.Column) ?? scope;
+                if (StructInitializerSupport.IsPropertyKey(node, path, scope, tree, keyScope, getInferredType))
+                {
+                    string key = StructInitializerSupport.PropertyKeyText(node);
+                    if (!string.IsNullOrEmpty(key))
+                    {
+                        EmitIdentifier(node, key, content, TypeProperty, 0, tokens);
+                        return;
+                    }
+                }
+            }
+
             if (node is TokenValueAst && node is not PhpNameAst)
             {
                 return;

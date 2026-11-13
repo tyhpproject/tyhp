@@ -19,6 +19,8 @@ Severity (Ready and NEEDS INPUT items):
 
 ---
 
+## Ready
+
 ## NEEDS INPUT
 
 ### 3. `tyhpGenericObjectInitInterface` is never emitted
@@ -70,23 +72,6 @@ Severity (Ready and NEEDS INPUT items):
 - **Decision needed:** Whether to harvest Illuminate 12 (the lock’s v12.69.2) and Livewire 3.6, then point the flare, error-solutions, and ignition test projects at those tyhpdefs.
 - **Severity:** Medium — lint passes; the version skew stays invisible.
 
-### 11. No list type for `array_is_list` / `Arrays::isList` narrowing
-
-- **Where:** Tyhp type grammar (`list` is reserved as the PHP `list()` function name in
-  `PhpReservedFunctionNames`, not a type). `array<T>` is documented as shorthand for
-  `array<int|string, T>`, which is not a 0-indexed list. `Nette\Utils\Arrays::isList` in
-  `tyhp-runtime-src/packages/tyhpdef/nette-utils/4.1.5` returns `($value is list ? true : false)` in PHPDoc
-  and is implemented with `is_array && array_is_list`.
-- **Issue:** A type-guard return cannot name a list. `$value is array` would be wrong
-  (`isList` is false for associative arrays). `$value is array<int, mixed>` is also wrong:
-  int keys are not required to be `0..n-1` without gaps.
-- **Impact:** Callers of `Arrays::isList` (and any similar `array_is_list` wrapper) stay
-  on `bool`. The true branch cannot narrow the subject to a list.
-- **Suggested fix:** A list type, or a type-guard form that means `array_is_list`, distinct
-  from `array` and from `array<int, T>`.
-- **Status:** Resolved — stay boolean; do not add a list type or array subtype. Narrowing is intentionally not supported for now because `list` is reserved and the need is small.
-- **Severity:** Medium — lost narrowing only; the boolean result is still correct.
-
 ---
 
 ## Deferred (Story 22+ / Story 31)
@@ -126,24 +111,3 @@ Severity (Ready and NEEDS INPUT items):
   checker errors once `TResult` is renamed). Not a clean one-shot fix; revisit after runtime
   package home / dist consumption is settled.
 - **Severity:** Low — skipped integration test only; not a compile or emit failure on its own.
-
-### 4. `default(<class type>)` is typed as the class but emits `null`
-
-- **Where:** `Tyhp/TyhpLang/Checker/TypeInferrer.Expressions.cs` (`TyhpDefaultAst` resolves to the
-  spelled type expression), `Tyhp/TyhpLang/Emitter/TyhpEmitter.Expressions.cs` →
-  `BuildDefaultExpression` (class types fall into the `_ => "null"` catch-all).
-- **Issue:** `default(MyClass)` still emits the literal `null`. Stage 1 already makes the checker
-  treat a class-type `default` as the null type so the existing incompatibility / null-safety
-  machinery reports it (matching what the emitter produces). Stage 2 is still open: without
-  `operator default()`, `return $instance ?? default(MyClass)` against a non-nullable return is a
-  type error rather than a constructed instance, and that is the entire point of writing
-  `?? default(MyClass)`.
-- **Why deferred:** Author-supplied defaults for object types are Story 34
-  (`operator default()`).
-- **Stage 2 (Story 34):** When a class declares `operator default(): self`, infer
-  `default(<that class>)` as the class type again and emit the call. Absent the operator the
-  default stays `null` and Stage 1's error stands.
-- **Status:** Deferred (Story 22+ / Story 34). Stage 2 waits on `operator default()`.
-- **Severity:** Medium — class-typed `default` still emits `null`; Stage 1 already type-errors the
-  useful `?? default(MyClass)` shape. Stage 2 is the feature.
-

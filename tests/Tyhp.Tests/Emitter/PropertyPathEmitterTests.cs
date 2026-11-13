@@ -22,7 +22,7 @@ public class PropertyPathEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class User {
-                public string $name;
+                public string $name = '';
             }
             function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
@@ -44,10 +44,13 @@ public class PropertyPathEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Address {
-                public string $city;
+                public string $city = '';
             }
             class User {
                 public Address $address;
+                public function __construct() {
+                    $this->address = new Address();
+                }
             }
             function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
@@ -66,10 +69,10 @@ public class PropertyPathEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Address {
-                public string $city;
+                public string $city = '';
             }
             class User {
-                public ?Address $address;
+                public ?Address $address = null;
             }
             function take(\Tyhp\PropertyPath<callable(User): ?string> $path): void {}
             function demo(): void {
@@ -88,7 +91,7 @@ public class PropertyPathEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class User {
-                public string $name;
+                public string $name = '';
             }
             function pick<T>(\Tyhp\PropertyPath<callable(T): string> $path): void {}
             function demo(): void {
@@ -107,7 +110,7 @@ public class PropertyPathEmitterTests
         var (_, required) = CompileAndEmitWithPackages("""
             <?tyhp
             class User {
-                public string $name;
+                public string $name = '';
             }
             function take(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function demo(): void {
@@ -124,7 +127,7 @@ public class PropertyPathEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class User {
-                public string $name;
+                public string $name = '';
             }
             function takePath(\Tyhp\PropertyPath<callable(User): string> $path): void {}
             function takeClosure(\Closure $c): void {}
@@ -143,8 +146,8 @@ public class PropertyPathEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             class Person {
-                public int $age;
-                public string $city;
+                public int $age = 0;
+                public string $city = '';
             }
             function column<R>(\Tyhp\PropertyPath<callable(Person): R> $path): void {}
             function demo(): void {

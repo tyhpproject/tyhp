@@ -7,16 +7,20 @@ use \Tyhp\Expression\ExpressionSerializer;
 use \Tyhp\PropertyPath;
 
 class User {
-    public string $firstName;
-    public string $lastName;
-    public int $age;
-    public bool $isActive;
-    public mixed $value;
+    public string $firstName = '';
+    public string $lastName = '';
+    public int $age = 0;
+    public bool $isActive = false;
+    public mixed $value = null;
     public Address $address;
+
+    public function __construct() {
+        $this->address = new Address();
+    }
 }
 
 class Address {
-    public string $city;
+    public string $city = '';
 }
 
 function takePath(PropertyPath<callable(User): string> $path): string {

@@ -59,7 +59,7 @@ public class CallableShapeClosureInferenceTests
         var errors = Compile("""
             <?tyhp
             class User {
-                public int $age;
+                public int $age = 0;
             }
 
             function demo(): void {

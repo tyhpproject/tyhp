@@ -53,7 +53,7 @@ public class GenericObjectEmitterTests
         // constructor parameters, and bindings are keyed by the class that declared them.
         php.Should().Contain(
             "protected function __initGenerics__tyhpGeneric(?\\Tyhp\\Type ...$generics): void");
-        php.Should().Contain("$t = $generics[0] ?? \\Tyhp\\Type::mixed();");
+        php.Should().Contain("$t = ($generics[0] ?? \\Tyhp\\Type::mixed())->immutable();");
         php.Should().Contain(
             "$this->__tyhpGeneric->init(static::class, \\Box::class, new \\Tyhp\\NamedType('T', $t));");
         php.Should().Contain("$this->__tyhpGeneric->markBound();");
@@ -246,6 +246,10 @@ public class GenericObjectEmitterTests
                 public ?\Closure<callable(): bool> $isset = null;
                 public TValue $value;
 
+                public function __construct(TValue $value): void {
+                    $this->value = $value;
+                }
+
                 public function typeOfValue(): \Tyhp\Type {
                     return typeof(TValue);
                 }
@@ -323,6 +327,104 @@ public class GenericObjectEmitterTests
         php.Should().NotContain("new Box(");
     }
 
+    [Theory]
+    [InlineData("public")]
+    [InlineData("protected")]
+    [InlineData("private")]
+    public void Emit_GenericFactory_MatchesConstructorVisibility(string visibility)
+    {
+        var php = CompileAndEmit($$"""
+            <?tyhp
+            class Box<T> {
+                {{visibility}} function __construct(int $id) {}
+
+                public function describe(): \Tyhp\Type {
+                    return typeof(T);
+                }
+            }
+            """);
+
+        // PHP warns "Private methods cannot be final", so a private helper omits `final`.
+        var modifiers = visibility == "private" ? "private static" : $"final {visibility} static";
+
+        php.Should().Contain($"{visibility} function __construct(int $id)");
+        php.Should().Contain(
+            $"{modifiers} function new_Box__tyhpGeneric(?\\Tyhp\\Type $__generic_T, int $id): self");
+        php.Should().Contain(
+            $"{modifiers} function new_Box__tyhpLazy(?\\Tyhp\\Type $__generic_T, int $id): self");
+        php.Should().NotContain("final private static function");
+        if (visibility != "public")
+        {
+            php.Should().NotContain("public static function new_Box__tyhpGeneric");
+            php.Should().NotContain("public static function new_Box__tyhpLazy");
+        }
+    }
+
+    [Theory]
+    [InlineData("internal function __construct(int $id) {}", "public function __construct(int $id)")]
+    [InlineData("function __construct(int $id) {}", "public function __construct(int $id)")]
+    [InlineData("", "public function __construct(")]
+    public void Emit_GenericFactory_StaysPublicWhenEmittedConstructorIsPublic(
+        string constructor,
+        string emittedConstructor)
+    {
+        var php = CompileAndEmit($$"""
+            <?tyhp
+            class Box<T> {
+                {{constructor}}
+
+                public function describe(): \Tyhp\Type {
+                    return typeof(T);
+                }
+            }
+            """);
+
+        php.Should().Contain(emittedConstructor);
+        php.Should().Contain("final public static function new_Box__tyhpGeneric(");
+        php.Should().Contain("final public static function new_Box__tyhpLazy(");
+        php.Should().NotContain("private static function new_Box");
+        php.Should().NotContain("protected static function new_Box");
+    }
+
+    [Fact]
+    public void Emit_GenericFactory_ChildUsesItsOwnConstructorVisibility()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Base<T> {
+                protected function __construct(int $id) {}
+
+                public function describe(): \Tyhp\Type {
+                    return typeof(T);
+                }
+            }
+
+            class Child<U> extends Base<U> {
+                private function __construct(int $id) {
+                    parent::__construct($id);
+                }
+
+                public function describeChild(): \Tyhp\Type {
+                    return typeof(U);
+                }
+            }
+
+            class Inheriting<V> extends Base<V> {
+                public function describeInheriting(): \Tyhp\Type {
+                    return typeof(V);
+                }
+            }
+            """);
+
+        php.Should().Contain("final protected static function new_Base__tyhpGeneric(");
+        php.Should().Contain("final protected static function new_Base__tyhpLazy(");
+        php.Should().Contain("private static function new_Child__tyhpGeneric(");
+        php.Should().Contain("private static function new_Child__tyhpLazy(");
+        // The synthesized constructor is public, so the helper beside it is too.
+        php.Should().Contain("final public static function new_Inheriting__tyhpGeneric(");
+        php.Should().Contain("final public static function new_Inheriting__tyhpLazy(");
+    }
+
     [Fact]
     public void Emit_CallSiteNewWithTypeArgs_OnUntrackedClass_StaysAPlainNew()
     {
@@ -370,6 +472,23 @@ public class GenericObjectEmitterTests
     }
 
     [Fact]
+    public void Emit_ClassTypeParameterClassConstant_UsesRuntimeClassNameLookup()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Repo<T> {
+                public function target(): string {
+                    return T::class;
+                }
+            }
+            """);
+
+        php.Should().Contain(
+            "\\ltrim($this->__tyhpGeneric->genericType(\\Repo::class, 'T')->getUnderlyingType()->getName() ?? '', '\\\\')");
+        php.Should().NotContain("T::class");
+    }
+
+    [Fact]
     [Trait("Category", "Story27")]
     public void Emit_FunctionNewTypeParameter_UsesVariantTypeName()
     {
@@ -383,8 +502,8 @@ public class GenericObjectEmitterTests
             }
             """);
 
-        php.Should().Contain("new ($__generic_T->getName())");
-        php.Should().Contain("make__tyhpGeneric");
+        php.Should().Contain("new ($T->getName())");
+        php.Should().Contain("function make(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
     }
 
     [Fact]
@@ -695,7 +814,9 @@ public class GenericObjectEmitterTests
             class Box<T> {
                 public T $value;
 
-                public function __construct(): void {}
+                public function __construct(T $initial): void {
+                    $this->value = $initial;
+                }
 
                 public function describe(): \Tyhp\Type {
                     return typeof(T);
@@ -966,7 +1087,9 @@ public class GenericObjectEmitterTests
             class Box<T> {
                 public T $value;
 
-                public function __construct(): void {}
+                public function __construct(T $initial): void {
+                    $this->value = $initial;
+                }
 
                 public function describe(): \Tyhp\Type {
                     return typeof(T);
@@ -993,7 +1116,12 @@ public class GenericObjectEmitterTests
             class Holder<T> {
                 public Cell<T> $cell;
                 public Bag<T> $bag;
-                public array<T> $items;
+                public array<T> $items = [];
+
+                public function __construct(): void {
+                    $this->cell = new Cell<T>();
+                    $this->bag = new Bag<T>();
+                }
 
                 public function describe(): \Tyhp\Type {
                     return typeof(T);

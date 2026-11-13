@@ -109,6 +109,32 @@ public class StructEmitterTests
     }
 
     [Fact]
+    public void Emit_ClassSharingShortNameWithStructElsewhere_KeepsClassHint()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace Shapes {
+                type Result = struct {
+                    int $code = 0;
+                };
+            }
+            namespace Http {
+                final class Result {
+                    public function __construct(public int $status) {}
+                }
+                function describe(Result $result): int {
+                    return $result->status;
+                }
+            }
+            """);
+
+        var describe = php[php.IndexOf("function describe(", StringComparison.Ordinal)..];
+        describe.Should().Contain("Result $result");
+        describe.Should().NotContain("array $result");
+        describe.Should().Contain("$result->status");
+    }
+
+    [Fact]
     public void Emit_StructPropertyInParentConstructorArguments_UsesArrayAccess()
     {
         var php = CompileAndEmit("""
@@ -124,6 +150,110 @@ public class StructEmitterTests
 
         php.Should().Contain("parent::__construct($outcome['text'], $outcome['code']);");
         php.Should().NotContain("$outcome->");
+    }
+
+    [Fact]
+    public void Emit_StructFieldThroughPromotedConstructorProperty_UsesArrayAccess()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            type Point = struct {
+                int $x = 0;
+                int $y = 0;
+            };
+            final class Holder {
+                public function __construct(private readonly Point $point) {}
+                public function x(): int {
+                    if ($this->point->x === 0) {
+                        return $this->point->y;
+                    }
+                    return $this->point->x;
+                }
+            }
+            """);
+
+        var method = php[php.IndexOf("function x()", StringComparison.Ordinal)..];
+        method.Should().Contain("$this->point['x']");
+        method.Should().Contain("$this->point['y']");
+        method.Should().NotContain("$this->point->");
+    }
+
+    [Fact]
+    public void Emit_StructFieldThroughDeclaredInstanceProperty_UsesArrayAccess()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            type Point = struct {
+                int $x = 0;
+                int $y = 0;
+            };
+            final class Holder {
+                private Point $point;
+                private ?Point $maybe = null;
+                public function __construct(Point $point) { $this->point = $point; }
+                public function x(): int {
+                    return $this->point->x + $this->point->y;
+                }
+                public function m(): int {
+                    if ($this->maybe !== null) {
+                        return $this->maybe->x;
+                    }
+                    return 0;
+                }
+            }
+            """);
+
+        var method = php[php.IndexOf("function x()", StringComparison.Ordinal)..];
+        method.Should().Contain("$this->point['x']");
+        method.Should().Contain("$this->point['y']");
+        method.Should().NotContain("$this->point->");
+        method.Should().NotContain("$this->maybe->");
+    }
+
+    [Fact]
+    public void Emit_NestedStructFieldThroughPromotedProperty_UsesArrayAccessAtEveryHop()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            type Point = struct {
+                int $x = 0;
+            };
+            type Options = struct {
+                Point $point;
+                string $cwd = '';
+            };
+            final class Runner {
+                public function __construct(private readonly Options $options) {}
+                public function x(): int {
+                    return $this->options->point->x;
+                }
+            }
+            """);
+
+        var method = php[php.IndexOf("function x()", StringComparison.Ordinal)..];
+        method.Should().Contain("$this->options['point']['x']");
+        method.Should().NotContain("$this->options->");
+        method.Should().NotContain("['point']->");
+    }
+
+    [Fact]
+    public void Emit_ClassTypedPromotedProperty_KeepsObjectAccess()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            final class Inner {
+                public int $x = 0;
+            }
+            final class Holder {
+                public function __construct(private readonly Inner $inner) {}
+                public function x(): int {
+                    return $this->inner->x;
+                }
+            }
+            """);
+
+        var method = php[php.IndexOf("function x()", StringComparison.Ordinal)..];
+        method.Should().Contain("$this->inner->x");
     }
 
     [Fact]
@@ -697,5 +827,88 @@ public class StructEmitterTests
 
         php.Should().Contain("['items' => [1, 2], 'count' => 1]");
         php.Should().NotMatchRegex(@",\s*,");
+    }
+
+    [Fact]
+    public void Emit_UnionOfStructs_ReadsSharedFieldAsArrayKey()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace Types {
+                type Ok = struct { true $ok; string $message; };
+                type No = struct { false $ok; int $code; };
+                type Result = Ok|No;
+            }
+            namespace App {
+                function text(\Types\Result $value): string {
+                    if ($value->ok === true) {
+                        return $value->message;
+                    }
+                    return (string)$value->code;
+                }
+            }
+            """);
+
+        php.Should().Contain("$value['ok']");
+        php.Should().Contain("$value['message']");
+        php.Should().Contain("$value['code']");
+        php.Should().NotContain("$value->ok");
+        php.Should().NotContain("$value->message");
+        php.Should().NotContain("$value->code");
+    }
+
+    [Fact]
+    public void Emit_UnionOfClasses_ReadsSharedPropertyAsProperty()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace App {
+                class Left { public string $kind = 'left'; }
+                class Right { public string $kind = 'right'; }
+                function kind(Left|Right $value): string {
+                    return $value->kind;
+                }
+            }
+            """);
+
+        php.Should().Contain("$value->kind");
+        php.Should().NotContain("$value['kind']");
+    }
+
+    [Fact]
+    public void Emit_UnionOfStructAndClass_ReadsSharedPropertyAsProperty()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace App {
+                type Plain = struct { string $kind; };
+                class Rich { public string $kind = 'rich'; }
+                function kind(Plain|Rich $value): string {
+                    return $value->kind;
+                }
+            }
+            """);
+
+        php.Should().Contain("$value->kind");
+        php.Should().NotContain("$value['kind']");
+    }
+
+    [Fact]
+    public void Emit_UnionOfStructs_WithDifferentKeysReadsSharedPropertyAsProperty()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace App {
+                type Named = struct { string 'name' as $label; };
+                type Titled = struct { string 'title' as $label; };
+                function label(Named|Titled $value): string {
+                    return $value->label;
+                }
+            }
+            """);
+
+        php.Should().Contain("$value->label");
+        php.Should().NotContain("$value['name']");
+        php.Should().NotContain("$value['title']");
     }
 }

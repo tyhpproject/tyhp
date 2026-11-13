@@ -181,13 +181,21 @@ namespace Tyhp.TyhpLang.Binder
             var isStatic = modifiers.HasFlag(MemberModifier.Static);
             var symbolType = DetermineMethodSymbolType(name, isStatic);
 
-            if (!ShouldRegisterPhpVersionGatedDeclaration(
-                    methodDecl,
-                    objScope,
-                    name,
-                    symbolType,
-                    illegalAttributeTarget: false,
-                    out var phpConstraints))
+            var registered = ShouldRegisterPhpVersionGatedDeclaration(
+                methodDecl,
+                objScope,
+                name,
+                symbolType,
+                illegalAttributeTarget: false,
+                out var phpConstraints);
+            // Tyhpdef members stay lookup-only: a consumer's floor still hides the sibling that
+            // misses `output.phpVersion`. A .tyhp class/trait/enum method that misses the floor
+            // but can run on a newer PHP is kept for emit and package.tyhpdef, not for lookup.
+            var runtimeOnly = !registered
+                && !IsTyhpdefContext(methodDecl)
+                && objScope.DeclarationSymbol is ObjectDeclarationSymbol { ObjectKind: not PhpTypeDeclType.Interface }
+                && IsRuntimeOnlyPhpVersionGate(objScope, name, symbolType, methodDecl);
+            if (!registered && !runtimeOnly)
             {
                 return null;
             }
@@ -240,6 +248,17 @@ namespace Tyhp.TyhpLang.Binder
                 methodSymbol.FullyQualifiedName = overloadOwner.FullyQualifiedName;
                 methodSymbol.OverloadRole = SourceOverloadRole.Signature;
                 methodSymbol.OverloadOwner = overloadOwner;
+            }
+            else if (runtimeOnly)
+            {
+                methodSymbol.IsPhpVersionRuntimeOnly = true;
+                methodSymbol.ContainingScope = objScope;
+                if (objScope.DeclarationSymbol is ObjectDeclarationSymbol owner)
+                {
+                    owner.AddPhpVersionRuntimeOnlyMethod(methodSymbol);
+                }
+
+                return methodSymbol;
             }
             else if (!objScope.TryAddChildSymbol(methodSymbol, out var existing))
             {
@@ -303,7 +322,6 @@ namespace Tyhp.TyhpLang.Binder
 
             if (propDecl.Properties == null) return;
 
-            var allowsUnset = DeclarationHasAllowUnsetAttribute(propDecl);
             foreach (var prop in propDecl.Properties.GetAllNotNull())
             {
                 var symbolType = isStatic ? SymbolType.StaticObjectProperty : SymbolType.InstanceObjectProperty;
@@ -332,8 +350,6 @@ namespace Tyhp.TyhpLang.Binder
                 propSymbol.DeclaredType = type;
                 propSymbol.DefaultValue = prop.DefaultValue;
                 ApplyPropertyHookFlags(propSymbol, prop.Hooks);
-                propSymbol.AllowsUnset = allowsUnset
-                    || DeclarationHasAllowUnsetAttribute(prop);
 
                 if (!objScope.TryAddChildSymbol(propSymbol, out var existing))
                 {
@@ -737,7 +753,6 @@ namespace Tyhp.TyhpLang.Binder
 
                     propSymbol.DeclaredType = param.Type;
                     propSymbol.DefaultValue = param.DefaultValue;
-                    propSymbol.AllowsUnset = DeclarationHasAllowUnsetAttribute(param);
                     ApplyPropertyHookFlags(propSymbol, param.PropertyHooks as PhpPropertyHookListAst);
 
                     if (objScope.TryAddChildSymbol(propSymbol, out var existingProp))
@@ -903,42 +918,5 @@ namespace Tyhp.TyhpLang.Binder
             node is null
                 ? null
                 : !string.IsNullOrEmpty(node.Identifier) ? node.Identifier : node.ValueString;
-
-        /// <summary>
-        /// Prop-init #8: <c>#[\Tyhp\AllowUnset]</c> (or unqualified <c>AllowUnset</c>) on a property
-        /// declaration or promoted constructor parameter.
-        /// </summary>
-        private static bool DeclarationHasAllowUnsetAttribute(IBase2Ast? node)
-        {
-            if (node is null)
-            {
-                return false;
-            }
-
-            foreach (var attribute in node.AstAttributes)
-            {
-                if (attribute is not PhpAttributeAst attr)
-                {
-                    continue;
-                }
-
-                var name = attr.Name switch
-                {
-                    PhpNameAst n => n.ValueString,
-                    TokenValueAst t => t.ValueString,
-                    IExpression e => e.Identifier,
-                    _ => null,
-                };
-
-                if (name is not null
-                    && (string.Equals(name, "AllowUnset", StringComparison.OrdinalIgnoreCase)
-                        || name.EndsWith("\\AllowUnset", StringComparison.OrdinalIgnoreCase)))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
     }
 }

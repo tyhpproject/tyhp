@@ -4,6 +4,7 @@ using Tyhp.TyhpLang.Ast;
 using Tyhp.TyhpLang.Ast.Interfaces;
 using Tyhp.TyhpLang.Binder.Symbols;
 using Tyhp.TyhpLang.Binder.Symbols.Interfaces;
+using Tyhp.TyhpLang.Emitter;
 using Tyhp.TyhpLang.Enum;
 
 namespace Tyhp.TyhpLang.Checker.Rules
@@ -20,6 +21,14 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 return;
             }
+
+            CheckInferGeneric(
+                function,
+                functionSymbol.Name,
+                functionSymbol.GenericParameters,
+                function.Parameters,
+                state,
+                diagnostics);
 
             // A named function declared inside another named function/method's body (however
             // deep — an intervening if/loop/try block does not change this). `state.EnclosingCallable`
@@ -76,6 +85,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             RejectReservedGenericVariantName(function.Identifier, function, state, diagnostics);
             RejectReservedPropertyHookMethodName(function.Identifier, function, state, diagnostics);
             FlagGenericVariantIfNeeded(function.Body, functionSymbol, functionSymbol.GenericParameters, context);
+            if (CheckerHelpers.AsyncInferGenericReturnNeedsVariant(
+                functionSymbol.IsAsync, function, function.ReturnType, functionSymbol.GenericParameters))
+            {
+                context.MarkRequiresGenericVariant(functionSymbol);
+            }
 
             if (function.Body is not null)
             {
@@ -125,6 +139,54 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerRuleContext context)
         {
             CheckerHelpers.FlagGenericVariantIfNeeded(body, symbol, generics, context);
+        }
+
+        /// <summary>
+        /// <see cref="FlagGenericVariantIfNeeded"/> for a class, trait, or enum method. Siblings that
+        /// share one PHP method because their <c>#[\Tyhp\Php]</c> gates cover different versions
+        /// (the one registered for the floor and the runtime-only ones) are emitted as one binder,
+        /// and a call site reads the flag from the registered one, so the flag covers the whole set.
+        /// </summary>
+        private static void FlagMethodGenericVariantIfNeeded(
+            PhpMethodDeclAst method,
+            ObjectMethodSymbol methodSymbol,
+            CheckerState state,
+            CheckerRuleContext context)
+        {
+            if (methodSymbol.GenericParameters.Count == 0)
+            {
+                return;
+            }
+
+            var needsVariant = CheckerHelpers.UsesGenericAtRuntime(method.Body, methodSymbol.GenericParameters)
+                || CheckerHelpers.AsyncInferGenericReturnNeedsVariant(
+                    methodSymbol.IsAsync, method, method.ReturnType, methodSymbol.GenericParameters);
+            if (!needsVariant)
+            {
+                return;
+            }
+
+            context.MarkRequiresGenericVariant(methodSymbol);
+            if (state.EnclosingObject is not { } owner)
+            {
+                return;
+            }
+
+            if (owner.Members.TryGetValue(methodSymbol.Name, out var registered)
+                && registered is ObjectMethodSymbol { IsOverloadSignature: false } registeredMethod
+                && registeredMethod.IsStatic == methodSymbol.IsStatic)
+            {
+                context.MarkRequiresGenericVariant(registeredMethod);
+            }
+
+            foreach (var sibling in owner.PhpVersionRuntimeOnlyMethods)
+            {
+                if (string.Equals(sibling.Name, methodSymbol.Name, StringComparison.OrdinalIgnoreCase)
+                    && sibling.IsStatic == methodSymbol.IsStatic)
+                {
+                    context.MarkRequiresGenericVariant(sibling);
+                }
+            }
         }
 
         /// <summary>
@@ -191,6 +253,23 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
         }
 
+        private static void RejectReservedOperatorDefaultName(
+            string? identifier,
+            IBase2Ast node,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (GeneratedNames.IsOperatorDefaultMethod(identifier))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    node,
+                    MessageCode.CheckerReservedOperatorDefaultName,
+                    identifier!);
+            }
+        }
+
         private static void RejectReservedPropertyHookMethodName(
             string? identifier,
             IBase2Ast node,
@@ -219,6 +298,44 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
         }
 
+        private static void CheckInferGeneric(
+            IBase2Ast declaration,
+            string? name,
+            IReadOnlyList<GenericTypeParameterSymbol> generics,
+            PhpParameterListAst? parameters,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (!InferGenericAttributeSupport.HasInferGeneric(declaration))
+            {
+                return;
+            }
+
+            if (generics.Count == 0)
+            {
+                CheckerHelpers.ReportWarning(
+                    diagnostics,
+                    state,
+                    declaration,
+                    MessageCode.CheckerInferGenericOnNonGeneric,
+                    name ?? "declaration");
+                return;
+            }
+
+            foreach (var parameter in generics)
+            {
+                if (!TyhpEmitter.TypeParameterIsInferable(parameter.Name, parameters))
+                {
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        declaration,
+                        MessageCode.CheckerInferGenericNotInferable,
+                        parameter.Name);
+                }
+            }
+        }
+
         private void CheckMethod(
             PhpMethodDeclAst method,
             CheckerState state,
@@ -230,6 +347,28 @@ namespace Tyhp.TyhpLang.Checker.Rules
             // explicitly. Do not route through CheckNode: DeclarationRule would double-fire.
             AttributeRule.ValidateDeclarationAttributes(method, state, context, diagnostics);
             context.ValidatePhpVersionMember(method, state);
+            if (method.BoundSymbol is ObjectMethodSymbol genericMethod)
+            {
+                CheckBinderFirstGenericForbidden(method, genericMethod, state, context, diagnostics);
+                CheckInferGeneric(
+                    method,
+                    genericMethod.Name,
+                    genericMethod.GenericParameters,
+                    method.Parameters,
+                    state,
+                    diagnostics);
+            }
+
+            // The body may call APIs that exist only on a newer PHP. Gate diagnostics already ran.
+            // Emit still has to know whether the body reads a generic at runtime, so that one
+            // syntactic scan runs here; nothing else about the body is checked.
+            if (method.BoundSymbol is ObjectMethodSymbol { IsPhpVersionRuntimeOnly: true } runtimeOnlyMethod)
+            {
+                FlagMethodGenericVariantIfNeeded(method, runtimeOnlyMethod, state, context);
+                FlagRuntimeGenericTrackingIfNeeded(method.Body, runtimeOnlyMethod, state, context, diagnostics);
+                return;
+            }
+
             TypeAnnotationRule.CheckMethodReturnType(method, state, context);
             CodeQualityRule.CheckMethodBody(method, state, diagnostics);
             DisposableRule.AnalyzeMethodBody(method, state, context, diagnostics);
@@ -387,19 +526,38 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         : PropertyInitializationAnalysis.SeedForInstanceMethod(
                             enclosingObject, context.SymbolTree, context.GlobalScope);
                 methodState.ReplacePropertyInit(seeded);
+                if (methodSymbol is ObjectConstructorMethodSymbol)
+                {
+                    methodState.ConstructorExits = new ConstructorExitCollector(methodSymbol);
+                    if (PropertyInitializationAnalysis.HasUnconditionalParentDelegation(method))
+                    {
+                        PropertyInitializationAnalysis.CreditParentConstructorCall(
+                            methodState, enclosingObject, context.SymbolTree, context.GlobalScope);
+                    }
+                }
             }
 
+            // Constructor hook bodies read `$this->prop` with post-construction facts, which this
+            // method records after the body. Check them once those facts exist.
+            var deferConstructorHookBodies = methodSymbol is ObjectConstructorMethodSymbol;
             RegisterParameters(
                 method.Parameters,
                 AuthoredMethodParameters(methodSymbol),
                 methodState,
                 state,
                 context,
-                diagnostics);
+                diagnostics,
+                checkHookBodies: !deferConstructorHookBodies);
+            if (deferConstructorHookBodies)
+            {
+                CheckPromotedSetHooksRunBeforeBody(method, state, context, diagnostics);
+            }
+
             ValidateMagicMethodIfNeeded(method.Identifier, method.Parameters, method.ReturnType, methodSymbol.IsStatic, method, state, context, diagnostics);
             RejectReservedGenericVariantName(method.Identifier, method, state, diagnostics);
             RejectReservedPropertyHookMethodName(method.Identifier, method, state, diagnostics);
-            FlagGenericVariantIfNeeded(method.Body, methodSymbol, methodSymbol.GenericParameters, context);
+            RejectReservedOperatorDefaultName(method.Identifier, method, state, diagnostics);
+            FlagMethodGenericVariantIfNeeded(method, methodSymbol, state, context);
             FlagRuntimeGenericTrackingIfNeeded(method.Body, methodSymbol, state, context, diagnostics);
             context.RecordDeclaredMethod(methodSymbol, state.EnclosingObject);
 
@@ -422,7 +580,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     if (methodSymbol is ObjectConstructorMethodSymbol && state.EnclosingObject is { } ctorOwner)
                     {
                         PropertyInitializationAnalysis.RecordPostConstructionState(
-                            ctorOwner, methodState, context.SymbolTree, context.GlobalScope);
+                            ctorOwner,
+                            methodState,
+                            inheritAncestorConstructor: false,
+                            context.SymbolTree,
+                            context.GlobalScope);
                     }
 
                     if (methodState.IsTypeGuardFunction && !methodState.HasReturnedOnAllPaths)
@@ -460,6 +622,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 PropertyInitializationAnalysis.RecordPostConstructionState(
                     emptyCtorOwner,
                     constructorFinalState: null,
+                    inheritAncestorConstructor: false,
                     context.SymbolTree,
                     context.GlobalScope);
             }
@@ -471,6 +634,11 @@ namespace Tyhp.TyhpLang.Checker.Rules
             {
                 CheckerHelpers.ReportError(
                     diagnostics, state, method, MessageCode.CheckerMissingReturnStatement, method.Identifier);
+            }
+
+            if (deferConstructorHookBodies)
+            {
+                CheckPromotedPropertyHookBodies(method, state, context, diagnostics);
             }
         }
 
@@ -595,6 +763,105 @@ namespace Tyhp.TyhpLang.Checker.Rules
 
             var fileName = state.CurrentFileName ?? method.OwningFile?.FileName ?? string.Empty;
             return fileName.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// A binder replaces the method PHP dispatches on. Magic methods and methods that override
+        /// or implement a non-generic signature cannot take that shape. <c>.tyhpdef</c> shells
+        /// describe PHP and are left alone.
+        /// </summary>
+        private static void CheckBinderFirstGenericForbidden(
+            PhpMethodDeclAst method,
+            ObjectMethodSymbol methodSymbol,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (methodSymbol.GenericParameters.Count == 0 || IsTyhpdefMethod(method, state))
+            {
+                return;
+            }
+
+            if (IsBinderForbiddenMagicMethod(methodSymbol.Name))
+            {
+                CheckerHelpers.ReportError(
+                    context,
+                    state,
+                    method,
+                    MessageCode.CheckerGenericOnMagicMethod,
+                    methodSymbol.Name);
+            }
+
+            if (TryFindOverriddenMethod(methodSymbol.Name, state, context) is { } parentMethod
+                && parentMethod.GenericParameters.Count == 0)
+            {
+                CheckerHelpers.ReportError(
+                    context,
+                    state,
+                    method,
+                    MessageCode.CheckerGenericOverridesNonGenericMethod,
+                    methodSymbol.Name,
+                    DescribeCallableOwner(parentMethod));
+            }
+
+            if (state.EnclosingObject is not { } owner)
+            {
+                return;
+            }
+
+            foreach (var iface in CollectImplementedInterfaces(owner, context))
+            {
+                if (!iface.Members.TryGetValue(methodSymbol.Name, out var member)
+                    || member is not ObjectMethodSymbol ifaceMethod
+                    || (ifaceMethod.Visibility & MemberModifier.Private) != 0
+                    || ifaceMethod.GenericParameters.Count > 0)
+                {
+                    continue;
+                }
+
+                CheckerHelpers.ReportError(
+                    context,
+                    state,
+                    method,
+                    MessageCode.CheckerGenericOverridesNonGenericMethod,
+                    methodSymbol.Name,
+                    DescribeCallableOwner(ifaceMethod));
+            }
+        }
+
+        private static bool IsTyhpdefMethod(PhpMethodDeclAst method, CheckerState state)
+        {
+            if (string.Equals(method.LanguageMode, "tyhpdef", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var fileName = state.CurrentFileName ?? method.OwningFile?.FileName ?? string.Empty;
+            return fileName.EndsWith(".tyhpdef", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsBinderForbiddenMagicMethod(string name) =>
+            name.ToLowerInvariant() switch
+            {
+                "__construct" or "__destruct" or "__clone" or "__call" or "__callstatic"
+                    or "__get" or "__set" or "__isset" or "__unset" or "__sleep" or "__wakeup"
+                    or "__serialize" or "__unserialize" or "__tostring" or "__invoke"
+                    or "__set_state" or "__debuginfo" => true,
+                _ => false,
+            };
+
+        private static string DescribeCallableOwner(ObjectMethodSymbol method)
+        {
+            for (var scope = method.ContainingScope; scope is not null; scope = scope.ParentScope)
+            {
+                if (scope.DeclarationSymbol is ObjectDeclarationSymbol type
+                    && !string.IsNullOrEmpty(type.Name))
+                {
+                    return type.Name + "::" + method.Name;
+                }
+            }
+
+            return method.Name;
         }
 
         private static void CheckMethodOverride(

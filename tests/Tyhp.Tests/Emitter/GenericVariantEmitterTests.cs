@@ -9,10 +9,9 @@ using Tyhp.Tests.TestHelpers;
 namespace Tyhp.Tests.Emitter;
 
 /// <summary>
-/// Mechanism D — a callable that needs its own generic parameters at runtime is emitted as a pair:
-/// the declared name keeps the declared signature and delegates with null type args, and a
-/// <c>__tyhpGeneric</c> binder returns a <c>\Closure</c> with the declared value signature.
-/// See FOUND_BUGS Mechanism D.
+/// Mechanism D — a callable that needs its own generic parameters at runtime is emitted as one
+/// method under the declared name. That method takes the type arguments and returns a
+/// <c>\Closure</c> with the value signature.
 /// </summary>
 [Trait("Category", "Emitter")]
 public class GenericVariantEmitterTests
@@ -29,11 +28,12 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("function zero(): mixed");
-        php.Should().Contain("return $this->zero__tyhpGeneric(null)();");
-        php.Should().Contain("function zero__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
-        php.Should().Contain("return function () use ($__generic_T): mixed {");
-        php.Should().Contain("return $__generic_T->defaultValue();");
+        php.Should().Contain("function zero(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("#[\\Tyhp\\GenericRuntime(erased: false, binder: \"zero\", layouts: [2]");
+        php.Should().Contain("$T = \\Tyhp\\Type::arg($T);");
+        php.Should().Contain("return function () use ($T): mixed {");
+        php.Should().Contain("return $T->defaultValue();");
+        php.Should().NotContain("zero__tyhpGeneric");
     }
 
     [Fact]
@@ -143,10 +143,9 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("function pick__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
-        php.Should().Contain("return function (int ...$values) use ($__generic_T)");
-        php.Should().NotContain("$__generic_T = null");
-        php.Should().Contain("return $this->pick__tyhpGeneric(null)(...$values);");
+        php.Should().Contain("function pick(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("return function (int ...$values) use ($T)");
+        php.Should().NotContain("pick__tyhpGeneric");
     }
 
     [Fact]
@@ -161,8 +160,8 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("return static::zero__tyhpGeneric(null)();");
-        php.Should().Contain("static function zero__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
+        php.Should().Contain("static function zero(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().NotContain("zero__tyhpGeneric");
     }
 
     [Fact]
@@ -175,9 +174,9 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("function zero(): mixed");
-        php.Should().Contain("return zero__tyhpGeneric(null)();");
-        php.Should().Contain("function zero__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
+        php.Should().Contain("function zero(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("$T = \\Tyhp\\Type::arg($T);");
+        php.Should().NotContain("zero__tyhpGeneric");
     }
 
     [Fact]
@@ -192,9 +191,9 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("function write__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
-        php.Should().Contain("return function (\\Tyhp\\Type &$out) use ($__generic_T): void");
-        php.Should().Contain("$this->write__tyhpGeneric(null)($out);");
+        php.Should().Contain("function write(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("return function (\\Tyhp\\Type &$out) use ($T): void");
+        php.Should().NotContain("write__tyhpGeneric");
     }
 
     [Fact]
@@ -212,11 +211,9 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("function &slot(): mixed");
-        php.Should().Contain("$fn = $this->slot__tyhpGeneric(null);");
-        php.Should().Contain("return $fn();");
-        php.Should().Contain("function slot__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
-        php.Should().Contain("return function &() use ($__generic_T): mixed");
+        php.Should().Contain("function slot(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("return function &() use ($T): mixed");
+        php.Should().NotContain("slot__tyhpGeneric");
     }
 
     [Fact]
@@ -235,13 +232,13 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("function () use ($__generic_T)");
+        php.Should().Contain("function () use ($T)");
     }
 
     [Fact]
     public void Emit_NestedClosureUsingGenericAsTypeArgument_CapturesVariantLocal()
     {
-        // `new Box<T>()` emits `$__generic_T` without typeof/default on the closure itself —
+        // `new Box<T>()` emits `$T` without typeof/default on the nested closure itself —
         // every binder generic is still captured into nested classic closures.
         var php = CompileAndEmit("""
             <?tyhp
@@ -263,9 +260,9 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("return function () use ($__generic_T): callable {");
-        php.Should().Contain("return function () use ($__generic_T) {");
-        php.Should().Contain("new_Probe_Box__tyhpGeneric($__generic_T)");
+        php.Should().Contain("return function () use ($T): callable {");
+        php.Should().Contain("return function () use ($T) {");
+        php.Should().Contain("new_Probe_Box__tyhpGeneric($T)");
     }
 
     [Fact]
@@ -291,8 +288,8 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("function make__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
-        php.Should().Contain("new_Probe_Box__tyhpGeneric($__generic_T)");
+        php.Should().Contain("function make(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("new_Probe_Box__tyhpGeneric($T)");
         php.Should().NotContain("new_Probe_Box__tyhpGeneric(null)");
     }
 
@@ -325,7 +322,7 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("new_Probe_Box__tyhpGeneric($__generic_T)");
+        php.Should().Contain("new_Probe_Box__tyhpGeneric($T)");
         php.Should().NotContain("new_Probe_Box__tyhpGeneric(null)");
     }
 
@@ -341,13 +338,13 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("fn(): \\Tyhp\\Type => $__generic_T");
+        php.Should().Contain("fn(): \\Tyhp\\Type => $T");
     }
 
     [Fact]
     public void Emit_SettledVariantLocal_NeedsNoNullCoalesceInsideValueClosure()
     {
-        // Prologue `$__generic_T ??= …` runs before `return function`, so body lookups stay bare.
+        // Unbound type arguments settle inside the value Closure, then body lookups stay bare.
         var php = CompileAndEmit("""
             <?tyhp
             class Holder {
@@ -357,10 +354,10 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("$__generic_T ??= \\Tyhp\\Type::mixed();");
-        php.Should().Contain("'T=' . $__generic_T");
-        php.Should().NotContain("$__generic_T ?? \\");
-        php.Should().NotContain("$__generic_T?->");
+        php.Should().Contain("$T = \\Tyhp\\Type::mixed();");
+        php.Should().Contain("'T=' . $T");
+        php.Should().NotContain("$T ?? \\");
+        php.Should().NotContain("$T?->");
     }
 
     [Fact]
@@ -380,9 +377,9 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("function viaMatch__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
+        php.Should().Contain("function viaMatch(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
         php.Should().Contain("@return \\Closure(int $n): string");
-        php.Should().Contain("return function (int $n) use ($__generic_T)");
+        php.Should().Contain("return function (int $n) use ($T)");
     }
 
     [Fact]
@@ -397,7 +394,7 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("function nothing__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
+        php.Should().Contain("function nothing(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
     }
 
     [Fact]
@@ -412,8 +409,8 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("$__generic_T ??= \\Tyhp\\Type::mixed();");
-        var prologue = php.IndexOf("$__generic_T ??= \\Tyhp\\Type::mixed();", StringComparison.Ordinal);
+        php.Should().Contain("$T = \\Tyhp\\Type::arg($T);");
+        var prologue = php.IndexOf("$T = \\Tyhp\\Type::arg($T);", StringComparison.Ordinal);
         var returnFn = php.IndexOf("return function", StringComparison.Ordinal);
         prologue.Should().BeGreaterThanOrEqualTo(0);
         returnFn.Should().BeGreaterThan(prologue);
@@ -439,15 +436,14 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("function wrap(callable $fn): self");
-        php.Should().Contain(
-            "return static::wrap__tyhpGeneric(\\Tyhp\\Type::fromCallableReturn($fn))($fn);");
-        php.Should().Contain("function wrap__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
-        php.Should().Contain("$__generic_T ??= \\Tyhp\\Type::mixed();");
+        php.Should().Contain("function wrap(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("\\Tyhp\\Type::fromCallableReturn($fn)");
+        php.Should().Contain("return function (callable $fn) use ($T)");
         php.Should().Contain("new_Probe_Box__tyhpGeneric");
-        var prologue = php.IndexOf("$__generic_T ??= \\Tyhp\\Type::mixed();", StringComparison.Ordinal);
+        php.Should().NotContain("wrap__tyhpGeneric");
+        var prologue = php.IndexOf("$T = \\Tyhp\\Type::arg($T);", StringComparison.Ordinal);
         var returnFn = php.IndexOf(
-            "return function (callable $fn) use ($__generic_T): self",
+            "return function (callable $fn) use ($T)",
             StringComparison.Ordinal);
         prologue.Should().BeGreaterThanOrEqualTo(0);
         returnFn.Should().BeGreaterThan(prologue);
@@ -476,19 +472,19 @@ public class GenericVariantEmitterTests
     [Theory]
     [InlineData(
         "return pick(async function(): int { return 1; });",
-        "pick__tyhpGeneric(\\Tyhp\\Type::int())(")]
+        "pick(\\Tyhp\\Type::int())(")]
     [InlineData(
         "return pick(async fn(): string => 'x');",
-        "pick__tyhpGeneric(\\Tyhp\\Type::string())(")]
+        "pick(\\Tyhp\\Type::string())(")]
     [InlineData(
         "return pick(fn: async function(): int { return 1; });",
-        "pick__tyhpGeneric(\\Tyhp\\Type::int())(")]
+        "pick(\\Tyhp\\Type::int())(")]
     [InlineData(
         "return Runner::make(async function(): bool { return true; });",
-        "Runner::make__tyhpGeneric(\\Tyhp\\Type::bool())(")]
+        "Runner::make(\\Tyhp\\Type::bool())(")]
     [InlineData(
         "return pair(async function(): int { return 1; }, fn(): string => 'x');",
-        "pair__tyhpGeneric(\\Tyhp\\Type::int(), \\Tyhp\\Type::string())(")]
+        "pair(\\Tyhp\\Type::int(), \\Tyhp\\Type::string())(")]
     public void Emit_AsyncClosureArgument_BindsAwaitedTypeAtCallSite(string statement, string expected)
     {
         var php = CompileAndEmit(AsyncCallableReturnHost + $$"""
@@ -498,9 +494,6 @@ public class GenericVariantEmitterTests
             """);
 
         php.Should().Contain(expected);
-        php.Should().NotContain("return pick(");
-        php.Should().NotContain("return Runner::make(");
-        php.Should().NotContain("return pair(");
     }
 
     [Fact]
@@ -512,7 +505,7 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("pick__tyhpGeneric(null)(");
+        php.Should().Contain("pick(null)(");
         php.Should().NotContain("fromCallableReturn(function");
     }
 
@@ -526,7 +519,7 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("pick__tyhpGeneric(\\Tyhp\\Type::int())(");
+        php.Should().Contain("pick(\\Tyhp\\Type::int())(");
         php.Should().NotContain("return pick($fn)");
     }
 
@@ -559,15 +552,15 @@ public class GenericVariantEmitterTests
     }
 
     [Theory]
-    [InlineData("return Holder::zero<int>();", "Holder::zero__tyhpGeneric(\\Tyhp\\Type::int())()")]
-    [InlineData("return $h->zero<int>();", "$h->zero__tyhpGeneric(\\Tyhp\\Type::int())()")]
-    [InlineData("return free<int>();", "free__tyhpGeneric(\\Tyhp\\Type::int())()")]
-    [InlineData("$h->zero<int>();", "$h->zero__tyhpGeneric(\\Tyhp\\Type::int())()")]
-    [InlineData("return [$h->zero<int>()];", "[$h->zero__tyhpGeneric(\\Tyhp\\Type::int())()]")]
-    [InlineData("return sink($h->zero<int>());", "sink($h->zero__tyhpGeneric(\\Tyhp\\Type::int())())")]
+    [InlineData("return Holder::zero<int>();", "Holder::zero(\\Tyhp\\Type::int())()")]
+    [InlineData("return $h->zero<int>();", "$h->zero(\\Tyhp\\Type::int())()")]
+    [InlineData("return free<int>();", "free(\\Tyhp\\Type::int())()")]
+    [InlineData("$h->zero<int>();", "$h->zero(\\Tyhp\\Type::int())()")]
+    [InlineData("return [$h->zero<int>()];", "[$h->zero(\\Tyhp\\Type::int())()]")]
+    [InlineData("return sink($h->zero<int>());", "sink($h->zero(\\Tyhp\\Type::int())())")]
     [InlineData(
         "return sink(fn(): mixed => $h->zero<int>());",
-        "$h->zero__tyhpGeneric(\\Tyhp\\Type::int())()")]
+        "$h->zero(\\Tyhp\\Type::int())()")]
     public void Emit_CallSiteWithTypeArguments_RoutesToVariant(string callSite, string expected)
     {
         var php = CompileAndEmit($$"""
@@ -596,7 +589,7 @@ public class GenericVariantEmitterTests
     }
 
     [Fact]
-    public void Emit_CallSiteWithoutTypeArguments_KeepsTheWrapper()
+    public void Emit_CallSiteWithoutTypeArguments_PassesNullToTheBinder()
     {
         var php = CompileAndEmit("""
             <?tyhp
@@ -611,7 +604,7 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("return $h->zero();");
+        php.Should().Contain("return $h->zero(null)();");
     }
 
     [Fact]
@@ -631,9 +624,9 @@ public class GenericVariantEmitterTests
             """);
 
         php.Should().Contain(
-            "function pair__tyhpGeneric(?\\Tyhp\\Type $__generic_TA, ?\\Tyhp\\Type $__generic_TB): \\Closure");
+            "function pair(\\Tyhp\\TypeLike|string|null $TA = null, \\Tyhp\\TypeLike|string|null $TB = null): \\Closure");
         php.Should().Contain(
-            "$h->pair__tyhpGeneric(\\Tyhp\\Type::int(), \\Tyhp\\Type::string())()");
+            "$h->pair(\\Tyhp\\Type::int(), \\Tyhp\\Type::string())()");
     }
 
     /// <summary>
@@ -659,8 +652,8 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("public function name(): string;");
-        php.Should().Contain("public function name__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure;");
+        php.Should().Contain("public function name(\\Tyhp\\TypeLike|string|null $T = null): \\Closure;");
+        php.Should().NotContain("function name__tyhpGeneric");
         php.Should().Contain("@return \\Closure(): string");
     }
 
@@ -705,11 +698,10 @@ public class GenericVariantEmitterTests
             """);
 
         php.Should().Contain(
-            "abstract public function name__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure;");
+            "abstract public function name(\\Tyhp\\TypeLike|string|null $T = null): \\Closure;");
+        php.Should().NotContain("function name__tyhpGeneric");
         php.Should().NotContain(
-            "abstract public function name__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure\n{");
-        php.Should().NotContain(
-            "abstract public function name__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure\n    {");
+            "abstract public function name(\\Tyhp\\TypeLike|string|null $T = null): \\Closure\n{");
     }
 
     /// <summary>
@@ -732,11 +724,53 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("public function name(): \\Tyhp\\Promise");
-        php.Should().Contain("return $this->name__tyhpGeneric(null)();");
         php.Should().Contain(
-            "public function name__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
-        php.Should().Contain("return function () use ($__generic_T): \\Tyhp\\Promise");
+            "public function name(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("return function () use ($T): \\Tyhp\\Promise");
+        php.Should().NotContain("name__tyhpGeneric");
+    }
+
+    /// <summary>
+    /// An erased async body still has to stamp the settled type parameter onto the Promise.
+    /// The inner closure's PHP return hint is <c>mixed</c>, so <c>_async</c> would infer
+    /// <c>Promise&lt;mixed&gt;</c>. The variant passes the bound return type instead.
+    /// </summary>
+    [Fact]
+    public void Emit_InferGenericAsyncMethod_StampsSettledTypeOnThePromise()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace Probe;
+
+            class Holder {
+                #[\Tyhp\InferGeneric]
+                public async function pick<T>(T $value): T {
+                    return $value;
+                }
+            }
+            """);
+
+        php.Should().Contain("function pick__tyhpGeneric");
+        php.Should().Contain("\\Tyhp\\Promise::_async__tyhpGeneric($T)(function ()");
+    }
+
+    [Fact]
+    public void Emit_AsyncGenericMethodWithoutInferGeneric_StaysPlainWhenTheBodyDoesNotReify()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace Probe;
+
+            class Holder {
+                public async function pick<T>(T $value): T {
+                    return $value;
+                }
+            }
+            """);
+
+        php.Should().NotContain("pick__tyhpGeneric");
+        php.Should().Contain("\\Tyhp\\Promise::_async(function ()");
+        php.Should().NotContain("_async__tyhpGeneric");
     }
 
     /// <summary>
@@ -764,7 +798,7 @@ public class GenericVariantEmitterTests
             """);
 
         php.Should().Contain(
-            "Checker::isType__tyhpGeneric($this->__tyhpGeneric->resolvedType(\\Accessor::class, 'TValue'))($result)");
+            "Checker::isType($this->__tyhpGeneric->resolvedType(\\Accessor::class, 'TValue'))($result)");
     }
 
     [Fact]
@@ -787,11 +821,25 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("function wrap__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
-        php.Should().Contain("Helper::take__tyhpGeneric($__generic_T)");
+        php.Should().Contain("function wrap(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("Helper::take($T)($value)");
         php.Should().NotContain("fromClassName(\\T::class)");
         php.Should().NotContain("fromClassName(T::class)");
-        php.Should().NotContain("Helper::take__tyhpGeneric(\\Tyhp\\Type::mixed())");
+        php.Should().NotContain("Helper::take(\\Tyhp\\Type::mixed())");
+    }
+
+    [Fact]
+    public void Emit_TypeParameterClassConstant_ReadsTheBoundClassName()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            function id<T>(): string {
+                return T::class;
+            }
+            """);
+
+        php.Should().Contain("\\ltrim($T->getName() ?? '', '\\\\')");
+        php.Should().NotContain("T::class");
     }
 
     [Fact]
@@ -806,8 +854,8 @@ public class GenericVariantEmitterTests
             }
             """);
 
-        php.Should().Contain("function decodeAs__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
-        php.Should().Contain("$__generic_T");
+        php.Should().Contain("function decodeAs(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("binder: \"decodeAs\", layouts: [2]");
     }
 
     [Trait("Category", "PHP")]
@@ -962,6 +1010,530 @@ public class GenericVariantEmitterTests
             string(5) "fixed"
 
             """.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void Emit_TypeParameterDefault_SettlesInsideTheClosure()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            function make<T = string>(): mixed {
+                return default(T);
+            }
+            """);
+
+        php.Should().Contain("$T = \\Tyhp\\Type::string();");
+        php.Should().NotContain("$T = \\Tyhp\\Type::mixed();");
+    }
+
+    [Fact]
+    public void Emit_ClosureInfersClassNameAndValueAndUnion()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            function fromClass<T>(__ClassName<T> $class): mixed {
+                return typeof(T);
+            }
+
+            function fromValue<T>(?T $value): mixed {
+                return typeof(T);
+            }
+
+            function fromPair<T>(T $left, T $right): mixed {
+                return typeof(T);
+            }
+
+            function fromLabel<T = int>(string $label): mixed {
+                return default(T);
+            }
+
+            function unbound<T>(string $label): mixed {
+                return typeof(T);
+            }
+            """);
+
+        php.Should().Contain("\\Tyhp\\Type::fromClassName($class)");
+        php.Should().Contain("if ($value !== null)");
+        php.Should().Contain("\\Tyhp\\Type::of($value)");
+        php.Should().Contain("\\Tyhp\\Type::of($left)");
+        php.Should().Contain("\\Tyhp\\Type::of($right)");
+        php.Should().Contain("->or(");
+        php.Should().Contain("$T = \\Tyhp\\Type::int();");
+        php.Should().Contain("$T = \\Tyhp\\Type::mixed();");
+    }
+
+    [Theory]
+    [InlineData("$f = free(...);", "$f = free(null);")]
+    [InlineData("$f = free<int>(...);", "$f = free(\\Tyhp\\Type::int());")]
+    [InlineData("$f = Holder::zero<int>(...);", "$f = Holder::zero(\\Tyhp\\Type::int());")]
+    [InlineData("$f = $h->name<int>(...);", "$f = $h->name(\\Tyhp\\Type::int());")]
+    [InlineData("$f = $h->name(...);", "$f = $h->name(null);")]
+    public void Emit_FirstClassCallableOfBinderFirstGeneric_IsTheBinderResult(string statement, string expected)
+    {
+        // The binder returns the Closure with the value signature, which is what `f(...)` denotes.
+        // Emitting `free(...)` would hand back the binder itself.
+        var php = CompileAndEmit($$"""
+            <?tyhp
+            class Holder {
+                public static function zero<T>(): mixed {
+                    return default(T);
+                }
+
+                public function name<T>(): string {
+                    return '' . typeof(T);
+                }
+            }
+
+            function free<T>(): mixed {
+                return default(T);
+            }
+
+            function caller(Holder $h): mixed {
+                {{statement}}
+                return $f();
+            }
+            """);
+
+        php.Should().Contain(expected);
+        php.Should().NotContain("(...)");
+    }
+
+    [Fact]
+    public void Emit_PipeIntoFirstClassCallableOfBinderFirstGeneric_AppliesTheValueToTheBinderResult()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            function label<T>(T $value): string {
+                return '' . typeof(T);
+            }
+
+            function caller(int $n): string {
+                return $n |> label<int>(...);
+            }
+            """);
+
+        php.Should().Contain("label(\\Tyhp\\Type::int())($n)");
+    }
+
+    [Fact]
+    public void Emit_VariadicValueParameter_InfersFromEachArgument()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            function firstOf<T>(T ...$items): mixed {
+                return typeof(T);
+            }
+            """);
+
+        php.Should().Contain("foreach ($items as $__tyhpItem_T_0)");
+        php.Should().Contain("if ($__tyhpItem_T_0 !== null)");
+        php.Should().Contain("\\Tyhp\\Type::of($__tyhpItem_T_0)");
+        php.Should().NotContain("\\Tyhp\\Type::of($items)");
+    }
+
+    [Fact]
+    public void Emit_NullableClassNameAndCallableParameters_GuardNullBeforeInferring()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            function fromClass<T>(?__ClassName<T> $class): mixed {
+                return typeof(T);
+            }
+
+            function fromCallable<T>(?callable(): T $fn): mixed {
+                return typeof(T);
+            }
+            """);
+
+        php.Should().Contain("if ($class !== null)");
+        php.Should().Contain("if ($fn !== null)");
+        php.Should().Contain("\\Tyhp\\Type::fromClassName($class)");
+        php.Should().Contain("\\Tyhp\\Type::fromCallableReturn($fn)");
+    }
+
+    [Fact]
+    public void Emit_BinderDocComment_StartsWithTheTwoStepCallThenTheAuthorDocThenTheTags()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Holder {
+                /**
+                 * Describes the bound type.
+                 */
+                public static function describe<T>(string $label, int ...$rest): string {
+                    return $label . typeof(T);
+                }
+            }
+            """);
+
+        var call = php.IndexOf("Holder::describe($T)($label, ...$rest)", StringComparison.Ordinal);
+        var author = php.IndexOf("Describes the bound type.", StringComparison.Ordinal);
+        var template = php.IndexOf("@template T", StringComparison.Ordinal);
+        var param = php.IndexOf(
+            "@param \\Tyhp\\Type<T>|\\Tyhp\\BuiltIn|class-string<T>|null $T",
+            StringComparison.Ordinal);
+        var returns = php.IndexOf(
+            "@return \\Closure(string $label, int ...$rest): string",
+            StringComparison.Ordinal);
+
+        call.Should().BeGreaterThanOrEqualTo(0);
+        author.Should().BeGreaterThan(call);
+        template.Should().BeGreaterThan(author);
+        param.Should().BeGreaterThan(template);
+        returns.Should().BeGreaterThan(param);
+    }
+
+    /// <summary>
+    /// Inference runs inside the Closure on every call, and a first-class callable of the binder
+    /// is the value Closure.
+    /// </summary>
+    [Trait("Category", "PHP")]
+    [Fact]
+    public void Emit_MechanismD_InfersTypeArgumentsPerCallWhenExecuted()
+    {
+        if (!PhpToolchain.IsPhpAvailable())
+        {
+            return;
+        }
+
+        var output = CompileAndRun("""
+            <?tyhp
+            namespace Probe;
+
+            function pick<T>(T ...$items): string {
+                return '' . typeof(T);
+            }
+
+            function viaClass<T>(__ClassName<T> $class): string {
+                return '' . typeof(T);
+            }
+
+            function maybe<T>(?callable(): T $fn = null): string {
+                return '' . typeof(T);
+            }
+
+            function run(): void {
+                echo pick(1, 2) . "\n";
+                echo pick() . "\n";
+                echo viaClass(\ArrayObject::class) . "\n";
+                echo maybe() . "\n";
+                echo pick<float>(1.5) . "\n";
+                $each = pick<bool>(...);
+                echo $each(true) . "\n";
+                echo pick(1) . "|" . pick('a') . "\n";
+            }
+            """);
+
+        output.Should().Be(
+            """
+            int
+            mixed
+            ArrayObject
+            mixed
+            float
+            bool
+            int|string
+
+            """.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void Emit_Layout2ForeignCallable_CallsTheDeclaredNameWithAndWithoutTypeArguments()
+    {
+        var php = CompileAndEmitWithTyhpdef(
+            """
+            <?tyhpdef
+            class Holder {
+                #[\Tyhp\GenericRuntime(erased: false, binder: "zero", layouts: [2])]
+                public function zero<T>(): mixed;
+            }
+            """,
+            """
+            <?tyhp
+            function run(Holder $h): mixed {
+                $a = $h->zero<int>();
+                $f = $h->zero<int>(...);
+                return $h->zero();
+            }
+            """);
+
+        php.Should().Contain("$a = $h->zero(\\Tyhp\\Type::int())();");
+        php.Should().Contain("$f = $h->zero(\\Tyhp\\Type::int());");
+        php.Should().Contain("return $h->zero(null)();");
+        php.Should().NotContain("__tyhpGeneric");
+        php.Should().NotContain("\\Tyhp\\Generic::bind");
+    }
+
+    [Fact]
+    public void Emit_Layout1ForeignCallable_FirstClassCallableKeepsTheWrapper()
+    {
+        var php = CompileAndEmitWithTyhpdef(
+            """
+            <?tyhpdef
+            class Holder {
+                #[\Tyhp\GenericRuntime(erased: false, binder: "zero__tyhpGeneric", layouts: [1])]
+                public function zero<T>(): mixed;
+            }
+            """,
+            """
+            <?tyhp
+            function run(Holder $h): mixed {
+                $f = $h->zero(...);
+                return $f();
+            }
+            """);
+
+        php.Should().Contain("$f = $h->zero(...);");
+    }
+
+    [Fact]
+    public void Emit_Layout1ForeignCallable_FirstClassCallableWithTypeArgumentsBindsThem()
+    {
+        // The layout-1 binder returns the value Closure, which is what `zero<int>(...)` denotes.
+        // A bare `$h->zero(...)` would drop `<int>`.
+        var php = CompileAndEmitWithTyhpdef(
+            """
+            <?tyhpdef
+            class Holder {
+                #[\Tyhp\GenericRuntime(erased: false, binder: "zero__tyhpGeneric", layouts: [1])]
+                public function zero<T>(): mixed;
+
+                #[\Tyhp\GenericRuntime(erased: false, binder: "make__tyhpGeneric", layouts: [1])]
+                public static function make<T>(T $value): mixed;
+            }
+            """,
+            """
+            <?tyhp
+            function run(Holder $h): mixed {
+                $f = $h->zero<int>(...);
+                $g = Holder::make<string>(...);
+                return $f();
+            }
+            """);
+
+        php.Should().Contain("$f = $h->zero__tyhpGeneric(\\Tyhp\\Type::int());");
+        php.Should().Contain("$g = Holder::make__tyhpGeneric(\\Tyhp\\Type::string());");
+        php.Should().NotContain("(...)");
+    }
+
+    [Fact]
+    public void Emit_PipeIntoLayout1ForeignFirstClassCallable_AppliesTheValueToTheBoundClosure()
+    {
+        var php = CompileAndEmitWithTyhpdef(
+            """
+            <?tyhpdef
+            class Holder {
+                #[\Tyhp\GenericRuntime(erased: false, binder: "label__tyhpGeneric", layouts: [1])]
+                public static function label<T>(T $value): string;
+            }
+            """,
+            """
+            <?tyhp
+            function run(int $n): string {
+                return $n |> Holder::label<int>(...);
+            }
+            """);
+
+        php.Should().Contain("Holder::label__tyhpGeneric(\\Tyhp\\Type::int())($n)");
+    }
+
+    [Fact]
+    public void Emit_Layout1ForeignCallable_UsesTheStampedBinder()
+    {
+        var php = CompileAndEmitWithTyhpdef(
+            """
+            <?tyhpdef
+            class Holder {
+                #[\Tyhp\GenericRuntime(erased: false, binder: "zero__tyhpGeneric", layouts: [1])]
+                public function zero<T>(): mixed;
+            }
+            """,
+            """
+            <?tyhp
+            function run(Holder $h): mixed {
+                return $h->zero<int>();
+            }
+            """);
+
+        php.Should().Contain("$h->zero__tyhpGeneric(\\Tyhp\\Type::int())()");
+        php.Should().NotContain("\\Tyhp\\Generic::bind");
+    }
+
+    [Fact]
+    public void Emit_InferGeneric_EmitsValueSignatureAndLayout1Companion()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            class Holder {
+                #[\Tyhp\InferGeneric]
+                public function zero<T>(T $value): mixed {
+                    return default(T);
+                }
+            }
+            """);
+
+        php.Should().Contain("function zero(mixed $value): mixed");
+        php.Should().Contain("function zero__tyhpGeneric(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("#[\\Tyhp\\GenericRuntime(erased: false, binder: \"zero__tyhpGeneric\", layouts: [1]");
+        php.Should().NotContain("layouts: [2]");
+        php.Should().Contain("return $this->zero__tyhpGeneric(null)($value);");
+    }
+
+    [Fact]
+    public void Emit_ErasedInferGeneric_StaysPlain()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            #[\Tyhp\InferGeneric]
+            function identity<T>(T $value): T {
+                return $value;
+            }
+            """);
+
+        php.Should().NotContain("identity__tyhpGeneric");
+        php.Should().NotContain("layouts: [2]");
+    }
+
+    [Fact]
+    public void Emit_InferGenericCall_BareUsesPlain_ExplicitUsesCompanion()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            #[\Tyhp\InferGeneric]
+            function label<T>(T $value): string {
+                return '' . typeof(T);
+            }
+
+            function run(): void {
+                label(1);
+                label<int>(1);
+            }
+            """);
+
+        php.Should().Contain("label(1);");
+        php.Should().Contain("label__tyhpGeneric(\\Tyhp\\Type::int())(1);");
+    }
+
+    [Fact]
+    public void Run_InferGeneric_BindsCompanionAndInfersPromiseArrays()
+    {
+        var files = Compile("""
+            <?tyhp
+            namespace Probe;
+
+            class Promise<T> {
+                public function __construct(public T $value) {}
+            }
+
+            #[\Tyhp\InferGeneric]
+            function take<T = string>(?Promise<T> $promise): string {
+                return '' . typeof(T);
+            }
+
+            #[\Tyhp\InferGeneric]
+            function all<T = string>(array<Promise<T>> $promises): string {
+                return '' . typeof(T);
+            }
+
+            #[\Tyhp\InferGeneric]
+            function value<T = string>(?T $value): string {
+                return '' . typeof(T);
+            }
+
+            #[\Tyhp\InferGeneric]
+            function spread<T = string>(Promise<T> ...$promises): string {
+                return '' . typeof(T);
+            }
+            """).Files;
+
+        var output = EmittedPhpRunner.RunAgainstRuntimeDist(files, """
+            $intPromise = \Probe\Promise::new(\Tyhp\Type::int)(1);
+            $stringPromise = \Probe\Promise::new(\Tyhp\Type::string)('a');
+            echo \Probe\all([$intPromise, $stringPromise]), "\n";
+            echo \Probe\all([]), "\n";
+            echo \Probe\take(null), "\n";
+            echo \Probe\value(null), "\n";
+            $bound = \Tyhp\Generic::bind('Probe\\take__tyhpGeneric', \Tyhp\Type::int);
+            echo $bound(null), "\n";
+            echo \Probe\spread($intPromise, $stringPromise), "\n";
+            echo \Probe\spread(), "\n";
+            """, "core");
+
+        output.Should().NotBeNull();
+        output!.TrimEnd().Should().Be("""
+            int|string
+            string
+            string
+            string
+            int
+            int|string
+            string
+            """.TrimEnd());
+    }
+
+    [Fact]
+    public void Emit_InferGeneric_ValueOrPromiseUnion_ReadsEachArmOnce()
+    {
+        var php = CompileAndEmit("""
+            <?tyhp
+            namespace Probe;
+
+            class Promise<T> {
+                public function __construct(public T $value) {}
+            }
+
+            #[\Tyhp\InferGeneric]
+            function either<T = string>(null|T|Promise<T> $value = null): string {
+                return '' . typeof(T);
+            }
+            """);
+
+        php.Should().Contain("if ($value instanceof \\Probe\\Promise) {");
+        php.Should().Contain("if ($value !== null && !($value instanceof \\Probe\\Promise)) {");
+        php.Should().Contain("\\Tyhp\\Type::of($value)->typeArgument(0)");
+    }
+
+    [Fact]
+    public void Run_InferGeneric_InfersFromValueOrPromiseUnion()
+    {
+        var files = Compile("""
+            <?tyhp
+            namespace Probe;
+
+            class Promise<T> {
+                public function __construct(public T $value) {}
+            }
+
+            #[\Tyhp\InferGeneric]
+            function either<T = string>(null|T|Promise<T> $value = null): string {
+                return '' . typeof(T);
+            }
+
+            #[\Tyhp\InferGeneric]
+            function eitherMany<T = string>(null|T|Promise<T> ...$values): string {
+                return '' . typeof(T);
+            }
+            """).Files;
+
+        var output = EmittedPhpRunner.RunAgainstRuntimeDist(files, """
+            $intPromise = \Probe\Promise::new(\Tyhp\Type::int)(1);
+            echo \Probe\either(5), "\n";
+            echo \Probe\either($intPromise), "\n";
+            echo \Probe\either('x'), "\n";
+            echo \Probe\either(null), "\n";
+            echo \Probe\either(), "\n";
+            echo \Probe\eitherMany(5, $intPromise, 'x'), "\n";
+            """, "core");
+
+        output.Should().NotBeNull();
+        output!.TrimEnd().Should().Be("""
+            int
+            int
+            string
+            string
+            string
+            int|string
+            """.TrimEnd());
     }
 
     private static string CompileAndEmit(string tyhp)

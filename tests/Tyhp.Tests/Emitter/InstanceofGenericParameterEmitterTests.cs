@@ -22,7 +22,7 @@ public class InstanceofGenericParameterEmitterTests
         var php = CompileAndEmit("""
             <?tyhp
             final class Box<TReturn extends void|mixed = void> {
-                private TReturn $value;
+                private ?TReturn $value = null;
                 public function setIfMatches(mixed $value): void {
                     if ($value instanceof TReturn) {
                         $this->value = $value;
@@ -70,8 +70,8 @@ public class InstanceofGenericParameterEmitterTests
             }
             """);
 
-        php.Should().Contain("function runIt__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
-        php.Should().Contain("\\Tyhp\\Type::is($t, $__generic_T)");
+        php.Should().Contain("function runIt(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("\\Tyhp\\Type::is($t, $T)");
         php.Should().NotContain("$t instanceof T");
     }
 
@@ -90,7 +90,7 @@ public class InstanceofGenericParameterEmitterTests
             }
             """);
 
-        php.Should().Contain("\\Tyhp\\Type::is($t, $__generic_T)");
+        php.Should().Contain("\\Tyhp\\Type::is($t, $T)");
         php.Should().NotContain("$t instanceof T");
     }
 
@@ -107,8 +107,8 @@ public class InstanceofGenericParameterEmitterTests
             }
             """);
 
-        php.Should().Contain("function pick__tyhpGeneric(?\\Tyhp\\Type $__generic_T): \\Closure");
-        php.Should().Contain("\\Tyhp\\Type::is($t, $__generic_T)");
+        php.Should().Contain("function pick(\\Tyhp\\TypeLike|string|null $T = null): \\Closure");
+        php.Should().Contain("\\Tyhp\\Type::is($t, $T)");
         php.Should().NotContain("$t instanceof T");
     }
 
@@ -202,7 +202,7 @@ public class InstanceofGenericParameterEmitterTests
                         $this->value = $value;
                     }
                 }
-                private TReturn $value;
+                private ?TReturn $value = null;
             }
             """);
 
@@ -242,8 +242,8 @@ public class InstanceofGenericParameterEmitterTests
             }
             """);
 
-        php.Should().Contain("\\Tyhp\\Type::is($value, $__generic_T)");
-        php.Should().Contain("use ($t, $__generic_T)");
+        php.Should().Contain("\\Tyhp\\Type::is($value, $T)");
+        php.Should().Contain("use ($t, $T)");
         php.Should().NotContain("$value instanceof T");
     }
 
@@ -260,8 +260,8 @@ public class InstanceofGenericParameterEmitterTests
             }
             """);
 
-        php.Should().Contain("__tyhpGeneric");
-        php.Should().Contain("\\Tyhp\\Type::is($value, $__generic_T)");
+        php.Should().Contain("binder: \"matches\", layouts: [2]");
+        php.Should().Contain("\\Tyhp\\Type::is($value, $T)");
     }
 
     [Fact]

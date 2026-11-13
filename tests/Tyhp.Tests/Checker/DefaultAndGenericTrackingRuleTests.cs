@@ -82,9 +82,9 @@ public class DefaultAndGenericTrackingRuleTests
     // Item 5 — default(<concrete type>) folds to a literal and is a constant expression.
 
     [Fact]
-    public void Check_NewInPropertyInitializer_No4090()
+    public void Check_NewInPropertyInitializer_Reports4090()
     {
-        // PHP 8.1+ allows `new ClassName()` in property defaults.
+        // A property default is not a context where PHP accepts `new`.
         var diagnostics = CompileAndCheck("""
             <?tyhp
             class Bag {}
@@ -93,7 +93,339 @@ public class DefaultAndGenericTrackingRuleTests
             }
             """);
 
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_NewInStaticPropertyInitializer_Reports4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Bag {}
+            class Host {
+                public static Bag $bag = new Bag();
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_NewInGenericPropertyInitializer_Reports4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Coll<T> {}
+            class Host {
+                public Coll<int> $items = new Coll<int>();
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_NewNestedInPropertyArray_Reports4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Bag {}
+            class Host {
+                public array $items = [new Bag()];
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_CloneInPropertyInitializer_Reports4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Host {
+                public mixed $value = clone null;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_StaticClassInPropertyInitializer_Reports4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Host {
+                public string $name = static::class;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_ConstantPropertyInitializer_No4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Host {
+                public int $n = 1 + 2;
+                public string $label = 'a' . 'b';
+                public int $cast = (int) 1;
+                public string $kind = self::class;
+                public bool $flag = true ? true : false;
+            }
+            """);
+
         diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_StructInitializerProperty_No4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Point = struct { int $x = 0; int $y = 0; };
+            class Host {
+                public Point $origin = new Point[];
+                public Point $shifted = new Point[x => 1, y => 2];
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_StructInitializerSpreadInProperty_Reports4090()
+    {
+        // A spread lowers to `\array_replace`, which a property default cannot call.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Point = struct { int $x = 0; int $y = 0; };
+            class Host {
+                public Point $shifted = new Point[...[x => 1]];
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_NewInParameterDefault_No4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Bag {}
+            function take(Bag $bag = new Bag()): Bag {
+                return $bag;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_NewInPromotedParameter_No4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Bag {}
+            class Host {
+                public function __construct(public Bag $bag = new Bag()) {}
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_NewInStaticVariable_No4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Bag {}
+            function remember(): void {
+                static $bag = new Bag();
+                (void)$bag;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_NewInGlobalConstant_No4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Bag {}
+            const Saved = new Bag();
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_NewInAttributeArgument_No4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Bag {}
+
+            #[\Attribute(\Attribute::TARGET_CLASS)]
+            class Mark {
+                public function __construct(public Bag $bag) {}
+            }
+
+            #[Mark(new Bag())]
+            class Host {}
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Theory]
+    [InlineData("public mixed $x = @1;")]
+    [InlineData("public bool $x = 1 instanceof Host;")]
+    [InlineData("public bool $x = 1 is Host;")]
+    [InlineData("public mixed $x = 1 |> \\strlen(...);")]
+    [InlineData("public mixed $x = (decimal)1;")]
+    [InlineData("public mixed $x = $a::FOO;")]
+    [InlineData("public int $x = ++$a;")]
+    [InlineData("public int $x = --$a;")]
+    [InlineData("public mixed $x = true ? new Bag() : null;")]
+    [InlineData("public static mixed $x = static::class;")]
+    public void Check_NonConstantFormInPropertyInitializer_Reports4090(string member)
+    {
+        var diagnostics = CompileAndCheck($$"""
+            <?tyhp
+            class Bag {}
+            class Host {
+                {{member}}
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Theory]
+    [InlineData("const X = new Bag();")]
+    [InlineData("const X = [new Bag()];")]
+    [InlineData("const X = true ? new Bag() : null;")]
+    [InlineData("const X = clone null;")]
+    [InlineData("const X = static::class;")]
+    [InlineData("const X = 1 instanceof Host;")]
+    [InlineData("const X = @1;")]
+    public void Check_NonConstantFormInClassConstant_Reports4090(string member)
+    {
+        // PHP refuses `new` in a class constant as well as in a property default.
+        var diagnostics = CompileAndCheck($$"""
+            <?tyhp
+            class Bag {}
+            class Host {
+                {{member}}
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_NewInEnumCaseValue_Reports4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Bag {}
+            enum Level: int {
+                case Low = new Bag();
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Theory]
+    [InlineData("const X = @1;")]
+    [InlineData("const X = \\strlen('a');")]
+    [InlineData("const X = static::class;")]
+    [InlineData("const X = 1 instanceof Bag;")]
+    public void Check_NonConstantFormInGlobalConstant_Reports4090(string line)
+    {
+        var diagnostics = CompileAndCheck($$"""
+            <?tyhp
+            class Bag {}
+            {{line}}
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_ConstantGlobalConstants_No4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Bag { const A = 1; }
+            const One = 1;
+            const Two = One + 1;
+            const Items = [One, Two, Bag::A];
+            const Mask = \E_ALL & ~\E_NOTICE;
+            const Name = Bag::class;
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_StaticClassInParameterDefault_Reports4090()
+    {
+        // `static::class` is not a constant expression in any context.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Host {
+                public function name(string $n = static::class): string {
+                    return $n;
+                }
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_ConstantClassConstants_No4090()
+    {
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            class Host {
+                const A = 1;
+                const B = self::A + 2;
+                const C = [self::A, 'k' => self::class];
+                const D = self::A > 0 ? 'a' : 'b';
+            }
+            enum Level: int {
+                case Low = 1;
+                case High = 1 + 1;
+            }
+            """);
+
+        diagnostics.Errors.Should().NotContain(d => d.Code == MessageCode.CheckerNonConstantExpression);
+    }
+
+    [Fact]
+    public void Check_StructInitializerSpreadInParameterDefault_Reports4090()
+    {
+        // The spread emits `\array_replace`, which no constant expression can call.
+        var diagnostics = CompileAndCheck("""
+            <?tyhp
+            type Point = struct { int $x = 0; int $y = 0; };
+            function shift(Point $p = new Point[...[x => 1]]): Point {
+                return $p;
+            }
+            """);
+
+        diagnostics.Errors.Should().Contain(d => d.Code == MessageCode.CheckerNonConstantExpression);
     }
 
     [Fact]

@@ -556,5 +556,122 @@ namespace Tyhp.TyhpLang.Emitter
             var trimmed = name.Trim();
             return trimmed.StartsWith('$') ? trimmed : "$" + trimmed;
         }
+
+        /// <summary>
+        /// PHPDoc for generated <c>Class::new(T...)(ctorArgs)</c>: the two-step call, one
+        /// <c>@template</c> and <c>@param</c> per class type parameter, and
+        /// <c>@return \Closure(&lt;constructor signature&gt;): Class&lt;T&gt;</c>.
+        /// </summary>
+        private string BuildGenericNewDocComment(
+            ObjectDeclarationSymbol symbol,
+            IReadOnlyList<GenericTypeParameterSymbol> typeParameters,
+            PhpParameterListAst? constructorParameters)
+        {
+            var described = DescribeGenericClass(symbol, typeParameters);
+            var lines = new List<string> { "/**" };
+            lines.Add(" * " + symbol.Name + "::new(" + FormatTypeArgumentNames(typeParameters) + ")("
+                + FormatConstructorValueNames(constructorParameters) + ")");
+            AppendGenericBinderTemplateTags(typeParameters, lines);
+            lines.Add(" * @return " + BuildConstructorClosureDoc(constructorParameters, described));
+            lines.Add(" */");
+            return string.Join("\n", lines);
+        }
+
+        /// <summary>
+        /// PHPDoc for generated <c>Class::type(T...)</c>.
+        /// <c>@return \Tyhp\Type&lt;Class&lt;T&gt;&gt;</c>.
+        /// </summary>
+        private string BuildGenericTypeDocComment(
+            ObjectDeclarationSymbol symbol,
+            IReadOnlyList<GenericTypeParameterSymbol> typeParameters)
+        {
+            var lines = new List<string> { "/**" };
+            lines.Add(" * " + symbol.Name + "::type(" + FormatTypeArgumentNames(typeParameters) + ")");
+            AppendGenericBinderTemplateTags(typeParameters, lines);
+            lines.Add(" * @return \\Tyhp\\Type<" + DescribeGenericClass(symbol, typeParameters) + ">");
+            lines.Add(" */");
+            return string.Join("\n", lines);
+        }
+
+        private static void AppendGenericBinderTemplateTags(
+            IReadOnlyList<GenericTypeParameterSymbol> typeParameters,
+            List<string> lines)
+        {
+            foreach (var parameter in typeParameters)
+            {
+                lines.Add(" * @template " + parameter.Name);
+            }
+
+            foreach (var parameter in typeParameters)
+            {
+                lines.Add(
+                    " * @param \\Tyhp\\Type<" + parameter.Name + ">|\\Tyhp\\BuiltIn|class-string<"
+                    + parameter.Name + ">|null $" + parameter.Name);
+            }
+        }
+
+        private string BuildConstructorClosureDoc(PhpParameterListAst? parameters, string returnType)
+        {
+            var parts = new List<string>();
+            foreach (var parameter in parameters?.GetAllNotNull() ?? [])
+            {
+                var type = parameter.Type != null
+                    ? this.BuildTypeExpression(parameter.Type)
+                    : "mixed";
+                if (string.IsNullOrWhiteSpace(type))
+                {
+                    type = "mixed";
+                }
+
+                var name = parameter.Name.TrimStart('$');
+                var refMark = parameter.IsRef ? "&" : "";
+                var variadic = parameter.IsVariadic ? "..." : "";
+                var optional = parameter.DefaultValue != null ? "=" : "";
+                parts.Add(
+                    string.IsNullOrEmpty(name)
+                        ? type + optional
+                        : type + " " + refMark + variadic + "$" + name + optional);
+            }
+
+            return "\\Closure(" + string.Join(", ", parts) + "): " + returnType;
+        }
+
+        private static string DescribeGenericClass(
+            ObjectDeclarationSymbol symbol,
+            IReadOnlyList<GenericTypeParameterSymbol> typeParameters)
+        {
+            var fqn = symbol.FullyQualifiedName.Trim();
+            if (string.IsNullOrEmpty(fqn))
+            {
+                fqn = symbol.Name;
+            }
+
+            if (!fqn.StartsWith('\\'))
+            {
+                fqn = "\\" + fqn;
+            }
+
+            return fqn + "<" + string.Join(", ", typeParameters.Select(parameter => parameter.Name)) + ">";
+        }
+
+        private static string FormatTypeArgumentNames(IReadOnlyList<GenericTypeParameterSymbol> typeParameters) =>
+            string.Join(", ", typeParameters.Select(parameter => "$" + parameter.Name));
+
+        private static string FormatConstructorValueNames(PhpParameterListAst? parameters)
+        {
+            var names = new List<string>();
+            foreach (var parameter in parameters?.GetAllNotNull() ?? [])
+            {
+                if (string.IsNullOrWhiteSpace(parameter.Name))
+                {
+                    continue;
+                }
+
+                var name = parameter.Name.StartsWith('$') ? parameter.Name : "$" + parameter.Name;
+                names.Add(parameter.IsVariadic ? "..." + name : name);
+            }
+
+            return string.Join(", ", names);
+        }
     }
 }

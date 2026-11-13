@@ -510,6 +510,7 @@ namespace Tyhp.TyhpLang.Checker
                 && !ReferencesAny(deref.Base, shadowedVariables))
             {
                 RecordCalleeForVariantRouting(deref.Base, call, state);
+                RecordBoundGenericCallee(deref, call);
             }
 
             foreach (var child in node.AstChildren)
@@ -575,6 +576,34 @@ namespace Tyhp.TyhpLang.Checker
         /// skipped: they need no routing, and re-resolving a member here would duplicate any
         /// unresolved-member diagnostic.
         /// </summary>
+        /// <summary>
+        /// A layout-2 binder has no value-signature wrapper, so a call with no type arguments
+        /// still has to be rewritten to <c>name(types)(args)</c>. Inference has already bound
+        /// the callee; recording it does not resolve the member again.
+        /// </summary>
+        private void RecordBoundGenericCallee(PhpDereferenceableAst dereferenceable, PhpCallAst call)
+        {
+            if (Rules.CheckerHelpers.IsFirstClassCallableArgumentList(call.Arguments))
+            {
+                return;
+            }
+
+            var symbol = dereferenceable.BoundSymbol
+                ?? (dereferenceable.Base as PhpNameAst)?.BoundSymbol;
+            var genericCount = symbol switch
+            {
+                ObjectMethodSymbol method => method.GenericParameters.Count,
+                FunctionDeclarationSymbol function => function.GenericParameters.Count,
+                _ => 0,
+            };
+            if (genericCount == 0 || symbol is null)
+            {
+                return;
+            }
+
+            _checker.RecordGenericCallTarget(call, symbol);
+        }
+
         internal void RecordCalleeForVariantRouting(
             IDereferenceableBase? baseNode,
             PhpCallAst call,
@@ -3270,9 +3299,37 @@ namespace Tyhp.TyhpLang.Checker
             return false;
         }
 
+        // The in-scope function or class type parameter a bare name refers to, if any.
+        private static GenericTypeParameterSymbol? TryResolveInScopeGenericParameter(
+            PhpNameAst name, CheckerState state)
+        {
+            var simpleName = name.ValueString?.TrimStart('\\');
+            if (string.IsNullOrEmpty(simpleName))
+            {
+                return null;
+            }
+
+            static GenericTypeParameterSymbol? Match(
+                IReadOnlyList<GenericTypeParameterSymbol> generics, string simpleName)
+            {
+                foreach (var parameter in generics)
+                {
+                    if (string.Equals(parameter.Name, simpleName, StringComparison.Ordinal))
+                    {
+                        return parameter;
+                    }
+                }
+
+                return null;
+            }
+
+            return Match(state.FunctionGenerics, simpleName) ?? Match(state.ObjectGenerics, simpleName);
+        }
+
         // Resolves a bare name used as a dereferenceable base. When the name carries call-site
         // type arguments (`self<T>::`, `Box<int>::`), prefer the parameterized class type so
-        // `self<T>::class` brands as `__ClassName<Promise<T>>`. Otherwise, when the name is bound
+        // `self<T>::class` brands as `__ClassName<Promise<T>>`. A bare in-scope type parameter
+        // (`T::class`) is that parameter. Otherwise, when the name is bound
         // to a symbol use that; else the name is a class reference in a static-access position
         // (`Class::`, `self::`, `static::`, `parent::`) that the binder does not bind.
         private ICheckedType InferNameBaseType(PhpNameAst name, CheckerState state)
@@ -3280,6 +3337,14 @@ namespace Tyhp.TyhpLang.Checker
             if (TryResolveNewClassNameWithTypeArguments(name, state, out var parameterized))
             {
                 return parameterized;
+            }
+
+            // `T::class` inside `function f<T>` / `class C<T>`. The name is a type parameter,
+            // not a class declaration, so class lookup would leave it unresolved and `::class`
+            // would brand as `__ClassName<object>`.
+            if (TryResolveInScopeGenericParameter(name, state) is { } genericParameter)
+            {
+                return CheckedTypes.FromSymbol(genericParameter);
             }
 
             if (name.BoundSymbol is ConstantSymbol boundConstant)

@@ -422,7 +422,7 @@ namespace Tyhp.Domain.Services
             var attributes = this.MapDeclarationAttributes(method.DeclaringAstNode);
             this.StampGenericRuntime(
                 attributes,
-                this.BinderStamp(method, backerAlias + "::" + method.Name + GeneratedNames.GenericVariantSuffix));
+                this.BinderStamp(method, backerAlias + "::" + method.Name));
             return (new TyhpdefExtensionMember
             {
                 Kind = "fn",
@@ -462,7 +462,7 @@ namespace Tyhp.Domain.Services
             var attributes = this.MapDeclarationAttributes(overload.DeclaringAstNode);
             this.StampGenericRuntime(
                 attributes,
-                this.BinderStamp(overload, backerAlias + "::" + implementation.Name + GeneratedNames.GenericVariantSuffix));
+                this.BinderStamp(overload, backerAlias + "::" + implementation.Name));
             return new TyhpdefExtensionMember
             {
                 Kind = "fn",
@@ -521,7 +521,7 @@ namespace Tyhp.Domain.Services
             var attributes = this.MapDeclarationAttributes(op.DeclaringAstNode);
             this.StampGenericRuntime(
                 attributes,
-                this.BinderStamp(op, backerAlias + "::" + compiledName + GeneratedNames.GenericVariantSuffix));
+                this.BinderStamp(op, backerAlias + "::" + compiledName));
             return (new TyhpdefExtensionMember
             {
                 Kind = "operator",
@@ -598,7 +598,7 @@ namespace Tyhp.Domain.Services
             };
             this.StampGenericRuntime(
                 mapped.Attributes,
-                this.BinderStamp(method, method.Name + GeneratedNames.GenericVariantSuffix));
+                this.BinderStamp(method, method.Name));
             return this.RewriteBackerSelfTypes(mapped, method, ns);
         }
 
@@ -1075,7 +1075,7 @@ namespace Tyhp.Domain.Services
             var attributes = this.MapDeclarationAttributes(op.DeclaringAstNode);
             this.StampGenericRuntime(
                 attributes,
-                this.BinderStamp(op, methodName + GeneratedNames.GenericVariantSuffix));
+                this.BinderStamp(op, methodName));
             return new TyhpdefExtensionMember
             {
                 Kind = "operator",
@@ -1228,7 +1228,7 @@ namespace Tyhp.Domain.Services
             var attributes = this.MapDeclarationAttributes(op.DeclaringAstNode);
             this.StampGenericRuntime(
                 attributes,
-                this.BinderStamp(op, compiledName + GeneratedNames.GenericVariantSuffix));
+                this.BinderStamp(op, compiledName));
             return new TyhpdefExtensionMember
             {
                 Kind = "operator",
@@ -1293,7 +1293,7 @@ namespace Tyhp.Domain.Services
             };
             this.StampGenericRuntime(
                 mapped.Attributes,
-                this.BinderStamp(stampOwner, stampOwner.Name + GeneratedNames.GenericVariantSuffix));
+                this.BinderStamp(stampOwner, stampOwner.Name));
             return mapped;
         }
 
@@ -1336,7 +1336,7 @@ namespace Tyhp.Domain.Services
             };
             this.StampGenericRuntime(
                 mapped.Attributes,
-                this.BinderStamp(stampOwner, stampOwner.Name + GeneratedNames.GenericVariantSuffix));
+                this.BinderStamp(stampOwner, stampOwner.Name));
             return mapped;
         }
 
@@ -2250,6 +2250,16 @@ namespace Tyhp.Domain.Services
                 yield return member;
             }
 
+            foreach (var method in obj.PhpVersionRuntimeOnlyMethods)
+            {
+                if (IsOmittedFromPublicApi(method) || !seen.Add(method))
+                {
+                    continue;
+                }
+
+                yield return method;
+            }
+
             foreach (var op in EnumerateOwnedOperators(obj))
             {
                 if (IsOmittedFromPublicApi(op) || !seen.Add(op))
@@ -2541,11 +2551,22 @@ namespace Tyhp.Domain.Services
             }
 
             var tracked = this._requiresGenericVariant.Contains(symbol);
+            var infer = tracked && InferGenericAttributeSupport.HasInferGeneric(symbol);
+            string? binder = null;
+            if (tracked && !string.IsNullOrWhiteSpace(binderName))
+            {
+                binder = infer
+                    ? InferGenericAttributeSupport.CompanionBinderName(binderName)
+                    : binderName;
+            }
+
             return new GenericRuntimeInfo
             {
                 Erased = !tracked,
-                Binder = tracked && !string.IsNullOrWhiteSpace(binderName) ? binderName : null,
-                Layouts = [GenericRuntimeAttributeSupport.CurrentLayout],
+                Binder = binder,
+                Layouts = [infer || !tracked
+                    ? GenericRuntimeAttributeSupport.ClassLayout
+                    : GenericRuntimeAttributeSupport.CallableLayout],
                 Compiler = this._compilerVersion,
             };
         }
@@ -2565,7 +2586,7 @@ namespace Tyhp.Domain.Services
             {
                 Erased = !tracked,
                 Factory = tracked ? GeneratedNames.GenericFactory(obj.FullyQualifiedName) : null,
-                Layouts = [GenericRuntimeAttributeSupport.CurrentLayout],
+                Layouts = [GenericRuntimeAttributeSupport.ClassLayout],
                 Compiler = this._compilerVersion,
             };
         }
@@ -2580,7 +2601,7 @@ namespace Tyhp.Domain.Services
             return new GenericRuntimeInfo
             {
                 AliasFactory = factoryName,
-                Layouts = [GenericRuntimeAttributeSupport.CurrentLayout],
+                Layouts = [GenericRuntimeAttributeSupport.ClassLayout],
                 Compiler = this._compilerVersion,
             };
         }

@@ -16,5 +16,10 @@ namespace Tyhp.LanguageServer.Analysis
         TraitUse,
         UseImport,
         Namespace,
+
+        /// <summary>
+        /// A property name in <c>new Name[</c> or in a struct <c>with [</c> list.
+        /// </summary>
+        StructKey,
     }
 }

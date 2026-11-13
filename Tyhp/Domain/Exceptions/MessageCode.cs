@@ -551,17 +551,17 @@ namespace Tyhp.Domain.Exceptions
             CheckerPropertyPossiblyUninitialized = 4157,
 
             /// <summary>
-            /// <c>unset($this->prop)</c> on a declared typed property without
-            /// <c>#[\Tyhp\AllowUnset]</c>. PHP returns the slot to the uninitialized state, which
-            /// would invalidate property-init guarantees (Prop-init #8). Prefer <c>?T = null</c>,
-            /// or opt in with the attribute when distinguishing "no value" from null is required.
+            /// <c>unset</c> of a local variable, a typed instance property, or a static property.
+            /// That returns the slot to the uninitialized state. Assign <c>null</c> on a nullable
+            /// declaration to drop the value. Array-offset <c>unset</c> is not this diagnostic.
             /// </summary>
-            CheckerUnsetTypedPropertyWithoutAllowUnset = 4158,
+            CheckerUnsetStorageSlot = 4158,
 
             /// <summary>
-            /// A non-nullable struct property without a default was not set in
-            /// <c>new Struct() with [...]</c> (or was constructed with bare <c>new Struct()</c>).
-            /// Required struct properties must be supplied via <c>with</c> at construction.
+            /// A non-nullable struct property without a default was not set while
+            /// constructing the struct. The message names the form that was written:
+            /// <c>new Struct[prop =&gt; value]</c>, <c>new Struct() with [prop =&gt; value]</c>,
+            /// or either form for a bare <c>new Struct()</c>.
             /// </summary>
             CheckerStructRequiredPropertyNotSet = 4159,
 
@@ -1281,6 +1281,167 @@ namespace Tyhp.Domain.Exceptions
             /// PHP 8.5 native <c>clone()</c> does not need the wrapper.
             /// </summary>
             CheckerReadonlyClassCloneWithRequiresPhp85 = 4401,
+
+            /// <summary>
+            /// <c>lazy new</c> targets an internal PHP class other than <c>\stdClass</c>, a class
+            /// that extends one, or a type that is not a class (struct, interface, enum, trait,
+            /// type parameter, or class-name brand). A lazy ghost initializes in place; those
+            /// targets cannot stay lazy.
+            /// </summary>
+            CheckerLazyNewNotCapable = 4402,
+
+            /// <summary>
+            /// <c>lazy new</c> of a class with no lazy-capable instance property. PHP would return
+            /// a normal instance and skip the initializer, so the expression is still valid and
+            /// runs the constructor immediately.
+            /// </summary>
+            CheckerLazyNewHasNoLazyProperty = 4403,
+
+            /// <summary>
+            /// A magic method (<c>__construct</c>, <c>__get</c>, <c>__invoke</c>, …) declares
+            /// type parameters. The binder would replace the signature PHP dispatches on.
+            /// </summary>
+            CheckerGenericOnMagicMethod = 4404,
+
+            /// <summary>
+            /// A generic method overrides or implements a non-generic parent method, or a
+            /// non-generic method of a PHP interface. The binder would replace the signature
+            /// PHP dispatches on.
+            /// </summary>
+            CheckerGenericOverridesNonGenericMethod = 4405,
+
+            /// <summary>
+            /// A generic class, or one of its ancestors, declares a method named <c>new</c> or
+            /// <c>type</c>. Those names are the generated class binders.
+            /// </summary>
+            CheckerGenericClassReservedMemberName = 4406,
+
+            /// <summary>
+            /// <c>#[\Tyhp\InferGeneric]</c> on a generic function or method whose type
+            /// parameter is not reachable from any argument.
+            /// </summary>
+            CheckerInferGenericNotInferable = 4407,
+
+            /// <summary>
+            /// <c>#[\Tyhp\InferGeneric]</c> on a function or method that declares no
+            /// type parameters.
+            /// </summary>
+            CheckerInferGenericOnNonGeneric = 4408,
+
+            /// <summary>
+            /// An unkeyed entry in an object <c>with</c> list (<c>[5]</c>, <c>['not an int']</c>).
+            /// Entries name a property: <c>name => value</c>.
+            /// </summary>
+            CheckerWithEntryUnkeyed = 4409,
+
+            /// <summary>
+            /// A spread in an object <c>with</c> list whose source is not a concrete struct
+            /// (named, generic instance, or anonymous). Arrays, <c>mixed</c>, nullable structs,
+            /// and unions have no fixed set of property keys.
+            /// </summary>
+            CheckerWithSpreadNotStruct = 4410,
+
+            /// <summary>
+            /// A spread struct field's PHP array key (its alias, when it has one) is not a
+            /// property of the object <c>with</c> target, including properties inherited
+            /// through <c>extends</c>.
+            /// </summary>
+            CheckerWithSpreadExtraField = 4411,
+
+            /// <summary>
+            /// <c>new Name[...]</c> where <c>Name</c> is not a struct (class, interface, enum,
+            /// <c>self</c>/<c>static</c>/<c>parent</c>, object shape, or a non-struct type alias).
+            /// </summary>
+            CheckerStructInitializerOnNonStruct = 4412,
+
+            /// <summary>
+            /// An unkeyed entry in a struct initializer or a struct <c>with</c> list.
+            /// Entries name a property: <c>name =&gt; value</c>.
+            /// </summary>
+            CheckerStructEntryUnkeyed = 4413,
+
+            /// <summary>
+            /// A spread into a struct initializer or struct <c>with</c> list whose source is
+            /// not a concrete struct (named, generic instance, or anonymous). Arrays,
+            /// <c>mixed</c>, nullable structs, and unions have no fixed set of fields.
+            /// </summary>
+            CheckerStructSpreadNotStruct = 4414,
+
+            /// <summary>
+            /// A spread struct has a field the target struct does not declare, including
+            /// fields inherited through <c>extends</c>.
+            /// </summary>
+            CheckerStructSpreadExtraField = 4415,
+
+            /// <summary>
+            /// A spread field and the same field on the target map to different PHP array
+            /// keys (a string or integer alias on either side). Spread copies keys and
+            /// cannot rename them.
+            /// </summary>
+            CheckerStructSpreadKeyMismatch = 4416,
+
+            /// <summary>
+            /// <c>new Name[...] with [...]</c>. The bracket list is already the initializer;
+            /// a following <c>with</c> is a second list on a value that is not a variable.
+            /// </summary>
+            CheckerStructInitializerFollowedByWith = 4417,
+
+            /// <summary>
+            /// A typed static property on a class or trait has no initializer. The slot is
+            /// created when the type is loaded, so the declaration needs a value
+            /// (<c>public static string $name = ''</c>, or <c>public static ?string $name = null</c>).
+            /// </summary>
+            CheckerStaticPropertyRequiresInitializer = 4418,
+
+            /// <summary>
+            /// A typed instance property is not definitely initialized when construction
+            /// of this class finishes. Reported on the constructor, or on the property
+            /// or class when no constructor is declared. A declaration initializer counts
+            /// even if a subclass replaces <c>__construct</c>. A promoted parameter counts
+            /// only when the constructor that declares it runs. A subclass that declares
+            /// <c>__construct</c> does not run the parent constructor unless
+            /// <c>parent::__construct</c> (or <c>: parent(…)</c>) dominates the end of
+            /// the subclass constructor.
+            /// </summary>
+            CheckerPropertyNotInitializedByConstructor = 4419,
+
+            /// <summary>
+            /// <c>operator default</c> declared a return type other than <c>self</c>, or none.
+            /// </summary>
+            CheckerOperatorDefaultReturnNotSelf = 4420,
+
+            /// <summary>
+            /// <c>operator default</c> declared a parameter. It takes none.
+            /// </summary>
+            CheckerOperatorDefaultHasParameters = 4421,
+
+            /// <summary>
+            /// A second <c>operator default</c> on the same class or enum.
+            /// </summary>
+            CheckerOperatorDefaultDuplicate = 4422,
+
+            /// <summary>
+            /// <c>operator default</c> on an interface, trait, abstract class, extension, or
+            /// abstract operator.
+            /// </summary>
+            CheckerOperatorDefaultNotAllowed = 4423,
+
+            /// <summary>
+            /// The body of <c>operator default</c> evaluates <c>default</c> of the same class.
+            /// </summary>
+            CheckerOperatorDefaultRecursive = 4424,
+
+            /// <summary>
+            /// <c>operator default</c> constructs its class while omitting a constructor parameter
+            /// whose default is <c>default</c> of that class.
+            /// </summary>
+            CheckerOperatorDefaultConstructorCycle = 4425,
+
+            /// <summary>
+            /// A method whose name is <c>__tyhpDefault</c>, ignoring case. The compiler emits
+            /// that method for <c>operator default</c>.
+            /// </summary>
+            CheckerReservedOperatorDefaultName = 4426,
 
             // Deprecation warnings (4500+ range)
             CheckerDeprecatedUsage = 4500,

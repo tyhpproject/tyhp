@@ -14,7 +14,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             PhpPropertyDeclAst property,
             CheckerState state,
             CheckerRuleContext context,
-            DiagnosticBag diagnostics)
+            DiagnosticBag diagnostics,
+            bool checkHookBodies = true)
         {
             // Class members bypass CheckNode (CheckObjectBody calls us directly), so attribute
             // rules registered for PhpPropertyDeclAst never dispatch — validate explicitly here.
@@ -88,6 +89,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             if (!isTyhpdefProperty)
             {
                 CheckReadonlyPropertyDefaults(property, modifiers, state, context, diagnostics);
+                CheckTypedStaticPropertyInitializer(property, modifiers, state, diagnostics);
             }
 
             if (property.Type is null)
@@ -114,7 +116,10 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     {
                         if (prop.DefaultValue is not null)
                         {
-                            if (!CheckerHelpers.IsConstantExpression(prop.DefaultValue, state))
+                            if (!CheckerHelpers.IsConstantExpression(
+                                    prop.DefaultValue,
+                                    state,
+                                    CheckerHelpers.ConstantExpressionPosition.NewNotAllowed))
                             {
                                 CheckerHelpers.ReportError(
                                     diagnostics, state, prop, MessageCode.CheckerNonConstantExpression);
@@ -166,10 +171,139 @@ namespace Tyhp.TyhpLang.Checker.Rules
                         diagnostics, state, prop, MessageCode.CheckerHookedPropertyReadonly);
                 }
 
-                var propertyType = property.Type is not null
-                    ? context.ResolveTypeAnnotation(property.Type, state)
+                // Bodies are deferred until construction facts exist. Checked immediately only
+                // for a property that is not visited from CheckObjectBody.
+                if (checkHookBodies)
+                {
+                    CheckPropertyHookBodies(prop, property, state, context, diagnostics);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Type-checks hook bodies on <paramref name="property"/> using post-construction
+        /// initialization facts. Declaration shape is checked earlier with the property.
+        /// </summary>
+        private static void CheckPropertyHookBodies(
+            PhpPropertyDeclAst property,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            foreach (var prop in property.Properties?.GetAllNotNull() ?? [])
+            {
+                CheckPropertyHookBodies(prop, property, state, context, diagnostics);
+            }
+        }
+
+        private static void CheckPropertyHookBodies(
+            PhpPropertyAst prop,
+            PhpPropertyDeclAst property,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (prop.Hooks is null)
+            {
+                return;
+            }
+
+            var propertyType = property.Type is not null
+                ? context.ResolveTypeAnnotation(property.Type, state)
+                : CheckedTypes.Mixed;
+            CheckPropertyHooks(prop.Hooks, propertyType, state, context, diagnostics);
+        }
+
+        /// <summary>
+        /// PHP promotes the constructor parameters in order, before the body runs, and each
+        /// promotion runs that property's <c>set</c> hook. A property such a hook reads that the
+        /// body has not assigned yet (or a parameter promoted at or after the hooked one) is
+        /// uninitialized when the hook runs (TYHP4157).
+        /// </summary>
+        private static void CheckPromotedSetHooksRunBeforeBody(
+            PhpMethodDeclAst method,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (method.Parameters is null || state.EnclosingObject is not { } owner)
+            {
+                return;
+            }
+
+            // Promotion happens on entry, before the body and before a `: parent(…)` delegation.
+            var entryState = PropertyInitializationAnalysis.SeedForConstructor(
+                owner, context.SymbolTree, context.GlobalScope);
+            var parameters = method.Parameters.GetAllNotNull().ToList();
+            for (var i = 0; i < parameters.Count; i++)
+            {
+                var parameter = parameters[i];
+                if (parameter.Modifiers is null
+                    || parameter.PropertyHooks is not PhpPropertyHookListAst
+                    || PropertyInitializationAnalysis.FindHookedInstanceProperty(
+                        owner, "$" + parameter.Name.TrimStart('$'), context.SymbolTree, context.GlobalScope)
+                        is not { HasSetHook: true } hooked)
+                {
+                    continue;
+                }
+
+                foreach (var read in PropertyInitializationAnalysis.HookReadsOfProperties(
+                    hooked, true, owner, context.SymbolTree, context.GlobalScope))
+                {
+                    if (!entryState.TryGetValue(read, out var initialization))
+                    {
+                        continue;
+                    }
+
+                    var promotedLater = false;
+                    for (var j = i; j < parameters.Count && !promotedLater; j++)
+                    {
+                        promotedLater = parameters[j].Modifiers is not null
+                            && string.Equals(
+                                "$" + parameters[j].Name.TrimStart('$'), read, StringComparison.Ordinal);
+                    }
+
+                    if (initialization.IsDefinitelyInitialized && !promotedLater)
+                    {
+                        continue;
+                    }
+
+                    CheckerHelpers.ReportError(
+                        diagnostics,
+                        state,
+                        parameter,
+                        MessageCode.CheckerPropertyPossiblyUninitialized,
+                        read.StartsWith('$') ? read[1..] : read);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Type-checks hook bodies on promoted constructor parameters after that constructor's
+        /// initialization facts are recorded.
+        /// </summary>
+        private static void CheckPromotedPropertyHookBodies(
+            PhpMethodDeclAst method,
+            CheckerState state,
+            CheckerRuleContext context,
+            DiagnosticBag diagnostics)
+        {
+            if (method.Parameters is null)
+            {
+                return;
+            }
+
+            foreach (var param in method.Parameters.GetAllNotNull())
+            {
+                if (param.PropertyHooks is not PhpPropertyHookListAst promotedHooks)
+                {
+                    continue;
+                }
+
+                var promotedType = param.Type is not null
+                    ? context.ResolveTypeAnnotation(param.Type, state)
                     : CheckedTypes.Mixed;
-                CheckPropertyHooks(prop.Hooks, propertyType, state, context, diagnostics);
+                CheckPropertyHooks(promotedHooks, promotedType, state, context, diagnostics);
             }
         }
 
@@ -607,6 +741,50 @@ namespace Tyhp.TyhpLang.Checker.Rules
                     hook,
                     MessageCode.CheckerByRefPropertyGetHookRequiresPhp84,
                     targetVersion);
+            }
+        }
+
+        /// <summary>
+        /// TYHP4418: a typed static property on a class or trait must declare an initializer.
+        /// The slot is created when the type is loaded.
+        /// Tyhpdef is skipped by the caller: it describes PHP, which allows a typed static
+        /// with no default. Interface properties cannot take an initializer, enum properties
+        /// are not allowed, and a readonly class cannot declare a static property, so those
+        /// declarations are not asked for an initializer here.
+        /// </summary>
+        private static void CheckTypedStaticPropertyInitializer(
+            PhpPropertyDeclAst property,
+            MemberModifier modifiers,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if ((modifiers & MemberModifier.Static) == 0 || property.Type is null)
+            {
+                return;
+            }
+
+            var kind = state.EnclosingObject?.ObjectKind;
+            if (kind is not (PhpTypeDeclType.Class or PhpTypeDeclType.Trait) || IsReadonlyClassContext(state))
+            {
+                return;
+            }
+
+            foreach (var prop in property.Properties?.GetAllNotNull() ?? [])
+            {
+                if (prop.DefaultValue is not null
+                    || string.IsNullOrEmpty(prop.Identifier)
+                    || prop.Identifier == "<error>")
+                {
+                    continue;
+                }
+
+                var name = prop.Identifier.StartsWith('$') ? prop.Identifier : "$" + prop.Identifier;
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    prop,
+                    MessageCode.CheckerStaticPropertyRequiresInitializer,
+                    name);
             }
         }
 
@@ -1135,14 +1313,15 @@ namespace Tyhp.TyhpLang.Checker.Rules
             CheckerState funcState,
             CheckerState outerState,
             CheckerRuleContext context,
-            DiagnosticBag diagnostics)
+            DiagnosticBag diagnostics,
+            bool checkHookBodies = true)
         {
             if (parameterList is null)
             {
                 return;
             }
 
-            ValidateParameterList(parameterList, outerState, context, diagnostics);
+            ValidateParameterList(parameterList, outerState, context, diagnostics, checkHookBodies);
 
             var parameters = parameterList.GetAllNotNull().ToList();
             for (var i = 0; i < parameters.Count; i++)
@@ -1246,7 +1425,8 @@ namespace Tyhp.TyhpLang.Checker.Rules
             PhpParameterListAst parameterList,
             CheckerState state,
             CheckerRuleContext context,
-            DiagnosticBag diagnostics)
+            DiagnosticBag diagnostics,
+            bool checkHookBodies = true)
         {
             var parameters = parameterList.GetAllNotNull().ToList();
             var seenNames = new Dictionary<string, PhpParameterAst>(StringComparer.OrdinalIgnoreCase);
@@ -1332,10 +1512,15 @@ namespace Tyhp.TyhpLang.Checker.Rules
                             diagnostics, state, param, MessageCode.CheckerHookedPropertyReadonly);
                     }
 
-                    var promotedType = param.Type is not null
-                        ? context.ResolveTypeAnnotation(param.Type, state)
-                        : CheckedTypes.Mixed;
-                    CheckPropertyHooks(promotedHooks, promotedType, state, context, diagnostics);
+                    // A constructor's hook bodies are checked after its initialization facts are
+                    // recorded. Other parameter lists have no construction facts to wait for.
+                    if (checkHookBodies)
+                    {
+                        var promotedType = param.Type is not null
+                            ? context.ResolveTypeAnnotation(param.Type, state)
+                            : CheckedTypes.Mixed;
+                        CheckPropertyHooks(promotedHooks, promotedType, state, context, diagnostics);
+                    }
                 }
 
                 // Promoted constructor properties are instance properties for Mechanism C.

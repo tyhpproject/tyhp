@@ -1,0 +1,17 @@
+{
+  "suite": "story22.2/struct-initializer",
+  "description": "Struct initializer and struct with spread emission",
+  "defaults": {
+    "action": "build"
+  },
+  "cases": [
+    {
+      "id": "initializers",
+      "file": "initializers.tyhp",
+      "expect": {
+        "errorCount": 0,
+        "php": "expected/App/_functions.php"
+      }
+    }
+  ]
+}

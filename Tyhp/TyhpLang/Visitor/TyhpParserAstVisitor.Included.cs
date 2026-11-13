@@ -403,16 +403,11 @@ namespace Tyhp.TyhpLang.Visitor
                 op = TokenValueAst.CreateError(context, languageMode);
             }
 
-            PhpParameterAst leftParam;
-            if (opCtx.LeftParameter != null)
-            {
-                leftParam = this.VisitAttributedParameter(opCtx.LeftParameter);
-            }
-            else
-            {
-                this.ReportMissingRequired(opCtx, "tyhpClassOperatorOverload.LeftParameter");
-                leftParam = this.CreateErrorParameter(context, languageMode);
-            }
+            // `operator default()` declares no operand. Other operators still require one;
+            // OperatorOverloadRule reports that. A missing operand is not a parse error.
+            PhpParameterAst? leftParam = opCtx.LeftParameter != null
+                ? this.VisitAttributedParameter(opCtx.LeftParameter)
+                : null;
 
             var rightParam = opCtx.RightParameter != null
                 ? this.VisitAttributedParameter(opCtx.RightParameter)
@@ -1073,10 +1068,13 @@ namespace Tyhp.TyhpLang.Visitor
         ///
         /// Grammar:
         ///   newDereferenceableGrammarAddon
-        ///     : {this.looksLikeAnonymousStruct()}?
+        ///     : {this.looksLikeAnonymousStruct() &amp;&amp; !this.anonymousStructIsFollowedByInitializer()}?
         ///         T_NEW AnonStructDecl=tyhpAnonymousStruct {this.isLanguageMode("tyhp")}?
         ///         #tyhpNewAnonStructInstance
         ///     ;
+        ///
+        /// A bracket list after the body is `#tyhpNewAnonStructInitializer` and desugars
+        /// to the same `with` tree as `new Name[…]`.
         ///
         /// Follows the same pattern as anonymous classes: the struct declaration
         /// is registered as a top-level statement, and a PhpNewAst wrapping the
@@ -1565,6 +1563,7 @@ namespace Tyhp.TyhpLang.Visitor
         ///     : TokenValue=T_SYM_PLUS
         ///     | TokenValue=T_SYM_MINUS
         ///     | ... (many operator token alternatives)
+        ///     | TokenValue=T_DEFAULT  // `operator default`
         ///     | TokenValue=T_STRING   // for true, false, empty, null, convert
         ///     ;
         ///
@@ -2154,6 +2153,7 @@ namespace Tyhp.TyhpLang.Visitor
         /// Grammar:
         ///   tyhpMethodDefinition
         ///     : Identifier=T_CONSTRUCT_METHOD
+        ///         GenericArguments=tyhpGenericParameterDeclarations?
         ///         FindDocComment=T_OPEN_ROUND_BRACE ParameterList=ctorParameterList
         ///         T_CLOSE_ROUND_BRACE ReturnType=tyhpCtorReturnType?
         ///         StatementList=methodBody                            #tyhpClassCtorWithReturnType
@@ -3107,16 +3107,11 @@ namespace Tyhp.TyhpLang.Visitor
                 op = TokenValueAst.CreateError(context, languageMode);
             }
 
-            PhpParameterAst leftParam;
-            if (opCtx.LeftParameter != null)
-            {
-                leftParam = this.VisitAttributedParameter(opCtx.LeftParameter);
-            }
-            else
-            {
-                this.ReportMissingRequired(opCtx, "tyhpdefClassOperator.LeftParameter");
-                leftParam = this.CreateErrorParameter(context, languageMode);
-            }
+            // `operator default()` declares no operand. Other operators still require one;
+            // the checker reports that. A missing operand is not a parse error.
+            PhpParameterAst? leftParam = opCtx.LeftParameter != null
+                ? this.VisitAttributedParameter(opCtx.LeftParameter)
+                : null;
 
             var rightParam = opCtx.RightParameter != null
                 ? this.VisitAttributedParameter(opCtx.RightParameter)

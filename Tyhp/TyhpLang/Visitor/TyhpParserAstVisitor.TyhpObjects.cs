@@ -64,7 +64,7 @@ namespace Tyhp.TyhpLang.Visitor
         {
             var docComment = this.FindPossibleDocComment(context.FindDocComment);
 
-            return PhpMethodDeclAst.Create(
+            var method = PhpMethodDeclAst.Create(
                 this.GetTokenValueAst(context, context.Identifier)?.ValueString,
                 returnsRef,
                 modifiers,
@@ -77,6 +77,17 @@ namespace Tyhp.TyhpLang.Visitor
             ).WithGrammarAddon(
                 "ctorReturnType",
                 context.ReturnType is null ? null : this.VisitTyhpCtorReturnType(context.ReturnType));
+
+            // `__construct<T>` parses so the checker can reject it (TYHP4404). The same
+            // `identifier` addon carries type parameters on every other method.
+            if (context.GenericArguments is not null)
+            {
+                method = method.WithGrammarAddon(
+                    "identifier",
+                    this.VisitTyhpGenericParameterDeclarations(context.GenericArguments));
+            }
+
+            return method;
         }
 
         /// <summary>

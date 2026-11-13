@@ -1,6 +1,7 @@
 # Implementation Plan: Story 34 — `operator default()` (Author-Defined Default Value for a Class Type)
 
-> **Roadmap position:** Story 34 — **Tier 4 — Future plans**
+> **Roadmap position:** Story 34 — **Tier 3 — Advanced**, after Story 35 and before Story 32 (moved from Tier 4 on
+> 2026-11-04).
 > **Direct dependencies (new numbering):** 06, 08, 11
 > **New story:** split from Story 31 Idea 5 on 2026-11-03. No legacy number.
 > **Conventions:** Diagnostic codes, config keys, and canonical paths are governed by `CONVENTIONS.md`; new
@@ -18,6 +19,9 @@
 > declaration + call-site rewriting, which supplies the `operator <name>()` surface this reuses).
 > **Related:** `FOUND_BUGS.md` → *Property initialization state, `default(T)` and runtime generic tracking*, items 4,
 > 5 and 10. Item 10's stage-1 fix is a **prerequisite** for this story, and this story is its stage 2.
+> **Note (2026-11-04):** `FOUND_BUGS.md` has since been renumbered. Item 10 is now #4 (`default(<class type>)` is
+> typed as the class but emits `null`), and its stage 1 has shipped, so the prerequisite is met. The item numbers
+> in the rest of this plan use the old layout.
 
 ## Summary
 

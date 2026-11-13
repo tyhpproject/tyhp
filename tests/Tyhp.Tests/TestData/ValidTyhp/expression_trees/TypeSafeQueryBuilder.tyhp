@@ -11,11 +11,11 @@ use \Tyhp\Expression\ParameterExpression;
 use \Tyhp\Expression\PropertyAccessExpression;
 
 class User {
-    public string $firstName;
-    public string $lastName;
-    public int $age;
-    public bool $isActive;
-    public mixed $value;
+    public string $firstName = '';
+    public string $lastName = '';
+    public int $age = 0;
+    public bool $isActive = false;
+    public mixed $value = null;
 }
 
 class QueryBuilder<T> {

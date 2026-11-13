@@ -301,7 +301,7 @@ namespace Tyhp.TyhpLang.Visitor
         {
             var docComment = this.FindPossibleDocComment(context.FindDocComment);
 
-            return PhpMethodDeclAst.Create(
+            var method = PhpMethodDeclAst.Create(
                 this.GetTokenValueAst(context, context.Identifier)?.ValueString,
                 returnsRef,
                 modifiers,
@@ -314,6 +314,15 @@ namespace Tyhp.TyhpLang.Visitor
             ).WithGrammarAddon(
                 "ctorReturnType",
                 context.ReturnType is null ? null : this.VisitTyhpCtorReturnType(context.ReturnType));
+
+            if (context.GenericArguments is not null)
+            {
+                method = method.WithGrammarAddon(
+                    "identifier",
+                    this.VisitTyhpGenericParameterDeclarations(context.GenericArguments));
+            }
+
+            return method;
         }
 
 

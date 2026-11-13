@@ -501,6 +501,12 @@ namespace Tyhp.TyhpLang.Emitter
             if (rhs is PhpDereferenceableAst { Suffix: PhpCallAst call } deref
                 && CheckerHelpers.IsFirstClassCallableArgumentList(call.Arguments))
             {
+                // A binder-first generic's `f(...)` is `f(types)`, the value Closure.
+                if (this.TryBuildGenericVariantCall(deref, call) is { } binderClosure)
+                {
+                    return $"{binderClosure}({valueText})";
+                }
+
                 var callee = this.BuildDereferenceableBase(deref.Base);
                 return $"{callee}({valueText})";
             }
@@ -1287,7 +1293,8 @@ namespace Tyhp.TyhpLang.Emitter
             }
 
             // A tracked generic class is instantiated through its generated factory, which binds the
-            // type arguments before running the constructor.
+            // type arguments before running the constructor. `lazy new` of a capable class on PHP 8.4
+            // uses the lazy factory; every other generic `new` keeps the eager factory.
             if (this.TryBuildGenericFactoryCall(newExpr, formattedArgs) is { } factoryCall)
             {
                 return factoryCall;
@@ -1302,8 +1309,128 @@ namespace Tyhp.TyhpLang.Emitter
                 IExpression expr => this.BuildExpression(expr),
                 _ => "",
             };
+            if (newExpr.IsLazy)
+            {
+                var lazyTarget = this.ResolvePlainNewTarget(newExpr);
+                if (this.ShouldEmitLazyGhost(newExpr, lazyTarget))
+                {
+                    return this.BuildLazyNewGhost(newExpr, lazyTarget);
+                }
+            }
+
             return $"new {className}{args}";
         }
+
+        /// <summary>
+        /// <c>lazy new</c> emits a ghost only when every version at or above
+        /// <c>output.phpVersion</c> is at least 8.4 and the class has stored instance state: an
+        /// author-declared instance property, or the injected generic bag of a tracked generic class.
+        /// Below that floor, and for a class PHP cannot keep lazy, the expression is an ordinary
+        /// <c>new</c> (or the eager generic factory) so the constructor still runs: PHP returns a
+        /// normal instance from <c>newLazyGhost</c> for a class with no stored property and never
+        /// calls the initializer. An unresolved target still emits a ghost: the checker has already
+        /// reported the missing class.
+        /// </summary>
+        private bool ShouldEmitLazyGhost(PhpNewAst newExpr, ObjectDeclarationSymbol? target)
+        {
+            if (!newExpr.IsLazy || !this._context.IsPhpVersionAtLeast(8, 4))
+            {
+                return false;
+            }
+
+            if (target is null)
+            {
+                return true;
+            }
+
+            return LazyNewSupport.HasStoredInstanceState(
+                target,
+                this._context.GetSymbolTree(),
+                this._context.GlobalScope,
+                this._context.RequiresRuntimeGenericTrackingFor);
+        }
+
+        private ObjectDeclarationSymbol? ResolvePlainNewTarget(PhpNewAst newExpr)
+        {
+            var classRef = newExpr.ClassName;
+            if (classRef is null)
+            {
+                return null;
+            }
+
+            return this.ResolveNewExpressionTarget(classRef.BoundSymbol, classRef.ValueString);
+        }
+
+        /// <summary>
+        /// Builds a lazy ghost whose initializer calls <c>__construct</c> on the same instance. The
+        /// ghost closure never contains an argument expression. With arguments, they are passed as
+        /// the arguments of an immediately-invoked function that captures them in one variadic
+        /// parameter, so they are evaluated in the caller's scope, in written order, before the ghost
+        /// exists, and the whole construct stays one expression. Positional, named, and spread
+        /// arguments reach the constructor exactly as written. Both closures are <c>static</c>:
+        /// they keep the class scope a private constructor needs but do not retain <c>$this</c>.
+        /// A class with no constructor gets an initializer that does nothing.
+        /// </summary>
+        private string BuildLazyNewGhost(PhpNewAst newExpr, ObjectDeclarationSymbol? target)
+        {
+            var (classConstant, parameterType) = this.LazyNewClassReference(newExpr, target);
+            var hasArguments = newExpr.Arguments?.GetAllNotNull().Any() == true;
+            var constructCall = $"$__tyhp_obj->__construct({(hasArguments ? "...$__tyhpLazyArgs" : "")});";
+            var constructor = target switch
+            {
+                null => $"if (\\method_exists($__tyhp_obj, '__construct')) {{ {constructCall} }}",
+                _ when this.LazyNewTargetHasConstructor(target) => constructCall,
+                _ => "",
+            };
+
+            var use = hasArguments ? " use ($__tyhpLazyArgs)" : "";
+            var initializer = string.IsNullOrEmpty(constructor)
+                ? $"static function ({parameterType} $__tyhp_obj){use}: void {{}}"
+                : $"static function ({parameterType} $__tyhp_obj){use}: void {{ {constructor} }}";
+            var ghost = $"(new \\ReflectionClass({classConstant}))->newLazyGhost({initializer})";
+            if (!hasArguments)
+            {
+                return ghost;
+            }
+
+            var arguments = this.FormatArgumentList(newExpr.Arguments);
+            return $"(static function (mixed ...$__tyhpLazyArgs): object {{ return {ghost}; }})({arguments})";
+        }
+
+        /// <summary>
+        /// The <c>::class</c> expression that names the class to ghost, and the type of the
+        /// initializer's parameter. <c>static</c> keeps its late static binding and, not being a
+        /// legal parameter type, types the parameter <c>object</c>.
+        /// </summary>
+        private (string ClassConstant, string ParameterType) LazyNewClassReference(
+            PhpNewAst newExpr,
+            ObjectDeclarationSymbol? target)
+        {
+            if (string.Equals(newExpr.ClassName?.ValueString?.TrimStart('\\'), "static", StringComparison.OrdinalIgnoreCase))
+            {
+                return ("static::class", "object");
+            }
+
+            if (target?.FullyQualifiedName is { Length: > 0 } fqn)
+            {
+                var name = "\\" + fqn.TrimStart('\\');
+                return (name + "::class", name);
+            }
+
+            var spelled = newExpr.ClassName switch
+            {
+                IClassName classNameRef => this.BuildClassName(classNameRef),
+                IExpression expr => this.BuildExpression(expr),
+                _ => "",
+            };
+            spelled = string.IsNullOrEmpty(spelled) ? "self" : spelled;
+            return (spelled + "::class", spelled);
+        }
+
+        private bool LazyNewTargetHasConstructor(ObjectDeclarationSymbol target) =>
+            this._context.GetSymbolTree()
+                .ResolveMember("__construct", target, new Tyhp.Domain.Diagnostics.DiagnosticBag())
+                is ObjectMethodSymbol;
 
         private string BuildAnonymousClassInline(PhpObjectTypeDeclAst anonymousClass, string args)
         {
@@ -1545,15 +1672,26 @@ namespace Tyhp.TyhpLang.Emitter
             var inferredParams = inferred?.ParameterTypes;
             var list = parameters.GetAllNotNull().ToList();
             var formatted = new List<string>(list.Count);
-            for (var i = 0; i < list.Count; i++)
+            // A closure body gets no fromClosure prologue, so its Expression and PropertyPath
+            // parameters keep the hint as spelled.
+            var previousSuppress = this._suppressClosureTreeHint;
+            this._suppressClosureTreeHint = true;
+            try
             {
-                ICheckedType? inferredType = null;
-                if (inferredParams is not null && i < inferredParams.Count)
+                for (var i = 0; i < list.Count; i++)
                 {
-                    inferredType = inferredParams[i];
-                }
+                    ICheckedType? inferredType = null;
+                    if (inferredParams is not null && i < inferredParams.Count)
+                    {
+                        inferredType = inferredParams[i];
+                    }
 
-                formatted.Add(this.FormatParameter(list[i], inferredType));
+                    formatted.Add(this.FormatParameter(list[i], inferredType));
+                }
+            }
+            finally
+            {
+                this._suppressClosureTreeHint = previousSuppress;
             }
 
             if (formatted.Count == 0)
@@ -1791,6 +1929,11 @@ namespace Tyhp.TyhpLang.Emitter
                 return $"{weakVar}->get(){suffixText}";
             }
 
+            if (this.TryBuildGenericParameterClassName(dereferenceable) is { } genericClassName)
+            {
+                return genericClassName;
+            }
+
             if (dereferenceable.Suffix is PhpCallAst callSuffix
                 && this.TryBuildGenericVariantCall(dereferenceable, callSuffix) is { } variantCall)
             {
@@ -1968,6 +2111,8 @@ namespace Tyhp.TyhpLang.Emitter
 
             if (argument.Name != null)
             {
+                // The label is the written identifier (`column:`), not a type. Alias
+                // conversion leaves this spelling alone; do not qualify it as a class name.
                 var name = argument.Name.ValueString ?? "";
                 return name + ": " + this.BuildExpression(argument.Expression);
             }
@@ -2221,6 +2366,16 @@ namespace Tyhp.TyhpLang.Emitter
             {
                 this._context.RequirePackage("tyhp/core");
                 return aliasType + "->defaultValue()";
+            }
+
+            if (OperatorDefault.TryResolveUsableTarget(typeAst, this._currentObjectSymbol) is { } defaultOperator)
+            {
+                var fqn = EmittedFqnHelper.Format(
+                    defaultOperator.FullyQualifiedName,
+                    this._context.Config.NamespacePrefix,
+                    defaultOperator);
+                this.TrackImport(fqn.TrimStart('\\'));
+                return fqn + "::" + GeneratedNames.OperatorDefaultMethod + "()";
             }
 
             var typeText = this.BuildTypeExpression(defaultExpr.TypeExpression);

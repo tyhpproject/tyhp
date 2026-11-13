@@ -42,6 +42,16 @@ class Container
         $__tyhp_obj->__construct();
         return $__tyhp_obj;
     }
+    final public static function new_App_Container__tyhpLazy(?\Tyhp\Type $__generic_TValue): self
+    {
+        self::$__reflectedClass__tyhpGeneric ??= new \ReflectionClass(self::class);
+        return self::$__reflectedClass__tyhpGeneric->newLazyGhost(
+            function (self $__tyhp_obj) use ($__generic_TValue): void {
+                $__tyhp_obj->__initGenerics__tyhpGeneric($__generic_TValue);
+                $__tyhp_obj->__construct();
+            }
+        );
+    }
     /**
      * @param TValue $value
      */
@@ -62,7 +72,7 @@ class Container
         if ($this->__tyhpGeneric->isInitialized(\App\Container::class)) {
             return;
         }
-        $tValue = $generics[0] ?? \Tyhp\Type::mixed();
+        $tValue = ($generics[0] ?? \Tyhp\Type::mixed())->immutable();
         $this->__tyhpGeneric->init(static::class, \App\Container::class, new \Tyhp\NamedType('TValue', $tValue));
         $this->__tyhpGeneric->setPropertyType('item', \Tyhp\Type::nullable($tValue));
         $this->__tyhpGeneric->markBound();

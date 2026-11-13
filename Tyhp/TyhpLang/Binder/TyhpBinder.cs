@@ -233,11 +233,21 @@ namespace Tyhp.TyhpLang.Binder
         }
 
         /// <summary>
-        /// Recursively sets the OwningFile property on an AST node and all its descendants.
+        /// Recursively sets the OwningFile property on an AST node, its attributes, and all its
+        /// descendants. Attribute arguments need it so a name inside <c>nameof(Type::$prop)</c> on a
+        /// class resolves through the file's namespace block and imports.
         /// </summary>
         private static void SetOwningFileRecursive(IBase2Ast node, SrcFileAst owningFile)
         {
             node.OwningFile = owningFile;
+            foreach (var attribute in node.AstAttributes)
+            {
+                if (attribute != null)
+                {
+                    SetOwningFileRecursive(attribute, owningFile);
+                }
+            }
+
             foreach (var child in node.AstChildren)
             {
                 if (child != null)

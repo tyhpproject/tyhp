@@ -130,6 +130,35 @@ namespace Tyhp.LanguageServer.Analysis
                 case CompletionContextKind.Namespace:
                     AddNamespaceItems(items, seen, content, offset, globalScope, replaceRange);
                     break;
+                case CompletionContextKind.StructKey:
+                    if (!AddStructKeyItems(
+                        items,
+                        seen,
+                        content,
+                        offset,
+                        ast,
+                        globalScope,
+                        symbolTree,
+                        finder,
+                        resolver,
+                        fromScope,
+                        getInferredType,
+                        replaceRange))
+                    {
+                        AddGlobalItems(
+                            items,
+                            seen,
+                            globalScope,
+                            fromScope,
+                            resolver,
+                            content,
+                            ast,
+                            antlrLine,
+                            antlrColumn,
+                            replaceRange);
+                    }
+
+                    break;
                 default:
                     AddGlobalItems(items, seen, globalScope, fromScope, resolver, content, ast, antlrLine, antlrColumn, replaceRange);
                     break;
@@ -197,6 +226,11 @@ namespace Tyhp.LanguageServer.Analysis
             if (partial.StartsWith('$') || beforeIdent.EndsWith('$'))
             {
                 return CompletionContextKind.Variable;
+            }
+
+            if (StructInitializerSupport.TryFindKeySite(content, offset, out _, out _))
+            {
+                return CompletionContextKind.StructKey;
             }
 
             if (trimmed.EndsWith('\\'))
@@ -516,6 +550,66 @@ namespace Tyhp.LanguageServer.Analysis
                     "0",
                     replaceRange));
             }
+        }
+
+        private static bool AddStructKeyItems(
+            List<CompletionItem> items,
+            HashSet<string> seen,
+            string content,
+            int offset,
+            SrcFileAst? ast,
+            GlobalScope? globalScope,
+            SymbolTree? symbolTree,
+            SymbolFinder finder,
+            NameResolver? resolver,
+            IBaseScope? fromScope,
+            Func<IBase2Ast, ICheckedType?> getInferredType,
+            ProtocolRange replaceRange)
+        {
+            IReadOnlyList<StructInitializerSupport.StructFieldOption>? fields =
+                StructInitializerSupport.FieldsForCompletion(
+                    content,
+                    offset,
+                    ast,
+                    globalScope,
+                    symbolTree,
+                    finder,
+                    fromScope,
+                    getInferredType);
+            if (fields is null)
+            {
+                return false;
+            }
+
+            foreach (StructInitializerSupport.StructFieldOption field in fields)
+            {
+                if (!seen.Add("structkey:" + field.Name))
+                {
+                    continue;
+                }
+
+                CompletionItem item = CreatePlainItem(
+                    field.Name,
+                    field.Name,
+                    CompletionItemKind.Property,
+                    field.Required ? "0" : "1",
+                    replaceRange,
+                    SymbolFormatter.FormatStructFieldDetail(field.Property, field.Required));
+                string? doc = SymbolFormatter.FormatDocumentation(field.Property);
+                if (!string.IsNullOrEmpty(doc))
+                {
+                    item.Documentation = new MarkupContent
+                    {
+                        Kind = MarkupKind.Markdown,
+                        Value = doc,
+                    };
+                }
+
+                items.Add(item);
+            }
+
+            _ = resolver;
+            return true;
         }
 
         private static void AddTypeItems(

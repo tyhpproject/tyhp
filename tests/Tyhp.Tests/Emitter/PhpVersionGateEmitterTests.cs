@@ -136,7 +136,7 @@ public class PhpVersionGateEmitterTests
     }
 
     [Fact]
-    public void ClassMethod_UnsatisfiedAttribute_Omitted_SatisfiedMethodEmitsWithoutGate()
+    public void ClassMethod_AboveFloor_EmitsBehindVersionId_FloorMethodEmitsWithoutGate()
     {
         var php = CompileAndEmit("""
             <?tyhp
@@ -155,8 +155,14 @@ public class PhpVersionGateEmitterTests
         php.Should().Contain("class Widget");
         php.Should().Contain("function always()");
         php.Should().Contain("function on_84()");
-        php.Should().NotContain("only_85");
+        php.Should().Contain("function only_85()");
+        php.Should().Contain("if (\\PHP_VERSION_ID >= 80500)");
         php.Should().NotContain("Tyhp\\Php");
+        var on84 = php.IndexOf("function on_84()", StringComparison.Ordinal);
+        var only85 = php.IndexOf("function only_85()", StringComparison.Ordinal);
+        var versionCheck = php.IndexOf("if (\\PHP_VERSION_ID >= 80500)", StringComparison.Ordinal);
+        versionCheck.Should().BeGreaterThan(only85);
+        versionCheck.Should().BeLessThan(on84);
     }
 
     [Fact]
