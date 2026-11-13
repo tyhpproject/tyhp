@@ -253,6 +253,23 @@ namespace Tyhp.TyhpLang.Checker.Rules
             }
         }
 
+        private static void RejectReservedOperatorDefaultName(
+            string? identifier,
+            IBase2Ast node,
+            CheckerState state,
+            DiagnosticBag diagnostics)
+        {
+            if (GeneratedNames.IsOperatorDefaultMethod(identifier))
+            {
+                CheckerHelpers.ReportError(
+                    diagnostics,
+                    state,
+                    node,
+                    MessageCode.CheckerReservedOperatorDefaultName,
+                    identifier!);
+            }
+        }
+
         private static void RejectReservedPropertyHookMethodName(
             string? identifier,
             IBase2Ast node,
@@ -539,6 +556,7 @@ namespace Tyhp.TyhpLang.Checker.Rules
             ValidateMagicMethodIfNeeded(method.Identifier, method.Parameters, method.ReturnType, methodSymbol.IsStatic, method, state, context, diagnostics);
             RejectReservedGenericVariantName(method.Identifier, method, state, diagnostics);
             RejectReservedPropertyHookMethodName(method.Identifier, method, state, diagnostics);
+            RejectReservedOperatorDefaultName(method.Identifier, method, state, diagnostics);
             FlagMethodGenericVariantIfNeeded(method, methodSymbol, state, context);
             FlagRuntimeGenericTrackingIfNeeded(method.Body, methodSymbol, state, context, diagnostics);
             context.RecordDeclaredMethod(methodSymbol, state.EnclosingObject);

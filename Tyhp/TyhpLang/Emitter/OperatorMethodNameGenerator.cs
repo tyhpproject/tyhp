@@ -50,6 +50,7 @@ namespace Tyhp.TyhpLang.Emitter
 
             // Word
             OverloadableOperator.IsEmpty => "__isEmpty",
+            OverloadableOperator.Default => Tyhp.TyhpLang.GeneratedNames.OperatorDefaultMethod,
 
             _ => "",
         };

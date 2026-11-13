@@ -1257,7 +1257,8 @@ namespace Tyhp.TyhpLang.Parser {
             {
                 if (this.streamLA(1, "[+/*%~!>.<&^|=-]", startIdx: start)
                     || this.streamLA(6, "(?i:empty)\\b.", startIdx: start)
-                    || this.streamLA(8, "(?i:convert)\\b.", startIdx: start))
+                    || this.streamLA(8, "(?i:convert)\\b.", startIdx: start)
+                    || this.streamLA(8, "(?i:default)\\b.", startIdx: start))
                 {
                     token.Type = TyhpLexer.T_TYHP_OPERATOR;
                 }

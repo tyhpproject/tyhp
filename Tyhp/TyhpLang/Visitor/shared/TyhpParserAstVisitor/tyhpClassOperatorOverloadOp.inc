@@ -17,6 +17,7 @@
         ///     : TokenValue=T_SYM_PLUS
         ///     | TokenValue=T_SYM_MINUS
         ///     | ... (many operator token alternatives)
+        ///     | TokenValue=T_DEFAULT  // `operator default`
         ///     | TokenValue=T_STRING   // for true, false, empty, null, convert
         ///     ;
         ///

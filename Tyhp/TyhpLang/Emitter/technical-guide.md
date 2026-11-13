@@ -439,8 +439,9 @@ generics at runtime. `T::class` emits `\ltrim($T->getName() ?? '', '\\')`
 | `PropertyHookSetMethod(prop)` | `__set_<prop>__tyhpPropertyHook` |
 | `PropertyHookInitHook` | `__initPropertyHooks__tyhpPropertyHook` |
 | `ExtensionReceiverThisAlias` | `$this_` (emit-time name of the synthesized extension receiver; not checker-reserved) |
+| `OperatorDefaultMethod` | `__tyhpDefault` |
 
-The checker reserves the generic / property-hook names so user declarations cannot collide case-insensitively with generated symbols. `ExtensionReceiverThisAlias` is the PHP name of a block-target extension’s synthesized receiver. A sibling parameter already spelled `$this_` lengthens the alias (`$this__`, …).
+The checker reserves the generic / property-hook names and `__tyhpDefault` so user declarations cannot collide case-insensitively with generated symbols. `ExtensionReceiverThisAlias` is the PHP name of a block-target extension’s synthesized receiver. A sibling parameter already spelled `$this_` lengthens the alias (`$this__`, …).
 
 ---
 
@@ -908,7 +909,9 @@ form, and re-anchors the replacement when the source name was root-qualified.
 
 ### Operator method names (deterministic)
 
-Examples from `OperatorMethodNameGenerator`: `__add`, `__subtract`, `__isEqual`, `__negate`, `__from` (convert-from), `__toString` / `__toInt` / … / `__to{Formatted}`. Convert-to also drives auto-`implements` of `\Tyhp\Contracts\*Convertible` in `EmitObjectDeclaration`.
+Examples from `OperatorMethodNameGenerator`: `__add`, `__subtract`, `__isEqual`, `__negate`, `__from` (convert-from), `__toString` / `__toInt` / … / `__to{Formatted}`, `__tyhpDefault` (`operator default`). Convert-to also drives auto-`implements` of `\Tyhp\Contracts\*Convertible` in `EmitObjectDeclaration`.
+
+`operator default(): self` emits `public static function __tyhpDefault(): static` with the operator body. `default(ThatClass)` emits `\ThatClass::__tyhpDefault()` only when that class or enum itself declares a usable operator. A subclass does not inherit the call, and a class without the operator still emits `null`. `default(T)` for a type parameter stays the `defaultValue()` lookup.
 
 ---
 

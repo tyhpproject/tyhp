@@ -389,8 +389,10 @@ tyhpMethodDefinition
 tyhpClassOperatorOverload
     : IsInternal=T_TYHP_INTERNAL? Modifier=(T_ABSTRACT | T_FINAL)?
         T_TYHP_OPERATOR Op=tyhpClassOperatorOverloadOp T_OPEN_ROUND_BRACE
-        functionParametersGrammarAddon LeftParameter=attributedParameter
-        (T_SYM_COMMA RightParameter=attributedParameter)? T_CLOSE_ROUND_BRACE
+        functionParametersGrammarAddon
+        (LeftParameter=attributedParameter
+        (T_SYM_COMMA RightParameter=attributedParameter)?)?
+        T_CLOSE_ROUND_BRACE
         ConvertReturnType=returnType
         (StatementList=methodBody | (T_DOUBLE_ARROW ShorthandExpr=expr
         T_SYM_SEMICOLON))
@@ -423,6 +425,7 @@ tyhpClassOperatorOverloadOp
     | TokenValue=T_SYM_CARET
     | TokenValue=T_SYM_PIPE
     | TokenValue=T_EMPTY // the `empty` word operator (lexed as the T_EMPTY)
+    | TokenValue=T_DEFAULT // `operator default` (`default` is a keyword, not T_STRING)
     | TokenValue=T_STRING // for `convert` (and other word operators)
 
     ;

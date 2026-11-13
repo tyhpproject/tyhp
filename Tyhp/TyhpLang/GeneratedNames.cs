@@ -142,6 +142,21 @@ namespace Tyhp.TyhpLang
             && name.EndsWith(ExtensionBackerSuffix, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
+        /// Static method emitted for <c>operator default(): self</c>. The runtime hook calls
+        /// this name when a generic <c>default(T)</c> is bound to that class. PHP method names
+        /// are case-insensitive, so any capitalization collides.
+        /// </summary>
+        public const string OperatorDefaultMethod = "__tyhpDefault";
+
+        /// <summary>
+        /// True when <paramref name="name"/> is the reserved <c>operator default</c> method,
+        /// compared case-insensitively.
+        /// </summary>
+        public static bool IsOperatorDefaultMethod(string? name) =>
+            name is not null
+            && name.Equals(OperatorDefaultMethod, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
         /// Prefix on call-site temps for a repeated splice parameter or receiver
         /// (<c>$__tyhpInlineTemp1</c>, <c>$__tyhpInlineTemp2</c>, …). Unlike
         /// <see cref="ExtensionBackerSuffix"/>, this name appears in emitted PHP.

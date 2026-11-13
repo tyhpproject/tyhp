@@ -1405,6 +1405,44 @@ namespace Tyhp.Domain.Exceptions
             /// </summary>
             CheckerPropertyNotInitializedByConstructor = 4419,
 
+            /// <summary>
+            /// <c>operator default</c> declared a return type other than <c>self</c>, or none.
+            /// </summary>
+            CheckerOperatorDefaultReturnNotSelf = 4420,
+
+            /// <summary>
+            /// <c>operator default</c> declared a parameter. It takes none.
+            /// </summary>
+            CheckerOperatorDefaultHasParameters = 4421,
+
+            /// <summary>
+            /// A second <c>operator default</c> on the same class or enum.
+            /// </summary>
+            CheckerOperatorDefaultDuplicate = 4422,
+
+            /// <summary>
+            /// <c>operator default</c> on an interface, trait, abstract class, extension, or
+            /// abstract operator.
+            /// </summary>
+            CheckerOperatorDefaultNotAllowed = 4423,
+
+            /// <summary>
+            /// The body of <c>operator default</c> evaluates <c>default</c> of the same class.
+            /// </summary>
+            CheckerOperatorDefaultRecursive = 4424,
+
+            /// <summary>
+            /// <c>operator default</c> constructs its class while omitting a constructor parameter
+            /// whose default is <c>default</c> of that class.
+            /// </summary>
+            CheckerOperatorDefaultConstructorCycle = 4425,
+
+            /// <summary>
+            /// A method whose name is <c>__tyhpDefault</c>, ignoring case. The compiler emits
+            /// that method for <c>operator default</c>.
+            /// </summary>
+            CheckerReservedOperatorDefaultName = 4426,
+
             // Deprecation warnings (4500+ range)
             CheckerDeprecatedUsage = 4500,
             CheckerObsoleteUsage = 4501,

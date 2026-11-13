@@ -851,8 +851,11 @@ so the receiver is the operator result (`int`), not unresolved.
 Notable behaviors encoded in comments:
 
 - Parenthesized expressions must unwrap or conditions type as unresolved.
-- `default(Class)` infers **null** (emitter produces `null`), not the class
-  type — otherwise null safety is defeated.
+- `default(Class)` infers **null** when that class or enum does not declare
+  `operator default(): self` (the emitter produces `null`). A class or enum
+  that declares the operator infers as that type, and the call is not a
+  constant expression. The operator is not inherited. An unsubstituted type
+  parameter stays the parameter type and is resolved by `Type::defaultValue()`.
 - **Elvis `a ?: b`** types as the truthy part of `a` unioned with `b`
   (`RemoveFalsyFromType`): `null`, `false`, and the falsy literals `0`, `0.0`,
   `''`, `'0'` are dropped, and `bool` becomes `true`. So
@@ -1537,6 +1540,10 @@ Dispatch:
   with those operands seeded into `Variables` the same way `CheckMethod` seeds
   parameters, so `$value->value` inside `operator convert` resolves instead of
   becoming unresolved (which would false-positive TYHP4205 on `(float)$value->value`).
+  `operator default` is checked in that same static scope. A body that evaluates
+  `default` of the declaring class is rejected, including a `new` of that class
+  that omits a constructor parameter whose default is that call (TYHP4424 /
+  TYHP4425).
 
 Target bits follow PHP 8.5 `zend_attributes.h`:
 
@@ -2883,8 +2890,10 @@ normalizes to an `int|string` key and admits both.
 8. **Generic substitution by symbol identity** — name-keyed maps collide across
    nested generic decls.
 
-9. **`default(T)` types as null for objects** — matches emitter output; keeps
-   null safety honest.
+9. **`default(Class)` is null unless that class declares `operator default`** —
+   a class or enum without the operator still infers null, so null safety
+   matches the emitted `null`. The declaring type infers as itself. The
+   operator is not inherited, and `default(T)` stays the type parameter.
 
 10. **Import unused flush after all files** — mid-walk flush would attribute
    diagnostics to the wrong file / miss later uses (`ImportRule` comments).

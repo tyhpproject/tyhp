@@ -11,8 +11,10 @@ namespace Tyhp.TyhpLang.Ast
     ///   tyhpClassOperatorOverload
     ///     : Modifier=(T_ABSTRACT | T_FINAL)? T_TYHP_OPERATOR
     ///         Op=tyhpClassOperatorOverloadOp T_OPEN_ROUND_BRACE
-    ///         functionParametersGrammarAddon LeftParameter=attributedParameter
-    ///         (T_SYM_COMMA RightParameter=attributedParameter)? T_CLOSE_ROUND_BRACE
+    ///         functionParametersGrammarAddon
+    ///         (LeftParameter=attributedParameter
+    ///         (T_SYM_COMMA RightParameter=attributedParameter)?)?
+    ///         T_CLOSE_ROUND_BRACE
     ///         ConvertReturnType=returnType
     ///         (StatementList=methodBody | (T_DOUBLE_ARROW ShorthandExpr=expr))
     ///     ;
@@ -109,7 +111,7 @@ namespace Tyhp.TyhpLang.Ast
 
         public static TyhpOperatorOverloadAst Create(
             TokenValueAst op,
-            PhpParameterAst leftParam,
+            PhpParameterAst? leftParam,
             PhpParameterAst? rightParam,
             ITypeExpression? returnType,
             PhpStatementBlockAst? body,

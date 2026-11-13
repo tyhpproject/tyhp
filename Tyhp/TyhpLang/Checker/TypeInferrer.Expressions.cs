@@ -83,7 +83,9 @@ namespace Tyhp.TyhpLang.Checker
 
                 case TyhpDefaultAst defaultExpr:
                     return defaultExpr.TypeExpression is not null
-                        ? InferDefault(ResolveTypeExpression(defaultExpr.TypeExpression, state))
+                        ? InferDefault(
+                            ResolveTypeExpression(defaultExpr.TypeExpression, state),
+                            OperatorDefault.NamesParent(defaultExpr.TypeExpression))
                         : CheckedTypes.Unresolved;
 
                 case TyhpVariableExistsAst:
@@ -110,18 +112,33 @@ namespace Tyhp.TyhpLang.Checker
         /// <summary>
         /// Types <c>default(X)</c> from the spelled type <paramref name="spelledType"/>.
         ///
-        /// Scalars and arrays fold to a real value of that type, but an object type has no
-        /// author-supplied default, so the emitter produces a literal <c>null</c>. Reporting the
-        /// spelled (non-nullable) class type would tell the checker it holds an instance while the
-        /// runtime holds null, which defeats null safety entirely; yielding the null type instead
-        /// routes the mismatch through the ordinary compatibility checks.
+        /// Scalars and arrays fold to a real value of that type. A class or enum that itself
+        /// declares <c>operator default(): self</c> produces that type: the emitter calls the
+        /// generated static method. A class or enum without the operator, and the builtin
+        /// <c>object</c>, has no value, so the emitter produces a literal <c>null</c>. Reporting
+        /// the spelled (non-nullable) type in that case would tell the checker it holds an
+        /// instance while the runtime holds null; yielding the null type routes the mismatch
+        /// through the ordinary compatibility checks. The operator is not inherited.
         ///
         /// Generic parameters are deliberately excluded — they resolve to
         /// <see cref="GenericTypeParameterSymbol"/> rather than
-        /// <see cref="ObjectDeclarationSymbol"/> and are handled by runtime generic resolution.
+        /// <see cref="ObjectDeclarationSymbol"/> and stay on the runtime
+        /// <c>Type::defaultValue()</c> path.
         /// </summary>
-        private static ICheckedType InferDefault(ICheckedType spelledType) =>
-            DefaultsToNull(spelledType) ? CheckedTypes.Null : spelledType;
+        private static ICheckedType InferDefault(ICheckedType spelledType, bool spelledAsParent = false)
+        {
+            // `default(static)` is the enclosing class's own default, not a late-bound one: the
+            // operator is not inherited, so a subclass would not produce its own instance.
+            if (spelledType is StaticCheckedType staticType)
+            {
+                spelledType = staticType.DeclaringType;
+            }
+
+            // `default(parent)` is not `default(self)`: it never calls the operator, so it stays null.
+            return !spelledAsParent && OperatorDefault.TryGetUsableTarget(spelledType) is not null
+                ? spelledType
+                : DefaultsToNull(spelledType) ? CheckedTypes.Null : spelledType;
+        }
 
         private static bool DefaultsToNull(ICheckedType type) =>
             type switch

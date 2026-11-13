@@ -2368,6 +2368,16 @@ namespace Tyhp.TyhpLang.Emitter
                 return aliasType + "->defaultValue()";
             }
 
+            if (OperatorDefault.TryResolveUsableTarget(typeAst, this._currentObjectSymbol) is { } defaultOperator)
+            {
+                var fqn = EmittedFqnHelper.Format(
+                    defaultOperator.FullyQualifiedName,
+                    this._context.Config.NamespacePrefix,
+                    defaultOperator);
+                this.TrackImport(fqn.TrimStart('\\'));
+                return fqn + "::" + GeneratedNames.OperatorDefaultMethod + "()";
+            }
+
             var typeText = this.BuildTypeExpression(defaultExpr.TypeExpression);
             if (typeText.StartsWith('?'))
             {

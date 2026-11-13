@@ -111,23 +111,3 @@ Severity (Ready and NEEDS INPUT items):
   checker errors once `TResult` is renamed). Not a clean one-shot fix; revisit after runtime
   package home / dist consumption is settled.
 - **Severity:** Low — skipped integration test only; not a compile or emit failure on its own.
-
-### 4. `default(<class type>)` is typed as the class but emits `null`
-
-- **Where:** `Tyhp/TyhpLang/Checker/TypeInferrer.Expressions.cs` (`TyhpDefaultAst` resolves to the
-  spelled type expression), `Tyhp/TyhpLang/Emitter/TyhpEmitter.Expressions.cs` →
-  `BuildDefaultExpression` (class types fall into the `_ => "null"` catch-all).
-- **Issue:** `default(MyClass)` still emits the literal `null`. Stage 1 already makes the checker
-  treat a class-type `default` as the null type so the existing incompatibility / null-safety
-  machinery reports it (matching what the emitter produces). Stage 2 is still open: without
-  `operator default()`, `return $instance ?? default(MyClass)` against a non-nullable return is a
-  type error rather than a constructed instance, and that is the entire point of writing
-  `?? default(MyClass)`.
-- **Why deferred:** Author-supplied defaults for object types are Story 34
-  (`operator default()`).
-- **Stage 2 (Story 34):** When a class declares `operator default(): self`, infer
-  `default(<that class>)` as the class type again and emit the call. Absent the operator the
-  default stays `null` and Stage 1's error stands.
-- **Status:** Deferred (Story 34, now in Tier 3). Stage 2 waits on `operator default()`.
-- **Severity:** Medium — class-typed `default` still emits `null`; Stage 1 already type-errors the
-  useful `?? default(MyClass)` shape. Stage 2 is the feature.

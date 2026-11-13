@@ -1949,6 +1949,34 @@ A subclass that declares `__construct` does not run the parent constructor unles
 A private property of an ancestor is not assigned from the subclass. When that ancestor constructor is what initializes it, call `parent::__construct`. A property introduced by a trait follows the same rules in each class that uses the trait.</value>
     <comment>Long-form explanation for tyhp --explain TYHP4419</comment>
   </data>
+  <data name="ERROR_TYHP4420" xml:space="preserve">
+    <value>`operator default` must return `self`, found `{0}`</value>
+    <comment>Checker: operator default return type is missing or is not self. {0} = found type, or "no type"</comment>
+  </data>
+  <data name="ERROR_TYHP4421" xml:space="preserve">
+    <value>`operator default` takes no parameters</value>
+    <comment>Checker: operator default declared a parameter</comment>
+  </data>
+  <data name="ERROR_TYHP4422" xml:space="preserve">
+    <value>`operator default` is already declared</value>
+    <comment>Checker: a second operator default on the same class or enum</comment>
+  </data>
+  <data name="ERROR_TYHP4423" xml:space="preserve">
+    <value>`operator default` is not allowed on `{0}`</value>
+    <comment>Checker: operator default on an interface, trait, abstract class, extension, or abstract operator. {0} = the disallowed target</comment>
+  </data>
+  <data name="ERROR_TYHP4424" xml:space="preserve">
+    <value>`operator default` evaluates `default({0})`, which calls this operator again</value>
+    <comment>Checker: operator default body evaluates default of the same class. {0} = the type spelling</comment>
+  </data>
+  <data name="ERROR_TYHP4425" xml:space="preserve">
+    <value>`operator default` recurses through a constructor parameter default of `default({0})`</value>
+    <comment>Checker: operator default constructs its class while omitting a constructor parameter whose default calls this operator. {0} = the class name</comment>
+  </data>
+  <data name="ERROR_TYHP4426" xml:space="preserve">
+    <value>Method `{0}` is reserved for the `operator default` method the compiler emits</value>
+    <comment>Checker: a method named __tyhpDefault, ignoring case. {0} = the declared name</comment>
+  </data>
   <data name="WARNING_TYHP4500" xml:space="preserve">
     <value>`{0}` is deprecated{1}</value>
     <comment>Checker deprecated usage. {1} is empty, or ": {message}" when #[\Deprecated] $message is a string literal.</comment>

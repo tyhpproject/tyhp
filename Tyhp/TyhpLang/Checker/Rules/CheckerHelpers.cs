@@ -3504,8 +3504,57 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 return false;
             }
 
-            return !NamesGenericParameterIn(defaultExpr.TypeExpression, state.FunctionGenerics)
-                && !NamesGenericParameterIn(defaultExpr.TypeExpression, state.ObjectGenerics);
+            if (NamesGenericParameterIn(defaultExpr.TypeExpression, state.FunctionGenerics)
+                || NamesGenericParameterIn(defaultExpr.TypeExpression, state.ObjectGenerics))
+            {
+                return false;
+            }
+
+            // Property initializers and parameter defaults are checked before expression typing,
+            // so the type argument may not be bound yet. Resolve it here. A class that declares
+            // `operator default` evaluates that body and is not a constant. A class without the
+            // operator still folds to null.
+            BindDefaultTarget(defaultExpr.TypeExpression, state);
+            return OperatorDefault.TryResolveUsableTarget(defaultExpr.TypeExpression, state.EnclosingObject) is null;
+        }
+
+        /// <summary>
+        /// Binds the type argument of <c>default(Type)</c> when the constant-expression check
+        /// runs before expression typing. A throwaway diagnostic bag keeps a failed lookup from
+        /// becoming a second diagnostic; the type checker reports the real unresolved name.
+        /// </summary>
+        private static void BindDefaultTarget(ITypeExpression? typeExpr, CheckerState state)
+        {
+            if (typeExpr is null || typeExpr.BoundSymbol is not null)
+            {
+                return;
+            }
+
+            var scope = state.NameResolutionScope
+                ?? state.EnclosingFunction?.ContainingScope
+                ?? state.EnclosingObject?.ContainingScope;
+            if (scope is null)
+            {
+                return;
+            }
+
+            GlobalScope? global = null;
+            for (IBaseScope? current = scope; current is not null; current = current.ParentScope)
+            {
+                if (current is GlobalScope found)
+                {
+                    global = found;
+                    break;
+                }
+            }
+
+            if (global is null)
+            {
+                return;
+            }
+
+            var resolver = new NameResolver(new SymbolTree(global), new DiagnosticBag());
+            resolver.ResolveType(typeExpr, scope);
         }
 
         /// <summary>

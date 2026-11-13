@@ -1496,8 +1496,21 @@ namespace Tyhp.TyhpLang.Checker.Rules
                 list.Add(op);
             }
 
-            foreach (var forms in byGeneratedName.Values)
+            foreach (var (generatedName, forms) in byGeneratedName)
             {
+                if (forms.Count > 1
+                    && generatedName.Equals(GeneratedNames.OperatorDefaultMethod, StringComparison.Ordinal))
+                {
+                    for (var i = 1; i < forms.Count; i++)
+                    {
+                        CheckerHelpers.ReportError(
+                            diagnostics,
+                            state,
+                            forms[i],
+                            MessageCode.CheckerOperatorDefaultDuplicate);
+                    }
+                }
+
                 for (var i = 0; i < forms.Count; i++)
                 {
                     for (var j = i + 1; j < forms.Count; j++)

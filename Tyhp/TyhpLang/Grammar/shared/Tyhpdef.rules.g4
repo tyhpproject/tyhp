@@ -386,8 +386,10 @@ tyhpdefExtensionOperator
 tyhpdefClassOperator
     : T_TYHP_OPERATOR
         Op=tyhpClassOperatorOverloadOp T_OPEN_ROUND_BRACE
-        functionParametersGrammarAddon LeftParameter=attributedParameter
-        (T_SYM_COMMA RightParameter=attributedParameter)? T_CLOSE_ROUND_BRACE
+        functionParametersGrammarAddon
+        (LeftParameter=attributedParameter
+        (T_SYM_COMMA RightParameter=attributedParameter)?)?
+        T_CLOSE_ROUND_BRACE
         ConvertReturnType=returnType
     ;
 
